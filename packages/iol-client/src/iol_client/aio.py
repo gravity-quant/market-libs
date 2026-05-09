@@ -12,13 +12,15 @@ API a nivel módulo (state independiente del sync)::
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import os
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from dotenv import load_dotenv
 
+from iol_client.client import InstrumentType
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
 
 load_dotenv()
@@ -147,3 +149,59 @@ async def _request(
     if resp.is_error:
         _raise_for_response(resp)
     return resp
+
+
+async def get_quote(
+    simbolo: str,
+    *,
+    mercado: str = "bcba",
+    plazo: str = "t2",
+) -> dict[str, Any]:
+    """Cotización actual de un título (async)."""
+    resp = await _request(
+        "GET",
+        f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion",
+        params={
+            "model.mercado": mercado,
+            "model.simbolo": simbolo,
+            "model.plazo": plazo,
+        },
+    )
+    data: dict[str, Any] = resp.json()
+    return data
+
+
+async def get_historical_quotes(
+    simbolo: str,
+    desde: dt.date,
+    hasta: dt.date,
+    *,
+    mercado: str = "bcba",
+    ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
+) -> list[dict[str, Any]]:
+    """Serie histórica de cotizaciones diarias (async)."""
+    resp = await _request(
+        "GET",
+        f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/"
+        f"{desde:%Y-%m-%d}/{hasta:%Y-%m-%d}/{ajustada}",
+    )
+    data: list[dict[str, Any]] = resp.json()
+    return data
+
+
+async def get_instruments(pais: str = "argentina") -> Any:
+    """Listado de instrumentos cotizando en ``pais`` (async)."""
+    resp = await _request("GET", f"/api/v2/{pais}/Titulos/Cotizacion/Instrumentos")
+    return resp.json()
+
+
+async def get_instruments_by_type(
+    instrument_type: InstrumentType,
+    *,
+    pais: str = "argentina",
+) -> list[dict[str, Any]]:
+    """Listado de instrumentos por tipo y país (async)."""
+    resp = await _request("GET", f"/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos")
+    data: dict[str, Any] = resp.json()
+    titulos: list[dict[str, Any]] = data.get("titulos", [])
+    return titulos

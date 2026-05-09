@@ -21,14 +21,24 @@ Variables de entorno (cargadas con ``python-dotenv``):
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from dotenv import load_dotenv
 
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
+
+InstrumentType = Literal[
+    "obligacionesNegociables",
+    "titulosPublicos",
+    "cedears",
+    "acciones",
+    "letras",
+    "cauciones",
+]
 
 load_dotenv()
 
@@ -125,3 +135,73 @@ def _request(
     if resp.is_error:
         _raise_for_response(resp)
     return resp
+
+
+def get_quote(
+    simbolo: str,
+    *,
+    mercado: str = "bcba",
+    plazo: str = "t2",
+) -> dict[str, Any]:
+    """Cotización actual de un título.
+
+    Endpoint: ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion``.
+    """
+    resp = _request(
+        "GET",
+        f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion",
+        params={
+            "model.mercado": mercado,
+            "model.simbolo": simbolo,
+            "model.plazo": plazo,
+        },
+    )
+    data: dict[str, Any] = resp.json()
+    return data
+
+
+def get_historical_quotes(
+    simbolo: str,
+    desde: dt.date,
+    hasta: dt.date,
+    *,
+    mercado: str = "bcba",
+    ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
+) -> list[dict[str, Any]]:
+    """Serie histórica de cotizaciones diarias para ``[desde, hasta]``.
+
+    Endpoint:
+    ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/{desde}/{hasta}/{ajustada}``.
+    """
+    resp = _request(
+        "GET",
+        f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/"
+        f"{desde:%Y-%m-%d}/{hasta:%Y-%m-%d}/{ajustada}",
+    )
+    data: list[dict[str, Any]] = resp.json()
+    return data
+
+
+def get_instruments(pais: str = "argentina") -> Any:
+    """Listado de instrumentos cotizando en ``pais``.
+
+    Endpoint: ``GET /api/v2/{pais}/Titulos/Cotizacion/Instrumentos``.
+    """
+    resp = _request("GET", f"/api/v2/{pais}/Titulos/Cotizacion/Instrumentos")
+    return resp.json()
+
+
+def get_instruments_by_type(
+    instrument_type: InstrumentType,
+    *,
+    pais: str = "argentina",
+) -> list[dict[str, Any]]:
+    """Listado de instrumentos filtrado por tipo y país.
+
+    Endpoint: ``GET /api/v2/Cotizaciones/{instrument_type}/{pais}/Todos``.
+    Devuelve la lista bajo la clave ``"titulos"`` del payload.
+    """
+    resp = _request("GET", f"/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos")
+    data: dict[str, Any] = resp.json()
+    titulos: list[dict[str, Any]] = data.get("titulos", [])
+    return titulos
