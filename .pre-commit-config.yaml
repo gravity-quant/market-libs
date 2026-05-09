@@ -22,7 +22,8 @@ repos:
       - id: mypy
         additional_dependencies:
           - httpx>=0.27
-          - pydantic>=2.9
+          - python-dotenv>=1.0
+          - websocket-client>=1.8
           - pytest>=8.3
           - pytest-httpx>=0.34
         args: [--config-file=pyproject.toml]

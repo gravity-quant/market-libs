@@ -3,8 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,12 +29,32 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+      - name: Verificar uv.lock sincronizado
+        run: uv lock --check
       - name: Sync workspace
-        run: uv sync --all-packages --all-extras --dev
+        run: uv sync --all-packages --all-extras --dev --frozen
       - name: ruff check
         run: uv run ruff check .
       - name: ruff format --check
         run: uv run ruff format --check .
+
+  pre-commit:
+    name: pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Sync workspace
+        run: uv sync --all-packages --all-extras --dev --frozen
+      - name: Cache pre-commit envs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Correr todos los hooks
+        run: uv run pre-commit run --all-files --show-diff-on-failure --color=always
 
   typecheck:
     name: Type check (mypy)
@@ -35,8 +64,18 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras --dev
-      - run: uv run mypy
+      - name: Sync workspace
+        run: uv sync --all-packages --all-extras --dev --frozen
+      - name: mypy (src global)
+        run: uv run mypy
+      - name: mypy (tests por paquete)
+        run: |
+          set -e
+          for pkg in higyrus-client wallets-client matriz-client iol-client ambito-financiero-client; do
+            echo "::group::mypy packages/$pkg/tests"
+            uv run mypy packages/$pkg/tests
+            echo "::endgroup::"
+          done
 
   test:
     name: Tests · ${{ matrix.package }} · py${{ matrix.python-version }}
@@ -57,7 +96,7 @@ jobs:
         with:
           enable-cache: true
       - name: Sync workspace
-        run: uv sync --all-packages --all-extras --dev --python ${{ matrix.python-version }}
+        run: uv sync --all-packages --all-extras --dev --frozen --python ${{ matrix.python-version }}
       - name: Tests del paquete
         run: |
           uv run --python ${{ matrix.python-version }} pytest \

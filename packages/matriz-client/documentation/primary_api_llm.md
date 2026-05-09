@@ -1287,4 +1287,3 @@ print(status_resp.json())
 - **v1.18:** se agregan `dateFrom` y `dateTo` para market data histórica.
 - **v1.20:** se agrega `wsClOrdId` y parámetro `allOrNone` para contratos mayoristas por WebSocket.
 - **v1.21:** nuevo formato, mejor estructura, enlaces a herramientas del ecosistema y diccionario de campos.
-

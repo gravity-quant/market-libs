@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -11,7 +11,7 @@ from ambito_financiero_client import aio
 
 
 @pytest.fixture(autouse=True)
-def _configure_sync() -> Iterator[None]:
+def _configure_sync() -> None:
     ambito.configure(base_url="https://mercados.ambito.com")
     return
 
