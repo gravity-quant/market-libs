@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint y formato (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Sync workspace
+        run: uv sync --all-packages --all-extras --dev
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+  typecheck:
+    name: Type check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras --dev
+      - run: uv run mypy
+
+  test:
+    name: Tests · ${{ matrix.package }} · py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - higyrus-client
+          - wallets-client
+          - matriz-client
+          - iol-client
+          - ambito-financiero-client
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Sync workspace
+        run: uv sync --all-packages --all-extras --dev --python ${{ matrix.python-version }}
+      - name: Tests del paquete
+        run: |
+          uv run --python ${{ matrix.python-version }} pytest \
+            packages/${{ matrix.package }} \
+            --cov=packages/${{ matrix.package }}/src \
+            --cov-report=xml:coverage-${{ matrix.package }}.xml \
+            --cov-report=term
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.package }}
+          path: coverage-${{ matrix.package }}.xml
