@@ -1,6 +1,6 @@
 [project]
 name = "matriz-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cliente Python (REST + WebSocket) para la MATBA ROFEX Primary API v1.21."
 readme = "README.md"
 requires-python = ">=3.12"
