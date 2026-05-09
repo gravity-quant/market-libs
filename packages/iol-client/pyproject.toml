@@ -4,15 +4,18 @@ version = "0.1.0"
 description = "Cliente HTTP (sync y async) para la API de Invertir Online (IOL)."
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "Sebastián de la Fuente" }]
+authors = [{ name = "Sebastián de la Fuente", email = "sebadlf@gmail.com" }]
 license = { text = "MIT" }
+keywords = ["iol", "invertir-online", "fintech", "argentina", "api-client", "trading"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
     "Typing :: Typed",
 ]
 dependencies = [

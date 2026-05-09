@@ -39,7 +39,7 @@ from matriz_client.client import (
     new_order,
     replace_order,
 )
-from matriz_client.exceptions import AuthenticationError, PrimaryAPIError
+from matriz_client.exceptions import AuthenticationError, MatrizClientError, PrimaryAPIError
 from matriz_client.models import (
     AccountId,
     AccountReport,
@@ -105,6 +105,7 @@ __all__ = [
     "MarketDataLevel",
     "MarketDataSnapshot",
     "MarketId",
+    "MatrizClientError",
     "NewOrderResponse",
     "Order",
     "OrderReport",

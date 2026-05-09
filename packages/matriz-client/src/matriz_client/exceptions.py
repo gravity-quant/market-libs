@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 
-class PrimaryAPIError(Exception):
+class MatrizClientError(Exception):
+    """Base class for all matriz-client errors."""
+
+
+class PrimaryAPIError(MatrizClientError):
     """Error returned by the Primary API.
 
     Raised when a response comes back with ``status == "ERROR"``. The
