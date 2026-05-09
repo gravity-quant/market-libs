@@ -1,6 +1,6 @@
 [project]
 name = "ambito-financiero-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cliente HTTP (sync y async) para la API de Ámbito Financiero."
 readme = "README.md"
 requires-python = ">=3.12"

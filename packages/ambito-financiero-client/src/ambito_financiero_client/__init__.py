@@ -34,4 +34,4 @@ __all__ = [
     "get_dollar_banco_nacion",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
