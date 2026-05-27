@@ -17,10 +17,16 @@ repo y se importa porque la raíz está en ``sys.path`` (Patrón 1). No tiene
 
 from __future__ import annotations
 
+from verification.anonymize import Denylist, anonymize
 from verification.capture import capture
+from verification.findings import new_findings, write_findings
 from verification.schema import schema_of
 
 __all__ = [
+    "Denylist",
+    "anonymize",
     "capture",
+    "new_findings",
     "schema_of",
+    "write_findings",
 ]
