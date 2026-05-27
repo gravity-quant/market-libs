@@ -31,7 +31,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A redaction helper is wired into all driver output so tokens, passwords, and auth values can never be printed in full (only a redacted prefix), and credential globals are never echoed (HARN-03)
   4. `@pytest.mark.live` is registered in the root `conftest.py` with a `--live` flag that excludes live tests by default, keeping CI fully offline and deterministic (HARN-04)
   5. The classified findings format (`.planning/verification/<pkg>-findings.md`, with classes SHAPE/AUTH/ERROR-MAP/PARAM/SYNC-ASYNC-DRIFT/NO-DATA/ANTI-BOT and an ART run-context timestamp) and the live-payload→PII-anonymized regression-fixture pipeline both exist and are documented for the client phases to consume (HARN-05, HARN-06)
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 01-01-PLAN.md — Live-test marker (--live, deselect-by-default) + redaction helpers (HARN-03, HARN-04) [wave 1]
+- [ ] 01-02-PLAN.md — Env gate (require_env) + Matriz mutation gate (mutating_allowed) (HARN-01, HARN-02) [wave 1]
+- [ ] 01-04-PLAN.md — Schema snapshot + capture→anonymize→fixture pipeline + findings template (HARN-05, HARN-06) [wave 1]
+- [ ] 01-03-PLAN.md — Wire gating/redaction into all 5 drivers + aggregate runner main_verify.py (HARN-01, HARN-02, HARN-03) [wave 2]
 
 ### Phase 2: Ámbito Verification
 **Goal**: The Ámbito FX client is fully verified end-to-end against the live public API on both sync and async surfaces, proving the entire driver→finding→fix→regression loop on the lowest-risk target, with the first structural schema snapshot committed and any confirmed bug fixed with a mocked regression test.
@@ -92,7 +97,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Safety Harness & Verification Infrastructure | 0/TBD | Not started | - |
+| 1. Safety Harness & Verification Infrastructure | 0/4 | Not started | - |
 | 2. Ámbito Verification | 0/TBD | Not started | - |
 | 3. IOL Verification | 0/TBD | Not started | - |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
