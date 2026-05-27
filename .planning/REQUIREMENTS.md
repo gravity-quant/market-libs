@@ -89,22 +89,53 @@ Excluido explícitamente para evitar scope creep.
 
 ## Traceability
 
-Qué fase cubre cada requisito. Se completa durante la creación del roadmap.
+Qué fase cubre cada requisito. Completado durante la creación del roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HARN-01..06 | TBD | Pending |
-| IOL-01..07 | TBD | Pending |
-| HIGY-01..07 | TBD | Pending |
-| MATZ-01..07 | TBD | Pending |
-| AMB-01..06 | TBD | Pending |
-| DRIFT-01..02 | TBD | Pending |
+| HARN-01 | Phase 1 | Pending |
+| HARN-02 | Phase 1 | Pending |
+| HARN-03 | Phase 1 | Pending |
+| HARN-04 | Phase 1 | Pending |
+| HARN-05 | Phase 1 | Pending |
+| HARN-06 | Phase 1 | Pending |
+| AMB-01 | Phase 2 | Pending |
+| AMB-02 | Phase 2 | Pending |
+| AMB-03 | Phase 2 | Pending |
+| AMB-04 | Phase 2 | Pending |
+| AMB-05 | Phase 2 | Pending |
+| AMB-06 | Phase 2 | Pending |
+| DRIFT-01 | Phase 2 | Pending |
+| IOL-01 | Phase 3 | Pending |
+| IOL-02 | Phase 3 | Pending |
+| IOL-03 | Phase 3 | Pending |
+| IOL-04 | Phase 3 | Pending |
+| IOL-05 | Phase 3 | Pending |
+| IOL-06 | Phase 3 | Pending |
+| IOL-07 | Phase 3 | Pending |
+| HIGY-01 | Phase 4 | Pending |
+| HIGY-02 | Phase 4 | Pending |
+| HIGY-03 | Phase 4 | Pending |
+| HIGY-04 | Phase 4 | Pending |
+| HIGY-05 | Phase 4 | Pending |
+| HIGY-06 | Phase 4 | Pending |
+| HIGY-07 | Phase 4 | Pending |
+| MATZ-01 | Phase 5 | Pending |
+| MATZ-02 | Phase 5 | Pending |
+| MATZ-03 | Phase 5 | Pending |
+| MATZ-04 | Phase 5 | Pending |
+| MATZ-05 | Phase 5 | Pending |
+| MATZ-06 | Phase 5 | Pending |
+| MATZ-07 | Phase 5 | Pending |
+| DRIFT-02 | Phase 5 | Pending |
+
+**Note on DRIFT (cross-cutting):** DRIFT-01 (schema snapshots) is anchored to Phase 2 and DRIFT-02 (per-package findings report + fix-with-regression-test) to Phase 5, but each client phase (2–5) produces its own structural schema snapshot, classified findings file, and mocked regression tests as part of its definition of "done."
 
 **Coverage:**
 - v1 requirements: 35 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 35 ⚠️
+- Mapped to phases: 35 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-26*
-*Last updated: 2026-05-26 after initial definition*
+*Last updated: 2026-05-26 after roadmap creation (traceability mapped)*
