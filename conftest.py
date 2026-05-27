@@ -13,7 +13,19 @@ intactas: estos hooks de colección viven sólo en la raíz.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
+
+# Con ``--import-mode=importlib`` pytest NO agrega el rootdir a ``sys.path``, así
+# que el paquete repo-root ``verification/`` (no publicable, sin pyproject) no sería
+# importable desde los tests. Lo agregamos acá explícitamente: este conftest vive en
+# la raíz del repo, por lo que su carpeta contenedora ES el rootdir. Mantiene a
+# ``verification/`` como directorio plano (sin pyproject ni miembro de workspace).
+_REPO_ROOT = str(Path(__file__).parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
