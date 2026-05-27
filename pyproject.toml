@@ -90,6 +90,9 @@ files = ["packages/higyrus-client/src", "packages/wallets-client/src", "packages
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["packages"]
+# La raíz del repo va en sys.path para que los tests del harness puedan
+# importar el módulo `verification/` (no publicable, vive en la raíz; Patrón 1).
+pythonpath = ["."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

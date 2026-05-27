@@ -32,3 +32,6 @@ claude/
 # Env
 .env
 .env.local
+
+# Verificación en vivo: staging de capturas crudas (PII) — nunca committeable (D-11)
+.planning/verification/captures/
