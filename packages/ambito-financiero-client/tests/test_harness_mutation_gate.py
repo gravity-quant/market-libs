@@ -13,10 +13,10 @@ del guard (Pitfall 5), por eso los tests parchean ese atributo de módulo.
 
 from __future__ import annotations
 
-import matriz_client
 import pytest
-
 from verification.mutation_gate import mutating_allowed
+
+import matriz_client
 
 _SKIP_LINE = "SKIPPED (mutating, guard off)\n"
 

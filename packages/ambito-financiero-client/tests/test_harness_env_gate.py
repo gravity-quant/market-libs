@@ -14,7 +14,6 @@ las aserciones de stdout sean concretas.
 from __future__ import annotations
 
 import pytest
-
 from verification.env_gate import require_env
 
 
