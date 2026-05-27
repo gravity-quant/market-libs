@@ -132,6 +132,10 @@ No new security surface introduced beyond the plan's threat model.
 - Both hard safety gates exist and are proven; the later client-verification phases (Ámbito → IOL → Higyrus → Matriz) can wire `require_env` into each `main_*.py` driver and gate Matriz's mutating surface behind `mutating_allowed()` before any live API call.
 - Note for downstream drivers: the gate functions live in the top-level `verification/` package, importable thanks to the new root `conftest.py` under pytest and via rootdir on `sys.path` for the `main_*.py` scripts run from repo root.
 
+## Self-Check: PASSED
+
+All created files verified on disk (env_gate.py, mutation_gate.py, __init__.py, conftest.py, both harness test files, this SUMMARY) and all task commits verified in git log (6b04e7d, 6f0aa77, 40bc8d2, 9d4107b, 18e3c96, 936d6ff).
+
 ---
 *Phase: 01-safety-harness-verification-infrastructure*
 *Completed: 2026-05-27*
