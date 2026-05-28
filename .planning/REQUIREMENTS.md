@@ -11,12 +11,12 @@ y se acompaña de un test de regresión mockeado (`pytest-httpx`) siguiendo `Reg
 
 ### Infraestructura de verificación (HARN)
 
-- [ ] **HARN-01**: Cada driver `main_*.py` valida sus env vars requeridas al iniciar y, si faltan, imprime `SKIPPED <pkg>: missing X, Y` sin bloquear a los demás
-- [ ] **HARN-02**: Las llamadas mutantes (órdenes de matriz) quedan detrás de un flag opt-in (`VERIFY_MUTATING`) y de un assert de base URL sandbox (remarkets); por defecto no se ejecutan en vivo
-- [ ] **HARN-03**: Helper de redacción que impide imprimir credenciales o tokens completos en stdout, logs o reportes (solo prefijo redactado)
-- [ ] **HARN-04**: Marker `@pytest.mark.live` registrado + flag `--live` que separa los tests en vivo de los mockeados, manteniendo el CI offline y determinístico
-- [ ] **HARN-05**: Registro de hallazgos clasificado por tipo (SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT) en `.planning/verification/<pkg>-findings.md`
-- [ ] **HARN-06**: Pipeline que convierte un payload real capturado en vivo en fixture de test de regresión mockeado, con anonimización de PII antes de commitear
+- [x] **HARN-01**: Cada driver `main_*.py` valida sus env vars requeridas al iniciar y, si faltan, imprime `SKIPPED <pkg>: missing X, Y` sin bloquear a los demás
+- [x] **HARN-02**: Las llamadas mutantes (órdenes de matriz) quedan detrás de un flag opt-in (`VERIFY_MUTATING`) y de un assert de base URL sandbox (remarkets); por defecto no se ejecutan en vivo
+- [x] **HARN-03**: Helper de redacción que impide imprimir credenciales o tokens completos en stdout, logs o reportes (solo prefijo redactado)
+- [x] **HARN-04**: Marker `@pytest.mark.live` registrado + flag `--live` que separa los tests en vivo de los mockeados, manteniendo el CI offline y determinístico
+- [x] **HARN-05**: Registro de hallazgos clasificado por tipo (SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT) en `.planning/verification/<pkg>-findings.md`
+- [x] **HARN-06**: Pipeline que convierte un payload real capturado en vivo en fixture de test de regresión mockeado, con anonimización de PII antes de commitear
 
 ### Verificación iol-client (IOL)
 
@@ -93,12 +93,12 @@ Qué fase cubre cada requisito. Completado durante la creación del roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HARN-01 | Phase 1 | Pending |
-| HARN-02 | Phase 1 | Pending |
-| HARN-03 | Phase 1 | Pending |
-| HARN-04 | Phase 1 | Pending |
-| HARN-05 | Phase 1 | Pending |
-| HARN-06 | Phase 1 | Pending |
+| HARN-01 | Phase 1 | Complete |
+| HARN-02 | Phase 1 | Complete |
+| HARN-03 | Phase 1 | Complete |
+| HARN-04 | Phase 1 | Complete |
+| HARN-05 | Phase 1 | Complete |
+| HARN-06 | Phase 1 | Complete |
 | AMB-01 | Phase 2 | Pending |
 | AMB-02 | Phase 2 | Pending |
 | AMB-03 | Phase 2 | Pending |
