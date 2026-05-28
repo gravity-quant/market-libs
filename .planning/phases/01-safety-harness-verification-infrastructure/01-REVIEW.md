@@ -30,7 +30,15 @@ findings:
   warning: 5
   info: 4
   total: 11
-status: issues_found
+resolved:
+  critical: 2
+  warning: 3
+  total: 5
+open:
+  warning: 2
+  info: 4
+  total: 6
+status: partially_resolved
 ---
 
 # Phase 01: Code Review Report
@@ -38,7 +46,21 @@ status: issues_found
 **Reviewed:** 2026-05-28T00:12:15Z
 **Depth:** standard
 **Files Reviewed:** 20
-**Status:** issues_found
+**Status:** partially_resolved (2 BLOCKER + 3 WARNING corregidos; quedan 2 WARNING + 4 INFO no bloqueantes)
+
+## Resolution
+
+Corregidos en este mismo ciclo (decisión del usuario: BLOCKERs + warnings clave), cada uno con test de regresión:
+
+| Hallazgo | Fix | Commit |
+|----------|-----|--------|
+| CR-01 | `anonymize` sanea recursivamente contenedores bajo claves PII (helper `_scrub`) | `a5bdcc5` |
+| CR-02 | mutation gate compara hostname exacto (`api.remarkets.primary.com.ar`) vía `urlsplit` | `88b8cff` |
+| WR-01 | `main_verify` clasifica SKIPPED sólo por la línea del env-gate (`SKIPPED <pkg>:`) | `9c1a539` |
+| WR-02 | `main_verify` agrega estado `FAILED` cuando `returncode != 0` | `9c1a539` |
+| WR-03 | `safe_print` enmascara tokens `Bearer` por patrón, no sólo por lista exacta | `85e6ff6` |
+
+**Abiertos (no bloqueantes, diferidos):** WR-04 (tests del harness acoplados a `packages/ambito-financiero-client/tests/`), WR-05 (`raising=False` en monkeypatch de `_base_url`), y los 4 INFO (IN-01 resuelto de hecho por el fix de CR-01; IN-02/03/04 son notas de diseño).
 
 ## Summary
 
