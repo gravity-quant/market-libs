@@ -81,6 +81,28 @@ def test_flag_on_with_prod_url_is_blocked(
     assert captured.out == _SKIP_LINE
 
 
+def test_flag_on_with_substring_remarkets_url_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # CR-02: una URL que sólo CONTIENE 'remarkets' como substring (en host, path
+    # o query) pero cuyo hostname NO es el sandbox exacto debe bloquear mutaciones,
+    # aun con la flag activa. Antes del fix, el `in` permitía estos bypass.
+    monkeypatch.setenv("VERIFY_MUTATING", "1")
+    adversarial_urls = [
+        "https://remarkets.attacker.example",
+        "https://api.primary.com.ar/?x=remarkets",
+        "https://api-remarkets-mirror-prod.example",
+        "https://api.primary.com.ar/remarkets/orders",
+    ]
+    for url in adversarial_urls:
+        monkeypatch.setattr(matriz_client.client, "_base_url", url)
+        result = mutating_allowed()
+        assert result is False, f"URL no-sandbox no debió permitir mutación: {url}"
+        captured = capsys.readouterr()
+        assert captured.out == _SKIP_LINE
+
+
 def test_flag_set_to_non_one_is_treated_as_off(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

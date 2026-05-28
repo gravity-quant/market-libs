@@ -28,8 +28,15 @@ Uso típico desde ``main_matriz.py``::
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
 __all__ = ["mutating_allowed"]
+
+# Único host donde es seguro mutar (alta/cancelación de órdenes): el sandbox
+# remarkets de Primary. Producción es ``api.primary.com.ar``; cualquier otro host
+# cae en fail-closed. Se compara contra el HOSTNAME exacto, nunca contra un
+# substring de la URL (CR-02 / Pitfall 5).
+_SANDBOX_HOST = "api.remarkets.primary.com.ar"
 
 
 def mutating_allowed() -> bool:
@@ -46,7 +53,10 @@ def mutating_allowed() -> bool:
     import matriz_client
 
     base = matriz_client.client._base_url  # estado resuelto en vivo; sólo lectura
-    if "remarkets" not in base:
-        print("SKIPPED (mutating, guard off)")  # URL de prod -> nunca mutar
+    # HOSTNAME exacto, no substring: una URL con `remarkets` en host/path/query
+    # (p.ej. `https://remarkets.attacker.example` o `.../?x=remarkets`) NO debe
+    # habilitar mutaciones (CR-02). Host distinto del sandbox -> nunca mutar.
+    if urlsplit(base).hostname != _SANDBOX_HOST:
+        print("SKIPPED (mutating, guard off)")  # host no-sandbox -> nunca mutar
         return False
     return True
