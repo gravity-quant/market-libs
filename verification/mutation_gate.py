@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import os
 
-import matriz_client
-
 __all__ = ["mutating_allowed"]
 
 
@@ -39,6 +37,14 @@ def mutating_allowed() -> bool:
     if os.getenv("VERIFY_MUTATING") != "1":
         print("SKIPPED (mutating, guard off)")
         return False
+    # Import perezoso: `matriz_client` sólo está instalado en el entorno del
+    # propio paquete (uv run --package matriz-client). Importarlo a nivel de
+    # módulo rompería el import zero-config del barrel desde los otros drivers
+    # (que corren en entornos donde matriz_client no está instalado). Se importa
+    # aquí, en el único punto donde el gate realmente se evalúa (main_matriz.py),
+    # garantizando que el módulo esté disponible.
+    import matriz_client
+
     base = matriz_client.client._base_url  # estado resuelto en vivo; sólo lectura
     if "remarkets" not in base:
         print("SKIPPED (mutating, guard off)")  # URL de prod -> nunca mutar
