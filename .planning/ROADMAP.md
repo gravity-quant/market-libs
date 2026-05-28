@@ -38,9 +38,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plansPlans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Live-test marker (--live, deselect-by-default) + redaction helpers (HARN-03, HARN-04) [wave 1]
-- [ ] 01-02-PLAN.md — Env gate (require_env) + Matriz mutation gate (mutating_allowed) (HARN-01, HARN-02) [wave 1]
-- [ ] 01-04-PLAN.md — Schema snapshot + capture→anonymize→fixture pipeline + findings template (HARN-05, HARN-06) [wave 1]
+- [x] 01-01-PLAN.md — Live-test marker (--live, deselect-by-default) + redaction helpers (HARN-03, HARN-04) [wave 1]
+- [x] 01-02-PLAN.md — Env gate (require_env) + Matriz mutation gate (mutating_allowed) (HARN-01, HARN-02) [wave 1]
+- [x] 01-04-PLAN.md — Schema snapshot + capture→anonymize→fixture pipeline + findings template (HARN-05, HARN-06) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -117,7 +117,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Safety Harness & Verification Infrastructure | 0/4 | Not started | - |
+| 1. Safety Harness & Verification Infrastructure | 3/4 | In Progress|  |
 | 2. Ámbito Verification | 0/TBD | Not started | - |
 | 3. IOL Verification | 0/TBD | Not started | - |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
