@@ -34,6 +34,7 @@ corregida.
 - ✓ Suites de pytest con HTTP mockeado (`pytest-httpx`), sync y async — existing
 - ✓ CI en GitHub Actions (ruff, mypy strict, pytest; matriz 3.12/3.13) — existing
 - ✓ Scripts `main_*.py` de smoke-test manual (login + 1-2 funciones) — existing
+- ✓ Harness de verificación en vivo: gate de credenciales (`require_env`), doble gate de mutación (`mutating_allowed`, hostname remarkets exacto), redacción (`redact`/`safe_print` + patrón Bearer), marker `@pytest.mark.live` con `--live`, formato de hallazgos clasificado y pipeline payload→anonimización→fixture (HARN-01..06) — Validado en Phase 1 (2026-05-28)
 
 ### Active
 
@@ -106,4 +107,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-26 after initialization*
+*Last updated: 2026-05-28 after Phase 1 (Safety Harness & Verification Infrastructure) completion*
