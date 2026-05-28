@@ -49,21 +49,46 @@ class Denylist:
 def anonymize(payload: Any, deny: Denylist) -> Any:
     """Reemplaza los valores de las claves PII; conserva forma y formatos no-PII.
 
-    Para un ``dict``: por cada clave, si está en ``deny.keys`` usa
-    ``deny.replacements.get(k, _synthetic(k, v))``; si no, recurre. Para una
-    ``list`` recurre elemento a elemento. Cualquier otro valor se devuelve igual
-    (así el decimal AR ``"1.415,00"`` bajo una clave no-PII sobrevive intacto).
+    Para un ``dict``: por cada clave, si NO está en ``deny.keys`` se recurre
+    (conservando formatos no-PII como el decimal AR ``"1.415,00"``). Si está en
+    ``deny.keys`` se reemplaza: con ``deny.replacements[k]`` si hay reemplazo
+    explícito; si no y el valor es un contenedor (``dict``/``list``), se sanea el
+    subárbol **completo** vía :func:`_scrub` (una clave PII nunca devuelve su
+    contenedor verbatim — CR-01); y si es escalar, con un sintético de la misma
+    forma. Para una ``list`` se recurre elemento a elemento.
     """
     if isinstance(payload, dict):
-        return {
-            k: (
-                deny.replacements.get(k, _synthetic(k, v)) if k in deny.keys else anonymize(v, deny)
-            )
-            for k, v in payload.items()
-        }
+        out: dict[str, Any] = {}
+        for k, v in payload.items():
+            if k not in deny.keys:
+                out[k] = anonymize(v, deny)
+            elif k in deny.replacements:
+                out[k] = deny.replacements[k]
+            elif isinstance(v, dict | list):
+                # Contenedor bajo clave PII: TODO el subárbol es PII por
+                # transitividad. Sanear cada hoja; nunca devolverlo intacto.
+                out[k] = _scrub(v)
+            else:
+                out[k] = _synthetic(k, v)
+        return out
     if isinstance(payload, list):
         return [anonymize(x, deny) for x in payload]
     return payload
+
+
+def _scrub(value: Any) -> Any:
+    """Saneo total de un subárbol PII: sintetiza cada hoja escalar, preserva forma.
+
+    A diferencia de :func:`anonymize`, no consulta el denylist: bajo una clave PII
+    todo el contenido es PII, así que cada hoja escalar se reemplaza por un
+    sintético de la misma forma. Garantiza que ningún ``dict``/``list`` sobreviva
+    con PII original (CR-01 / HARN-06).
+    """
+    if isinstance(value, dict):
+        return {k: _scrub(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub(x) for x in value]
+    return _synthetic("", value)
 
 
 def _synthetic(key: str, value: Any) -> Any:

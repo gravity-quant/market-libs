@@ -67,3 +67,26 @@ def test_synthetic_preserves_scalar_types() -> None:
     assert result["b"] == 0.0
     assert result["c"] is True
     assert result["d"] is False
+
+
+def test_dict_value_under_pii_key_is_fully_scrubbed() -> None:
+    """CR-01: un dict bajo una clave PII NO debe sobrevivir verbatim.
+
+    Antes del fix, ``_synthetic`` caía al ``return value`` para contenedores y la
+    PII anidada se filtraba intacta. Ahora todo el subárbol se sanea.
+    """
+    deny = Denylist("higyrus", frozenset({"titular"}))
+    result = anonymize({"titular": {"nombre": "Juan Perez", "dni": "12345"}}, deny)
+    assert result["titular"] == {"nombre": "xxxx xxxxx", "dni": "00000"}
+    # La PII original nunca aparece en la salida.
+    assert "Juan Perez" not in str(result)
+    assert "12345" not in str(result)
+
+
+def test_list_value_under_pii_key_is_fully_scrubbed() -> None:
+    """CR-01: una lista bajo una clave PII se sanea hoja por hoja, sin filtrar PII."""
+    deny = Denylist("higyrus", frozenset({"titulares"}))
+    result = anonymize({"titulares": ["Juan Perez", "Ana Gomez"]}, deny)
+    assert result["titulares"] == ["xxxx xxxxx", "xxx xxxxx"]
+    assert "Juan Perez" not in str(result)
+    assert "Ana Gomez" not in str(result)
