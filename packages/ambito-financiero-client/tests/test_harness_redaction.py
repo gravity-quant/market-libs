@@ -47,3 +47,22 @@ def test_safe_print_secreto_vacio_o_corto_no_corrompe(
     captured = capsys.readouterr()
     assert captured.out == "hello world\n"
     assert "‹REDACTED›" not in captured.out  # noqa: RUF001
+
+
+def test_safe_print_enmascara_token_bearer_no_listado(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # WR-03: un token Bearer reflejado se enmascara aunque NO esté en `secrets`
+    # y sea más corto que el umbral de >= 4 (donde la lista exacta no actuaría).
+    safe_print('{"authorization": "Bearer abc"}', [])
+    captured = capsys.readouterr()
+    assert captured.out == '{"authorization": "Bearer ‹REDACTED›"}\n'  # noqa: RUF001
+    assert "abc" not in captured.out
+
+
+def test_safe_print_bearer_preserva_prefijo_y_es_case_insensitive(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    safe_print("bearer eyJhbGciOi.LONG.token", [])
+    captured = capsys.readouterr()
+    assert captured.out == "bearer ‹REDACTED›\n"  # noqa: RUF001
