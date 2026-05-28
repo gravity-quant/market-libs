@@ -136,6 +136,10 @@ Each task was committed atomically:
 - The safety harness is now wired end-to-end into the live-exploration vehicle. Phases 2-5 can run `uv run --package <pkg> python main_<name>.py` (or `main_verify.py`) with the HARN-01/02/03 guarantees observable in driver output: creds gated, tokens redacted, Matriz mutations unreachable by default.
 - No blockers introduced. Drivers are minimal smoke tests today — Phases 2-5 extend each to cover the full public surface, reusing the same gate/redaction wiring.
 
+## Self-Check: PASSED
+
+All created/modified files verified present on disk; all three commits (bf8be07, d10c352, 330d42c) verified in git log. Working tree clean.
+
 ---
 *Phase: 01-safety-harness-verification-infrastructure*
 *Completed: 2026-05-28*
