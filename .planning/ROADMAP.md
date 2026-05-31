@@ -60,7 +60,19 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Every discrepancy is classified in `.planning/verification/ambito-findings.md` and a committed structural schema snapshot (keys + types, not values) exists for the verified endpoint (DRIFT-01)
   5. Each confirmed bug is fixed in both `client.py` and `aio.py` with a paired mocked regression test (`Regression: ... (issue #NNN)`) and the full mocked suite + mypy strict + ruff pass green
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Extend verification/findings.py with append_finding helper (D-10) + barrel re-export + helper tests (DRIFT-01 DRY foundation for Phases 3-5) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Rewrite main_ambito_financiero.py with 7 named probes + summary (AMB-01..06 driver) [wave 2]
+
+**Wave 3** *(blocked on Waves 1-2 completion; contains human checkpoint)*
+
+- [ ] 02-03-PLAN.md — Append Verified-live (Phase 2) invariants + Regressions section to test_client.py/test_async_client.py + live driver run + commit DRIFT-01 baseline schema + Phase 2 findings file (AMB-01..05, DRIFT-01) [wave 3]
 
 ### Phase 3: IOL Verification
 
