@@ -21,7 +21,6 @@ import datetime as dt
 from pathlib import Path
 
 import pytest
-
 from verification import findings
 from verification.findings import FINDING_CLASSES, STATUS_LIFECYCLE, append_finding
 
@@ -171,7 +170,7 @@ def test_append_finding_refreshes_art_block(tmp_path: Path) -> None:
     # Timestamp parseable como ISO-8601
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("- Timestamp:") or stripped.startswith("- **Timestamp:**"):
+        if stripped.startswith(("- Timestamp:", "- **Timestamp:**")):
             # extraer el valor después de los dos puntos finales
             value = stripped.split(":", 1)[1].strip()
             # quitar markdown bold residual si está
@@ -187,7 +186,7 @@ def test_append_finding_refreshes_art_block(tmp_path: Path) -> None:
 def test_append_finding_rejects_invalid_class(tmp_path: Path) -> None:
     """Test 5: class_ debe estar en FINDING_CLASSES; ValueError si no."""
     pkg = "test-pkg-bad-class"
-    with pytest.raises(ValueError, match="BOGUS|FINDING_CLASSES"):
+    with pytest.raises(ValueError, match=r"BOGUS|FINDING_CLASSES"):
         append_finding(
             pkg,
             fid="F-01",
@@ -204,7 +203,7 @@ def test_append_finding_rejects_invalid_class(tmp_path: Path) -> None:
 def test_append_finding_rejects_invalid_status(tmp_path: Path) -> None:
     """Test 6: status debe estar en STATUS_LIFECYCLE; ValueError si no."""
     pkg = "test-pkg-bad-status"
-    with pytest.raises(ValueError, match="WIP|STATUS_LIFECYCLE"):
+    with pytest.raises(ValueError, match=r"WIP|STATUS_LIFECYCLE"):
         append_finding(
             pkg,
             fid="F-01",
