@@ -15,8 +15,9 @@ contra las APIs reales de forma segura:
   gitignored ``.planning/verification/captures/`` (HARN-06/D-11).
 - :mod:`verification.anonymize` — ``Denylist`` + ``anonymize``: reemplazo de PII
   que preserva el formato (HARN-06/D-10).
-- :mod:`verification.findings` — ``new_findings`` / ``write_findings``: plantilla
-  de hallazgos (HARN-05).
+- :mod:`verification.findings` — ``new_findings`` / ``write_findings`` /
+  ``append_finding``: plantilla de hallazgos + append idempotente por fid,
+  preservando status humano CONFIRMED/FIXED/EXPECTED/NO-FIX (HARN-05/D-10).
 
 No es un miembro del workspace uv ni un paquete publicable: vive en la raíz del
 repo y se importa porque la raíz está en ``sys.path`` (Patrón 1). No tiene
@@ -28,7 +29,7 @@ from __future__ import annotations
 from verification.anonymize import Denylist, anonymize
 from verification.capture import capture
 from verification.env_gate import require_env
-from verification.findings import new_findings, write_findings
+from verification.findings import append_finding, new_findings, write_findings
 from verification.mutation_gate import mutating_allowed
 from verification.redaction import redact, safe_print
 from verification.schema import schema_of
@@ -36,6 +37,7 @@ from verification.schema import schema_of
 __all__ = [
     "Denylist",
     "anonymize",
+    "append_finding",
     "capture",
     "mutating_allowed",
     "new_findings",
