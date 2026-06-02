@@ -64,7 +64,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Extend verification/findings.py with append_finding helper (D-10) + barrel re-export + helper tests (DRIFT-01 DRY foundation for Phases 3-5) [wave 1]
+- [x] 02-01-PLAN.md — Extend verification/findings.py with append_finding helper (D-10) + barrel re-export + helper tests (DRIFT-01 DRY foundation for Phases 3-5) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -130,7 +130,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
-| 2. Ámbito Verification | 0/TBD | Not started | - |
+| 2. Ámbito Verification | 1/3 | In Progress|  |
 | 3. IOL Verification | 0/TBD | Not started | - |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
