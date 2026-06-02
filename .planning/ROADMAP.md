@@ -68,7 +68,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Rewrite main_ambito_financiero.py with 7 named probes + summary (AMB-01..06 driver) [wave 2]
+- [x] 02-02-PLAN.md — Rewrite main_ambito_financiero.py with 7 named probes + summary (AMB-01..06 driver) [wave 2]
 
 **Wave 3** *(blocked on Waves 1-2 completion; contains human checkpoint)*
 
@@ -130,7 +130,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
-| 2. Ámbito Verification | 1/3 | In Progress|  |
+| 2. Ámbito Verification | 2/3 | In Progress|  |
 | 3. IOL Verification | 0/TBD | Not started | - |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
