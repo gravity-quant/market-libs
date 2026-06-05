@@ -38,6 +38,7 @@ luego del checkpoint humano):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import os
@@ -141,6 +142,11 @@ def probe_happy_sync(today: dt.date) -> tuple[ProbeResult, list[list[str]] | Non
     formatted = fecha.strftime("%Y-%m-%d")
     path = f"/dolarnacion/historico-general/{formatted}/{formatted}"
     try:
+        # WR-03: una sola llamada HTTP por probe — capturamos ``rows`` crudo y
+        # parseamos la venta directamente, en lugar de llamar al wrapper
+        # ``get_dollar_banco_nacion`` que repetiría el GET al mismo endpoint.
+        # Reduce el riesgo de IP-ban (T-2-06) y elimina el stale-snapshot
+        # mismatch entre la shape captura y el precio cross-checked.
         resp = ambito.client._request("GET", path)
         rows = resp.json()
         if not isinstance(rows, list) or len(rows) < 2 or rows[0] != _EXPECTED_HEADER:
@@ -161,7 +167,7 @@ def probe_happy_sync(today: dt.date) -> tuple[ProbeResult, list[list[str]] | Non
                 ProbeResult("happy_sync", "FINDING", f"{fid} (OPEN)"),
                 None,
             )
-        precio = ambito.get_dollar_banco_nacion(fecha)
+        precio = parse_ar_decimal(rows[1][2])
     except ambito.AmbitoFinancieroAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -223,6 +229,9 @@ async def probe_happy_async(today: dt.date) -> tuple[ProbeResult, float | None]:
     formatted = fecha.strftime("%Y-%m-%d")
     path = f"/dolarnacion/historico-general/{formatted}/{formatted}"
     try:
+        # WR-03 (mirror del sync): una sola llamada HTTP — parse de la venta
+        # directamente desde ``rows`` capturado. Evita doblar el tráfico
+        # contra mercados.ambito.com y elimina el stale-snapshot mismatch.
         resp = await aio._request("GET", path)
         rows = resp.json()
         if not isinstance(rows, list) or len(rows) < 2 or rows[0] != _EXPECTED_HEADER:
@@ -240,7 +249,7 @@ async def probe_happy_async(today: dt.date) -> tuple[ProbeResult, float | None]:
                 base_url=base_url,
             )
             return (ProbeResult("happy_async", "FINDING", f"{fid} (OPEN)"), None)
-        precio = await aio.get_dollar_banco_nacion(fecha)
+        precio = parse_ar_decimal(rows[1][2])
     except ambito.AmbitoFinancieroAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -567,9 +576,12 @@ def probe_antibot(today: dt.date) -> ProbeResult:
         try:
             returned = ambito.get_dollar_banco_nacion(fecha)
         except ambito.AmbitoFinancieroAuthError as exc:
-            status_code = getattr(exc, "status_code", None)
-            if status_code is None and exc.args:
-                status_code = exc.args[0]
+            # WR-01: AmbitoFinancieroAPIError.__init__ siempre setea
+            # ``self.status_code = status_code`` (ver exceptions.py:15), así
+            # que el atributo nunca es None. El fallback a ``exc.args[0]``
+            # era código muerto y además incorrecto (args[0] es la string
+            # formateada "[403] ..."), por eso lo eliminamos.
+            status_code = exc.status_code
             if status_code == 403:
                 fid = _next_fid()
                 append_finding(
@@ -640,12 +652,23 @@ def probe_antibot(today: dt.date) -> ProbeResult:
 
 
 async def _async_main(today: dt.date) -> tuple[ProbeResult, float | None]:
-    """Compone los probes async y cierra el cliente al final (D-11)."""
+    """Compone los probes async y cierra el cliente al final (D-11).
+
+    IN-03: el ``aclose()`` interno se envuelve en su propio try/except para
+    honrar D-04 — si la limpieza del AsyncClient levanta (httpx error de red
+    durante teardown, etc.), la excepción NO debe propagarse a
+    ``asyncio.run(...)`` y crashear el driver. El driver siempre completa
+    todos los probes y sale con exit 0 salvo crash inesperado.
+    """
     try:
         result, precio_async = await probe_happy_async(today)
     finally:
         # Pitfall 5: cerrar el AsyncClient siempre, aun ante excepción.
-        await aio.aclose()
+        # IN-03: aislar fallos durante teardown para no violar D-04 (exit 0
+        # salvo crash inesperado). Errores del teardown del AsyncClient no
+        # deben tirarnos abajo el run.
+        with contextlib.suppress(Exception):
+            await aio.aclose()
     return result, precio_async
 
 
