@@ -15,7 +15,24 @@ findings:
   warning: 7
   info: 6
   total: 15
-status: issues_found
+findings_resolved_in_cycle:
+  - CR-01  # fix commit 4f22c6d — _replace_art_block preserves human prose
+  - CR-02  # fix commit 4f22c6d — single-line title invariant raises ValueError
+  - WR-01  # fix commit 2fef232 — drop exc.args[0] dead-code fallback
+  - WR-03  # fix commit 2fef232 — halve HTTP traffic per happy probe
+  - WR-04  # fix commit 4f22c6d — pkg slug validation against path traversal
+  - IN-03  # fix commit 2fef232 — contextlib.suppress(Exception) around aclose
+findings_deferred:
+  - WR-02  # float equality vs tolerance (latent, not triggered in vivo)
+  - WR-05  # timezone (latent for cross-machine runs; not blocking)
+  - WR-06  # schema_of heterogeneous list docstring
+  - WR-07  # test naming (cosmetic)
+  - IN-01  # _fid_counter reentrancy (not exercised in single-process driver run)
+  - IN-02  # repr truncation
+  - IN-04  # findings_path barrel re-export consistency
+  - IN-05  # status_code assertion in mocked auth tests
+  - IN-06  # SchemaEnvelope TypedDict
+status: resolved_in_cycle
 ---
 
 # Phase 02 — mbito-verification: Code Review Report
