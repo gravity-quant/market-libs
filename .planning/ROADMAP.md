@@ -14,7 +14,7 @@ This is a live-API verification cycle, not a product build. The journey climbs a
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Safety Harness & Verification Infrastructure** - Credential/mutation gating, redaction, live marker, classified findings format, payload→fixture pipeline, schema-snapshot tooling (completed 2026-05-28)
-- [ ] **Phase 2: Ámbito Verification** - Verify the no-auth FX client end-to-end; validate the driver→finding→fix→regression loop at minimum risk; establish schema snapshots
+- [x] **Phase 2: Ámbito Verification** - Verify the no-auth FX client end-to-end; validate the driver→finding→fix→regression loop at minimum risk; establish schema snapshots (completed 2026-06-05)
 - [ ] **Phase 3: IOL Verification** - Verify the raw-dict client end-to-end (highest silent-shape risk); implement the refresh_token fix
 - [ ] **Phase 4: Higyrus Verification** - Verify the SafeModel client end-to-end via raw-payload diffing (false-pass trap)
 - [ ] **Phase 5: Matriz Verification** - Verify the largest, sync-only surface against remarkets; mock-only order mutation; per-package closing report
@@ -72,7 +72,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Waves 1-2 completion; contains human checkpoint)*
 
-- [ ] 02-03-PLAN.md — Append Verified-live (Phase 2) invariants + Regressions section to test_client.py/test_async_client.py + live driver run + commit DRIFT-01 baseline schema + Phase 2 findings file (AMB-01..05, DRIFT-01) [wave 3]
+- [x] 02-03-PLAN.md — Append Verified-live (Phase 2) invariants + Regressions section to test_client.py/test_async_client.py + live driver run + commit DRIFT-01 baseline schema + Phase 2 findings file (AMB-01..05, DRIFT-01) [wave 3]
 
 ### Phase 3: IOL Verification
 
@@ -130,7 +130,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
-| 2. Ámbito Verification | 2/3 | In Progress|  |
+| 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
 | 3. IOL Verification | 0/TBD | Not started | - |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
