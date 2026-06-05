@@ -1,0 +1,12 @@
+{
+  "endpoint": "/dolarnacion/historico-general/{from}/{to}",
+  "client_function": "get_dollar_banco_nacion",
+  "captured_at": "2026-06-02T23:55:09.299552+00:00",
+  "base_url": "https://mercados.ambito.com",
+  "sample_date": "2026-06-01",
+  "schema": [
+    [
+      "str"
+    ]
+  ]
+}
