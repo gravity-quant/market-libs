@@ -54,6 +54,24 @@ __all__ = [
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FINDINGS_DIR = _REPO_ROOT / ".planning" / "verification"
 
+# Slug de paquete: lower-kebab-case con primer char alfanumérico. Acota
+# ``findings_path`` para que no resuelva fuera de ``_FINDINGS_DIR`` (WR-04 —
+# path traversal). Coincide con la convención de nombres de paquete del repo.
+_PKG_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _validate_pkg_slug(pkg: str) -> None:
+    """Rechaza slugs de paquete inválidos (WR-04 — defensa contra path traversal).
+
+    El validador es estricto: lower-kebab-case con primer char alfanumérico.
+    Coincide con los nombres de paquete del repo (``ambito-financiero-client``,
+    ``iol-client``, etc.) y bloquea ``../``, separadores de path, mayúsculas,
+    espacios, etc.
+    """
+    if not isinstance(pkg, str) or not _PKG_SLUG_RE.fullmatch(pkg):
+        raise ValueError(f"invalid pkg slug: {pkg!r}; debe coincidir con r'^[a-z0-9][a-z0-9-]*$'")
+
+
 # Clases fijas de hallazgos (D-09) — orden documentado.
 FINDING_CLASSES: tuple[str, ...] = (
     "SHAPE",
@@ -70,12 +88,18 @@ STATUS_LIFECYCLE: tuple[str, ...] = ("OPEN", "CONFIRMED", "FIXED", "EXPECTED", "
 
 
 def findings_path(pkg: str) -> Path:
-    """Ruta del archivo de hallazgos para ``pkg``: ``.planning/verification/<pkg>-findings.md``."""
+    """Ruta del archivo de hallazgos para ``pkg``: ``.planning/verification/<pkg>-findings.md``.
+
+    Valida ``pkg`` contra :data:`_PKG_SLUG_RE` (WR-04): rechaza inputs que
+    permitirían path traversal (``../etc/passwd``) o caracteres de path.
+    """
+    _validate_pkg_slug(pkg)
     return _FINDINGS_DIR / f"{pkg}-findings.md"
 
 
 def new_findings(pkg: str) -> str:
     """Renderiza el esqueleto (encabezado ART + índice vacío) de un archivo de hallazgos."""
+    _validate_pkg_slug(pkg)
     classes = ", ".join(FINDING_CLASSES)
     lifecycle = " -> ".join(("OPEN", "CONFIRMED", "FIXED")) + " (+ terminal EXPECTED/NO-FIX)"
     return (
@@ -151,6 +175,38 @@ _DETAIL_META_RE = re.compile(
 )
 # Bullet `- **<Label>:** <valor>`.
 _DETAIL_BULLET_RE = re.compile(r"^- \*\*(?P<label>[^:]+):\*\*\s*(?P<value>.*)$")
+
+# Regex para refrescar in-place las 3 líneas del ART block sin re-serializar
+# el archivo completo (CR-01 — preserva prosa/bullets/notas que añade un humano
+# al promover un finding a CONFIRMED/FIXED/EXPECTED/NO-FIX).
+_ART_TIMESTAMP_RE = re.compile(r"^- Timestamp:.*$", re.MULTILINE)
+_ART_BASEURL_RE = re.compile(r"^- Resolved base URL / env:.*$", re.MULTILINE)
+_ART_MARKET_RE = re.compile(r"^- Market hours note:.*$", re.MULTILINE)
+
+
+def _replace_art_block(text: str, art: dict[str, str]) -> str:
+    """Reemplaza in-place las 3 líneas del ART block preservando el resto del archivo.
+
+    Usado por :func:`append_finding` en la preservation path (status humano
+    promovido) para evitar el round-trip lossy de :func:`_serialize_findings`,
+    que sólo conoce los bullets canónicos (Expected/Actual/Diff/Regression) y
+    descartaría cualquier prosa libre, bullets extra (``- **Notes:**``,
+    ``- **Repro:**``) o párrafos de triage que un humano añadió al promover
+    un finding.
+
+    Si una línea del ART no existe en ``text`` (archivo malformado o editado
+    manualmente), el reemplazo es no-op para esa key.
+    """
+    timestamp = art.get("Timestamp")
+    if timestamp is not None:
+        text = _ART_TIMESTAMP_RE.sub(f"- Timestamp: {timestamp}", text, count=1)
+    base_url = art.get("Resolved base URL / env")
+    if base_url is not None:
+        text = _ART_BASEURL_RE.sub(f"- Resolved base URL / env: {base_url}", text, count=1)
+    market_hours = art.get("Market hours note")
+    if market_hours is not None:
+        text = _ART_MARKET_RE.sub(f"- Market hours note: {market_hours}", text, count=1)
+    return text
 
 
 def _parse_findings(text: str) -> _ParsedFile:
@@ -383,6 +439,12 @@ def append_finding(
         raise ValueError(f"class_={class_!r} no está en FINDING_CLASSES={FINDING_CLASSES!r}")
     if status not in STATUS_LIFECYCLE:
         raise ValueError(f"status={status!r} no está en STATUS_LIFECYCLE={STATUS_LIFECYCLE!r}")
+    # CR-02: invariante de single-line title. El header `### F-NN -- <título>`
+    # y el round-trip via regex no manejan saltos de línea; un title con `\n`
+    # se truncaría silenciosamente en la primera línea durante la próxima
+    # llamada. Falla temprano con un mensaje accionable.
+    if "\n" in title or "\r" in title:
+        raise ValueError(f"title debe ser una sola línea; recibido {title!r} (CR-02 invariant)")
 
     path = findings_path(pkg)
     if not path.exists():
@@ -403,10 +465,13 @@ def append_finding(
 
     existing = {f.fid: f for f in findings_list}
 
-    # Preservación de status promovido por humano: si ya existe un finding
-    # con status != OPEN, no lo tocamos (solo el ART block se refresca).
+    # CR-01: Preservación de status promovido por humano. Si ya existe un
+    # finding con status != OPEN, NO re-serializamos el archivo (eso
+    # descartaría prosa libre, bullets extra como ``**Notes:**``/``**Repro:**``,
+    # y párrafos de triage que el humano añadió). En su lugar, sólo
+    # refrescamos las 3 líneas del ART block in-place sobre el texto original.
     if fid in existing and existing[fid].status != "OPEN":
-        path.write_text(_serialize_findings(pkg, findings_list, art), encoding="utf-8")
+        path.write_text(_replace_art_block(text, art), encoding="utf-8")
         return path
 
     new = _Finding(

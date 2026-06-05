@@ -252,3 +252,158 @@ def test_append_finding_is_exported_by_barrel() -> None:
     import verification
 
     assert "append_finding" in verification.__all__
+
+
+# ------ Regressions ------
+
+
+def test_append_finding_preserves_human_prose_on_promoted_status(tmp_path: Path) -> None:
+    """Regression: CR-01 — prosa/bullets/notas añadidos por un humano al
+    promover un finding a CONFIRMED/FIXED/EXPECTED/NO-FIX NO se descartan en
+    el round-trip de la próxima llamada a ``append_finding``.
+
+    El bug original: ``_serialize_findings`` solo emite los 4 bullets
+    canónicos (Expected/Actual/Diff/Regression). En la preservation path,
+    el código re-serializaba el archivo, descartando silenciosamente todo
+    lo demás. Fix: refrescar el ART block in-place sin re-serializar.
+    """
+    pkg = "test-pkg-prose"
+    path = append_finding(
+        pkg,
+        fid="F-07",
+        class_="SHAPE",
+        surface="sync",
+        status="OPEN",
+        title="bug shape",
+        expected="exp",
+        actual="act",
+        diff="d",
+    )
+    # Humano promueve a CONFIRMED y añade prosa, bullets extra y un párrafo
+    # de triage — exactamente el patrón que el bug erase silenciosamente.
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        "| F-07 | SHAPE | sync | OPEN |",
+        "| F-07 | SHAPE | sync | CONFIRMED |",
+    )
+    text = text.replace(
+        "**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`",
+        "**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `CONFIRMED`",
+    )
+    # Insertamos prosa libre + bullets extra después del bloque del finding.
+    augmented = text + (
+        "- **Notes:** confirmé esto el 2026-06-04 contra prod; ver thread en Slack\n"
+        "- **Repro:** `python main_ambito_financiero.py`\n"
+        "\n"
+        "Párrafo libre con el razonamiento de triage: el wire emite un valor\n"
+        "fuera del rango plausible cuando el sample_date cae en feriado.\n"
+    )
+    path.write_text(augmented, encoding="utf-8")
+
+    # Segunda llamada con un payload nuevo + status OPEN: NO debe pisar la
+    # prosa humana ni los bullets extra ni el párrafo de triage.
+    append_finding(
+        pkg,
+        fid="F-07",
+        class_="SHAPE",
+        surface="sync",
+        status="OPEN",
+        title="payload-nuevo",
+        expected="exp-nuevo",
+        actual="act-nuevo",
+        diff="d-nuevo",
+    )
+    final = path.read_text(encoding="utf-8")
+    # Prosa humana preservada
+    assert "**Notes:**" in final
+    assert "confirmé esto el 2026-06-04" in final
+    assert "**Repro:**" in final
+    assert "Párrafo libre con el razonamiento de triage" in final
+    assert "sample_date cae en feriado" in final
+    # Status canónico preservado
+    assert "| F-07 | SHAPE | sync | CONFIRMED |" in final
+    # El payload nuevo NO se aplicó
+    assert "payload-nuevo" not in final
+    assert "exp-nuevo" not in final
+
+
+def test_append_finding_rejects_multiline_title(tmp_path: Path) -> None:
+    """Regression: CR-02 — title con `\\n` o `\\r` debe levantar ValueError
+    inmediatamente, en lugar de ser truncado silenciosamente por el regex
+    del header de detalle.
+    """
+    pkg = "test-pkg-multiline"
+    with pytest.raises(ValueError, match=r"CR-02|single-line|sola línea"):
+        append_finding(
+            pkg,
+            fid="F-01",
+            class_="SHAPE",
+            surface="sync",
+            status="OPEN",
+            title="primera línea\nsegunda línea",
+            expected="e",
+            actual="a",
+            diff="d",
+        )
+    with pytest.raises(ValueError, match=r"CR-02|single-line|sola línea"):
+        append_finding(
+            pkg,
+            fid="F-01",
+            class_="SHAPE",
+            surface="sync",
+            status="OPEN",
+            title="con CR\r",
+            expected="e",
+            actual="a",
+            diff="d",
+        )
+
+
+def test_findings_path_rejects_path_traversal(tmp_path: Path) -> None:
+    """Regression: WR-04 — ``findings_path``/``append_finding``/``write_findings``
+    deben rechazar slugs de paquete que permitirían path traversal o que
+    contengan separadores de path.
+    """
+    bad_slugs = [
+        "../etc/passwd",
+        "../../tmp/x",
+        "x/../y",
+        "x/y",
+        "x\\y",
+        "UPPERCASE",
+        "with space",
+        ".hidden",
+        "-leading-dash",
+        "",
+    ]
+    for bad in bad_slugs:
+        with pytest.raises(ValueError, match=r"invalid pkg slug"):
+            findings.findings_path(bad)
+        with pytest.raises(ValueError, match=r"invalid pkg slug"):
+            findings.write_findings(bad)
+        with pytest.raises(ValueError, match=r"invalid pkg slug"):
+            append_finding(
+                bad,
+                fid="F-01",
+                class_="SHAPE",
+                surface="sync",
+                status="OPEN",
+                title="t",
+                expected="e",
+                actual="a",
+                diff="d",
+            )
+    # Slugs válidos pasan sin error
+    valid_slugs = [
+        "ambito-financiero-client",
+        "iol-client",
+        "x",
+        "x1",
+        "1x",
+        "abc-def-ghi",
+    ]
+    for ok in valid_slugs:
+        # findings_path no toca disco; solo valida
+        path = findings.findings_path(ok)
+        assert path.parent == tmp_path
+        assert path.name == f"{ok}-findings.md"
