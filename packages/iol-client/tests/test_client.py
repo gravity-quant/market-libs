@@ -86,6 +86,55 @@ def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
     assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
 
 
+# ------ Verified live (Phase 3) ------
+
+
+def test_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
+    """Phase 3: locking URL exacta de get_quote + ultimoPrecio numeric (IOL-02 + IOL-04)."""
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
+    )
+    quote = iol_client.get_quote("GGAL")
+    assert quote["ultimoPrecio"] == 1234.5
+    assert isinstance(quote["ultimoPrecio"], int | float)
+    assert quote["simbolo"] == "GGAL"
+
+
+def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
+    """Phase 3: locking del unwrap data['titulos'] (IOL-04 envelope).
+
+    Si el wire deja de emitir 'titulos', el cliente devuelve [] silenciosamente —
+    drift detectado por probe_field_type_map in-vivo (Pitfall 2), no por este test.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
+        json={"titulos": [{"simbolo": "GGAL"}, {"simbolo": "PAMP"}]},
+    )
+    titulos = iol_client.get_instruments_by_type("acciones")
+    assert isinstance(titulos, list)
+    assert len(titulos) == 2
+    assert all(isinstance(t, dict) for t in titulos)
+    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+
+
+def test_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
+    """Phase 3: locking del formato YYYY-MM-DD del path histórico (IOL-04).
+
+    Día > 12 descarta ambigüedad DD/MM vs MM/DD estructuralmente.
+    """
+    desde = dt.date(2026, 4, 15)
+    hasta = dt.date(2026, 4, 20)
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion/seriehistorica/2026-04-15/2026-04-20/sinAjustar",
+        json=[{"fechaHora": "2026-04-18T17:00:00", "ultimoPrecio": 999.9}],
+    )
+    serie = iol_client.get_historical_quotes("GGAL", desde, hasta)
+    assert isinstance(serie, list)
+    assert len(serie) >= 1
+    assert serie[-1]["ultimoPrecio"] == 999.9
+
+
 # ------ Regressions ------
 
 
