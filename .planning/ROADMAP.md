@@ -96,7 +96,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Rewrite main_iol.py with 15 named probes (IOL-01..04 + IOL-06 driver + IOL-07 in-vivo) [wave 2]
+- [x] 03-02-PLAN.md — Rewrite main_iol.py with 15 named probes (IOL-01..04 + IOL-06 driver + IOL-07 in-vivo) [wave 2]
 
 **Wave 3** *(blocked on Waves 1-2 completion; contains human checkpoint)*
 
@@ -143,6 +143,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
-| 3. IOL Verification | 1/3 | In Progress|  |
+| 3. IOL Verification | 2/3 | In Progress|  |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
