@@ -88,7 +88,19 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `grant_type=refresh_token` with password-grant fallback is implemented in both `client.py` and `aio.py`, with tests covering both successful refresh and fallback (IOL-07)
   5. Every discrepancy is classified in `.planning/verification/iol-findings.md`, a schema snapshot is committed, and each confirmed bug is fixed in both surfaces with paired mocked regression tests; the mocked suite + mypy strict + ruff pass green
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — IOL-07 fix dual sync+async: `_refresh_token` + `_refresh()`/`_refresh_unlocked()` + `_ensure_token` fallback + 4+4 mocked regression tests por surface (IOL-07) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Rewrite main_iol.py with 15 named probes (IOL-01..04 + IOL-06 driver + IOL-07 in-vivo) [wave 2]
+
+**Wave 3** *(blocked on Waves 1-2 completion; contains human checkpoint)*
+
+- [ ] 03-03-PLAN.md — Append Verified-live (Phase 3) invariants to test_client.py/test_async_client.py + live driver run + commit DRIFT-01 mirror baseline (4 schemas + Phase 3 findings file) (IOL-01..06 lock + DRIFT-01 mirror) [wave 3]
 
 ### Phase 4: Higyrus Verification
 
@@ -131,6 +143,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
-| 3. IOL Verification | 0/TBD | Not started | - |
+| 3. IOL Verification | 0/3 | Not started | - |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
