@@ -120,7 +120,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — HIGY-04 fix dual sync+async: 10 sites de `assert isinstance` reemplazados por `HigyrusAPIError(status_code=0, ...)` tipado + docstring sentinel + 10 mocked regression tests (5 sync + 5 async) (HIGY-04) [wave 1]
+- [x] 04-01-PLAN.md — HIGY-04 fix dual sync+async: 10 sites de `assert isinstance` reemplazados por `HigyrusAPIError(status_code=0, ...)` tipado + docstring sentinel + 10 mocked regression tests (5 sync + 5 async) (HIGY-04) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion; contains human checkpoint for live driver run)*
 
@@ -156,5 +156,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
 | 3. IOL Verification | 3/3 | Complete   | 2026-06-06 |
-| 4. Higyrus Verification | 0/3 | Not started | - |
+| 4. Higyrus Verification | 1/3 | In Progress|  |
 | 5. Matriz Verification | 0/TBD | Not started | - |
