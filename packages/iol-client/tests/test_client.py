@@ -258,3 +258,33 @@ def test_login_captures_refresh_token(
 
     assert iol_client.client._token == "tok-x"
     assert iol_client.client._refresh_token == "refresh-captured"
+
+
+def test_login_preserves_cached_refresh_token_when_server_omits(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression CR-01: login() preserva _refresh_token cacheado si el server lo omite.
+
+    Escenario: el cliente tiene ``_refresh_token = "refresh-original"`` cacheado de
+    un login previo; ahora se llama ``login()`` otra vez (e.g., fallback tras
+    refresh inválido) pero el server NO incluye ``refresh_token`` en el payload
+    del password grant. El comportamiento ANTES del fix era resetear a ``None``,
+    contradiciendo la política condicional de ``_refresh()`` (Pitfall 3). El fix
+    alinea ambas funciones: si el payload omite, MANTENER el cached.
+    """
+    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
+    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-original", raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        # Server NO incluye refresh_token en el payload.
+        json={"access_token": "tok-new", "expires_in": 900},
+    )
+
+    iol_client.login()
+
+    assert iol_client.client._token == "tok-new"
+    # Cached refresh_token preservado tras el login (CR-01 fix).
+    assert iol_client.client._refresh_token == "refresh-original"

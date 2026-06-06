@@ -106,11 +106,15 @@ def login() -> str:
         raise IOLAuthError(resp.status_code, "No access_token in response")
 
     _token = access_token
-    # D-IOL-9: capturar refresh_token del payload OAuth. Si no viene o no es
-    # str no-vacío, queda None (el driver del Plan 03-02 lo detecta y emite
-    # finding AUTH OPEN). Narrowing PII-free via isinstance gate (Pitfall 3).
+    # CR-01: política condicional simétrica con _refresh() (Pitfall 3 alignment).
+    # D-IOL-9: capturar refresh_token del payload OAuth si viene como str no-vacío.
+    # Si no viene, MANTENER el _refresh_token existente — no resetear a None.
+    # Esto preserva el cached cuando un fallback password-grant tras refresh
+    # invalidado no rota el refresh_token. La rotación explícita de credenciales
+    # (configure()) sigue siendo la única vía para resetear _refresh_token a None.
     new_refresh = data.get("refresh_token")
-    _refresh_token = new_refresh if isinstance(new_refresh, str) and new_refresh else None
+    if isinstance(new_refresh, str) and new_refresh:
+        _refresh_token = new_refresh
     _token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
     return access_token
 

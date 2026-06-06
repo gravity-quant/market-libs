@@ -226,3 +226,31 @@ async def test_async_login_captures_refresh_token(
 
     assert aio._token == "tok-x"
     assert aio._refresh_token == "refresh-captured"
+
+
+async def test_async_login_preserves_cached_refresh_token_when_server_omits(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression CR-01: async login() preserva _refresh_token si el server lo omite.
+
+    Espejo del sync — la asimetría sync↔async ANTES del fix era idéntica: ambas
+    superficies reseteaban a ``None``. El fix alinea ``_login_unlocked()`` con
+    ``_refresh_unlocked()``: si el payload omite ``refresh_token``, MANTENER el
+    cached. Cubre el flujo password-fallback tras refresh inválido.
+    """
+    monkeypatch.setattr(aio, "_token", None, raising=False)
+    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(aio, "_refresh_token", "refresh-original", raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        # Server NO incluye refresh_token en el payload.
+        json={"access_token": "tok-new", "expires_in": 900},
+    )
+
+    await aio.login()
+
+    assert aio._token == "tok-new"
+    # Cached refresh_token preservado tras el login (CR-01 fix).
+    assert aio._refresh_token == "refresh-original"
