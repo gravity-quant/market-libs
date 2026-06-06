@@ -8,6 +8,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from higyrus_client import (
+    HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
     aio,
@@ -54,3 +55,70 @@ async def test_async_get_movimientos_serializa_fechas(httpx_mock: HTTPXMock) -> 
         fecha_hasta=dt.date(2026, 1, 31),
     )
     assert movs == []
+
+
+# ------ Regressions ------
+
+
+async def test_async_get_health_raises_on_list_payload(httpx_mock: HTTPXMock) -> None:
+    """Regression: assert isinstance(raw, dict) reemplazado por HigyrusAPIError tipado (finding F-NN)."""
+    httpx_mock.add_response(
+        url="https://api.test/api/health",
+        method="GET",
+        json=["unexpected", "list"],
+    )
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        await aio.get_health()
+    assert exc_info.value.status_code == 0
+    assert exc_info.value.errors[0]["title"] == "shape mismatch"
+    assert "expected dict, got list" in exc_info.value.errors[0]["detail"]
+
+
+async def test_async_get_movimientos_raises_on_dict_payload(httpx_mock: HTTPXMock) -> None:
+    """Regression: assert isinstance(raw, list) reemplazado por HigyrusAPIError tipado (finding F-NN)."""
+    httpx_mock.add_response(method="GET", json={"unexpected": "dict"})
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        await aio.get_movimientos(
+            id_cuenta="CTA-001",
+            fecha_desde=dt.date(2026, 1, 1),
+            fecha_hasta=dt.date(2026, 1, 31),
+        )
+    assert exc_info.value.status_code == 0
+    assert exc_info.value.errors[0]["title"] == "shape mismatch"
+    assert "expected list, got dict" in exc_info.value.errors[0]["detail"]
+
+
+async def test_async_get_listado_cuentas_raises_on_dict_payload(httpx_mock: HTTPXMock) -> None:
+    """Regression: assert isinstance(raw, list) reemplazado por HigyrusAPIError tipado (finding F-NN)."""
+    httpx_mock.add_response(method="GET", json={"unexpected": "dict"})
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        await aio.get_listado_cuentas()
+    assert exc_info.value.status_code == 0
+    assert exc_info.value.errors[0]["title"] == "shape mismatch"
+    assert "expected list, got dict" in exc_info.value.errors[0]["detail"]
+
+
+async def test_async_get_posicion_valuada_raises_on_dict_payload(httpx_mock: HTTPXMock) -> None:
+    """Regression: assert isinstance(raw, list) reemplazado por HigyrusAPIError tipado (finding F-NN)."""
+    httpx_mock.add_response(method="GET", json={"unexpected": "dict"})
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        await aio.get_posicion_valuada(
+            "CTA-001",
+            "propia",
+            "detalle",
+            dt.date(2026, 1, 1),
+            dt.date(2026, 1, 1),
+        )
+    assert exc_info.value.status_code == 0
+    assert exc_info.value.errors[0]["title"] == "shape mismatch"
+    assert "expected list, got dict" in exc_info.value.errors[0]["detail"]
+
+
+async def test_async_get_posiciones_raises_on_dict_payload(httpx_mock: HTTPXMock) -> None:
+    """Regression: assert isinstance(raw, list) reemplazado por HigyrusAPIError tipado (finding F-NN)."""
+    httpx_mock.add_response(method="GET", json={"unexpected": "dict"})
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        await aio.get_posiciones("CTA-001", dt.date(2026, 1, 1))
+    assert exc_info.value.status_code == 0
+    assert exc_info.value.errors[0]["title"] == "shape mismatch"
+    assert "expected list, got dict" in exc_info.value.errors[0]["detail"]
