@@ -84,3 +84,128 @@ def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
     )
     titulos = iol_client.get_instruments_by_type("acciones")
     assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+
+
+# ------ Regressions ------
+
+
+def test_refresh_token_success_path(httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: IOL-07 — refresh path actualiza _token sin re-disparar password (finding F-NN).
+
+    El autouse fixture precarga _token; el monkeypatch lo limpia y setea
+    _refresh_token para forzar la rama refresh en _ensure_token.
+    """
+    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
+    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-cached", raising=False)
+
+    # Pitfall 5: match_content bind respuestas a bodies específicos (bytes literal).
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=refresh-cached&grant_type=refresh_token",
+        json={
+            "access_token": "tok-after-refresh",
+            "refresh_token": "refresh-rotated",
+            "expires_in": 900,
+        },
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json={"instrumentos": []},
+    )
+
+    iol_client.get_instruments("argentina")
+
+    assert iol_client.client._token == "tok-after-refresh"
+    assert iol_client.client._refresh_token == "refresh-rotated"
+
+
+def test_refresh_fails_falls_back_to_password(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — refresh inválido cae al password grant (finding F-NN)."""
+    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
+    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-stale", raising=False)
+
+    # 1. Refresh attempt → 401
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=refresh-stale&grant_type=refresh_token",
+        status_code=401,
+        text="invalid_grant",
+    )
+    # 2. Fallback al password grant → success
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"username=u&password=p&grant_type=password",
+        json={
+            "access_token": "tok-from-password",
+            "refresh_token": "refresh-fresh",
+            "expires_in": 900,
+        },
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json={"instrumentos": []},
+    )
+
+    iol_client.get_instruments("argentina")
+
+    assert iol_client.client._token == "tok-from-password"
+    assert iol_client.client._refresh_token == "refresh-fresh"
+
+
+def test_refresh_and_password_both_fail(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — ambos refresh y password fallan → IOLAuthError (finding F-NN)."""
+    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
+    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-stale", raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=refresh-stale&grant_type=refresh_token",
+        status_code=401,
+        text="refresh_revoked",
+    )
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"username=u&password=p&grant_type=password",
+        status_code=401,
+        text="bad_creds",
+    )
+
+    with pytest.raises(IOLAuthError) as excinfo:
+        iol_client.get_instruments("argentina")
+
+    assert excinfo.value.status_code == 401
+
+
+def test_login_captures_refresh_token(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — login() captura refresh_token del payload (finding F-NN)."""
+    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
+    monkeypatch.setattr(iol_client.client, "_refresh_token", None, raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        json={
+            "access_token": "tok-x",
+            "refresh_token": "refresh-captured",
+            "expires_in": 900,
+        },
+    )
+
+    iol_client.login()
+
+    assert iol_client.client._token == "tok-x"
+    assert iol_client.client._refresh_token == "refresh-captured"

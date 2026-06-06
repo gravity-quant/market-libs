@@ -52,3 +52,128 @@ async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
     )
     titulos = await aio.get_instruments_by_type("cedears")
     assert titulos[0]["simbolo"] == "AAPL"
+
+
+# ------ Regressions ------
+
+
+async def test_async_refresh_token_success_path(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — refresh path async actualiza _token (finding F-NN, mirror del sync).
+
+    El autouse fixture precarga _token; el monkeypatch lo limpia y setea
+    _refresh_token para forzar la rama refresh en _ensure_token dentro del _token_lock.
+    """
+    monkeypatch.setattr(aio, "_token", None, raising=False)
+    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(aio, "_refresh_token", "refresh-cached", raising=False)
+
+    # Pitfall 5: match_content bind respuestas a bodies específicos (bytes literal).
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=refresh-cached&grant_type=refresh_token",
+        json={
+            "access_token": "tok-after-refresh",
+            "refresh_token": "refresh-rotated",
+            "expires_in": 900,
+        },
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json={"instrumentos": []},
+    )
+
+    await aio.get_instruments("argentina")
+
+    assert aio._token == "tok-after-refresh"
+    assert aio._refresh_token == "refresh-rotated"
+
+
+async def test_async_refresh_fails_falls_back_to_password(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — refresh inválido cae al password grant async (finding F-NN, mirror)."""
+    monkeypatch.setattr(aio, "_token", None, raising=False)
+    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(aio, "_refresh_token", "refresh-stale", raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=refresh-stale&grant_type=refresh_token",
+        status_code=401,
+        text="invalid_grant",
+    )
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"username=u&password=p&grant_type=password",
+        json={
+            "access_token": "tok-from-password",
+            "refresh_token": "refresh-fresh",
+            "expires_in": 900,
+        },
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json={"instrumentos": []},
+    )
+
+    await aio.get_instruments("argentina")
+
+    assert aio._token == "tok-from-password"
+    assert aio._refresh_token == "refresh-fresh"
+
+
+async def test_async_refresh_and_password_both_fail(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — ambos fallan async → IOLAuthError (finding F-NN, mirror)."""
+    monkeypatch.setattr(aio, "_token", None, raising=False)
+    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
+    monkeypatch.setattr(aio, "_refresh_token", "refresh-stale", raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=refresh-stale&grant_type=refresh_token",
+        status_code=401,
+        text="refresh_revoked",
+    )
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"username=u&password=p&grant_type=password",
+        status_code=401,
+        text="bad_creds",
+    )
+
+    with pytest.raises(IOLAuthError) as excinfo:
+        await aio.get_instruments("argentina")
+
+    assert excinfo.value.status_code == 401
+
+
+async def test_async_login_captures_refresh_token(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: IOL-07 — async login() captura refresh_token (finding F-NN, mirror)."""
+    monkeypatch.setattr(aio, "_token", None, raising=False)
+    monkeypatch.setattr(aio, "_refresh_token", None, raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        json={
+            "access_token": "tok-x",
+            "refresh_token": "refresh-captured",
+            "expires_in": 900,
+        },
+    )
+
+    await aio.login()
+
+    assert aio._token == "tok-x"
+    assert aio._refresh_token == "refresh-captured"
