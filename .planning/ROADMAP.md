@@ -92,7 +92,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — IOL-07 fix dual sync+async: `_refresh_token` + `_refresh()`/`_refresh_unlocked()` + `_ensure_token` fallback + 4+4 mocked regression tests por surface (IOL-07) [wave 1]
+- [x] 03-01-PLAN.md — IOL-07 fix dual sync+async: `_refresh_token` + `_refresh()`/`_refresh_unlocked()` + `_ensure_token` fallback + 4+4 mocked regression tests por surface (IOL-07) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -143,6 +143,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
-| 3. IOL Verification | 0/3 | Not started | - |
+| 3. IOL Verification | 1/3 | In Progress|  |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
