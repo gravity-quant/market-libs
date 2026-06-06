@@ -1394,6 +1394,13 @@ def probe_auth_401() -> ProbeResult:
 
     Opt-in vía ``VERIFY_IOL_BAD_CREDS=1``. Single-shot, sin retry, sin sleep.
     try/finally SIEMPRE restaura ``IOL_PASSWORD`` original.
+
+    CR-03: NO usar ``iol_client.configure(password=...)`` porque ``configure()``
+    resetea ``_token``, ``_refresh_token`` y ``_token_expires_at`` — esto
+    leakearía el ``_refresh_token`` capturado por el primer ``login()`` fuera
+    de la lista ``secrets`` del summary. En vez, mutar ``_password`` y
+    ``_token``/``_token_expires_at`` directamente (preservando
+    ``_refresh_token`` para redaction) y restaurar también de forma directa.
     """
     if os.getenv("VERIFY_IOL_BAD_CREDS") != "1":
         return ProbeResult("auth_401", "SKIPPED", "(opt-in via VERIFY_IOL_BAD_CREDS=1)")
@@ -1406,7 +1413,13 @@ def probe_auth_401() -> ProbeResult:
     original_password = os.getenv("IOL_PASSWORD", "")
     bad_password = original_password + "_INVALID"
     try:
-        iol_client.configure(password=bad_password)
+        # CR-03: mutación directa en vez de configure() — preserva
+        # _refresh_token (necesario para redaction en SUMMARY) y _token cached.
+        # Forzamos _token=None + _token_expires_at=0.0 para que login()
+        # explícito vuelva a hacer el password grant con la bad password.
+        iol_client.client._password = bad_password
+        iol_client.client._token = None
+        iol_client.client._token_expires_at = 0.0
         try:
             iol_client.login()  # D-IOL-1: ÚNICA llamada, sin retry/sleep/loop.
         except IOLAuthError as exc:
@@ -1472,8 +1485,13 @@ def probe_auth_401() -> ProbeResult:
         )
         return ProbeResult("auth_401", "FINDING", f"{fid} (OPEN)")
     finally:
-        # D-IOL-2: SIEMPRE restaurar el password original, aun ante excepción.
-        iol_client.configure(password=original_password)
+        # D-IOL-2 + CR-03: SIEMPRE restaurar el password original mediante
+        # mutación directa. NO usar configure(): wipearía _refresh_token y
+        # rompería la lista secrets del SUMMARY. _token y _token_expires_at
+        # quedan en 0/None tras el bad-creds login fallido, lo cual es correcto
+        # — el probe va último (D-IOL-4), no hay probes downstream que
+        # necesiten el token cacheado.
+        iol_client.client._password = original_password
 
 
 # ---------------------------------------------------------------------------
@@ -1609,18 +1627,24 @@ def main() -> None:
     # Probe 14: refresh_token in-vivo.
     results.append(probe_refresh_token())
 
+    # CR-03: snapshot del _refresh_token cacheado ANTES de probe_auth_401, como
+    # defense-in-depth — el fix de CR-03 ya preserva el cached usando mutación
+    # directa en vez de configure(), pero capturar acá garantiza que aunque un
+    # futuro cambio rompa esa invariante, el secret sigue redactado.
+    captured_refresh_token = iol_client.client._refresh_token
+
     # Probe 15: auth_401 ÚLTIMO (D-IOL-4) — opt-in, single-shot.
     results.append(probe_auth_401())
 
     # safe_print con secrets dinámicos (D-IOL-7/22): el _refresh_token capturado
-    # por login() se evalúa AHORA, después de los probes, para que esté presente
-    # como secret en la salida stdout.
+    # por login() se redacta vía snapshot capturado antes de probe_auth_401
+    # (CR-03) en vez de live-read, así sobrevive cualquier mutación del probe.
     secrets = [
         v
         for v in (
             os.getenv("IOL_USER"),
             os.getenv("IOL_PASSWORD"),
-            iol_client.client._refresh_token,
+            captured_refresh_token,
         )
         if v and len(v) >= 4
     ]

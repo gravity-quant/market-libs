@@ -288,3 +288,29 @@ def test_login_preserves_cached_refresh_token_when_server_omits(
     assert iol_client.client._token == "tok-new"
     # Cached refresh_token preservado tras el login (CR-01 fix).
     assert iol_client.client._refresh_token == "refresh-original"
+
+
+def test_configure_resets_refresh_token_but_direct_password_mutation_preserves_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression CR-03: locking del invariante que motiva CR-03 fix.
+
+    ``iol_client.configure(password=...)`` resetea ``_refresh_token = None`` —
+    comportamiento intencional para rotación de credenciales pero peligroso si
+    se usa en probe_auth_401 finally restore (leakaría el cached fuera del
+    set ``secrets`` del SUMMARY). El fix CR-03 evita ``configure()`` y muta
+    ``_password`` directamente, preservando ``_refresh_token``.
+
+    Este test verifica AMBOS comportamientos para lockear la invariante.
+    """
+    # Setup: precargar un refresh_token cacheado.
+    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-cached", raising=False)
+
+    # Branch 1: configure() resetea (regresión sería si NO lo reseteara).
+    iol_client.configure(password="dummy")
+    assert iol_client.client._refresh_token is None
+
+    # Branch 2: mutación directa de _password preserva refresh_token.
+    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-cached-2", raising=False)
+    iol_client.client._password = "another"
+    assert iol_client.client._refresh_token == "refresh-cached-2"
