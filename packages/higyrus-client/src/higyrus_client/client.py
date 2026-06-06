@@ -205,7 +205,16 @@ def _get(path: str, **params: Any) -> dict[str, Any] | list[Any] | None:
 def get_health() -> dict[str, Any]:
     """Estado del servidor vía ``GET /api/health`` (requiere Bearer)."""
     raw = _request("GET", "/api/health")
-    assert isinstance(raw, dict)
+    if not isinstance(raw, dict):
+        raise HigyrusAPIError(
+            status_code=0,
+            errors=[
+                {
+                    "title": "shape mismatch",
+                    "detail": f"expected dict, got {type(raw).__name__}",
+                }
+            ],
+        )
     return raw
 
 
@@ -241,7 +250,16 @@ def get_movimientos(
     )
     if raw is None:
         return []
-    assert isinstance(raw, list)
+    if not isinstance(raw, list):
+        raise HigyrusAPIError(
+            status_code=0,
+            errors=[
+                {
+                    "title": "shape mismatch",
+                    "detail": f"expected list, got {type(raw).__name__}",
+                }
+            ],
+        )
     return [Movimiento.from_api(item) for item in raw]
 
 
@@ -283,7 +301,16 @@ def get_posicion_valuada(
     )
     if raw is None:
         return []
-    assert isinstance(raw, list)
+    if not isinstance(raw, list):
+        raise HigyrusAPIError(
+            status_code=0,
+            errors=[
+                {
+                    "title": "shape mismatch",
+                    "detail": f"expected list, got {type(raw).__name__}",
+                }
+            ],
+        )
     return [PosicionValuada.from_api(item) for item in raw]
 
 
@@ -310,7 +337,16 @@ def get_listado_cuentas(
     )
     if raw is None:
         return []
-    assert isinstance(raw, list)
+    if not isinstance(raw, list):
+        raise HigyrusAPIError(
+            status_code=0,
+            errors=[
+                {
+                    "title": "shape mismatch",
+                    "detail": f"expected list, got {type(raw).__name__}",
+                }
+            ],
+        )
     return [Cuenta.from_api(item) for item in raw]
 
 
@@ -334,5 +370,14 @@ def get_posiciones(
     )
     if raw is None:
         return []
-    assert isinstance(raw, list)
+    if not isinstance(raw, list):
+        raise HigyrusAPIError(
+            status_code=0,
+            errors=[
+                {
+                    "title": "shape mismatch",
+                    "detail": f"expected list, got {type(raw).__name__}",
+                }
+            ],
+        )
     return [Posicion.from_api(item) for item in raw]
