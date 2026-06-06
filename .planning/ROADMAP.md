@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Safety Harness & Verification Infrastructure** - Credential/mutation gating, redaction, live marker, classified findings format, payload→fixture pipeline, schema-snapshot tooling (completed 2026-05-28)
 - [x] **Phase 2: Ámbito Verification** - Verify the no-auth FX client end-to-end; validate the driver→finding→fix→regression loop at minimum risk; establish schema snapshots (completed 2026-06-05)
-- [ ] **Phase 3: IOL Verification** - Verify the raw-dict client end-to-end (highest silent-shape risk); implement the refresh_token fix
+- [x] **Phase 3: IOL Verification** - Verify the raw-dict client end-to-end (highest silent-shape risk); implement the refresh_token fix (completed 2026-06-06)
 - [ ] **Phase 4: Higyrus Verification** - Verify the SafeModel client end-to-end via raw-payload diffing (false-pass trap)
 - [ ] **Phase 5: Matriz Verification** - Verify the largest, sync-only surface against remarkets; mock-only order mutation; per-package closing report
 
@@ -100,7 +100,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Waves 1-2 completion; contains human checkpoint)*
 
-- [ ] 03-03-PLAN.md — Append Verified-live (Phase 3) invariants to test_client.py/test_async_client.py + live driver run + commit DRIFT-01 mirror baseline (4 schemas + Phase 3 findings file) (IOL-01..06 lock + DRIFT-01 mirror) [wave 3]
+- [x] 03-03-PLAN.md — Append Verified-live (Phase 3) invariants to test_client.py/test_async_client.py + live driver run + commit DRIFT-01 mirror baseline (4 schemas + Phase 3 findings file) (IOL-01..06 lock + DRIFT-01 mirror) [wave 3]
 
 ### Phase 4: Higyrus Verification
 
@@ -143,6 +143,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
-| 3. IOL Verification | 2/3 | In Progress|  |
+| 3. IOL Verification | 3/3 | Complete   | 2026-06-06 |
 | 4. Higyrus Verification | 0/TBD | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
