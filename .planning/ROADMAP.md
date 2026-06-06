@@ -116,7 +116,19 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Sync↔async parity is verified, including the known `drop_none` deviation in the async `_request`, which is confirmed or denied (HIGY-06)
   5. Every discrepancy is classified in `.planning/verification/higyrus-findings.md` with account data anonymized before any fixture is committed, a schema snapshot is committed, and each confirmed bug is fixed in both surfaces with paired mocked regression tests; the mocked suite + mypy strict + ruff pass green
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — HIGY-04 fix dual sync+async: 10 sites de `assert isinstance` reemplazados por `HigyrusAPIError(status_code=0, ...)` tipado + docstring sentinel + 10 mocked regression tests (5 sync + 5 async) (HIGY-04) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion; contains human checkpoint for live driver run)*
+
+- [ ] 04-02-PLAN.md — Rewrite main_higyrus.py with 18 named probes (HIGY-01..03+05..07 driver) + bidirectional SafeModel diff helper + httpx.URL.query parity capture + opt-in 401 single-shot + .env.example updates D-HIGY-14 + operator-observed live run generating 5 schemas + findings file (HIGY-01, HIGY-02, HIGY-03, HIGY-05, HIGY-06, HIGY-07) [wave 2]
+
+**Wave 3** *(blocked on Waves 1-2 completion)*
+
+- [ ] 04-03-PLAN.md — Append Verified-live (Phase 4) invariants to test_client.py/test_async_client.py + commit DRIFT-01 mirror baseline (5 schemas + Phase 4 findings file) (HIGY-02, HIGY-03, HIGY-05, HIGY-06, HIGY-07) [wave 3]
 
 ### Phase 5: Matriz Verification
 
@@ -144,5 +156,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
 | 3. IOL Verification | 3/3 | Complete   | 2026-06-06 |
-| 4. Higyrus Verification | 0/TBD | Not started | - |
+| 4. Higyrus Verification | 0/3 | Not started | - |
 | 5. Matriz Verification | 0/TBD | Not started | - |
