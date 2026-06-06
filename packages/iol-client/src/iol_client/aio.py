@@ -34,6 +34,7 @@ _user: str = os.getenv("IOL_USER", "")
 _password: str = os.getenv("IOL_PASSWORD", "")
 _token: str | None = None
 _token_expires_at: float = 0.0
+_refresh_token: str | None = None
 _client: httpx.AsyncClient | None = None
 _token_lock = asyncio.Lock()
 _client_lock = asyncio.Lock()
@@ -46,7 +47,7 @@ def configure(
     password: str | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL en runtime y resetea el token cacheado."""
-    global _base_url, _user, _password, _token, _token_expires_at
+    global _base_url, _user, _password, _token, _refresh_token, _token_expires_at
     if base_url is not None:
         _base_url = base_url.rstrip("/")
     if username is not None:
@@ -54,6 +55,7 @@ def configure(
     if password is not None:
         _password = password
     _token = None
+    _refresh_token = None
     _token_expires_at = 0.0
 
 
@@ -86,7 +88,7 @@ def _raise_for_response(resp: httpx.Response) -> None:
 
 
 async def _login_unlocked() -> str:
-    global _token, _token_expires_at
+    global _token, _refresh_token, _token_expires_at
 
     if not _user or not _password:
         raise IOLAuthError(0, "IOL_USER y IOL_PASSWORD son requeridos")
@@ -107,6 +109,47 @@ async def _login_unlocked() -> str:
         raise IOLAuthError(resp.status_code, "No access_token in response")
 
     _token = access_token
+    # D-IOL-9: capturar refresh_token del payload OAuth con narrowing PII-free
+    # (Pitfall 3). Si no viene o no es str no-vacío, queda None.
+    new_refresh = data.get("refresh_token")
+    _refresh_token = new_refresh if isinstance(new_refresh, str) and new_refresh else None
+    _token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
+    return access_token
+
+
+async def _refresh_unlocked() -> str:
+    """Caller debe tener ``_token_lock``. Mirror async de ``_refresh()`` sync."""
+    global _token, _refresh_token, _token_expires_at
+    # Local copy para mypy narrowing (Pitfall 4): el global _refresh_token: str | None
+    # no narrowea con isinstance en mypy strict; usar variable local.
+    refresh_token = _refresh_token
+    if not refresh_token:
+        raise IOLAuthError(0, "No refresh_token cached")
+
+    # Pitfall 6: NO llamar await _request / await _ensure_token / await _login_unlocked
+    # acá — re-adquirirían _token_lock y causarían deadlock. Solo client.post directo.
+    # _ensure_http_client usa _client_lock separado del _token_lock, sin conflicto.
+    client = await _ensure_http_client()
+    resp = await client.post(
+        f"{_base_url}/token",
+        data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    if resp.is_error:
+        _raise_for_response(resp)
+
+    data: dict[str, Any] = resp.json()
+    access_token = data.get("access_token")
+    expires_in = data.get("expires_in", 900)
+    if not isinstance(access_token, str) or not access_token:
+        raise IOLAuthError(resp.status_code, "No access_token in refresh response")
+
+    _token = access_token
+    # Rotación condicional (Pitfall 3): si el server retorna nuevo refresh_token,
+    # lo cacheamos; si no, mantenemos el existente.
+    new_refresh = data.get("refresh_token")
+    if isinstance(new_refresh, str) and new_refresh:
+        _refresh_token = new_refresh
     _token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
     return access_token
 
@@ -123,6 +166,14 @@ async def _ensure_token() -> None:
     async with _token_lock:
         if _token and time.time() < _token_expires_at:
             return
+        # D-IOL-10: dentro del mismo lock, intentar refresh antes de password grant.
+        if _refresh_token:
+            try:
+                await _refresh_unlocked()
+                return
+            except IOLAuthError:
+                # Refresh inválido (revocado, expirado, etc.) — fallback a password.
+                pass
         await _login_unlocked()
 
 
