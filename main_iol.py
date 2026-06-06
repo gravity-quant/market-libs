@@ -1324,6 +1324,10 @@ def probe_refresh_token() -> ProbeResult:
     expires_at_after = iol_client.client._token_expires_at
 
     if refresh_after is None:
+        # CR-02 + CR-01: tras CR-01, login() preserva el cached cuando el server
+        # omite refresh_token. Por tanto este caso sólo puede ocurrir si
+        # _refresh() viola Pitfall 3 (devuelve éxito pero descarta el cached).
+        # El fallback a password ya NO puede causar este state (login() preserva).
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1334,7 +1338,10 @@ def probe_refresh_token() -> ProbeResult:
             title="refresh path borró _refresh_token (Pitfall 3 violation)",
             expected="_refresh_token preservado o rotado tras refresh path",
             actual="_refresh_token=None",
-            diff="el cliente descartó refresh_token cuando el server no lo rotó",
+            diff=(
+                "_refresh() descartó refresh_token cuando el server no lo rotó "
+                "(violación real de Pitfall 3 tras CR-01 fix de login())"
+            ),
             base_url=base_url,
         )
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
@@ -1369,11 +1376,16 @@ def probe_refresh_token() -> ProbeResult:
         )
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
 
+    # CR-02: la heurística "token cambió + refresh_token no None" no distingue
+    # entre refresh path exitoso vs password fallback. Tras CR-01, ambos casos
+    # son semánticamente válidos (login() ya preserva el cached), pero el detail
+    # documenta la ambigüedad para auditoría humana.
     rotated = refresh_after != refresh_before
+    refresh_note = "rotated" if rotated else "preserved (refresh path o password fallback)"
     return ProbeResult(
         "refresh_token",
         "PASS",
-        f"refresh path verified — token rotated, _refresh_token={'rotated' if rotated else 'preserved'}",
+        f"refresh path verified — token rotated, _refresh_token={refresh_note}",
     )
 
 
