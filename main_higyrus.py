@@ -318,6 +318,16 @@ def _capture_sync_query_string(
     original_hooks = client.event_hooks
 
     def _spy(request: httpx.Request) -> None:
+        # WR-NEW-01 (review-04 iter-2): el event_hook se dispara para TODO
+        # request emitido por el cliente, incluido ``POST /api/login`` cuando
+        # ``_ensure_token`` necesita refrescar el token. Filtrar por path
+        # del endpoint objetivo evita que el query de ``/api/login`` (vacío)
+        # sobrescriba el del GET ``/movimientos`` cuando ese GET falla con
+        # error de transporte antes de salir. Sin este filtro,
+        # ``probe_parity_sync_async`` puede emitir un FINDING SYNC-ASYNC-DRIFT
+        # espurio (``sync_q == ""`` vs ``async_q == "fechaDesde=…"``).
+        if not request.url.path.endswith("/movimientos"):
+            return
         raw_query = request.url.query
         if isinstance(raw_query, bytes):
             captured["query"] = raw_query.decode("utf-8")
@@ -363,6 +373,12 @@ async def _capture_async_query_string(
     original_hooks = client.event_hooks
 
     async def _spy(request: httpx.Request) -> None:
+        # WR-NEW-01 mirror (review-04 iter-2): mismo filtrado que el helper
+        # sync — evita que el request del login (``POST /api/login``)
+        # contamine el query capturado cuando el token está sin cachear
+        # antes de la entrada al hook.
+        if not request.url.path.endswith("/movimientos"):
+            return
         raw_query = request.url.query
         if isinstance(raw_query, bytes):
             captured["query"] = raw_query.decode("utf-8")
