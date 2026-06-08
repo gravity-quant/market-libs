@@ -321,12 +321,15 @@ def _capture_sync_query_string(
     try:
         higyrus_client.client._client.request = _spy_request  # type: ignore[method-assign,assignment]
         higyrus_client.get_movimientos(cuenta, fecha_desde, fecha_hasta)
-    except HigyrusAPIError:
-        # Si el server rechaza la cuenta o el rango, igual ya capturamos el
-        # query string en el spy ANTES de que se levantara la excepción (el
-        # spy guarda en captured["query"] antes de retornar resp; el raise
-        # ocurre downstream en _raise_for_response). Si por algún motivo la
-        # excepción ocurre antes de la captura, el dict queda vacío.
+    except Exception:
+        # CR-03 (review-04): broadened de HigyrusAPIError → Exception para
+        # alinear con el contrato del helper async (que ya estaba guarded
+        # vía try/except Exception en _async_main). Si el server rechaza
+        # la cuenta/rango, ya capturamos el query string en el spy ANTES
+        # de que se levantara la excepción. Si la falla es de transporte
+        # (httpx.ConnectError, TimeoutException, etc.) antes de emitir la
+        # request, el dict queda vacío y probe_parity_sync_async reporta
+        # SKIPPED en vez de propagar fuera de main().
         pass
     finally:
         higyrus_client.client._client.request = original_request  # type: ignore[method-assign]
@@ -358,7 +361,9 @@ async def _capture_async_query_string(
     try:
         aio._client.request = _spy_request  # type: ignore[method-assign,assignment]
         await aio.get_movimientos(cuenta, fecha_desde, fecha_hasta)
-    except HigyrusAPIError:
+    except Exception:
+        # CR-03 mirror (review-04): broadened de HigyrusAPIError → Exception
+        # para alinear el contrato de ambos helpers (paridad sync↔async).
         pass
     finally:
         aio._client.request = original_request  # type: ignore[method-assign]
