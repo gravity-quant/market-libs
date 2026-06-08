@@ -92,6 +92,7 @@ from pathlib import Path
 from types import NoneType, UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+import httpx
 from verification import require_env, safe_print, schema_of, write_findings
 from verification.findings import append_finding
 
@@ -302,72 +303,85 @@ def _capture_sync_query_string(
 ) -> str | None:
     """Captura el query string emitido por el sync client.
 
-    Estrategia: monkey-patch del bound method ``higyrus_client.client._client.request``
-    con try/finally restore. Los 4 params opcionales de ``get_movimientos`` se
-    omiten (= None) para activar el ``drop_none`` codepath y exponer la
-    deviation conocida en aio._request.
+    WR-05 (review-04): usa ``httpx.Client.event_hooks`` (API estable y
+    pública) en vez de monkey-patch del bound method ``_client.request``.
+    Esto elimina los ``# type: ignore[method-assign]`` y desacopla el spy
+    del code path de dispatch — cualquier camino de request en httpx
+    (``request``, ``send``, batch APIs futuras) dispara el hook.
+
+    Los 4 params opcionales de ``get_movimientos`` se omiten (= None) para
+    activar el ``drop_none`` codepath y exponer la deviation conocida en
+    ``aio._request``.
     """
     captured: dict[str, str] = {}
-    original_request = higyrus_client.client._client.request
+    client = higyrus_client.client._client
+    original_hooks = client.event_hooks
 
-    def _spy_request(method: str, url: str, **kwargs: Any) -> Any:
-        resp = original_request(method, url, **kwargs)
-        raw_query = resp.request.url.query
+    def _spy(request: httpx.Request) -> None:
+        raw_query = request.url.query
         if isinstance(raw_query, bytes):
             captured["query"] = raw_query.decode("utf-8")
         else:
             captured["query"] = str(raw_query)
-        return resp
 
+    # Preserva los hooks pre-existentes en caso de que otro componente los
+    # haya registrado (defensivo aunque hoy el client no usa hooks).
+    hooks_with_spy: dict[str, list[Any]] = {
+        "request": [*original_hooks.get("request", []), _spy],
+        "response": list(original_hooks.get("response", [])),
+    }
     try:
-        higyrus_client.client._client.request = _spy_request  # type: ignore[method-assign,assignment]
+        client.event_hooks = hooks_with_spy
         higyrus_client.get_movimientos(cuenta, fecha_desde, fecha_hasta)
     except Exception:
         # CR-03 (review-04): broadened de HigyrusAPIError → Exception para
-        # alinear con el contrato del helper async (que ya estaba guarded
-        # vía try/except Exception en _async_main). Si el server rechaza
-        # la cuenta/rango, ya capturamos el query string en el spy ANTES
-        # de que se levantara la excepción. Si la falla es de transporte
-        # (httpx.ConnectError, TimeoutException, etc.) antes de emitir la
-        # request, el dict queda vacío y probe_parity_sync_async reporta
-        # SKIPPED en vez de propagar fuera de main().
+        # alinear con el contrato del helper async. Si el server rechaza
+        # la cuenta/rango, el hook ya capturó el query string antes de
+        # _raise_for_response. Si la falla es de transporte antes de la
+        # emisión, el dict queda vacío y probe_parity_sync_async reporta
+        # SKIPPED en vez de propagar.
         pass
     finally:
-        higyrus_client.client._client.request = original_request  # type: ignore[method-assign]
+        client.event_hooks = original_hooks
     return captured.get("query")
 
 
 async def _capture_async_query_string(
     cuenta: str, fecha_desde: dt.date, fecha_hasta: dt.date
 ) -> str | None:
-    """Mirror async del sync — captura del aio surface vía AsyncClient.request.
+    """Mirror async del sync — captura del aio surface vía ``event_hooks``.
 
-    El async client es lazy; ``_ensure_http_client`` se invoca para garantizar
-    que ``_client is not None`` antes del monkey-patch.
+    WR-05 mirror (review-04): usa ``httpx.AsyncClient.event_hooks`` (request
+    hook async-aware) en vez de monkey-patch del bound method. El async
+    client es lazy; ``_ensure_http_client`` se invoca para garantizar que
+    ``_client is not None`` antes de modificar los hooks.
     """
     await aio._ensure_http_client()
     assert aio._client is not None
+    client = aio._client
     captured: dict[str, str] = {}
-    original_request = aio._client.request
+    original_hooks = client.event_hooks
 
-    async def _spy_request(method: str, url: str, **kwargs: Any) -> Any:
-        resp = await original_request(method, url, **kwargs)
-        raw_query = resp.request.url.query
+    async def _spy(request: httpx.Request) -> None:
+        raw_query = request.url.query
         if isinstance(raw_query, bytes):
             captured["query"] = raw_query.decode("utf-8")
         else:
             captured["query"] = str(raw_query)
-        return resp
 
+    hooks_with_spy: dict[str, list[Any]] = {
+        "request": [*original_hooks.get("request", []), _spy],
+        "response": list(original_hooks.get("response", [])),
+    }
     try:
-        aio._client.request = _spy_request  # type: ignore[method-assign,assignment]
+        client.event_hooks = hooks_with_spy
         await aio.get_movimientos(cuenta, fecha_desde, fecha_hasta)
     except Exception:
-        # CR-03 mirror (review-04): broadened de HigyrusAPIError → Exception
-        # para alinear el contrato de ambos helpers (paridad sync↔async).
+        # CR-03 mirror (review-04): broadened a Exception para paridad de
+        # contratos sync↔async.
         pass
     finally:
-        aio._client.request = original_request  # type: ignore[method-assign]
+        client.event_hooks = original_hooks
     return captured.get("query")
 
 
