@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import pytest
 from pytest_httpx import HTTPXMock
@@ -202,3 +203,29 @@ def test_get_posiciones_raises_on_dict_payload(httpx_mock: HTTPXMock) -> None:
     assert exc_info.value.status_code == 0
     assert exc_info.value.errors[0]["title"] == "shape mismatch"
     assert "expected list, got dict" in exc_info.value.errors[0]["detail"]
+
+
+# ------ Wire encoding ------
+
+
+def test_request_preserves_literal_slash_in_query(httpx_mock: HTTPXMock) -> None:
+    """Regression F-01..F-06 (plan 04-04): httpx no debe encodar `/` en query — Higyrus IIS rechaza %2F con 400 "formato dd/mm/yyyy"."""
+    httpx_mock.add_response(
+        url=re.compile(r"^https://api\.test/api/cuentas/5208/movimientos\?.*"),
+        method="GET",
+        json=[],
+    )
+
+    result = higyrus_client.get_movimientos(
+        "5208",
+        fecha_desde=dt.date(2026, 5, 8),
+        fecha_hasta=dt.date(2026, 6, 7),
+    )
+    assert result == []
+
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    query_str = requests[0].url.query.decode()
+    assert "fechaDesde=08/05/2026" in query_str
+    assert "fechaHasta=07/06/2026" in query_str
+    assert "%2F" not in query_str
