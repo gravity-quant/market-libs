@@ -128,7 +128,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2.5** *(opportunistic, inserted after Plan 04-02 live run revealed httpx `%2F` encoding bug — Higyrus IIS rejects `%2F` in query with 400 "formato dd/mm/yyyy"; F-01..F-06 CONFIRMED)*
 
-- [ ] 04-04-PLAN.md — Opportunistic fix dual sync+async: refactor `_request` in client.py + aio.py to pre-attach query string with `urlencode(quote_via=quote, safe="/")` preserving literal `/` in wire + 2 regression tests asserting `httpx.Request.url.query` contains literal `08/05/2026` (NOT `%2F`) under new `# ------ Wire encoding ------` section (HIGY-04, HIGY-06; resolves findings F-01..F-06 from live run) [wave 2.5]
+- [x] 04-04-PLAN.md — Opportunistic fix dual sync+async: refactor `_request` in client.py + aio.py to pre-attach query string with `urlencode(quote_via=quote, safe="/")` preserving literal `/` in wire + 2 regression tests asserting `httpx.Request.url.query` contains literal `08/05/2026` (NOT `%2F`) under new `# ------ Wire encoding ------` section (HIGY-04, HIGY-06; resolves findings F-01..F-06 from live run) [wave 2.5]
 
 **Wave 3** *(blocked on Waves 1-2.5 completion)*
 
@@ -160,5 +160,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
 | 3. IOL Verification | 3/3 | Complete   | 2026-06-06 |
-| 4. Higyrus Verification | 1/3 | In Progress|  |
+| 4. Higyrus Verification | 2/4 | In Progress|  |
 | 5. Matriz Verification | 0/TBD | Not started | - |
