@@ -2122,7 +2122,30 @@ async def _async_main(
     ``probe_login_async`` exitoso para que ``probe_auth_401`` (que sucede
     DESPUÉS del ``asyncio.run`` y resetea ``_token`` vía ``configure``) no
     nulifique el snapshot en la lista de redacción de main().
+
+    WR-04 (review-04): TODOS los locals referenciados por ``_AsyncResults``
+    se inicializan a sentinels SKIPPED ANTES del ``try:`` para que un
+    refactor futuro que mueva el ``return`` después del ``finally`` (o que
+    falle parcialmente y necesite devolver resultados parciales) no rompa
+    con ``UnboundLocalError``. Mirror defensivo del patrón del sync side
+    en ``main()``.
     """
+
+    def _skipped(name: str) -> ProbeResult:
+        return ProbeResult(name, "SKIPPED", "(not executed)")
+
+    result_login: ProbeResult = _skipped("login_async")
+    async_token_snapshot: str | None = None
+    result_health: ProbeResult = _skipped("get_health_async")
+    health_raw: dict[str, Any] | None = None
+    result_listado: ProbeResult = _skipped("get_listado_cuentas_async")
+    listado_raw: list[dict[str, Any]] | None = None
+    result_movs: ProbeResult = _skipped("get_movimientos_async")
+    result_pv: ProbeResult = _skipped("get_posicion_valuada_async")
+    result_pos: ProbeResult = _skipped("get_posiciones_async")
+    result_errors: ProbeResult = _skipped("errors_envelope_async")
+    async_query: str | None = None
+
     try:
         result_login = await probe_login_async()
         async_token_snapshot = aio._token if result_login.status == "PASS" else None
@@ -2134,7 +2157,6 @@ async def _async_main(
         result_pos, _pos_raw = await probe_get_posiciones_async(today, resolved_cuenta)
 
         # Async parity capture for probe 13 (params optional = None → drop_none).
-        async_query: str | None = None
         if not _auth_failed and resolved_cuenta is not None:
             fecha_desde = today - dt.timedelta(days=30)
             fecha_hasta = today
