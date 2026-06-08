@@ -96,6 +96,7 @@ from verification.findings import append_finding
 
 import higyrus_client
 from higyrus_client import HigyrusAPIError, HigyrusAuthError, aio
+from higyrus_client._params import format_date
 from higyrus_client.models import (
     Cuenta,
     Movimiento,
@@ -910,8 +911,8 @@ def probe_get_movimientos_sync(
             "GET",
             f"/api/cuentas/{resolved_cuenta}/movimientos",
             params={
-                "fechaDesde": fecha_desde.isoformat(),
-                "fechaHasta": fecha_hasta.isoformat(),
+                "fechaDesde": format_date(fecha_desde),
+                "fechaHasta": format_date(fecha_hasta),
             },
         )
     except HigyrusAuthError as exc:
@@ -1014,8 +1015,8 @@ async def probe_get_movimientos_async(
             "GET",
             f"/api/cuentas/{resolved_cuenta}/movimientos",
             params={
-                "fechaDesde": fecha_desde.isoformat(),
-                "fechaHasta": fecha_hasta.isoformat(),
+                "fechaDesde": format_date(fecha_desde),
+                "fechaHasta": format_date(fecha_hasta),
             },
         )
     except HigyrusAuthError as exc:
@@ -1128,8 +1129,8 @@ def probe_get_posicion_valuada_sync(
             params={
                 "tipoCuenta": _SAMPLE_TIPO_CUENTA,
                 "nivel": _SAMPLE_NIVEL,
-                "desde": today.isoformat(),
-                "hasta": today.isoformat(),
+                "desde": format_date(today),
+                "hasta": format_date(today),
             },
         )
     except HigyrusAuthError as exc:
@@ -1242,8 +1243,8 @@ async def probe_get_posicion_valuada_async(
             params={
                 "tipoCuenta": _SAMPLE_TIPO_CUENTA,
                 "nivel": _SAMPLE_NIVEL,
-                "desde": today.isoformat(),
-                "hasta": today.isoformat(),
+                "desde": format_date(today),
+                "hasta": format_date(today),
             },
         )
     except HigyrusAuthError as exc:
@@ -1373,7 +1374,7 @@ def probe_get_posiciones_sync(
             "GET",
             f"/api/cuentas/{resolved_cuenta}/posiciones",
             params={
-                "fecha": today.isoformat(),
+                "fecha": format_date(today),
                 "incluirParking": "false",
             },
         )
@@ -1475,7 +1476,7 @@ async def probe_get_posiciones_async(
             "GET",
             f"/api/cuentas/{resolved_cuenta}/posiciones",
             params={
-                "fecha": today.isoformat(),
+                "fecha": format_date(today),
                 "incluirParking": "false",
             },
         )
