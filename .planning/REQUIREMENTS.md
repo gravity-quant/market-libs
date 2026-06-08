@@ -31,12 +31,12 @@ y se acompaña de un test de regresión mockeado (`pytest-httpx`) siguiendo `Reg
 ### Verificación higyrus-client (HIGY)
 
 - [ ] **HIGY-01**: Verificar contra Higyrus en vivo el flujo de auth (login + lazy-auth), sync y async
-- [ ] **HIGY-02**: Barrido happy-path de `get_health`, `get_listado_cuentas`, `get_movimientos`, `get_posicion_valuada`, `get_posiciones` reteniendo payload, sync y async
-- [ ] **HIGY-03**: Diff bidireccional de claves del payload crudo vs campos declarados de cada modelo (detección de field-drop silencioso por `SafeModel.from_api`)
+- [x] **HIGY-02**: Barrido happy-path de `get_health`, `get_listado_cuentas`, `get_movimientos`, `get_posicion_valuada`, `get_posiciones` reteniendo payload, sync y async
+- [x] **HIGY-03**: Diff bidireccional de claves del payload crudo vs campos declarados de cada modelo (detección de field-drop silencioso por `SafeModel.from_api`)
 - [ ] **HIGY-04**: Verificar en vivo la discriminación list/object (`assert isinstance(raw, list/dict)`); si rompe, corregir a un `HigyrusAPIError` tipado en vez de `AssertionError`
-- [ ] **HIGY-05**: Verificar el parsing de error por clave `"errors"` en vivo (request inválido)
-- [ ] **HIGY-06**: Verificar paridad sync↔async, incluyendo la deviación conocida de `drop_none` en el `_request` async
-- [ ] **HIGY-07**: Verificar los paths de respuesta vacía / 204 (lista vacía, no crash, no `None`)
+- [x] **HIGY-05**: Verificar el parsing de error por clave `"errors"` en vivo (request inválido)
+- [x] **HIGY-06**: Verificar paridad sync↔async, incluyendo la deviación conocida de `drop_none` en el `_request` async
+- [x] **HIGY-07**: Verificar los paths de respuesta vacía / 204 (lista vacía, no crash, no `None`)
 
 ### Verificación matriz-client (MATZ)
 
@@ -114,12 +114,12 @@ Qué fase cubre cada requisito. Completado durante la creación del roadmap.
 | IOL-06 | Phase 3 | Pending |
 | IOL-07 | Phase 3 | Pending |
 | HIGY-01 | Phase 4 | Pending |
-| HIGY-02 | Phase 4 | Pending |
-| HIGY-03 | Phase 4 | Pending |
+| HIGY-02 | Phase 4 | Complete |
+| HIGY-03 | Phase 4 | Complete |
 | HIGY-04 | Phase 4 | Pending |
-| HIGY-05 | Phase 4 | Pending |
-| HIGY-06 | Phase 4 | Pending |
-| HIGY-07 | Phase 4 | Pending |
+| HIGY-05 | Phase 4 | Complete |
+| HIGY-06 | Phase 4 | Complete |
+| HIGY-07 | Phase 4 | Complete |
 | MATZ-01 | Phase 5 | Pending |
 | MATZ-02 | Phase 5 | Pending |
 | MATZ-03 | Phase 5 | Pending |
