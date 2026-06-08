@@ -21,6 +21,7 @@ import datetime as dt
 import os
 import time
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import httpx
 from dotenv import load_dotenv
@@ -200,10 +201,16 @@ async def _request(
     assert token is not None
 
     client = await _ensure_http_client()
+    clean_params = drop_none(params) if params else None
+    url = f"{_base_url}{path}"
+    if clean_params:
+        # Preservar `/` literal en query (Higyrus IIS rechaza `%2F` con 400
+        # "formato dd/mm/yyyy" — F-01..F-06 plan 04-04).
+        query = urlencode(clean_params, quote_via=quote, safe="/")
+        url = f"{url}?{query}"
     resp = await client.request(
         method,
-        f"{_base_url}{path}",
-        params=drop_none(params) if params else None,
+        url,
         json=json_body,
         headers={"Authorization": f"Bearer {token}"},
     )
