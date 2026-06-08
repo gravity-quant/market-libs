@@ -206,7 +206,10 @@ async def _request(
     if clean_params:
         # Preservar `/` literal en query (Higyrus IIS rechaza `%2F` con 400
         # "formato dd/mm/yyyy" — F-01..F-06 plan 04-04).
-        query = urlencode(clean_params, quote_via=quote, safe="/")
+        # `doseq=True` preserva el comportamiento de httpx para `list[str]`:
+        # `get_listado_cuentas(id_cuenta=["A","B"])` debe emitir
+        # `idCuenta=A&idCuenta=B`, no el literal `['A', 'B']`.
+        query = urlencode(clean_params, doseq=True, quote_via=quote, safe="/")
         url = f"{url}?{query}"
     resp = await client.request(
         method,

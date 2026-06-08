@@ -338,3 +338,32 @@ def test_request_preserves_literal_slash_in_query(httpx_mock: HTTPXMock) -> None
     assert "fechaDesde=08/05/2026" in query_str
     assert "fechaHasta=07/06/2026" in query_str
     assert "%2F" not in query_str
+
+
+def test_request_doseq_splits_list_params_into_repeated_keys(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression CR-01 (review 04): `list[str]` params deben re-emitirse como
+    claves repetidas (``idCuenta=A&idCuenta=B``), no como literal
+    ``['A', 'B']``. Sin ``doseq=True``, ``urlencode`` emite el repr de la lista
+    URL-encodeado, que el backend Higyrus rechaza o filtra incorrectamente.
+    """
+    httpx_mock.add_response(
+        url=re.compile(r"^https://api\.test/api/cuentas/listadoCuentas\?.*"),
+        method="GET",
+        json=[],
+    )
+
+    result = higyrus_client.get_listado_cuentas(id_cuenta=["A", "B"])
+    assert result == []
+
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    query_str = requests[0].url.query.decode()
+    assert "idCuenta=A" in query_str
+    assert "idCuenta=B" in query_str
+    # Negative assertion: el repr de la lista NO debe aparecer (ni `[`/`]`
+    # URL-encoded ni `'` URL-encoded).
+    assert "%5B" not in query_str  # `[`
+    assert "%5D" not in query_str  # `]`
+    assert "%27" not in query_str  # `'`
