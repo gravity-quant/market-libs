@@ -124,7 +124,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion; contains human checkpoint for live driver run)*
 
-- [ ] 04-02-PLAN.md — Rewrite main_higyrus.py with 18 named probes (HIGY-01..03+05..07 driver) + bidirectional SafeModel diff helper + httpx.URL.query parity capture + opt-in 401 single-shot + .env.example updates D-HIGY-14 + operator-observed live run generating 5 schemas + findings file (HIGY-01, HIGY-02, HIGY-03, HIGY-05, HIGY-06, HIGY-07) [wave 2]
+- [x] 04-02-PLAN.md — Rewrite main_higyrus.py with 18 named probes (HIGY-01..03+05..07 driver) + bidirectional SafeModel diff helper + httpx.URL.query parity capture + opt-in 401 single-shot + .env.example updates D-HIGY-14 + operator-observed live run generating 5 schemas + findings file (HIGY-01, HIGY-02, HIGY-03, HIGY-05, HIGY-06, HIGY-07) [wave 2]
 
 **Wave 2.5** *(opportunistic, inserted after Plan 04-02 live run revealed httpx `%2F` encoding bug — Higyrus IIS rejects `%2F` in query with 400 "formato dd/mm/yyyy"; F-01..F-06 CONFIRMED)*
 
@@ -160,5 +160,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Safety Harness & Verification Infrastructure | 4/4 | Complete    | 2026-05-28 |
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
 | 3. IOL Verification | 3/3 | Complete   | 2026-06-06 |
-| 4. Higyrus Verification | 2/4 | In Progress|  |
+| 4. Higyrus Verification | 3/4 | In Progress|  |
 | 5. Matriz Verification | 0/TBD | Not started | - |
