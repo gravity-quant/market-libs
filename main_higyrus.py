@@ -95,7 +95,7 @@ from verification import require_env, safe_print, schema_of, write_findings
 from verification.findings import append_finding
 
 import higyrus_client
-from higyrus_client import HigyrusAPIError, HigyrusAuthError, aio
+from higyrus_client import HigyrusAPIError, HigyrusAuthError, HigyrusClientError, aio
 from higyrus_client._params import format_date
 from higyrus_client.models import (
     Cuenta,
@@ -427,16 +427,48 @@ def _write_or_check_schema(
 def probe_login_sync() -> ProbeResult:
     """Probe 1: ``higyrus_client.login()`` (HIGY-01).
 
-    Setea ``_auth_failed`` global si falla con ``HigyrusAuthError`` (cascade
-    SKIPPED, Phase 3 D-IOL-3 mirror). Cualquier otra excepción propaga.
+    Setea ``_auth_failed`` global ante CUALQUIER falla de login para activar
+    la cascade SKIPPED (D-HIGY-10, Phase 3 D-IOL-3 mirror). Se diferencian
+    dos brackets de exception:
+
+    1. ``HigyrusClientError`` — base class del paquete (cubre
+       ``HigyrusAuthError`` 401, ``HigyrusAuthorizationError`` 403,
+       ``HigyrusRateLimitError`` 429, ``HigyrusAPIError`` cualquier otro
+       non-2xx mapeado). Status code disponible en ``exc.status_code``.
+    2. ``Exception`` — transporte / network (e.g. ``httpx.ConnectError``,
+       ``httpx.TimeoutException``, ``httpx.HTTPStatusError`` para 5xx que
+       bypassan ``_raise_for_response``). Sin status_code típico.
+
+    Ambos brackets emiten finding ``AUTH OPEN`` y setean ``_auth_failed``
+    para garantizar el contrato cascade SKIPPED del driver. Esto previene
+    que un 403/429/500/network failure propague fuera de ``main()`` y
+    aborte la driver antes de las 18 líneas + SUMMARY (review-04 CR-02).
     """
     global _auth_failed, _auth_failure_reason
     base_url = higyrus_client.client._base_url
     try:
         higyrus_client.login()
-    except HigyrusAuthError as exc:
+    except HigyrusClientError as exc:
         _auth_failed = True
-        _auth_failure_reason = f"sync login: {exc}"
+        _auth_failure_reason = f"sync login: {type(exc).__name__}: {exc}"
+        fid = _next_fid()
+        status_code = getattr(exc, "status_code", None)
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="sync",
+            status="OPEN",
+            title=f"login() sync falló ({type(exc).__name__})",
+            expected="login succeeds + cached token",
+            actual=repr(exc),
+            diff=f"status_code={status_code!r}",
+            base_url=base_url,
+        )
+        return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        _auth_failed = True
+        _auth_failure_reason = f"sync login: unexpected {type(exc).__name__}: {exc}"
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -444,10 +476,10 @@ def probe_login_sync() -> ProbeResult:
             class_="AUTH",
             surface="sync",
             status="OPEN",
-            title="login() sync falló",
+            title=f"login() sync unexpected {type(exc).__name__}",
             expected="login succeeds + cached token",
             actual=repr(exc),
-            diff=f"status_code={exc.status_code!r}",
+            diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
         return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN)")
@@ -459,14 +491,37 @@ async def probe_login_async() -> ProbeResult:
 
     Setea el mismo ``_auth_failed`` global compartido con probe 1 (Discretion:
     flag único, no surface-segregated — D-IOL-3 Discretion mirror).
+
+    Catch widening espejo de ``probe_login_sync`` (review-04 CR-02): captura
+    ``HigyrusClientError`` (cubre Auth/Authorization/RateLimit/APIError) y
+    cualquier otro ``Exception`` (network / transport) para que no propaguen
+    fuera de ``asyncio.run()`` y aborten la driver antes del SUMMARY.
     """
     global _auth_failed, _auth_failure_reason
     base_url = aio._base_url
     try:
         await aio.login()
-    except HigyrusAuthError as exc:
+    except HigyrusClientError as exc:
         _auth_failed = True
-        _auth_failure_reason = f"async login: {exc}"
+        _auth_failure_reason = f"async login: {type(exc).__name__}: {exc}"
+        fid = _next_fid()
+        status_code = getattr(exc, "status_code", None)
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="async",
+            status="OPEN",
+            title=f"login() async falló ({type(exc).__name__})",
+            expected="login succeeds + cached token",
+            actual=repr(exc),
+            diff=f"status_code={status_code!r}",
+            base_url=base_url,
+        )
+        return ProbeResult("login_async", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        _auth_failed = True
+        _auth_failure_reason = f"async login: unexpected {type(exc).__name__}: {exc}"
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -474,10 +529,10 @@ async def probe_login_async() -> ProbeResult:
             class_="AUTH",
             surface="async",
             status="OPEN",
-            title="login() async falló",
+            title=f"login() async unexpected {type(exc).__name__}",
             expected="login succeeds + cached token",
             actual=repr(exc),
-            diff=f"status_code={exc.status_code!r}",
+            diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
         return ProbeResult("login_async", "FINDING", f"{fid} (OPEN)")
