@@ -96,7 +96,7 @@ from verification.findings import append_finding
 
 import higyrus_client
 from higyrus_client import HigyrusAPIError, HigyrusAuthError, HigyrusClientError, aio
-from higyrus_client._params import format_date
+from higyrus_client._params import format_bool, format_date
 from higyrus_client.models import (
     Cuenta,
     Movimiento,
@@ -1435,7 +1435,12 @@ def probe_get_posiciones_sync(
             f"/api/cuentas/{resolved_cuenta}/posiciones",
             params={
                 "fecha": format_date(today),
-                "incluirParking": "false",
+                # CR-04 (review-04): wire format Higyrus es capitalizado
+                # (`"True"`/`"False"`, vía ``format_bool``). El driver enviaba
+                # ``"false"`` lowercase, contradiciendo la convención que el
+                # API pública usa y que ``test_get_posiciones_envia_booleano_capitalizado``
+                # locking.
+                "incluirParking": format_bool(False),
             },
         )
     except HigyrusAuthError as exc:
@@ -1537,7 +1542,10 @@ async def probe_get_posiciones_async(
             f"/api/cuentas/{resolved_cuenta}/posiciones",
             params={
                 "fecha": format_date(today),
-                "incluirParking": "false",
+                # CR-04 mirror (review-04): wire format Higyrus es capitalizado
+                # (`"True"`/`"False"`, vía ``format_bool``). El driver enviaba
+                # ``"false"`` lowercase, contradiciendo la convención.
+                "incluirParking": format_bool(False),
             },
         )
     except HigyrusAuthError as exc:
