@@ -10,10 +10,14 @@ from pytest_httpx import HTTPXMock
 
 import higyrus_client
 from higyrus_client import (
+    Cuenta,
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
     HigyrusRateLimitError,
+    Movimiento,
+    Posicion,
+    PosicionValuada,
 )
 
 
@@ -135,6 +139,111 @@ def test_get_posiciones_envia_booleano_capitalizado(httpx_mock: HTTPXMock) -> No
         fecha=dt.date(2026, 4, 15),
         incluir_parking=True,
     )
+    assert posiciones == []
+
+
+# ------ Verified live (Phase 4) ------
+
+
+def test_get_listado_cuentas_url_con_estado_alta(httpx_mock: HTTPXMock) -> None:
+    """Phase 4: locking URL exacta de get_listado_cuentas con estado=alta (HIGY-02)."""
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/listadoCuentas?estado=alta",
+        method="GET",
+        json=[{"id": "CTA-001", "titular": "<x>", "denominacion": "<y>"}],
+    )
+    cuentas = higyrus_client.get_listado_cuentas(estado="alta")
+    assert isinstance(cuentas, list)
+    assert len(cuentas) == 1
+    assert isinstance(cuentas[0], Cuenta)
+    assert cuentas[0].id == "CTA-001"
+
+
+def test_safemodel_from_api_typed_defaults() -> None:
+    """Phase 4: locking de SafeModel.from_api({}) → typed defaults para los 4 modelos top-level (HIGY-03)."""
+    c = Cuenta.from_api({})
+    m = Movimiento.from_api({})
+    p = Posicion.from_api({})
+    pv = PosicionValuada.from_api({})
+
+    # Cuenta: str + nested SafeModel + list defaults.
+    assert isinstance(c, Cuenta)
+    assert c.id == ""
+    assert c.titular == ""
+    assert c.domicilios == []
+
+    # Movimiento: str + float + list[int] defaults.
+    assert isinstance(m, Movimiento)
+    assert m.cuenta == ""
+    assert m.cantidad == 0.0
+    assert m.fechaConcertacion == ""
+    assert m.idMovimientos == []
+
+    # Posicion: incluye disponibleAjustado FCI-conditional → safe 0.0 (F-01 EXPECTED).
+    assert isinstance(p, Posicion)
+    assert p.cuenta == ""
+    assert p.disponibleAjustado == 0.0
+    assert p.cantidadLiquidada == 0
+    assert p.parking == []
+
+    # PosicionValuada: shape de la sweep — todos los floats arrancan en 0.0.
+    assert isinstance(pv, PosicionValuada)
+    assert pv.cuenta == ""
+    assert pv.cantidad == 0.0
+    assert pv.valuacion == 0.0
+
+
+def test_errors_envelope_parsed_on_4xx(httpx_mock: HTTPXMock) -> None:
+    """Phase 4: locking del errors envelope parseado en respuesta 4xx (HIGY-05)."""
+    httpx_mock.add_response(
+        method="GET",
+        status_code=400,
+        json={
+            "timestamp": "2026-06-06T10:00:00Z",
+            "errors": [{"title": "invalid cuenta", "detail": "CTA-INVALID not found"}],
+        },
+    )
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        higyrus_client.get_movimientos(
+            "CTA-INVALID",
+            dt.date(2026, 1, 1),
+            dt.date(2026, 1, 1),
+        )
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.errors == [{"title": "invalid cuenta", "detail": "CTA-INVALID not found"}]
+    assert exc_info.value.timestamp == "2026-06-06T10:00:00Z"
+
+
+def test_get_movimientos_drop_none_emits_only_required_params(httpx_mock: HTTPXMock) -> None:
+    """Phase 4: locking de drop_none — los params None se omiten del query string (HIGY-06 mocked)."""
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/CTA-001/movimientos?fechaDesde=07/05/2026&fechaHasta=06/06/2026",
+        method="GET",
+        json=[],
+    )
+    movs = higyrus_client.get_movimientos(
+        "CTA-001",
+        dt.date(2026, 5, 7),
+        dt.date(2026, 6, 6),
+    )
+    assert movs == []
+
+
+def test_get_movimientos_empty_path_returns_list(httpx_mock: HTTPXMock) -> None:
+    """Phase 4: locking de empty path / 204 returns [] para get_movimientos (HIGY-07)."""
+    httpx_mock.add_response(method="GET", status_code=204)
+    movs = higyrus_client.get_movimientos(
+        "CTA-001",
+        dt.date(2026, 1, 1),
+        dt.date(2026, 1, 1),
+    )
+    assert movs == []
+
+
+def test_get_posiciones_empty_path_returns_list(httpx_mock: HTTPXMock) -> None:
+    """Phase 4: locking de empty path / 204 returns [] para get_posiciones (HIGY-07)."""
+    httpx_mock.add_response(method="GET", status_code=204)
+    posiciones = higyrus_client.get_posiciones("CTA-001", dt.date(2026, 1, 1))
     assert posiciones == []
 
 
