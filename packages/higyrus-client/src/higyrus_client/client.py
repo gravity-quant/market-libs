@@ -111,9 +111,12 @@ def login() -> str:
         f"{_base_url}/api/login",
         json={"clientId": _client_id, "username": _user, "password": _password},
     )
-    if resp.status_code == 401:
+    # WR-01 (review-04): cualquier non-2xx debe pasar por _raise_for_response
+    # para mapear a la jerarquía HigyrusClientError (Auth/Authorization/
+    # RateLimit/APIError). Antes sólo 401 se canalizaba y el resto escapaba
+    # como httpx.HTTPStatusError, violando el contrato del paquete.
+    if not resp.is_success:
         _raise_for_response(resp)
-    resp.raise_for_status()
 
     data: dict[str, Any] = resp.json()
     token = data.get("token")

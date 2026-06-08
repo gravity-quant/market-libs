@@ -292,3 +292,33 @@ async def test_async_request_doseq_splits_list_params_into_repeated_keys(
     assert "%5B" not in query_str
     assert "%5D" not in query_str
     assert "%27" not in query_str
+
+
+async def test_async_login_403_levanta_authorization_error(httpx_mock: HTTPXMock) -> None:
+    """Regression WR-01 mirror (review-04): aio.login() con 403 debe levantar
+    ``HigyrusAuthorizationError`` (no ``httpx.HTTPStatusError``).
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        status_code=403,
+        json={"errors": [{"title": "auth", "detail": "forbidden"}]},
+    )
+    with pytest.raises(HigyrusAuthorizationError) as exc_info:
+        await aio.login()
+    assert exc_info.value.status_code == 403
+
+
+async def test_async_login_500_levanta_api_error(httpx_mock: HTTPXMock) -> None:
+    """Regression WR-01 mirror (review-04): aio.login() con 500 debe levantar
+    ``HigyrusAPIError`` (no ``httpx.HTTPStatusError``).
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        status_code=500,
+        json={"errors": [{"title": "server", "detail": "boom"}]},
+    )
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        await aio.login()
+    assert exc_info.value.status_code == 500

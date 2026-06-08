@@ -367,3 +367,52 @@ def test_request_doseq_splits_list_params_into_repeated_keys(
     assert "%5B" not in query_str  # `[`
     assert "%5D" not in query_str  # `]`
     assert "%27" not in query_str  # `'`
+
+
+def test_login_403_levanta_authorization_error(httpx_mock: HTTPXMock) -> None:
+    """Regression WR-01 (review-04): login() con 403 debe levantar
+    ``HigyrusAuthorizationError`` (no ``httpx.HTTPStatusError``).
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        status_code=403,
+        json={
+            "timestamp": "2026-06-08T10:00:00Z",
+            "errors": [{"title": "auth", "detail": "forbidden"}],
+        },
+    )
+    with pytest.raises(HigyrusAuthorizationError) as exc_info:
+        higyrus_client.login()
+    assert exc_info.value.status_code == 403
+
+
+def test_login_429_levanta_rate_limit(httpx_mock: HTTPXMock) -> None:
+    """Regression WR-01 (review-04): login() con 429 debe levantar
+    ``HigyrusRateLimitError`` (no ``httpx.HTTPStatusError``).
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        status_code=429,
+        json={"errors": [{"title": "rate", "detail": "too many"}]},
+    )
+    with pytest.raises(HigyrusRateLimitError) as exc_info:
+        higyrus_client.login()
+    assert exc_info.value.status_code == 429
+
+
+def test_login_500_levanta_api_error(httpx_mock: HTTPXMock) -> None:
+    """Regression WR-01 (review-04): login() con 500 debe levantar
+    ``HigyrusAPIError`` (no ``httpx.HTTPStatusError``); todos los non-2xx
+    se canalizan vía ``_raise_for_response``.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        status_code=500,
+        json={"errors": [{"title": "server", "detail": "boom"}]},
+    )
+    with pytest.raises(HigyrusAPIError) as exc_info:
+        higyrus_client.login()
+    assert exc_info.value.status_code == 500

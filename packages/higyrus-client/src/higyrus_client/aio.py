@@ -123,9 +123,10 @@ async def _login_unlocked() -> str:
         f"{_base_url}/api/login",
         json={"clientId": _client_id, "username": _user, "password": _password},
     )
-    if resp.status_code == 401:
+    # WR-01 mirror (review-04): canalizar todos los non-2xx por
+    # _raise_for_response para preservar la jerarquía HigyrusClientError.
+    if not resp.is_success:
         _raise_for_response(resp)
-    resp.raise_for_status()
 
     data: dict[str, Any] = resp.json()
     token = data.get("token")
