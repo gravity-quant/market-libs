@@ -1,0 +1,33 @@
+{
+  "endpoint": "/api/cuentas/{id_cuenta}/posiciones",
+  "client_function": "get_posiciones",
+  "captured_at": "2026-06-08T02:03:51.815931+00:00",
+  "base_url": "https://becerra.aunesa.com/Irmo",
+  "sample_params": {
+    "id_cuenta": "5208",
+    "fecha": "2026-06-07"
+  },
+  "schema": [
+    {
+      "cantidadLiquidada": "int",
+      "cantidadPendienteLiquidar": "int",
+      "codigoISIN": "str",
+      "cuenta": "str",
+      "especie": "str",
+      "estado": "str",
+      "fecha": "str",
+      "fechaPrecio": "str",
+      "informacion": "str",
+      "lugar": "str",
+      "monedaCotizacion": "str",
+      "nombreEspecie": "str",
+      "parking": "NoneType",
+      "precio": "int",
+      "precioUnitario": "int",
+      "simboloLocal": "str",
+      "subCuenta": "str",
+      "tipoTitulo": "str",
+      "tipoTituloAgente": "str"
+    }
+  ]
+}
