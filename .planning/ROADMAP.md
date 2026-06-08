@@ -126,7 +126,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] 04-02-PLAN.md — Rewrite main_higyrus.py with 18 named probes (HIGY-01..03+05..07 driver) + bidirectional SafeModel diff helper + httpx.URL.query parity capture + opt-in 401 single-shot + .env.example updates D-HIGY-14 + operator-observed live run generating 5 schemas + findings file (HIGY-01, HIGY-02, HIGY-03, HIGY-05, HIGY-06, HIGY-07) [wave 2]
 
-**Wave 3** *(blocked on Waves 1-2 completion)*
+**Wave 2.5** *(opportunistic, inserted after Plan 04-02 live run revealed httpx `%2F` encoding bug — Higyrus IIS rejects `%2F` in query with 400 "formato dd/mm/yyyy"; F-01..F-06 CONFIRMED)*
+
+- [ ] 04-04-PLAN.md — Opportunistic fix dual sync+async: refactor `_request` in client.py + aio.py to pre-attach query string with `urlencode(quote_via=quote, safe="/")` preserving literal `/` in wire + 2 regression tests asserting `httpx.Request.url.query` contains literal `08/05/2026` (NOT `%2F`) under new `# ------ Wire encoding ------` section (HIGY-04, HIGY-06; resolves findings F-01..F-06 from live run) [wave 2.5]
+
+**Wave 3** *(blocked on Waves 1-2.5 completion)*
 
 - [ ] 04-03-PLAN.md — Append Verified-live (Phase 4) invariants to test_client.py/test_async_client.py + commit DRIFT-01 mirror baseline (5 schemas + Phase 4 findings file) (HIGY-02, HIGY-03, HIGY-05, HIGY-06, HIGY-07) [wave 3]
 
