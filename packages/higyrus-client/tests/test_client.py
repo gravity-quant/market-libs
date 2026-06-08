@@ -416,3 +416,20 @@ def test_login_500_levanta_api_error(httpx_mock: HTTPXMock) -> None:
     with pytest.raises(HigyrusAPIError) as exc_info:
         higyrus_client.login()
     assert exc_info.value.status_code == 500
+
+
+def test_get_request_omits_body_and_content_type(httpx_mock: HTTPXMock) -> None:
+    """Regression WR-02 (review-04): ``_request`` no debe inyectar body `null`
+    en GETs. Sin condicionar el kwarg `json`, httpx envía ``Content-Type:
+    application/json`` con body literal ``null`` — wire-format incorrecto
+    para endpoints sin body.
+    """
+    httpx_mock.add_response(method="GET", json={"status": "ok"})
+    higyrus_client.get_health()
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    req = requests[0]
+    # El body del request debe estar vacío (bytes b"" o None).
+    assert not req.content
+    # El Content-Type no debe ser application/json (no hay body).
+    assert "content-type" not in {k.lower() for k in req.headers}

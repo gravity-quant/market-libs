@@ -322,3 +322,18 @@ async def test_async_login_500_levanta_api_error(httpx_mock: HTTPXMock) -> None:
     with pytest.raises(HigyrusAPIError) as exc_info:
         await aio.login()
     assert exc_info.value.status_code == 500
+
+
+async def test_async_get_request_omits_body_and_content_type(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression WR-02 mirror (review-04): ``aio._request`` no debe inyectar
+    body `null` en GETs.
+    """
+    httpx_mock.add_response(method="GET", json={"status": "ok"})
+    await aio.get_health()
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    req = requests[0]
+    assert not req.content
+    assert "content-type" not in {k.lower() for k in req.headers}

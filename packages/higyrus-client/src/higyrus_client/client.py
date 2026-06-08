@@ -189,12 +189,13 @@ def _request(
         # `idCuenta=A&idCuenta=B`, no el literal `['A', 'B']`.
         query = urlencode(clean_params, doseq=True, quote_via=quote, safe="/")
         url = f"{url}?{query}"
-    resp = _client.request(
-        method,
-        url,
-        json=json_body,
-        headers={"Authorization": f"Bearer {_token}"},
-    )
+    # WR-02 (review-04): pasar `json=None` a httpx NO es equivalente a omitir
+    # el kwarg — envía body `null` con Content-Type application/json. Las GET
+    # de Higyrus son sin body; condicionar para no inyectar un payload `null`.
+    kwargs: dict[str, Any] = {"headers": {"Authorization": f"Bearer {_token}"}}
+    if json_body is not None:
+        kwargs["json"] = json_body
+    resp = _client.request(method, url, **kwargs)
 
     if not resp.is_success:
         _raise_for_response(resp)

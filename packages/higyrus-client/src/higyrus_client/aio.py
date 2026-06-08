@@ -212,12 +212,12 @@ async def _request(
         # `idCuenta=A&idCuenta=B`, no el literal `['A', 'B']`.
         query = urlencode(clean_params, doseq=True, quote_via=quote, safe="/")
         url = f"{url}?{query}"
-    resp = await client.request(
-        method,
-        url,
-        json=json_body,
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    # WR-02 mirror (review-04): omitir `json` cuando no hay body para que
+    # httpx no envíe `null` con Content-Type application/json en las GET.
+    kwargs: dict[str, Any] = {"headers": {"Authorization": f"Bearer {token}"}}
+    if json_body is not None:
+        kwargs["json"] = json_body
+    resp = await client.request(method, url, **kwargs)
 
     if not resp.is_success:
         _raise_for_response(resp)
