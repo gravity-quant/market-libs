@@ -85,6 +85,7 @@ import contextlib
 import datetime as dt
 import json
 import os
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -2203,9 +2204,26 @@ def main() -> None:
     write_findings(_PKG)
 
     # D-HIGY-15 initial secrets: HIGYRUS_USER + HIGYRUS_PASSWORD del env.
-    secrets: list[str] = [
-        v for v in (os.getenv("HIGYRUS_USER"), os.getenv("HIGYRUS_PASSWORD")) if v and len(v) >= 4
-    ]
+    # WR-03 (review-04): el password se redacta SIEMPRE — sin threshold —
+    # porque un short-but-real password es el peor caso para dejar sin
+    # mascarar (puede aparecer en repr(exc) de HigyrusAuthError con echo
+    # base64 de las credenciales). El username conserva ``len(v) >= 4``
+    # para evitar redactar substrings demasiado cortos que matcheen
+    # ruido en el output (e.g. "ok"). Si HIGYRUS_USER queda excluido,
+    # emite warning a stderr para que el operador detecte el gap.
+    _user_env = os.getenv("HIGYRUS_USER", "")
+    _password_env = os.getenv("HIGYRUS_PASSWORD", "")
+    secrets: list[str] = []
+    if _password_env:
+        secrets.append(_password_env)
+    if _user_env and len(_user_env) >= 4:
+        secrets.append(_user_env)
+    elif _user_env:
+        print(
+            f"WARNING: HIGYRUS_USER='{_user_env[:1]}…' too short to redact; "
+            "check stdout discipline",
+            file=sys.stderr,
+        )
 
     results: dict[str, ProbeResult] = {}
     payloads: dict[str, Any] = {}
