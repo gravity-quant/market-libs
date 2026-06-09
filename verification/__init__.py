@@ -32,6 +32,7 @@ from verification.env_gate import require_env
 from verification.findings import append_finding, new_findings, write_findings
 from verification.mutation_gate import mutating_allowed
 from verification.redaction import redact, safe_print
+from verification.safemodel_diff import diff_safemodel_bidirectional
 from verification.schema import schema_of
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "anonymize",
     "append_finding",
     "capture",
+    "diff_safemodel_bidirectional",
     "mutating_allowed",
     "new_findings",
     "redact",
