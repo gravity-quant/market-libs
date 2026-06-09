@@ -154,7 +154,8 @@ def _request(
         )
     else:
         _ensure_token()
-        assert _token is not None
+        if _token is None:
+            raise RuntimeError("matriz_client.client: _ensure_token() did not populate _token")
         resp = _session.request(
             method,
             url,
@@ -179,6 +180,31 @@ def _get(path: str, **params: Any) -> dict[str, Any]:
     return _request("GET", path, params=clean)
 
 
+def _unwrap(data: dict[str, Any], key: str, endpoint: str) -> Any:
+    """Return ``data[key]`` or raise ``PrimaryAPIError`` if missing.
+
+    Surfaces a typed ``PrimaryAPIError`` (status ``"ERROR"``) when the Primary
+    API response is missing the envelope key the wrapper expects. Without this
+    guard, the caller would see an opaque ``KeyError`` that is not part of the
+    client's documented exception contract (D-MATZ-9).
+
+    Args:
+        data: Decoded JSON response from ``_request``/``_get``.
+        key: Envelope key expected to wrap the payload (e.g., ``"order"``).
+        endpoint: Path that produced the response, used for error context.
+
+    Raises:
+        PrimaryAPIError: If ``key`` is absent from ``data``.
+    """
+    if key not in data:
+        raise PrimaryAPIError(
+            status="ERROR",
+            description=f"missing envelope key '{key}' in response from {endpoint}",
+            message=None,
+        )
+    return data[key]
+
+
 def _risk_auth() -> tuple[str, str]:
     """Return the (user, password) tuple used for Risk API HTTP Basic Auth."""
     return (_user, _password)
@@ -191,7 +217,8 @@ def _risk_auth() -> tuple[str, str]:
 
 def get_segments() -> list[Segment]:
     """Return all available market segments."""
-    return [Segment.from_api(s) for s in _get("/rest/segment/all")["segments"]]
+    path = "/rest/segment/all"
+    return [Segment.from_api(s) for s in _unwrap(_get(path), "segments", path)]
 
 
 # ------------------------------------------------------------------
@@ -201,26 +228,29 @@ def get_segments() -> list[Segment]:
 
 def get_all_instruments() -> list[Instrument]:
     """Return all tradable instruments with basic info (symbol + ``marketId``)."""
-    return [Instrument.from_api(i) for i in _get("/rest/instruments/all")["instruments"]]
+    path = "/rest/instruments/all"
+    return [Instrument.from_api(i) for i in _unwrap(_get(path), "instruments", path)]
 
 
 def get_instruments_details() -> list[InstrumentDetail]:
     """Return all instruments with full detail (tick size, contract size, etc.)."""
-    return [InstrumentDetail.from_api(i) for i in _get("/rest/instruments/details")["instruments"]]
+    path = "/rest/instruments/details"
+    return [InstrumentDetail.from_api(i) for i in _unwrap(_get(path), "instruments", path)]
 
 
 def get_instrument_detail(symbol: str, market_id: MarketId = "ROFX") -> InstrumentDetail:
     """Return the full detail record for a single instrument."""
+    path = "/rest/instruments/detail"
     return InstrumentDetail.from_api(
-        _get("/rest/instruments/detail", symbol=symbol, marketId=market_id)["instrument"]
+        _unwrap(_get(path, symbol=symbol, marketId=market_id), "instrument", path)
     )
 
 
 def get_instruments_by_cfi(cfi_code: CFICode) -> list[Instrument]:
     """Return instruments filtered by ISO 10962 CFI code."""
+    path = "/rest/instruments/byCFICode"
     return [
-        Instrument.from_api(i)
-        for i in _get("/rest/instruments/byCFICode", CFICode=cfi_code)["instruments"]
+        Instrument.from_api(i) for i in _unwrap(_get(path, CFICode=cfi_code), "instruments", path)
     ]
 
 
@@ -228,11 +258,12 @@ def get_instruments_by_segment(
     segment_id: SegmentId, market_id: MarketId = "ROFX"
 ) -> list[Instrument]:
     """Return instruments belonging to the given market segment."""
+    path = "/rest/instruments/bySegment"
     return [
         Instrument.from_api(i)
-        for i in _get(
-            "/rest/instruments/bySegment", MarketSegmentID=segment_id, MarketID=market_id
-        )["instruments"]
+        for i in _unwrap(
+            _get(path, MarketSegmentID=segment_id, MarketID=market_id), "instruments", path
+        )
     ]
 
 
@@ -258,8 +289,9 @@ def new_order(
 ) -> NewOrderResponse:
     """Submit a new single order (§6.3).
 
-    Note: The Primary API accepts order submission over HTTP **GET**; this
-    is a quirk of the upstream API, not a bug in this client.
+    WARNING: Submission uses HTTP GET per Primary API §6.3 spec — this is
+    intentional, not a bug. Never refactor to POST without explicit API
+    confirmation; the upstream service silently mismatches POSTs.
     """
     params: dict[str, Any] = {
         "marketId": market_id,
@@ -279,62 +311,85 @@ def new_order(
     if expire_date is not None:
         params["expireDate"] = expire_date
 
-    return NewOrderResponse.from_api(_get("/rest/order/newSingleOrder", **params)["order"])
+    path = "/rest/order/newSingleOrder"
+    return NewOrderResponse.from_api(_unwrap(_get(path, **params), "order", path))
 
 
 def replace_order(cl_ord_id: str, proprietary: str, qty: int, price: float) -> NewOrderResponse:
-    """Modify an existing order, identified by ``(clOrdId, proprietary)`` (§6.5)."""
+    """Modify an existing order, identified by ``(clOrdId, proprietary)`` (§6.5).
+
+    WARNING: Submission uses HTTP GET per Primary API §6.3 spec — this is
+    intentional, not a bug. Never refactor to POST without explicit API
+    confirmation; the upstream service silently mismatches POSTs.
+    """
+    path = "/rest/order/replaceById"
     return NewOrderResponse.from_api(
-        _get(
-            "/rest/order/replaceById",
-            clOrdId=cl_ord_id,
-            proprietary=proprietary,
-            orderQty=qty,
-            price=price,
-        )["order"]
+        _unwrap(
+            _get(
+                path,
+                clOrdId=cl_ord_id,
+                proprietary=proprietary,
+                orderQty=qty,
+                price=price,
+            ),
+            "order",
+            path,
+        )
     )
 
 
 def cancel_order(cl_ord_id: str, proprietary: str) -> NewOrderResponse:
-    """Cancel the order identified by ``(clOrdId, proprietary)`` (§6.6)."""
+    """Cancel the order identified by ``(clOrdId, proprietary)`` (§6.6).
+
+    WARNING: Submission uses HTTP GET per Primary API §6.3 spec — this is
+    intentional, not a bug. Never refactor to POST without explicit API
+    confirmation; the upstream service silently mismatches POSTs.
+    """
+    path = "/rest/order/cancelById"
     return NewOrderResponse.from_api(
-        _get("/rest/order/cancelById", clOrdId=cl_ord_id, proprietary=proprietary)["order"]
+        _unwrap(_get(path, clOrdId=cl_ord_id, proprietary=proprietary), "order", path)
     )
 
 
 def get_order_status(cl_ord_id: str, proprietary: str) -> Order:
     """Return the latest status record for ``(clOrdId, proprietary)`` (§6.8)."""
+    path = "/rest/order/id"
     return Order.from_api(
-        _get("/rest/order/id", clOrdId=cl_ord_id, proprietary=proprietary)["order"]
+        _unwrap(_get(path, clOrdId=cl_ord_id, proprietary=proprietary), "order", path)
     )
 
 
 def get_order_history(cl_ord_id: str, proprietary: str) -> list[Order]:
     """Return the full list of status transitions for ``(clOrdId, proprietary)`` (§6.9)."""
+    path = "/rest/order/allById"
     return [
         Order.from_api(o)
-        for o in _get("/rest/order/allById", clOrdId=cl_ord_id, proprietary=proprietary)["orders"]
+        for o in _unwrap(_get(path, clOrdId=cl_ord_id, proprietary=proprietary), "orders", path)
     ]
 
 
 def get_active_orders(account_id: str) -> list[Order]:
     """Return all orders currently active (``NEW`` or ``PARTIALLY_FILLED``) for an account (§6.10)."""
-    return [Order.from_api(o) for o in _get("/rest/order/actives", accountId=account_id)["orders"]]
+    path = "/rest/order/actives"
+    return [Order.from_api(o) for o in _unwrap(_get(path, accountId=account_id), "orders", path)]
 
 
 def get_filled_orders(account_id: str) -> list[Order]:
     """Return all fully filled orders for an account (§6.11)."""
-    return [Order.from_api(o) for o in _get("/rest/order/filleds", accountId=account_id)["orders"]]
+    path = "/rest/order/filleds"
+    return [Order.from_api(o) for o in _unwrap(_get(path, accountId=account_id), "orders", path)]
 
 
 def get_all_orders(account_id: str) -> list[Order]:
     """Return the latest status record of every request sent by an account (§6.12)."""
-    return [Order.from_api(o) for o in _get("/rest/order/all", accountId=account_id)["orders"]]
+    path = "/rest/order/all"
+    return [Order.from_api(o) for o in _unwrap(_get(path, accountId=account_id), "orders", path)]
 
 
 def get_order_by_exec_id(exec_id: str) -> Order:
     """Return the order matching the given execution ID (``execId``) (§6.13)."""
-    return Order.from_api(_get("/rest/order/byExecId", execId=exec_id)["order"])
+    path = "/rest/order/byExecId"
+    return Order.from_api(_unwrap(_get(path, execId=exec_id), "order", path))
 
 
 # ------------------------------------------------------------------
@@ -350,14 +405,19 @@ def get_market_data(
     depth: int | None = None,
 ) -> MarketDataSnapshot:
     """Return real-time market data for an instrument (§8.1)."""
+    path = "/rest/marketdata/get"
     return MarketDataSnapshot.from_api(
-        _get(
-            "/rest/marketdata/get",
-            marketId=market_id,
-            symbol=symbol,
-            entries=",".join(entries),
-            depth=depth,
-        )["marketData"]
+        _unwrap(
+            _get(
+                path,
+                marketId=market_id,
+                symbol=symbol,
+                entries=",".join(entries),
+                depth=depth,
+            ),
+            "marketData",
+            path,
+        )
     )
 
 
@@ -371,17 +431,22 @@ def get_trades(
     environment: str | None = None,
 ) -> list[Trade]:
     """Return historical trades for an instrument (§8.4)."""
+    path = "/rest/data/getTrades"
     return [
         Trade.from_api(t)
-        for t in _get(
-            "/rest/data/getTrades",
-            marketId=market_id,
-            symbol=symbol,
-            date=date,
-            dateFrom=date_from,
-            dateTo=date_to,
-            environment=environment,
-        )["trades"]
+        for t in _unwrap(
+            _get(
+                path,
+                marketId=market_id,
+                symbol=symbol,
+                date=date,
+                dateFrom=date_from,
+                dateTo=date_to,
+                environment=environment,
+            ),
+            "trades",
+            path,
+        )
     ]
 
 
@@ -392,13 +457,14 @@ def get_trades(
 
 def get_positions(account_name: str) -> list[Position]:
     """Return aggregated positions for an account (§9.1, HTTP Basic Auth)."""
+    path = f"/rest/risk/position/getPositions/{account_name}"
     return [
         Position.from_api(p)
-        for p in _request(
-            "GET",
-            f"/rest/risk/position/getPositions/{account_name}",
-            auth_basic=_risk_auth(),
-        )["positions"]
+        for p in _unwrap(
+            _request("GET", path, auth_basic=_risk_auth()),
+            "positions",
+            path,
+        )
     ]
 
 
