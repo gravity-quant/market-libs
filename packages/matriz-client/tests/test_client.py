@@ -201,3 +201,260 @@ def test_get_positions_uses_basic_auth(httpx_mock: HTTPXMock) -> None:
     assert request.url.path == "/rest/risk/position/getPositions/ACC1"
     assert "x-auth-token" not in {h.lower() for h in request.headers}
     assert request.headers.get("Authorization", "").startswith("Basic ")
+
+
+# ------ Regressions ------
+
+
+def test_get_segments_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_segments()
+    assert "missing envelope key 'segments'" in (exc_info.value.description or "")
+
+
+def test_get_all_instruments_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/instruments/all",
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_all_instruments()
+    assert "missing envelope key 'instruments'" in (exc_info.value.description or "")
+
+
+def test_get_instruments_details_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/instruments/details",
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_instruments_details()
+    assert "missing envelope key 'instruments'" in (exc_info.value.description or "")
+
+
+def test_get_instrument_detail_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_instrument_detail("DLR/DIC23")
+    assert "missing envelope key 'instrument'" in (exc_info.value.description or "")
+
+
+def test_get_instruments_by_cfi_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_instruments_by_cfi("ESXXXX")
+    assert "missing envelope key 'instruments'" in (exc_info.value.description or "")
+
+
+def test_get_instruments_by_segment_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_instruments_by_segment("DDF")
+    assert "missing envelope key 'instruments'" in (exc_info.value.description or "")
+
+
+def test_new_order_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.new_order(
+            symbol="DLR/DIC23",
+            side="BUY",
+            qty=1,
+            account="ACC1",
+            price=100.0,
+        )
+    assert "missing envelope key 'order'" in (exc_info.value.description or "")
+
+
+def test_replace_order_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.replace_order("ord-1", "PBCP", qty=2, price=150.0)
+    assert "missing envelope key 'order'" in (exc_info.value.description or "")
+
+
+def test_cancel_order_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.cancel_order("ord-1", "PBCP")
+    assert "missing envelope key 'order'" in (exc_info.value.description or "")
+
+
+def test_get_order_status_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_order_status("ord-1", "PBCP")
+    assert "missing envelope key 'order'" in (exc_info.value.description or "")
+
+
+def test_get_order_history_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_order_history("ord-1", "PBCP")
+    assert "missing envelope key 'orders'" in (exc_info.value.description or "")
+
+
+def test_get_active_orders_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_active_orders("ACC1")
+    assert "missing envelope key 'orders'" in (exc_info.value.description or "")
+
+
+def test_get_filled_orders_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_filled_orders("ACC1")
+    assert "missing envelope key 'orders'" in (exc_info.value.description or "")
+
+
+def test_get_all_orders_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_all_orders("ACC1")
+    assert "missing envelope key 'orders'" in (exc_info.value.description or "")
+
+
+def test_get_order_by_exec_id_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_order_by_exec_id("exec-1")
+    assert "missing envelope key 'order'" in (exc_info.value.description or "")
+
+
+def test_get_market_data_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": {}},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_market_data("DLR/DIC23")
+    assert "missing envelope key 'marketData'" in (exc_info.value.description or "")
+
+
+def test_get_trades_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_trades("DLR/DIC23", date_from="2026-01-01", date_to="2026-01-07")
+    assert "missing envelope key 'trades'" in (exc_info.value.description or "")
+
+
+def test_get_positions_raises_primary_api_error_on_missing_envelope_key(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression: PrimaryAPIError tipado en lugar de KeyError no mapeado cuando envelope key falta (finding F-NN)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/risk/position/getPositions/ACC1",
+        method="GET",
+        json={"status": "OK", "some_other_key": []},
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_positions("ACC1")
+    assert "missing envelope key 'positions'" in (exc_info.value.description or "")
+
+
+def test_request_raises_runtime_error_if_ensure_token_leaves_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: defensive guard against _ensure_token returning without populating _token (CONCERNS.md L52-55, finding F-NN)."""
+    monkeypatch.setattr(_client, "_token", None, raising=False)
+    monkeypatch.setattr(_client, "_ensure_token", lambda: None)
+    with pytest.raises(RuntimeError, match="did not populate _token"):
+        _client._request("GET", "/rest/anything")
