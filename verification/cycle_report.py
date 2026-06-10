@@ -159,7 +159,16 @@ def verify_cycle_closure(pkg: str) -> tuple[bool, list[str]]:
             missing.append(fid)
             continue
 
-        content = test_file_abs.read_text(encoding="utf-8")
+        # CR-02: guard read_text against OSError (e.g., permission denied on a
+        # findings-controlled path that resolves to an existing but unreadable
+        # file). Without this, a malformed regression entry could crash the
+        # cycle-closure probe mid-summary and abort the driver. Treat any read
+        # failure the same as a missing regression link.
+        try:
+            content = test_file_abs.read_text(encoding="utf-8")
+        except OSError:
+            missing.append(fid)
+            continue
         # Match both ``def test_x(`` and ``async def test_x(`` via substring.
         if f"def {test_name}(" not in content:
             missing.append(fid)
