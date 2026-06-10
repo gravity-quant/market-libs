@@ -20,13 +20,13 @@ y se acompaña de un test de regresión mockeado (`pytest-httpx`) siguiendo `Reg
 
 ### Verificación iol-client (IOL)
 
-- [ ] **IOL-01**: Verificar contra IOL en vivo el flujo de auth (`login()` explícito + lazy-auth en la primera llamada), sync y async
-- [ ] **IOL-02**: Barrido happy-path de `get_quote`, `get_historical_quotes`, `get_instruments`, `get_instruments_by_type` reteniendo el payload crudo, sync y async
-- [ ] **IOL-03**: Construir un mapa campo→tipo observado del `dict` crudo y compararlo con lo que asumen los callers (detección de deriva de forma)
-- [ ] **IOL-04**: Verificar en vivo la clave de envoltura `["titulos"]`, el formato de fecha del path histórico y que los campos numéricos llegan como JSON number (no string)
-- [ ] **IOL-05**: Verificar el mapeo del error 401 en vivo (credenciales inválidas vía `configure()`)
-- [ ] **IOL-06**: Verificar paridad estructural sync↔async para cada endpoint
-- [ ] **IOL-07**: Implementar `grant_type=refresh_token` con fallback a password grant en `client.py` y `aio.py`, con tests que cubran refresh exitoso y fallback
+- [x] **IOL-01**: Verificar contra IOL en vivo el flujo de auth (`login()` explícito + lazy-auth en la primera llamada), sync y async
+- [x] **IOL-02**: Barrido happy-path de `get_quote`, `get_historical_quotes`, `get_instruments`, `get_instruments_by_type` reteniendo el payload crudo, sync y async
+- [x] **IOL-03**: Construir un mapa campo→tipo observado del `dict` crudo y compararlo con lo que asumen los callers (detección de deriva de forma)
+- [x] **IOL-04**: Verificar en vivo la clave de envoltura `["titulos"]`, el formato de fecha del path histórico y que los campos numéricos llegan como JSON number (no string)
+- [x] **IOL-05**: Verificar el mapeo del error 401 en vivo (credenciales inválidas vía `configure()`)
+- [x] **IOL-06**: Verificar paridad estructural sync↔async para cada endpoint
+- [x] **IOL-07**: Implementar `grant_type=refresh_token` con fallback a password grant en `client.py` y `aio.py`, con tests que cubran refresh exitoso y fallback
 
 ### Verificación higyrus-client (HIGY)
 
@@ -50,16 +50,16 @@ y se acompaña de un test de regresión mockeado (`pytest-httpx`) siguiendo `Reg
 
 ### Verificación ambito-financiero-client (AMB)
 
-- [ ] **AMB-01**: Verificar una llamada real exitosa con el User-Agent actual, sync y async
-- [ ] **AMB-02**: Verificar `parse_ar_decimal` contra el formato real `"1.415,00"` (detectar un cambio del server a `1415.00`)
-- [ ] **AMB-03**: Verificar el formato de fecha emitido en la URL y que la respuesta llega con la forma esperada (`list[list[str]]`)
-- [ ] **AMB-04**: Verificar que `NoDataError` se dispara para una fecha sin cotización
-- [ ] **AMB-05**: Verificar paridad sync↔async
-- [ ] **AMB-06**: Probe anti-bot — confirmar que el UA correcto pasa y que un UA deliberadamente inválido reproduce el 403 (sin loops, riesgo de IP-ban)
+- [x] **AMB-01**: Verificar una llamada real exitosa con el User-Agent actual, sync y async
+- [x] **AMB-02**: Verificar `parse_ar_decimal` contra el formato real `"1.415,00"` (detectar un cambio del server a `1415.00`)
+- [x] **AMB-03**: Verificar el formato de fecha emitido en la URL y que la respuesta llega con la forma esperada (`list[list[str]]`)
+- [x] **AMB-04**: Verificar que `NoDataError` se dispara para una fecha sin cotización
+- [x] **AMB-05**: Verificar paridad sync↔async
+- [x] **AMB-06**: Probe anti-bot — confirmar que el UA correcto pasa y que un UA deliberadamente inválido reproduce el 403 (sin loops, riesgo de IP-ban)
 
 ### Detección de drift y cierre (DRIFT)
 
-- [ ] **DRIFT-01**: Commitear snapshots de schema estructural (claves + tipos, no valores) por endpoint verificado, para detección de drift en corridas futuras
+- [x] **DRIFT-01**: Commitear snapshots de schema estructural (claves + tipos, no valores) por endpoint verificado, para detección de drift en corridas futuras
 - [x] **DRIFT-02**: Producir un informe de hallazgos por paquete (cliente vs respuesta real) y dejar cada bug confirmado corregido con su test de regresión mockeado
 
 ## v2 Requirements
@@ -99,20 +99,20 @@ Qué fase cubre cada requisito. Completado durante la creación del roadmap.
 | HARN-04 | Phase 1 | Complete |
 | HARN-05 | Phase 1 | Complete |
 | HARN-06 | Phase 1 | Complete |
-| AMB-01 | Phase 2 | Pending |
-| AMB-02 | Phase 2 | Pending |
-| AMB-03 | Phase 2 | Pending |
-| AMB-04 | Phase 2 | Pending |
-| AMB-05 | Phase 2 | Pending |
-| AMB-06 | Phase 2 | Pending |
-| DRIFT-01 | Phase 2 | Pending |
-| IOL-01 | Phase 3 | Pending |
-| IOL-02 | Phase 3 | Pending |
-| IOL-03 | Phase 3 | Pending |
-| IOL-04 | Phase 3 | Pending |
-| IOL-05 | Phase 3 | Pending |
-| IOL-06 | Phase 3 | Pending |
-| IOL-07 | Phase 3 | Pending |
+| AMB-01 | Phase 2 | Complete |
+| AMB-02 | Phase 2 | Complete |
+| AMB-03 | Phase 2 | Complete |
+| AMB-04 | Phase 2 | Complete |
+| AMB-05 | Phase 2 | Complete |
+| AMB-06 | Phase 2 | Complete |
+| DRIFT-01 | Phase 2 | Complete |
+| IOL-01 | Phase 3 | Complete |
+| IOL-02 | Phase 3 | Complete |
+| IOL-03 | Phase 3 | Complete |
+| IOL-04 | Phase 3 | Complete |
+| IOL-05 | Phase 3 | Complete |
+| IOL-06 | Phase 3 | Complete |
+| IOL-07 | Phase 3 | Complete |
 | HIGY-01 | Phase 4 | Complete |
 | HIGY-02 | Phase 4 | Complete |
 | HIGY-03 | Phase 4 | Complete |
