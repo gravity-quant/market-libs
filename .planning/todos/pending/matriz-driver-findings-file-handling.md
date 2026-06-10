@@ -4,7 +4,7 @@ created: 2026-06-10
 source: Phase 5 re-run validation (post-completion observation)
 priority: low
 scope: main_matriz.py + verification/findings.py
-resolves_phase:
+resolves_phase: 11
 ---
 
 # Two-bug bundle observed in `main_matriz.py` re-runs
