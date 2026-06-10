@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: milestone_complete
-last_updated: 2026-06-10T15:03:13.665Z
-last_activity: 2026-06-09 -- Phase 05 execution started
+status: Awaiting next milestone
+last_updated: "2026-06-10T16:32:44.356Z"
+last_activity: 2026-06-10 — Milestone v1.0 completed and archived
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
   completed_plans: 18
-  percent: 80
-stopped_at: Milestone complete (Phase 05 was final phase)
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-26)
 
 ## Current Position
 
-Phase: 05
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-10
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-10 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -84,14 +81,24 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and carried forward at milestone close on 2026-06-10:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| todo | matriz-driver-findings-file-handling | low priority — driver dedupe + append-only bugs for next cycle | 2026-06-10 (v1.0 close) |
+| uat_gap | 03-HUMAN-UAT.md | partial — legacy HUMAN-UAT from Phase 3 close | 2026-06-10 (v1.0 close) |
+| uat_gap | 05-HUMAN-UAT.md | partial — 2 ítems satisfied via operator re-run 2026-06-10T15Z but archived for /gsd-audit-uat persistence | 2026-06-10 (v1.0 close) |
+| verification_gap | 03-VERIFICATION.md | human_needed — operator-driven validation deferred (same item as UAT 03) | 2026-06-10 (v1.0 close) |
+| verification_gap | 05-VERIFICATION.md | human_needed — operator-driven validation satisfied via re-run (same item as UAT 05) | 2026-06-10 (v1.0 close) |
+
+See `.planning/v1.0-MILESTONE-AUDIT.md` for the full audit context (all 5 items are intentional deferrals; none are blockers).
 
 ## Session Continuity
 
 Last session: 2026-06-09T22:17:49.318Z
 Stopped at: Phase 5 context gathered
 Resume file: .planning/phases/05-matriz-verification/05-CONTEXT.md
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

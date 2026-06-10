@@ -55,15 +55,17 @@ corregida.
 
 ## Context
 
-- **Estado de testing actual:** todos los tests son unitarios con HTTP mockeado (`pytest-httpx`). No hay tests de integración ni E2E contra APIs reales. Los `main_*.py` son el único contacto con servicios en vivo y hoy apenas cubren `login()` + 1-2 funciones por cliente. De ahí la necesidad de verificación en vivo: nada confirma hoy que los clientes coincidan con el comportamiento real de las APIs.
-- **Superficie por cliente (a ejercitar):**
-  - `iol-client`: `get_quote`, `get_historical_quotes`, `get_instruments`, `get_instruments_by_type` (sync + async). No tiene modelos tipados — devuelve `dict` crudo, lo que facilita discrepancias silenciosas de forma.
-  - `higyrus-client`: cuentas, movimientos, posiciones, health (sync + async). Usa `SafeModel`/`from_api` tolerante.
-  - `matriz-client`: segments, instruments, market data, órdenes (sync REST). Modelos `from_api`. Verifica también el chequeo de `"status": "ERROR"` del payload de Primary.
-  - `ambito-financiero-client`: cotizaciones FX (sync + async). Sin auth; depende de un User-Agent de navegador hardcodeado (frágil ante anti-bot).
-- **Credenciales:** Ámbito no requiere auth. IOL/Higyrus/Matriz requieren `.env` por paquete (`packages/<pkg>/.env`, con `.env.example` de plantilla). Matriz apunta por defecto a remarkets (sandbox).
-- **Convención de regresión existente:** el codebase ya marca tests de regresión con referencia al bug (ej. `"""Regression: ... (issue #102)."""`); los fixes de este ciclo deben seguir esa convención.
-- **Mapa de codebase disponible:** `.planning/codebase/` (ARCHITECTURE, STACK, STRUCTURE, TESTING, CONCERNS, CONVENTIONS, INTEGRATIONS).
+- **Current state (post-v1.0):** 4 de 5 paquetes (`ambito-financiero-client`, `iol-client`, `higyrus-client`, `matriz-client`) están **verificados end-to-end contra sus APIs reales** vía drivers `main_*.py` ejecutados manualmente. El 5° paquete (`wallets-client`) sigue stub. Cada paquete tiene un findings file `.planning/verification/<pkg>-findings.md` con clasificación operator-driven, schemas snapshot committeables PII-free (envelope D-21), y secciones `## Cycle Closure` con cycle ID + counts + verify_cycle_closure result. El meta-baseline DRIFT-02 vive en `.planning/verification/CYCLE-REPORT.md`.
+- **Stats v1.0 cycle:**
+  - 277 mocked tests passing (vs ~50 al inicio del ciclo)
+  - 18 schema snapshots committed (1 ámbito + 4 iol + 5 higyrus + 8 matriz)
+  - 14 findings clasificados (1 ámbito + 1 iol + 2 higyrus + 10 matriz) — 1 CONFIRMED + 4 EXPECTED + 9 NO-FIX + 0 FIXED-tagged-this-cycle (los 16+6 higyrus fixes Phase 4 son in-cycle pero predatan la convención `Regression:` field)
+  - 5 phase canonical commits + 1 cycle-wide canonical baseline forensic-localizable via `git log --grep="DRIFT-02 cycle closure"`
+  - 4 BLOCKERs del code review final de Phase 5 fixeados con regression tests (2 Critical + 2 PII Warning)
+- **Tech stack mantenido:** Python 3.12+, uv, httpx (sync+async), pytest+pytest-httpx, ruff (rule sets E/W/F/I/B/UP/SIM/RUF/ASYNC/PIE/PT/RET/TID), mypy strict — todo el CI permanece verde. Sin cambios arquitectónicos: los packages siguen siendo standalone wheels sin shared internals (por diseño).
+- **Harness module** `verification/` (no publicable, vive en repo root): `redaction`, `env_gate`, `mutation_gate`, `findings`, `schema`, `capture`, `anonymize`, `safemodel_diff`, `cycle_report` — todos consumidos por los 4 drivers vía import del barrel. Phase 5 promovió `safemodel_diff` y `cycle_report` desde inline-en-drivers a módulos del harness (cross-package duck-typed) para que matriz pudiera invocar `verify_cycle_closure × 4 pkgs`.
+- **Convención forward-looking ratificada (operator decision Phase 5 Op A):** desde cycle-2026-Q3+ / Phase 6+, cada CONFIRMED → FIXED transition appendea `Regression: <path>::<test>` al bullet del finding. Historical findings (Phases 2-4) inherit Phase-level audit via SUMMARY counts.
+- **Mapa de codebase disponible:** `.planning/codebase/` (ARCHITECTURE, STACK, STRUCTURE, TESTING, CONCERNS, CONVENTIONS, INTEGRATIONS) — vigente, actualizar si vuelve a haber un próximo cycle.
 
 ## Constraints
 
@@ -77,13 +79,15 @@ corregida.
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Verificar contra APIs en vivo (no mock) | El objetivo es detectar divergencias reales cliente-vs-servicio, que el mock oculta | — Pending |
-| Vehículo = scripts `main_*.py` extendidos | Ya existen como smoke-test manual; extenderlos cubre toda la superficie sin nueva infraestructura | — Pending |
-| Cubrir sync + async | Ambas superficies pueden divergir; la lógica está duplicada y puede haber bugs solo en una | — Pending |
-| Reportar y arreglar en el mismo ciclo | El usuario quiere cerrar el loop: hallazgo → corrección | — Pending |
-| Cada fix con test de regresión mockeado | Evita que el bug regrese; sigue la convención existente del codebase | — Pending |
-| Excluir `wallets-client` | Es un stub sin endpoints reales ni servicio verificable | — Pending |
-| Excluir WebSocket/async de matriz | Capa thread-based sin contraparte async; fuera de foco | — Pending |
+| Verificar contra APIs en vivo (no mock) | El objetivo es detectar divergencias reales cliente-vs-servicio, que el mock oculta | ✓ Good — v1.0 detectó 14 findings reales (1 ámbito + 1 iol + 2 higyrus + 10 matriz) que mock no expone |
+| Vehículo = scripts `main_*.py` extendidos | Ya existen como smoke-test manual; extenderlos cubre toda la superficie sin nueva infraestructura | ✓ Good — Phase 2-5 expandieron de ~57 LOC smoke a 1500-2000 LOC drivers con ~25 probes nombrados cada uno |
+| Cubrir sync + async | Ambas superficies pueden divergir; la lógica está duplicada y puede haber bugs solo en una | ✓ Good — Phase 4 fixeó 10+6 sites en `client.py` y `aio.py` de higyrus en paralelo; paridad sync↔async verificada |
+| Reportar y arreglar en el mismo ciclo | El usuario quiere cerrar el loop: hallazgo → corrección | ✓ Good — higyrus +18 envelope + 6 wire encoding fixes, iol refresh_token fix, matriz envelope `_unwrap × 18` + `_token` raise — todos in-cycle |
+| Cada fix con test de regresión mockeado | Evita que el bug regrese; sigue la convención existente del codebase | ✓ Good — Phase 4: 24 higyrus regressions; Phase 5: 19 matriz regressions + 4 code-review BLOCKER regressions; total ~52 nuevos regression tests cubriendo fixes |
+| Excluir `wallets-client` | Es un stub sin endpoints reales ni servicio verificable | ✓ Good — no se tocó; sigue stub esperando endpoints reales |
+| Excluir WebSocket/async de matriz | Capa thread-based sin contraparte async; fuera de foco | ⚠️ Revisit — confirmado como out-of-scope para v1.0; matriz async surface es candidato explícito para v1.1+ |
+| Promotion de helpers cross-package (Phase 5 D-MATZ-18) | El `diff_safemodel_bidirectional` y `verify_cycle_closure` necesitaban duck-typing cross-package para servir a higyrus+matriz desde `verification/` | ✓ Good — `verification/safemodel_diff.py` + `verification/cycle_report.py` promovidos; main_higyrus.py retrofitted; verify_cycle_closure × 4 paquetes WIRED y ejercitado live |
+| F-09 deferred + cycle_closure FAIL como señal DRIFT-02 (Phase 5 Op A) | Operator decidió no fixear F-09 en este cycle; el FAIL es la señal que cierra DRIFT-02 (el ciclo detecta su propio gap) | ⚠️ Revisit en v1.1 — convención forward-looking ratificada (Regression: `<path>::<test>` field desde Phase 6); F-09 fix esperado en próximo cycle |
 
 ## Evolution
 
@@ -103,4 +107,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-10 after Phase 5 (matriz-verification + DRIFT-02 cycle closure) completion — milestone v1.0 cycle complete*
+*Last updated: 2026-06-10 after v1.0 milestone completion (5 phases / 18 plans / 35/35 requirements / 277 tests / 5-5 Nyquist compliant / DRIFT-02 baseline `verification-cycle-2026-Q2`). Next milestone TBD via /gsd-new-milestone.*
