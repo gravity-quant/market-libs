@@ -1327,8 +1327,14 @@ def probe_get_detailed_positions() -> tuple[ProbeResult, dict[str, Any] | None]:
             base_url=base_url,
         )
         return (ProbeResult("get_detailed_positions", "FINDING", f"{fid} (OPEN)"), None)
+    # WR-01 belt-and-suspenders: aunque PRIMARY_ACCOUNT está en `secrets` y
+    # safe_print lo redacta, no insertamos el accountId completo en el detail
+    # string. Reportamos sólo "received" como evidencia estructural — el
+    # accountId real ya está en el endpoint template del schema snapshot
+    # como placeholder <PRIMARY_ACCOUNT>.
+    _ = raw.get("account", "<unknown>")
     return (
-        ProbeResult("get_detailed_positions", "PASS", f"account={raw.get('account', '<unknown>')}"),
+        ProbeResult("get_detailed_positions", "PASS", "account received"),
         raw,
     )
 
@@ -1384,12 +1390,13 @@ def probe_get_account_report() -> tuple[ProbeResult, dict[str, Any] | None]:
             base_url=base_url,
         )
         return (ProbeResult("get_account_report", "FINDING", f"{fid} (OPEN)"), None)
+    # WR-01: idem get_detailed_positions — no inserto el accountName real en
+    # el detail string. La evidencia estructural ("received") basta para PASS;
+    # el accountId real queda redactado por `safe_print` a través de la lista
+    # secrets ahora que PRIMARY_ACCOUNT figura allí.
+    _ = raw.get("accountName", "<unknown>")
     return (
-        ProbeResult(
-            "get_account_report",
-            "PASS",
-            f"accountName={raw.get('accountName', '<unknown>')}",
-        ),
+        ProbeResult("get_account_report", "PASS", "accountName received"),
         raw,
     )
 
@@ -1818,6 +1825,14 @@ def main() -> None:
     user_env = os.getenv("PRIMARY_USER", "")
     if user_env and len(user_env) >= 4:
         secrets.append(user_env)
+    # WR-01: PRIMARY_ACCOUNT es PII operacional (account ID real). Sin esto, las
+    # líneas PROBE de get_detailed_positions y get_account_report (y cualquier
+    # probe que devuelva el accountId en su detail string) lo imprimirían
+    # verbatim en stdout / CI logs. safe_print lo redacta como cualquier otro
+    # secret una vez incluido en la lista.
+    account_env = os.getenv("PRIMARY_ACCOUNT", "")
+    if account_env and len(account_env) >= 4:
+        secrets.append(account_env)
 
     results: list[ProbeResult] = []
     payloads: dict[str, Any] = {}
