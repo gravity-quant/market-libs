@@ -164,7 +164,20 @@ def _request(
         )
 
     resp.raise_for_status()
-    data: dict[str, Any] = resp.json()
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        # Defense for CR-01: the documented contract is a JSON object body.
+        # If Primary ever returns a top-level list/scalar (e.g., upstream
+        # regression or a Risk API endpoint that drops the wrapper), surface a
+        # typed ``PrimaryAPIError`` instead of letting the next ``raw.get(...)``
+        # raise an unmapped ``AttributeError`` outside the client's documented
+        # exception contract.
+        raise PrimaryAPIError(
+            status="ERROR",
+            description=f"expected JSON object body at {path}, got {type(raw).__name__}",
+            message=None,
+        )
+    data: dict[str, Any] = raw
     if data.get("status") == "ERROR":
         raise PrimaryAPIError(
             status="ERROR",

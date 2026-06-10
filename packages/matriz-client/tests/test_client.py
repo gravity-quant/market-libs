@@ -461,6 +461,44 @@ def test_request_raises_runtime_error_if_ensure_token_leaves_none(
         _client._request("GET", "/rest/anything")
 
 
+def test_request_raises_primary_api_error_when_body_is_not_dict(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression CR-01: PrimaryAPIError tipado cuando ``resp.json()`` devuelve un valor que NO es dict.
+
+    Sin el ``isinstance(raw, dict)`` guard en ``_request``, un payload list/scalar
+    rompía con un ``AttributeError`` no-mapeado en la línea ``data.get("status")``
+    — fuera del contrato documentado del cliente (``PrimaryAPIError`` /
+    ``AuthenticationError``). El guard surface el error como ``PrimaryAPIError``
+    con ``status='ERROR'`` y descripción que cita el tipo recibido.
+    """
+    # Top-level JSON array
+    httpx_mock.add_response(
+        url="https://api.test/rest/risk/detailedPosition/ACC1",
+        method="GET",
+        json=[{"foo": "bar"}],
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_detailed_positions("ACC1")
+    assert "expected JSON object body" in (exc_info.value.description or "")
+    assert "got list" in (exc_info.value.description or "")
+
+
+def test_request_raises_primary_api_error_when_body_is_scalar(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Regression CR-01: PrimaryAPIError cuando el body es un escalar (str/int/None) en vez de dict."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/risk/accountReport/ACC1",
+        method="GET",
+        json="unexpected scalar",
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_account_report("ACC1")
+    assert "expected JSON object body" in (exc_info.value.description or "")
+    assert "got str" in (exc_info.value.description or "")
+
+
 # ------ Verified live (Phase 5) ------
 
 
