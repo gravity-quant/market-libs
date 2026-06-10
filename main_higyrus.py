@@ -756,6 +756,17 @@ def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] 
             _resolved_cuenta = candidate if isinstance(candidate, str) and candidate else None
         if _resolved_cuenta is None:
             fid = _next_fid()
+            # WR-08 (PII discipline D-HIGY-2): NO emitir los key names de la
+            # primera cuenta — incluyen potencialmente identificadores como
+            # ``titular`` / ``cbu`` / ``cuit`` que ``append_finding`` escribiría
+            # verbatim al findings markdown committeado. Reportamos sólo el
+            # conteo + tipo para satisfacer la disciplina "COUNTS and SHAPE
+            # descriptors, NEVER payload content".
+            actual_shape = (
+                f"cuentas[0]=<dict, {len(first)} keys hidden>"
+                if isinstance(first, dict)
+                else f"cuentas[0]=<{type(first).__name__}>"
+            )
             append_finding(
                 _PKG,
                 fid=fid,
@@ -764,7 +775,7 @@ def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] 
                 status="OPEN",
                 title="cuentas[0].id no resoluble",
                 expected="cuentas[0]['id'] presente como str no vacío",
-                actual=f"cuentas[0] keys={sorted(first.keys()) if isinstance(first, dict) else type(first).__name__}",
+                actual=actual_shape,
                 diff="no se pudo resolver _resolved_cuenta — downstream SKIPPED",
                 base_url=base_url,
             )
