@@ -178,39 +178,42 @@ compat layer sobre la clase `Client` interna.
 
 *Filled by roadmap (see `ROADMAP.md`)*
 
-| REQ-ID | Phase | Status |
-|--------|-------|--------|
-| REFAC-01 | TBD   | Open   |
-| REFAC-02 | TBD   | Open   |
-| REFAC-03 | TBD   | Open   |
-| REFAC-04 | TBD   | Open   |
-| RELY-01  | TBD   | Open   |
-| RELY-02  | TBD   | Open   |
-| RELY-03  | TBD   | Open   |
-| RELY-04  | TBD   | Open   |
-| LOG-01   | TBD   | Open   |
-| LOG-02   | TBD   | Open   |
-| LOG-03   | TBD   | Open   |
-| BUG-01   | TBD   | Open   |
-| BUG-02   | TBD   | Open   |
-| BUG-03   | TBD   | Open   |
-| BUG-04   | TBD   | Open   |
-| HARN-07  | TBD   | Open   |
-| HARN-08  | TBD   | Open   |
-| HARN-09  | TBD   | Open   |
-| HARN-10  | TBD   | Open   |
-| CR-01    | TBD   | Open   |
-| CR-02    | TBD   | Open   |
-| CR-03    | TBD   | Open   |
-| CR-04    | TBD   | Open   |
-| CR-05    | TBD   | Open   |
-| CR-06    | TBD   | Open   |
-| CR-07    | TBD   | Open   |
-| CR-08    | TBD   | Open   |
-| LIVE-01  | TBD   | Open   |
-| LIVE-02  | TBD   | Open   |
+| REQ-ID   | Phase     | Status |
+|----------|-----------|--------|
+| REFAC-01 | Phase 6   | Open   |
+| REFAC-02 | Phase 6   | Open   |
+| REFAC-03 | Phase 7   | Open   |
+| REFAC-04 | Phase 10  | Open   |
+| RELY-01  | Phase 8   | Open   |
+| RELY-02  | Phase 8   | Open   |
+| RELY-03  | Phase 8   | Open   |
+| RELY-04  | Phase 8   | Open   |
+| LOG-01   | Phase 8   | Open   |
+| LOG-02   | Phase 8   | Open   |
+| LOG-03   | Phase 8   | Open   |
+| BUG-01   | Phase 9   | Open   |
+| BUG-02   | Phase 9   | Open   |
+| BUG-03   | Phase 9   | Open   |
+| BUG-04   | Phase 9   | Open   |
+| HARN-07  | Phase 11  | Open   |
+| HARN-08  | Phase 11  | Open   |
+| HARN-09  | Phase 11  | Open   |
+| HARN-10  | Phase 11  | Open   |
+| CR-01    | Phase 11  | Open   |
+| CR-02    | Phase 11  | Open   |
+| CR-03    | Phase 7   | Open   |
+| CR-04    | Phase 11  | Open   |
+| CR-05    | Phase 7   | Open   |
+| CR-06    | Phase 11  | Open   |
+| CR-07    | Phase 11  | Open   |
+| CR-08    | Phase 11  | Open   |
+| LIVE-01  | Phase 11  | Open   |
+| LIVE-02  | Phase 10  | Open   |
+
+**Coverage:** 29/29 requirements mapped to exactly one phase ✓
 
 ---
 
 *Total: 29 requirements across 7 categories. Created 2026-06-10 for v1.1
-Tech Debt Cleanup milestone.*
+Tech Debt Cleanup milestone. Traceability table populated 2026-06-10 by
+roadmap.*
