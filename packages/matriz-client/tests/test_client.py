@@ -458,3 +458,263 @@ def test_request_raises_runtime_error_if_ensure_token_leaves_none(
     monkeypatch.setattr(_client, "_ensure_token", lambda: None)
     with pytest.raises(RuntimeError, match="did not populate _token"):
         _client._request("GET", "/rest/anything")
+
+
+# ------ Verified live (Phase 5) ------
+
+
+def test_get_segments_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap segments (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        method="GET",
+        json={
+            "status": "OK",
+            "segments": [{"marketSegmentId": "DDF", "marketId": "ROFX"}],
+        },
+    )
+    result = matriz_client.get_segments()
+    assert len(result) == 1
+    assert result[0].marketSegmentId == "DDF"
+    assert result[0].marketId == "ROFX"
+
+
+def test_get_all_instruments_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap instruments (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/instruments/all",
+        method="GET",
+        json={
+            "status": "OK",
+            "instruments": [
+                {
+                    "instrumentId": {"symbol": "DLR/JUN26", "marketId": "ROFX"},
+                    "cficode": "ESXXXX",
+                }
+            ],
+        },
+    )
+    result = matriz_client.get_all_instruments()
+    assert len(result) == 1
+    assert result[0].instrumentId.symbol == "DLR/JUN26"
+    assert result[0].instrumentId.marketId == "ROFX"
+    assert result[0].cficode == "ESXXXX"
+
+
+def test_get_instruments_details_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap instruments details (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/instruments/details",
+        method="GET",
+        json={
+            "status": "OK",
+            "instruments": [
+                {
+                    "instrumentId": {"symbol": "DLR/JUN26", "marketId": "ROFX"},
+                    "cficode": "ESXXXX",
+                    "tickSize": 0.5,
+                }
+            ],
+        },
+    )
+    result = matriz_client.get_instruments_details()
+    assert len(result) == 1
+    assert result[0].instrumentId.symbol == "DLR/JUN26"
+    assert result[0].tickSize == 0.5
+
+
+def test_get_instrument_detail_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap instrument (singular) (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/instruments/detail?symbol=DLR%2FJUN26&marketId=ROFX",
+        method="GET",
+        json={
+            "status": "OK",
+            "instrument": {
+                "instrumentId": {"symbol": "DLR/JUN26", "marketId": "ROFX"},
+                "cficode": "ESXXXX",
+                "tickSize": 0.5,
+            },
+        },
+    )
+    result = matriz_client.get_instrument_detail("DLR/JUN26")
+    assert result.instrumentId.symbol == "DLR/JUN26"
+    assert result.cficode == "ESXXXX"
+
+
+def test_get_instruments_by_segment_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap instruments by segment (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/instruments/bySegment?MarketSegmentID=DDF&MarketID=ROFX",
+        method="GET",
+        json={
+            "status": "OK",
+            "instruments": [
+                {
+                    "instrumentId": {"symbol": "DLR/JUN26", "marketId": "ROFX"},
+                    "cficode": "ESXXXX",
+                }
+            ],
+        },
+    )
+    result = matriz_client.get_instruments_by_segment("DDF")
+    assert len(result) == 1
+    assert result[0].instrumentId.symbol == "DLR/JUN26"
+
+
+def test_get_market_data_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap marketData (finding F-NN si rompe)."""
+    current_ms = int(time.time() * 1000)
+    httpx_mock.add_response(
+        method="GET",
+        json={
+            "status": "OK",
+            "marketData": {
+                "BI": [],
+                "OF": [],
+                "LA": {"price": 100.0, "size": 1, "date": current_ms},
+                "SE": None,
+            },
+        },
+    )
+    result = matriz_client.get_market_data("DLR/JUN26")
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/marketdata/get"
+    params = request.url.params
+    assert params["symbol"] == "DLR/JUN26"
+    assert params["marketId"] == "ROFX"
+    assert "entries" in params
+    assert result.LA.price == 100.0
+    assert result.LA.date == current_ms
+
+
+def test_get_trades_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap trades (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={
+            "status": "OK",
+            "trades": [
+                {
+                    "symbol": "DLR/JUN26",
+                    "price": 100.0,
+                    "size": 1,
+                    "servertime": 1700000000000,
+                    "datetime": "2026-05-01T10:00:00",
+                }
+            ],
+        },
+    )
+    result = matriz_client.get_trades("DLR/JUN26", date_from="2026-05-01", date_to="2026-05-07")
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/data/getTrades"
+    params = request.url.params
+    assert params["symbol"] == "DLR/JUN26"
+    assert params["dateFrom"] == "2026-05-01"
+    assert params["dateTo"] == "2026-05-07"
+    assert len(result) == 1
+    assert result[0].symbol == "DLR/JUN26"
+    assert result[0].price == 100.0
+
+
+def test_get_positions_url_invariant_phase5(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: URL exacta + envelope unwrap positions (Risk API HTTP Basic) (finding F-NN si rompe)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/risk/position/getPositions/ACC",
+        method="GET",
+        json={
+            "status": "OK",
+            "positions": [
+                {
+                    "symbol": "DLR/JUN26",
+                    "buySize": 1.0,
+                    "sellSize": 0.0,
+                    "buyPrice": 100.0,
+                }
+            ],
+        },
+    )
+    result = matriz_client.get_positions("ACC")
+    assert len(result) == 1
+    assert result[0].symbol == "DLR/JUN26"
+    assert result[0].buySize == 1.0
+
+
+def test_get_market_data_returns_snapshot_with_stale_LA_date(httpx_mock: HTTPXMock) -> None:
+    """Verified Phase 5: market-hours guard (D-MATZ-5) — el cliente retorna MarketDataSnapshot con LA.date sin levantar error aunque sea stale; el driver decide si asertar valor (finding F-NN)."""
+    # LA.date artificially stale (3h ago)
+    stale_date_ms = int((time.time() - 3 * 3600) * 1000)
+    httpx_mock.add_response(
+        method="GET",
+        json={
+            "status": "OK",
+            "marketData": {
+                "BI": [],
+                "OF": [],
+                "LA": {"price": 100.0, "size": 1, "date": stale_date_ms},
+                "SE": None,
+            },
+        },
+    )
+    result = matriz_client.get_market_data("DLR/JUN26")
+    # El cliente NO levanta error por staleness — eso es responsabilidad del driver
+    assert result.LA.date == stale_date_ms
+    assert result.LA.price == 100.0
+
+
+def test_get_market_data_raises_primary_api_error_on_status_error(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Verified Phase 5: MATZ-05 — {'status':'ERROR'} -> PrimaryAPIError(status='ERROR') para bogus symbol (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={
+            "status": "ERROR",
+            "description": "bogus symbol ZZZZZZ-NOT-A-SYMBOL not found",
+            "message": None,
+        },
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
+    assert exc_info.value.status == "ERROR"
+    assert "bogus" in (exc_info.value.description or "")
+
+
+def test_get_active_orders_raises_primary_api_error_on_invalid_account(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Verified Phase 5: MATZ-05 — {'status':'ERROR'} -> PrimaryAPIError(status='ERROR') para invalid account (finding F-NN)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={
+            "status": "ERROR",
+            "description": "invalid account 'INVALID-ACCT-XXXXX' not found",
+            "message": None,
+        },
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_active_orders("INVALID-ACCT-XXXXX")
+    assert exc_info.value.status == "ERROR"
+    assert "invalid account" in (exc_info.value.description or "")
+
+
+def test_get_instruments_by_cfi_raises_primary_api_error_on_malformed_cfi(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Verified Phase 5: MATZ-05 — {'status':'ERROR'} -> PrimaryAPIError(status='ERROR') para malformed CFI (finding F-NN)."""
+    from typing import cast
+
+    from matriz_client.types import CFICode
+
+    httpx_mock.add_response(
+        method="GET",
+        json={
+            "status": "ERROR",
+            "description": "malformed CFI code 'INVALID-CFI'",
+            "message": None,
+        },
+    )
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        matriz_client.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
+    assert exc_info.value.status == "ERROR"
+    assert "malformed" in (exc_info.value.description or "")
