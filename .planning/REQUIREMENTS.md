@@ -40,13 +40,13 @@ y se acompaña de un test de regresión mockeado (`pytest-httpx`) siguiendo `Reg
 
 ### Verificación matriz-client (MATZ)
 
-- [ ] **MATZ-01**: Verificar contra Primary/remarkets en vivo el flujo de auth (login + lazy-auth), sync REST
-- [ ] **MATZ-02**: Barrido happy-path read-only de toda la superficie REST (segments, instruments en sus variantes, market data, trades, order *reads*, risk positions/report) reteniendo payload
-- [ ] **MATZ-03**: Diff de claves del payload crudo vs campos de los modelos `from_api` (field-drop)
-- [ ] **MATZ-04**: Verificar en vivo la existencia de las claves de envoltura (`order`/`orders`/`marketData`/`trades`/`positions`); un `KeyError` no mapeado a la jerarquía de excepciones es candidato a fix
-- [ ] **MATZ-05**: Verificar cobertura de `{"status":"ERROR"}` → `PrimaryAPIError` en varias condiciones de error distintas (símbolo bogus, cuenta inválida, param malformado)
-- [ ] **MATZ-06**: Verificación mock-only de la construcción de request + parsing de respuesta de `new_order`/`replace_order`/`cancel_order` — nunca en vivo (preservar el quirk de submit por GET en el mock)
-- [ ] **MATZ-07**: Assertions de market data solo sobre forma/tipo/presencia (no sobre valores), con guarda de horario de mercado para los paths que dependen de sesión abierta
+- [x] **MATZ-01**: Verificar contra Primary/remarkets en vivo el flujo de auth (login + lazy-auth), sync REST
+- [x] **MATZ-02**: Barrido happy-path read-only de toda la superficie REST (segments, instruments en sus variantes, market data, trades, order *reads*, risk positions/report) reteniendo payload
+- [x] **MATZ-03**: Diff de claves del payload crudo vs campos de los modelos `from_api` (field-drop)
+- [x] **MATZ-04**: Verificar en vivo la existencia de las claves de envoltura (`order`/`orders`/`marketData`/`trades`/`positions`); un `KeyError` no mapeado a la jerarquía de excepciones es candidato a fix
+- [x] **MATZ-05**: Verificar cobertura de `{"status":"ERROR"}` → `PrimaryAPIError` en varias condiciones de error distintas (símbolo bogus, cuenta inválida, param malformado)
+- [x] **MATZ-06**: Verificación mock-only de la construcción de request + parsing de respuesta de `new_order`/`replace_order`/`cancel_order` — nunca en vivo (preservar el quirk de submit por GET en el mock)
+- [x] **MATZ-07**: Assertions de market data solo sobre forma/tipo/presencia (no sobre valores), con guarda de horario de mercado para los paths que dependen de sesión abierta
 
 ### Verificación ambito-financiero-client (AMB)
 
@@ -60,7 +60,7 @@ y se acompaña de un test de regresión mockeado (`pytest-httpx`) siguiendo `Reg
 ### Detección de drift y cierre (DRIFT)
 
 - [ ] **DRIFT-01**: Commitear snapshots de schema estructural (claves + tipos, no valores) por endpoint verificado, para detección de drift en corridas futuras
-- [ ] **DRIFT-02**: Producir un informe de hallazgos por paquete (cliente vs respuesta real) y dejar cada bug confirmado corregido con su test de regresión mockeado
+- [x] **DRIFT-02**: Producir un informe de hallazgos por paquete (cliente vs respuesta real) y dejar cada bug confirmado corregido con su test de regresión mockeado
 
 ## v2 Requirements
 
@@ -120,14 +120,14 @@ Qué fase cubre cada requisito. Completado durante la creación del roadmap.
 | HIGY-05 | Phase 4 | Complete |
 | HIGY-06 | Phase 4 | Complete |
 | HIGY-07 | Phase 4 | Complete |
-| MATZ-01 | Phase 5 | Pending |
-| MATZ-02 | Phase 5 | Pending |
-| MATZ-03 | Phase 5 | Pending |
-| MATZ-04 | Phase 5 | Pending |
-| MATZ-05 | Phase 5 | Pending |
-| MATZ-06 | Phase 5 | Pending |
-| MATZ-07 | Phase 5 | Pending |
-| DRIFT-02 | Phase 5 | Pending |
+| MATZ-01 | Phase 5 | Complete |
+| MATZ-02 | Phase 5 | Complete |
+| MATZ-03 | Phase 5 | Complete |
+| MATZ-04 | Phase 5 | Complete |
+| MATZ-05 | Phase 5 | Complete |
+| MATZ-06 | Phase 5 | Complete |
+| MATZ-07 | Phase 5 | Complete |
+| DRIFT-02 | Phase 5 | Complete |
 
 **Note on DRIFT (cross-cutting):** DRIFT-01 (schema snapshots) is anchored to Phase 2 and DRIFT-02 (per-package findings report + fix-with-regression-test) to Phase 5, but each client phase (2–5) produces its own structural schema snapshot, classified findings file, and mocked regression tests as part of its definition of "done."
 
