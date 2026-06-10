@@ -111,3 +111,29 @@
 - **Expected:** verification limited to remarkets sandbox by safety policy (REQUIREMENTS.md Out of Scope)
 - **Actual:** prod (api.primary.com.ar) shape unverified; sandbox shape committed in .planning/verification/schemas/matriz-client/
 - **Diff:** N/A (acknowledged limitation, not detected drift)
+
+## Cycle Closure
+
+**Cycle ID:** `verification-cycle-2026-Q2`
+**Closure date:** 2026-06-10T01:10:32+00:00
+**Packages verified in this cycle:** 4 (ambito-financiero-client, iol-client, higyrus-client, matriz-client)
+
+### Findings by status (this package)
+
+| OPEN | CONFIRMED | FIXED | EXPECTED | NO-FIX | Total |
+|------|-----------|-------|----------|--------|-------|
+| 0 | 1 | 0 | 2 | 7 | 10 |
+
+### Regression tests linked to FIXED/CONFIRMED findings
+
+*(historical findings predate the regression-link convention introduced in Phase 5; see [CYCLE-REPORT.md](./CYCLE-REPORT.md) "Open questions" for downstream milestone caveat)*
+
+### Cycle validation
+
+`verify_cycle_closure("matriz-client")` returned: **FAIL**
+
+Missing regressions: F-09
+
+---
+
+See [CYCLE-REPORT.md](./CYCLE-REPORT.md) for the consolidated cross-package report.

@@ -22,3 +22,27 @@
 - **Expected:** 403 con UA=python-httpx/...
 - **Actual:** 403 con UA=python-httpx/...
 - **Diff:** ninguno; comportamiento esperado de la defensa anti-bot
+
+## Cycle Closure
+
+**Cycle ID:** `verification-cycle-2026-Q2`
+**Closure date:** 2026-06-10T01:10:32+00:00
+**Packages verified in this cycle:** 4 (ambito-financiero-client, iol-client, higyrus-client, matriz-client)
+
+### Findings by status (this package)
+
+| OPEN | CONFIRMED | FIXED | EXPECTED | NO-FIX | Total |
+|------|-----------|-------|----------|--------|-------|
+| 0 | 0 | 0 | 1 | 0 | 1 |
+
+### Regression tests linked to FIXED/CONFIRMED findings
+
+*(historical findings predate the regression-link convention introduced in Phase 5; see [CYCLE-REPORT.md](./CYCLE-REPORT.md) "Open questions" for downstream milestone caveat)*
+
+### Cycle validation
+
+`verify_cycle_closure("ambito-financiero-client")` returned: **PASS**
+
+---
+
+See [CYCLE-REPORT.md](./CYCLE-REPORT.md) for the consolidated cross-package report.
