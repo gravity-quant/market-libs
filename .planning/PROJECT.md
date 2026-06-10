@@ -35,17 +35,13 @@ corregida.
 - ✓ CI en GitHub Actions (ruff, mypy strict, pytest; matriz 3.12/3.13) — existing
 - ✓ Scripts `main_*.py` de smoke-test manual (login + 1-2 funciones) — existing
 - ✓ Harness de verificación en vivo: gate de credenciales (`require_env`), doble gate de mutación (`mutating_allowed`, hostname remarkets exacto), redacción (`redact`/`safe_print` + patrón Bearer), marker `@pytest.mark.live` con `--live`, formato de hallazgos clasificado y pipeline payload→anonimización→fixture (HARN-01..06) — Validado en Phase 1 (2026-05-28)
-
-### Active
-
-<!-- Foco de este ciclo. Hipótesis hasta verificar contra la API real. -->
-
-- [ ] Ejercitar la superficie pública completa sync+async de `iol-client` contra IOL en vivo
-- [ ] Ejercitar la superficie pública completa sync+async de `higyrus-client` contra Higyrus en vivo
-- [ ] Ejercitar la superficie pública sync (REST) de `matriz-client` contra Primary/remarkets en vivo
-- [ ] Ejercitar la superficie pública completa sync+async de `ambito-financiero-client` contra la API pública en vivo
-- [ ] Documentar cada bug/discrepancia hallado (cliente vs respuesta real de la API)
-- [ ] Corregir cada bug detectado, acompañado de un test de regresión mockeado
+- ✓ Verificación completa de `ambito-financiero-client` (sync+async) contra API pública — Validado en Phase 2
+- ✓ Verificación completa de `iol-client` (sync+async) contra IOL en vivo — Validado en Phase 3
+- ✓ Verificación completa de `higyrus-client` (sync+async) contra Higyrus en vivo, con fix in-cycle de 10 sites envelope-key indexing + 6 sites httpx %2F wire encoding — Validado en Phase 4 (2026-06-09)
+- ✓ Verificación sync (REST) de `matriz-client` contra Primary/remarkets en vivo, con fix in-cycle de 18 sites envelope-key indexing + _token RuntimeError guard + §6.3 GET-as-write docstrings + 19 regressions — Validado en Phase 5 (2026-06-10)
+- ✓ DRIFT-02 cycle closure: baseline `verification-cycle-2026-Q2` con `CYCLE-REPORT.md` consolidado (4 pkgs, 14 findings, 18 schemas, `verify_cycle_closure × 4`) y commit canónico forensic-localizable — Validado en Phase 5 (2026-06-10)
+- ✓ Bug/discrepancia documentado por cada paquete: 1 ámbito + 1 iol + 2 higyrus + 10 matriz = 14 findings con clasificación operator-driven (CONFIRMED/FIXED/EXPECTED/NO-FIX) — Validado en Phases 2-5
+- ✓ Regression tests mockeados por cada bug confirmado fixeado in-cycle (24+ higyrus en Phase 4 + 19 matriz + 4 code-review-BLOCKER regressions en Phase 5) — Validado en Phases 4-5
 
 ### Out of Scope
 
@@ -107,4 +103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 after Phase 1 (Safety Harness & Verification Infrastructure) completion*
+*Last updated: 2026-06-10 after Phase 5 (matriz-verification + DRIFT-02 cycle closure) completion — milestone v1.0 cycle complete*
