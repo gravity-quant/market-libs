@@ -49,24 +49,22 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import sys  # noqa: F401  # used by main() in Part B (Task 2.4)
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-import httpx  # noqa: F401  # used by error probes in Part B (Task 2.4)
+import httpx
 from verification import (
     append_finding,
-    diff_safemodel_bidirectional,  # noqa: F401  # used by probe_field_type_map in Part B
-    require_env,  # noqa: F401  # used by main() in Part B
-    safe_print,  # noqa: F401  # used by main() in Part B
+    diff_safemodel_bidirectional,
+    require_env,
+    safe_print,
     schema_of,
-    write_findings,  # noqa: F401  # used by main() in Part B
+    write_findings,
 )
-from verification.cycle_report import (  # noqa: F401  # used by main() in Part B
-    verify_cycle_closure,
-)
+from verification.cycle_report import verify_cycle_closure
 
 import matriz_client as primary
 from matriz_client import PrimaryAPIError
@@ -74,15 +72,15 @@ from matriz_client.client import _request as _matriz_request
 from matriz_client.client import _risk_auth
 from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
-    AccountReport,  # noqa: F401  # used by probe_field_type_map in Part B
-    DetailedPosition,  # noqa: F401  # used by probe_field_type_map in Part B
-    Instrument,  # noqa: F401  # used by probe_field_type_map in Part B
-    InstrumentDetail,  # noqa: F401  # used by probe_field_type_map in Part B
-    MarketDataSnapshot,  # noqa: F401  # used by probe_field_type_map in Part B
-    Order,  # noqa: F401  # used by probe_field_type_map in Part B
-    Position,  # noqa: F401  # used by probe_field_type_map in Part B
-    Segment,  # noqa: F401  # used by probe_field_type_map in Part B
-    Trade,  # noqa: F401  # used by probe_field_type_map in Part B
+    AccountReport,
+    DetailedPosition,
+    Instrument,
+    InstrumentDetail,
+    MarketDataSnapshot,
+    Order,
+    Position,
+    Segment,
+    Trade,
 )
 from matriz_client.types import CFICode
 
@@ -1394,3 +1392,548 @@ def probe_get_account_report() -> tuple[ProbeResult, dict[str, Any] | None]:
         ),
         raw,
     )
+
+
+# ---------------------------------------------------------------------------
+# Probe 20: field_type_map (D-MATZ-29 #20, MATZ-03)
+# ---------------------------------------------------------------------------
+
+
+def probe_field_type_map(payloads: dict[str, Any]) -> ProbeResult:
+    """Probe 20 (D-MATZ-29 #20, MATZ-03): bidirectional SafeModel<->wire diff.
+
+    Itera los 9 modelos ``_SafeModel`` sampleables desde payloads acumulados
+    usando ``diff_safemodel_bidirectional`` (helper promovido en Plan 05-01).
+    Por cada divergencia ``model-only`` (FALSE PASS riesgo) o ``wire-only``
+    (info) emite finding ``SHAPE OPEN``. NewOrderResponse queda cubierto por
+    mock-only en Plan 05-03; los nested se cubren recursivamente.
+    """
+    if _auth_failed:
+        return ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}")
+    base_url = primary.client._base_url
+    targets: list[tuple[str, Any, type]] = [
+        ("segment", _first_dict(payloads.get("get_segments")), Segment),
+        ("instrument", _first_dict(payloads.get("get_all_instruments")), Instrument),
+        ("instrument_detail", payloads.get("get_instrument_detail"), InstrumentDetail),
+        ("market_data", payloads.get("get_market_data"), MarketDataSnapshot),
+        ("trade", _first_dict(payloads.get("get_trades")), Trade),
+        ("order", _first_dict(payloads.get("get_all_orders")), Order),
+        ("position", _first_dict(payloads.get("get_positions")), Position),
+        ("detailed_position", payloads.get("get_detailed_positions"), DetailedPosition),
+        ("account_report", payloads.get("get_account_report"), AccountReport),
+    ]
+    fids: list[str] = []
+    for root_name, payload, model_cls in targets:
+        if payload is None:
+            continue
+        for path, direction, key in diff_safemodel_bidirectional(
+            payload, model_cls, path=f".{root_name}"
+        ):
+            fid = _next_fid()
+            if direction == "model-only":
+                title = f"{path}.{key}: model declara, wire no emite (FALSE PASS riesgo)"
+                actual = "<wire ausente; SafeModel sustituye default tipado>"
+                diff_detail = (
+                    f"key `{key}` ausente en wire bajo `{path}` (model: {model_cls.__name__})"
+                )
+                expected = "model y wire coinciden en el set de claves"
+            else:
+                title = f"{path}.{key}: wire emite, model ignora (info)"
+                actual = f"key `{key}` presente en wire bajo `{path}`"
+                diff_detail = "backend posiblemente agregó campo nuevo; candidato a extender model"
+                expected = "model declara el superset del wire"
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="sync",
+                status="OPEN",
+                title=title,
+                expected=expected,
+                actual=actual,
+                diff=diff_detail,
+                base_url=base_url,
+            )
+            fids.append(fid)
+    if fids:
+        return ProbeResult("field_type_map", "FINDING", f"{', '.join(fids)} (OPEN)")
+    return ProbeResult("field_type_map", "PASS", "9 models, 0 divergences")
+
+
+# ---------------------------------------------------------------------------
+# Probes 21-23: error probes always-on (D-MATZ-29 #21-#23, MATZ-05)
+#
+# D-MATZ-22 strings literales: 'ZZZZZZ-NOT-A-SYMBOL', 'INVALID-ACCT-XXXXX',
+# 'INVALID-CFI'. D-MATZ-23: distinción HTTP 4xx no-mapeado (finding ERROR-MAP
+# OPEN) vs status='ERROR' mapeado (PASS).
+# ---------------------------------------------------------------------------
+
+
+def probe_error_bogus_symbol() -> ProbeResult:
+    """Probe 21 (D-MATZ-29 #21): símbolo inválido en ``get_market_data``.
+
+    Distingue ``PrimaryAPIError(status='ERROR')`` mapeado (PASS) de
+    ``httpx.HTTPStatusError`` HTTP 4xx no-mapeado (finding ERROR-MAP OPEN).
+    """
+    if _auth_failed:
+        return ProbeResult("error_bogus_symbol", "SKIPPED", f"auth failed: {_auth_failure_reason}")
+    base_url = primary.client._base_url
+    try:
+        primary.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
+    except PrimaryAPIError as exc:
+        if exc.status == "ERROR":
+            return ProbeResult(
+                "error_bogus_symbol", "PASS", f"PrimaryAPIError as expected: {exc.description}"
+            )
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title="bogus symbol: PrimaryAPIError con status != 'ERROR'",
+            expected="PrimaryAPIError(status='ERROR') al pasar símbolo inválido",
+            actual=f"PrimaryAPIError(status={exc.status!r}): {exc}",
+            diff="status no es 'ERROR'; revisar mapping de error",
+            base_url=base_url,
+        )
+        return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
+    except httpx.HTTPStatusError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title="bogus symbol: HTTP 4xx no mapeado a PrimaryAPIError",
+            expected="PrimaryAPIError mapeado para símbolo inválido",
+            actual=f"HTTPStatusError {exc.response.status_code}: {exc}",
+            diff="upstream devolvió 4xx en lugar de status='ERROR' en payload",
+            base_url=base_url,
+        )
+        return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"bogus symbol: unexpected {type(exc).__name__}",
+            expected="PrimaryAPIError mapeado para símbolo inválido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción inesperada; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="sync",
+        status="OPEN",
+        title="get_market_data con símbolo inválido NO levantó excepción",
+        expected="PrimaryAPIError mapeado para símbolo inválido",
+        actual="ninguna excepción; el cliente retornó normalmente",
+        diff="upstream devolvió 200 OK con shape válida pero data inexistente",
+        base_url=base_url,
+    )
+    return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
+
+
+def probe_error_invalid_account() -> ProbeResult:
+    """Probe 22 (D-MATZ-29 #22): account inválido en ``get_active_orders``.
+
+    Distingue ``PrimaryAPIError(status='ERROR')`` mapeado (PASS) de HTTP 4xx
+    no-mapeado (finding ERROR-MAP OPEN).
+    """
+    if _auth_failed:
+        return ProbeResult(
+            "error_invalid_account", "SKIPPED", f"auth failed: {_auth_failure_reason}"
+        )
+    base_url = primary.client._base_url
+    try:
+        primary.get_active_orders("INVALID-ACCT-XXXXX")
+    except PrimaryAPIError as exc:
+        if exc.status == "ERROR":
+            return ProbeResult(
+                "error_invalid_account",
+                "PASS",
+                f"PrimaryAPIError as expected: {exc.description}",
+            )
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title="invalid account: PrimaryAPIError con status != 'ERROR'",
+            expected="PrimaryAPIError(status='ERROR') al pasar account inválido",
+            actual=f"PrimaryAPIError(status={exc.status!r}): {exc}",
+            diff="status no es 'ERROR'; revisar mapping de error",
+            base_url=base_url,
+        )
+        return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
+    except httpx.HTTPStatusError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title="invalid account: HTTP 4xx no mapeado a PrimaryAPIError",
+            expected="PrimaryAPIError mapeado para account inválido",
+            actual=f"HTTPStatusError {exc.response.status_code}: {exc}",
+            diff="upstream devolvió 4xx en lugar de status='ERROR' en payload",
+            base_url=base_url,
+        )
+        return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"invalid account: unexpected {type(exc).__name__}",
+            expected="PrimaryAPIError mapeado para account inválido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción inesperada; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="sync",
+        status="OPEN",
+        title="get_active_orders con account inválido NO levantó excepción",
+        expected="PrimaryAPIError mapeado para account inválido",
+        actual="ninguna excepción; el cliente retornó normalmente",
+        diff="upstream devolvió 200 OK con shape válida",
+        base_url=base_url,
+    )
+    return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
+
+
+def probe_error_malformed_cfi() -> ProbeResult:
+    """Probe 23 (D-MATZ-29 #23): CFI malformado en ``get_instruments_by_cfi``.
+
+    Requiere ``cast(CFICode, 'INVALID-CFI')`` por mypy strict — el cliente
+    acepta el string a runtime pero el upstream lo rechaza. Distingue
+    PrimaryAPIError(status='ERROR') mapeado (PASS) de HTTP 4xx no-mapeado.
+    """
+    if _auth_failed:
+        return ProbeResult("error_malformed_cfi", "SKIPPED", f"auth failed: {_auth_failure_reason}")
+    base_url = primary.client._base_url
+    try:
+        primary.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
+    except PrimaryAPIError as exc:
+        if exc.status == "ERROR":
+            return ProbeResult(
+                "error_malformed_cfi",
+                "PASS",
+                f"PrimaryAPIError as expected: {exc.description}",
+            )
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title="malformed CFI: PrimaryAPIError con status != 'ERROR'",
+            expected="PrimaryAPIError(status='ERROR') al pasar CFI inválido",
+            actual=f"PrimaryAPIError(status={exc.status!r}): {exc}",
+            diff="status no es 'ERROR'; revisar mapping de error",
+            base_url=base_url,
+        )
+        return ProbeResult("error_malformed_cfi", "FINDING", f"{fid} (OPEN)")
+    except httpx.HTTPStatusError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title="malformed CFI: HTTP 4xx no mapeado a PrimaryAPIError",
+            expected="PrimaryAPIError mapeado para CFI inválido",
+            actual=f"HTTPStatusError {exc.response.status_code}: {exc}",
+            diff="upstream devolvió 4xx en lugar de status='ERROR' en payload",
+            base_url=base_url,
+        )
+        return ProbeResult("error_malformed_cfi", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"malformed CFI: unexpected {type(exc).__name__}",
+            expected="PrimaryAPIError mapeado para CFI inválido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción inesperada; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("error_malformed_cfi", "FINDING", f"{fid} (OPEN)")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="sync",
+        status="OPEN",
+        title="get_instruments_by_cfi con CFI inválido NO levantó excepción",
+        expected="PrimaryAPIError mapeado para CFI inválido",
+        actual="ninguna excepción; el cliente retornó normalmente",
+        diff="upstream aceptó CFI no válido; revisar validación",
+        base_url=base_url,
+    )
+    return ProbeResult("error_malformed_cfi", "FINDING", f"{fid} (OPEN)")
+
+
+# ---------------------------------------------------------------------------
+# Probe 24: schema snapshot sweep (D-MATZ-29 #24, DRIFT-01 mirror)
+# ---------------------------------------------------------------------------
+
+
+def probe_schema_snapshot(payloads: dict[str, Any], base_url: str) -> ProbeResult:
+    """Probe 24 (D-MATZ-29 #24): schema snapshot sweep.
+
+    Itera _SCHEMA_FILES y para cada func_name presente en payloads invoca
+    ``_write_or_check_schema`` con envelope D-21 + D-25 no-overwrite-on-drift.
+    Acumula resultados PASS / FINDING. Si todos PASS → PASS. Si hay drifts
+    → FINDING con fids correspondientes.
+    """
+    if _auth_failed:
+        return ProbeResult("schema_snapshot", "SKIPPED", f"auth failed: {_auth_failure_reason}")
+    sample_params: dict[str, dict[str, Any]] = {
+        "get_segments": {},
+        "get_all_instruments": {},
+        "get_instruments_details": {},
+        "get_instrument_detail": {"symbol": _resolved_symbol or "<unresolved>"},
+        "get_instruments_by_cfi_ESXXXX": {"CFICode": "ESXXXX"},
+        "get_instruments_by_segment": {"segmentId": _resolved_segment or "<unresolved>"},
+        "get_market_data": {"symbol": _resolved_symbol or "<unresolved>"},
+        "get_trades": {"symbol": _resolved_symbol or "<unresolved>", "windowDays": 7},
+        "get_active_orders": {"accountId": "<PRIMARY_ACCOUNT>"},
+        "get_filled_orders": {"accountId": "<PRIMARY_ACCOUNT>"},
+        "get_all_orders": {"accountId": "<PRIMARY_ACCOUNT>"},
+        "get_order_status": {
+            "clOrdId": "<MATRIZ_SAMPLE_CL_ORD_ID>",
+            "proprietary": "<MATRIZ_SAMPLE_PROPRIETARY>",
+        },
+        "get_order_history": {
+            "clOrdId": "<MATRIZ_SAMPLE_CL_ORD_ID>",
+            "proprietary": "<MATRIZ_SAMPLE_PROPRIETARY>",
+        },
+        "get_order_by_exec_id": {"execId": "<MATRIZ_SAMPLE_EXEC_ID>"},
+        "get_positions": {"account": "<PRIMARY_ACCOUNT>"},
+        "get_detailed_positions": {"account": "<PRIMARY_ACCOUNT>"},
+        "get_account_report": {"account": "<PRIMARY_ACCOUNT>"},
+    }
+    fids: list[str] = []
+    snapshots_taken = 0
+    for func_name, _ in _SCHEMA_FILES.items():
+        if func_name not in payloads or payloads[func_name] is None:
+            continue
+        snapshots_taken += 1
+        status, detail = _write_or_check_schema(
+            func_name,
+            _ENDPOINT_TEMPLATES[func_name],
+            sample_params.get(func_name, {}),
+            payloads[func_name],
+            base_url,
+        )
+        if status == "FINDING":
+            fid_part = detail.split("|", 1)[0]
+            fids.append(fid_part)
+    if fids:
+        return ProbeResult(
+            "schema_snapshot",
+            "FINDING",
+            f"{snapshots_taken} snapshots, {len(fids)} drifts: {', '.join(fids)} (OPEN)",
+        )
+    return ProbeResult("schema_snapshot", "PASS", f"{snapshots_taken} snapshots OK")
+
+
+# ---------------------------------------------------------------------------
+# main() lifecycle (D-MATZ-29 #25 cycle_closure + D-MATZ-27 EXPECTED terminal)
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """Driver lifecycle sync-only (D-MATZ-30).
+
+    Secuencia:
+    1. HARN-01 ``require_env`` gate — exit 0 si faltan credenciales.
+    2. D-MATZ-33 hostname assert remarkets — exit 1 si base_url no es remarkets.
+    3. ``write_findings(_PKG)`` para inicializar el findings file.
+    4. Secrets discovery dinámico (D-MATZ-32): PRIMARY_USER, PRIMARY_PASSWORD del
+       env + ``_token`` agregado dinámicamente tras probe_login_sync.
+    5. Probes 1-19: login + 18 read-sweep (D-MATZ-29 happy-path sweep).
+    6. Probe 20: field_type_map (MATZ-03).
+    7. Probes 21-23: 3 error probes (MATZ-05).
+    8. Probe 24: schema snapshot sweep (DRIFT-01 mirror).
+       D-MATZ-24: error probes ANTES de snapshots — si rompen state, snapshots ya
+       fueron generados. Pero implementación: schema_snapshot ejercita lo que ya
+       fue colectado en payloads, ergo orden no es load-bearing para el snapshot.
+    9. Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
+    10. D-MATZ-27 EXPECTED terminal — última operación sobre matriz-client.
+    11. Emit verbatim PROBE / SUMMARY via safe_print con secrets redacted.
+    """
+    if not require_env(_PKG, ["PRIMARY_USER", "PRIMARY_PASSWORD"]):
+        sys.exit(0)
+
+    # D-MATZ-33 belt-and-suspenders hostname assert: prevention contra prod.
+    base = primary.client._base_url
+    if "remarkets" not in base:
+        print(
+            f"ABORT: PRIMARY_BASE_URL={base!r} is not a remarkets sandbox URL — "
+            "Phase 5 verification is remarkets-only by safety policy",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    write_findings(_PKG)
+
+    # D-MATZ-32 secrets dinámicos: filtrar credenciales de longitud >= 4 al inicio,
+    # _token se agrega tras login.
+    secrets: list[str] = []
+    password_env = os.getenv("PRIMARY_PASSWORD", "")
+    if password_env and len(password_env) >= 4:
+        secrets.append(password_env)
+    user_env = os.getenv("PRIMARY_USER", "")
+    if user_env and len(user_env) >= 4:
+        secrets.append(user_env)
+
+    results: list[ProbeResult] = []
+    payloads: dict[str, Any] = {}
+
+    # Probe 1: login.
+    r1 = probe_login_sync()
+    results.append(r1)
+    token = getattr(primary.client, "_token", None)
+    if isinstance(token, str) and len(token) >= 4:
+        secrets.append(token)
+
+    # Probes 2-19: happy-path sweep (D-MATZ-29 #2-#19).
+    sweep_probes: list[tuple[str, Any]] = [
+        ("get_segments", probe_get_segments),
+        ("get_all_instruments", probe_get_all_instruments),
+        ("get_instruments_details", probe_get_instruments_details),
+        ("get_instrument_detail", probe_get_instrument_detail),
+        ("get_instruments_by_cfi_ESXXXX", probe_get_instruments_by_cfi_ESXXXX),
+        ("get_instruments_by_cfi_sanity", probe_get_instruments_by_cfi_sanity),
+        ("get_instruments_by_segment", probe_get_instruments_by_segment),
+        ("get_market_data", probe_get_market_data),
+        ("get_trades", probe_get_trades),
+        ("get_active_orders", probe_get_active_orders),
+        ("get_filled_orders", probe_get_filled_orders),
+        ("get_all_orders", probe_get_all_orders),
+        ("get_order_status", probe_get_order_status),
+        ("get_order_history", probe_get_order_history),
+        ("get_order_by_exec_id", probe_get_order_by_exec_id),
+        ("get_positions", probe_get_positions),
+        ("get_detailed_positions", probe_get_detailed_positions),
+        ("get_account_report", probe_get_account_report),
+    ]
+    for key, probe_fn in sweep_probes:
+        result, raw = probe_fn()
+        results.append(result)
+        if raw is not None:
+            payloads[key] = raw
+
+    # Probe 20: field_type_map (MATZ-03).
+    results.append(probe_field_type_map(payloads))
+
+    # Probes 21-23: error probes (MATZ-05). D-MATZ-24: DESPUÉS de happy-path
+    # sweep y field_type_map para minimizar interferencia con state.
+    results.append(probe_error_bogus_symbol())
+    results.append(probe_error_invalid_account())
+    results.append(probe_error_malformed_cfi())
+
+    # Probe 24: schema snapshots (DRIFT-01 mirror, D-MATZ-24 después de errors).
+    results.append(probe_schema_snapshot(payloads, base))
+
+    # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
+    for pkg in (
+        "ambito-financiero-client",
+        "iol-client",
+        "higyrus-client",
+        "matriz-client",
+    ):
+        ok, missing = verify_cycle_closure(pkg)
+        status_str = "PASS" if ok else "FAIL"
+        detail = "" if ok else f"missing regressions: {', '.join(missing)}"
+        results.append(
+            ProbeResult(
+                f"cycle_closure_{pkg.replace('-', '_')}",
+                status_str,
+                detail,
+            )
+        )
+        if not ok:
+            fid = _next_fid()
+            append_finding(
+                pkg,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"cycle closure: {len(missing)} CONFIRMED/FIXED without regression test",
+                expected="every CONFIRMED/FIXED finding linked to existing test path",
+                actual=f"missing regressions: {', '.join(missing)}",
+                diff="see verify_cycle_closure output",
+            )
+
+    # D-MATZ-27 EXPECTED terminal: prod-vs-remarkets divergence acknowledged.
+    # Esta ES la última invocación de append_finding sobre _PKG en main()
+    # (Assumption A3 del plan).
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="SHAPE",
+        surface="sync",
+        status="EXPECTED",
+        title="prod-vs-remarkets divergence acknowledged",
+        expected=(
+            "verification limited to remarkets sandbox by safety policy "
+            "(REQUIREMENTS.md Out of Scope)"
+        ),
+        actual=(
+            "prod (api.primary.com.ar) shape unverified; sandbox shape "
+            "committed in .planning/verification/schemas/matriz-client/"
+        ),
+        diff="N/A (acknowledged limitation, not detected drift)",
+        base_url=base,
+    )
+
+    # Stdout verbatim D-02 + SUMMARY. Cada línea via safe_print con secrets.
+    counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "SKIPPED": 0, "FINDING": 0}
+    for r in results:
+        line = f"PROBE {r.name}: {r.status} {r.detail}".rstrip()
+        safe_print(line, secrets=secrets)
+        counts[r.status] = counts.get(r.status, 0) + 1
+    safe_print(
+        f"SUMMARY: PASS={counts['PASS']} FAIL={counts['FAIL']} "
+        f"SKIPPED={counts['SKIPPED']} FINDING={counts['FINDING']}",
+        secrets=secrets,
+    )
+
+
+if __name__ == "__main__":
+    main()
