@@ -86,15 +86,19 @@ import datetime as dt
 import json
 import os
 import sys
-from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from types import NoneType, UnionType
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from typing import Any
 
 import httpx
-from verification import require_env, safe_print, schema_of, write_findings
-from verification.findings import append_finding
+from verification import (
+    append_finding,
+    diff_safemodel_bidirectional,
+    require_env,
+    safe_print,
+    schema_of,
+    write_findings,
+)
 
 import higyrus_client
 from higyrus_client import HigyrusAPIError, HigyrusAuthError, HigyrusClientError, aio
@@ -104,7 +108,6 @@ from higyrus_client.models import (
     Movimiento,
     Posicion,
     PosicionValuada,
-    SafeModel,
 )
 
 # ---------------------------------------------------------------------------
@@ -198,99 +201,13 @@ class ProbeResult:
 
 
 # ---------------------------------------------------------------------------
-# Pattern 1: Bidirectional SafeModel diff (D-HIGY-3/4/5) — THE novel mechanism
+# Pattern 1: Bidirectional SafeModel diff (D-HIGY-3/4/5)
 # ---------------------------------------------------------------------------
-
-
-def _is_optional(hint: Any) -> bool:
-    """True if hint is Optional[T] / T | None.
-
-    Discretion D-HIGY-7: si un campo del model es opcional, su ausencia en el
-    wire NO es FALSE PASS — es el comportamiento esperado para nullables
-    explícitos.
-    """
-    origin = get_origin(hint)
-    if origin is Union or origin is UnionType:
-        return any(a is NoneType for a in get_args(hint))
-    return False
-
-
-def _nested_safemodel_class(hint: Any) -> type | None:
-    """If hint is SafeModel subclass or list[SafeModel subclass], return the class; else None."""
-    if isinstance(hint, type) and issubclass(hint, SafeModel):
-        return hint
-    if get_origin(hint) is list:
-        args = get_args(hint)
-        if args and isinstance(args[0], type) and issubclass(args[0], SafeModel):
-            return args[0]
-    return None
-
-
-def _is_list_of_safemodel(hint: Any) -> bool:
-    """True if hint is ``list[X]`` where X is a SafeModel subclass."""
-    return get_origin(hint) is list and _nested_safemodel_class(hint) is not None
-
-
-def _diff_safemodel_bidirectional(
-    payload: Any,
-    model_cls: type,
-    path: str = "",
-) -> Iterator[tuple[str, str, str]]:
-    """Yield ``(path, direction, key)`` tuples para cada divergencia model<->wire.
-
-    ``direction in {'model-only', 'wire-only'}``:
-
-    - ``'model-only'`` significa que la key está declarada por el model pero
-      AUSENTE en el wire payload — FALSE PASS riesgo porque
-      ``SafeModel.from_api(payload)`` sustituye un default tipado y NO levanta.
-      D-HIGY-5 → finding ``SHAPE`` con prefijo ``(FALSE PASS riesgo)``.
-    - ``'wire-only'`` significa que la key está presente en el wire pero
-      AUSENTE en el model — INFO only (backend posiblemente agregó un campo
-      nuevo). D-HIGY-5 → finding ``SHAPE`` con prefijo ``(info)``.
-
-    Recursión: desciende en nested SafeModels y en ``list[SafeModel]``
-    (samplea el primer elemento, consistente con ``verification.schema.schema_of``).
-    """
-    if not isinstance(payload, dict):
-        # Cannot diff non-dict; SafeModel.from_api ya sustituiría {} sin diff.
-        return
-
-    hints = get_type_hints(model_cls)
-    model_keys = set(hints.keys())
-    wire_keys = set(payload.keys())
-
-    # Direction A: model declara, wire no emite — FALSE PASS riesgo.
-    for key in sorted(model_keys - wire_keys):
-        hint = hints[key]
-        # Discretion D-HIGY-7: Optional[T] / T | None es opt-in explícito a
-        # nullable; ausencia es la representación intencional. NO emitir
-        # direction A para opcionales.
-        if _is_optional(hint):
-            continue
-        yield (path, "model-only", key)
-
-    # Direction B: wire emite, model no declara — info only.
-    for key in sorted(wire_keys - model_keys):
-        yield (path, "wire-only", key)
-
-    # Recursión: descender en nested SafeModels y list[SafeModel].
-    for key in model_keys & wire_keys:
-        hint = hints[key]
-        nested_payload = payload[key]
-        nested_cls = _nested_safemodel_class(hint)
-        if nested_cls is None:
-            continue
-        if _is_list_of_safemodel(hint):
-            # D-HIGY-3: samplea solo el primer elemento (consistente con schema_of).
-            if isinstance(nested_payload, list) and nested_payload:
-                yield from _diff_safemodel_bidirectional(
-                    nested_payload[0],
-                    nested_cls,
-                    f"{path}.{key}[0]",
-                )
-            # Lista vacía es HIGY-07 path — sin recursión, sin finding.
-        else:
-            yield from _diff_safemodel_bidirectional(nested_payload, nested_cls, f"{path}.{key}")
+# Helper promovido a ``verification/safemodel_diff.py`` (Phase 5 / D-MATZ-18).
+# Se consume vía el barrel: ``from verification import diff_safemodel_bidirectional``.
+# La signature es idéntica al inline original Phase 4; la única diferencia
+# conductual es duck-typing cross-package (admite higyrus SafeModel y matriz
+# _SafeModel sin importar paquetes-cliente).
 
 
 # ---------------------------------------------------------------------------
@@ -1752,7 +1669,7 @@ def probe_field_type_map(
     for root_name, payload, model_cls in targets:
         if payload is None:
             continue
-        for path, direction, key in _diff_safemodel_bidirectional(
+        for path, direction, key in diff_safemodel_bidirectional(
             payload, model_cls, path=f".{root_name}"
         ):
             fid = _next_fid()
