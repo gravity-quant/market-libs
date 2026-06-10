@@ -10,6 +10,7 @@ from pytest_httpx import HTTPXMock
 import matriz_client
 from matriz_client import client as _client
 from matriz_client.exceptions import AuthenticationError, PrimaryAPIError
+from matriz_client.models import NewOrderResponse
 
 # ------------------------------------------------------------------
 # Auth
@@ -718,3 +719,184 @@ def test_get_instruments_by_cfi_raises_primary_api_error_on_malformed_cfi(
         matriz_client.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
     assert exc_info.value.status == "ERROR"
     assert "malformed" in (exc_info.value.description or "")
+
+
+# ------ MATZ-06 mock-only contract ------
+
+
+def test_new_order_baseline_limit_day_with_price(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only contract: new_order baseline LIMIT/DAY con price set y defaults (D-MATZ-14 #1)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C1", "proprietary": "P1"}},
+    )
+    result = matriz_client.new_order(
+        symbol="DLR/JUN26", side="BUY", qty=1, account="ACC", price=100.0
+    )
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/order/newSingleOrder"
+    params = request.url.params
+    assert params["marketId"] == "ROFX"
+    assert params["symbol"] == "DLR/JUN26"
+    assert params["side"] == "BUY"
+    assert params["orderQty"] == "1"
+    assert params["ordType"] == "LIMIT"
+    assert params["timeInForce"] == "DAY"
+    assert params["account"] == "ACC"
+    assert params["cancelPrevious"] == "False"
+    assert params["iceberg"] == "False"
+    assert params["price"] == "100.0"
+    assert isinstance(result, NewOrderResponse)
+    assert result.clientId == "C1"
+    assert result.proprietary == "P1"
+
+
+def test_new_order_market_without_price(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only: MARKET sin price (omite 'price' del query string, D-MATZ-14 #2)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C2", "proprietary": "P2"}},
+    )
+    result = matriz_client.new_order(
+        symbol="DLR/JUN26", side="BUY", qty=1, account="ACC", order_type="MARKET"
+    )
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/order/newSingleOrder"
+    params = request.url.params
+    assert params["ordType"] == "MARKET"
+    assert "price" not in params
+    assert result.clientId == "C2"
+    assert result.proprietary == "P2"
+
+
+def test_new_order_with_iceberg_and_display_qty(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only: iceberg + displayQty branch (D-MATZ-14 #3)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C3", "proprietary": "P3"}},
+    )
+    result = matriz_client.new_order(
+        symbol="DLR/JUN26",
+        side="BUY",
+        qty=100,
+        account="ACC",
+        price=100.0,
+        iceberg=True,
+        display_qty=10,
+    )
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/order/newSingleOrder"
+    params = request.url.params
+    assert params["iceberg"] == "True"
+    assert params["displayQty"] == "10"
+    assert params["price"] == "100.0"
+    assert result.clientId == "C3"
+
+
+def test_new_order_with_expire_date_and_gtd(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only: GTD + expireDate branch (D-MATZ-14 #4)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C4", "proprietary": "P4"}},
+    )
+    result = matriz_client.new_order(
+        symbol="DLR/JUN26",
+        side="BUY",
+        qty=1,
+        account="ACC",
+        price=100.0,
+        time_in_force="GTD",
+        expire_date="20261231",
+    )
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/order/newSingleOrder"
+    params = request.url.params
+    assert params["timeInForce"] == "GTD"
+    assert params["expireDate"] == "20261231"
+    assert result.clientId == "C4"
+
+
+def test_new_order_with_cancel_previous_true(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only: cancelPrevious=True branch (D-MATZ-14 #5)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C5", "proprietary": "P5"}},
+    )
+    result = matriz_client.new_order(
+        symbol="DLR/JUN26",
+        side="BUY",
+        qty=1,
+        account="ACC",
+        price=100.0,
+        cancel_previous=True,
+    )
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/order/newSingleOrder"
+    params = request.url.params
+    assert params["cancelPrevious"] == "True"
+    assert result.clientId == "C5"
+
+
+def test_replace_order_url_invariant_and_envelope(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only: replace_order URL exacta + envelope ['order'] + NewOrderResponse return (D-MATZ-15)."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C2", "proprietary": "P2"}},
+    )
+    result = matriz_client.replace_order("C1", "P1", qty=2, price=150.0)
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/order/replaceById"
+    params = request.url.params
+    assert params["clOrdId"] == "C1"
+    assert params["proprietary"] == "P1"
+    assert params["orderQty"] == "2"
+    assert params["price"] == "150.0"
+    assert isinstance(result, NewOrderResponse)
+    assert result.clientId == "C2"
+    assert result.proprietary == "P2"
+
+
+def test_cancel_order_url_invariant_and_envelope(httpx_mock: HTTPXMock) -> None:
+    """MATZ-06 mock-only: cancel_order URL exacta + envelope ['order'] + NewOrderResponse return (D-MATZ-15)."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/order/cancelById?clOrdId=C1&proprietary=P1",
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C1", "proprietary": "P1"}},
+    )
+    result = matriz_client.cancel_order("C1", "P1")
+    assert isinstance(result, NewOrderResponse)
+    assert result.clientId == "C1"
+    assert result.proprietary == "P1"
+
+
+def test_new_order_uses_GET_method_per_primary_api_quirk(httpx_mock: HTTPXMock) -> None:
+    """GET-as-write quirk: Primary API mandates GET for order mutations (§6.3). Never refactor to POST without explicit API confirmation — this test breaks if anyone changes the method."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C", "proprietary": "P"}},
+    )
+    matriz_client.new_order(symbol="DLR/JUN26", side="BUY", qty=1, account="ACC", price=100.0)
+    [request] = httpx_mock.get_requests()
+    assert request.method == "GET", "Primary API §6.3 mandates GET for order submission"
+
+
+def test_replace_order_uses_GET_method_per_primary_api_quirk(httpx_mock: HTTPXMock) -> None:
+    """GET-as-write quirk: Primary API mandates GET for order mutations (§6.3). Never refactor to POST without explicit API confirmation — this test breaks if anyone changes the method."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C", "proprietary": "P"}},
+    )
+    matriz_client.replace_order("C1", "P1", qty=2, price=150.0)
+    [request] = httpx_mock.get_requests()
+    assert request.method == "GET", "Primary API §6.3 mandates GET for order replace"
+
+
+def test_cancel_order_uses_GET_method_per_primary_api_quirk(httpx_mock: HTTPXMock) -> None:
+    """GET-as-write quirk: Primary API mandates GET for order mutations (§6.3). Never refactor to POST without explicit API confirmation — this test breaks if anyone changes the method."""
+    httpx_mock.add_response(
+        method="GET",
+        json={"status": "OK", "order": {"clientId": "C", "proprietary": "P"}},
+    )
+    matriz_client.cancel_order("C1", "P1")
+    [request] = httpx_mock.get_requests()
+    assert request.method == "GET", "Primary API §6.3 mandates GET for order cancel"
