@@ -19,6 +19,29 @@ Confianza de que cada cliente refleja fielmente el comportamiento real de su API
 divergencia entre el cliente y el servicio en vivo debe ser detectada, documentada y
 corregida.
 
+## Current Milestone: v1.1 Tech Debt Cleanup
+
+**Goal:** Saldar la deuda técnica arquitectónica y los hallazgos diferidos de v1.0 —
+refactor a clase Client por instancia (con compat layer no-breaking), deduplicación
+sync/async con creación de `aio.py` para matriz-client, retries/backoff con jitter,
+logging estructurado, fix de los 4 findings/bugs deferred, hardening del harness y
+cierre de los 8 concerns del code review final de Phase 5.
+
+**Target features:**
+- Refactor "clase `Client` por instancia" en los 4 paquetes — eliminar singleton de módulo, mantener API top-level vía compat layer (no breaking).
+- Deduplicación lógica sync/async por paquete + creación de `aio.py` para `matriz-client` (hoy sync-only) y su verificación live.
+- Retries/backoff transparente con jitter para 5xx/429/connection-errors — respeta el `mutating_allowed` double-gate (no retry de mutaciones).
+- Logging estructurado con stdlib `logging` por paquete — integrado con `verification/redaction.py` (Bearer + patrones existentes).
+- Fixes pendientes: F-09 matriz ERROR-MAP, higyrus F-02 (`get_listado_cuentas=0`), IOL refresh_token persistence, HIGY multi-account iteration.
+- Driver bug bundle: D-MATZ-27 dedupe + `verification/findings.py` append-only (preserva rationale operator) — aplica a los 4 drivers.
+- Code review concerns WR-01..WR-08 (8 ítems del review final de Phase 5).
+
+**Out of scope para este milestone:**
+- prod-vs-remarkets verification (D-MATZ-27 REQUIRED handoff) — defer a v1.2
+- `matriz_client.ws_client` live verification (capa WebSocket) — defer a v1.2
+- Extender alcance a `wallets-client` o nuevos paquetes — defer
+- Nuevos endpoints o superficies live nuevas — defer
+
 ## Requirements
 
 ### Validated
@@ -107,4 +130,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-10 after v1.0 milestone completion (5 phases / 18 plans / 35/35 requirements / 277 tests / 5-5 Nyquist compliant / DRIFT-02 baseline `verification-cycle-2026-Q2`). Next milestone TBD via /gsd-new-milestone.*
+*Last updated: 2026-06-10 — v1.1 Tech Debt Cleanup milestone started (refactor clase Client + dedup sync/async + aio matriz + retries/backoff + logging + 4 deferred fixes + driver bundle + WR-01..WR-08). v1.0 archived (5 phases / 18 plans / 35/35 requirements / 277 tests / DRIFT-02 baseline `verification-cycle-2026-Q2`).*
