@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Ámbito Verification** - Verify the no-auth FX client end-to-end; validate the driver→finding→fix→regression loop at minimum risk; establish schema snapshots (completed 2026-06-05)
 - [x] **Phase 3: IOL Verification** - Verify the raw-dict client end-to-end (highest silent-shape risk); implement the refresh_token fix (completed 2026-06-06)
 - [x] **Phase 4: Higyrus Verification** - Verify the SafeModel client end-to-end via raw-payload diffing (false-pass trap) (completed 2026-06-08)
-- [ ] **Phase 5: Matriz Verification** - Verify the largest, sync-only surface against remarkets; mock-only order mutation; per-package closing report
+- [x] **Phase 5: Matriz Verification** - Verify the largest, sync-only surface against remarkets; mock-only order mutation; per-package closing report (completed 2026-06-10)
 
 ## Phase Details
 
@@ -161,4 +161,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Ámbito Verification | 3/3 | Complete   | 2026-06-05 |
 | 3. IOL Verification | 3/3 | Complete   | 2026-06-06 |
 | 4. Higyrus Verification | 4/4 | Complete    | 2026-06-08 |
-| 5. Matriz Verification | 3/4 | In Progress|  |
+| 5. Matriz Verification | 4/4 | Complete   | 2026-06-10 |
