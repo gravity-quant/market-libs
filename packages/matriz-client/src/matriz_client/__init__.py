@@ -15,6 +15,7 @@ no es obligatorio invocarlo.
 See the README and the in-module docstrings for usage details.
 """
 
+from matriz_client.aio import AsyncClient
 from matriz_client.client import (
     Client,
     cancel_order,
@@ -94,6 +95,8 @@ __all__ = [
     # Models — safe-access dataclasses
     "AccountId",
     "AccountReport",
+    # REST stub AsyncClient (Phase 6 Plan 06 — Phase 10 REFAC-04 grows it)
+    "AsyncClient",
     "AuthenticationError",
     # Types — Literals
     "CFICode",

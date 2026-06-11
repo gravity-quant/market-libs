@@ -299,3 +299,81 @@ def test_ws_client_module_does_not_reference_legacy_module_globals() -> None:
     assert "_rest._base_url" not in source
     assert "_rest._ensure_token()" not in source
     assert "_rest._token" not in source
+
+
+# ------------------------------------------------------------------
+# Stub AsyncClient (Task 2 — Open Q #1 resolution)
+# ------------------------------------------------------------------
+
+
+async def test_async_stub_context_manager() -> None:
+    from matriz_client.aio import AsyncClient
+
+    async with AsyncClient() as c:
+        pass
+    # After __aexit__ the http client (if any) is closed.
+    assert c._state.http_client is None
+
+
+async def test_async_stub_aclose_idempotent() -> None:
+    from matriz_client.aio import AsyncClient
+
+    c = AsyncClient()
+    await c.aclose()
+    await c.aclose()  # second call must not raise
+
+
+def test_async_stub_repr_redacted() -> None:
+    from matriz_client.aio import AsyncClient
+
+    c = AsyncClient(
+        base_url="https://x",
+        username="u",
+        password="SECRETPW",
+        token="SECRETTOKEN",
+    )
+    text = repr(c)
+    assert "SECRETPW" not in text
+    assert "SECRETTOKEN" not in text
+    assert "password='***'" in text or 'password="***"' in text
+    assert "token='***'" in text or 'token="***"' in text
+
+
+def test_async_stub_pickle_raises() -> None:
+    from matriz_client.aio import AsyncClient
+
+    c = AsyncClient()
+    with pytest.raises((TypeError, NotImplementedError)):
+        pickle.dumps(c)
+
+
+def test_async_stub_deepcopy_raises() -> None:
+    from matriz_client.aio import AsyncClient
+
+    c = AsyncClient()
+    with pytest.raises((TypeError, NotImplementedError)):
+        copy.deepcopy(c)
+
+
+def test_matriz_module_aio_exists_and_exports_async_client_only() -> None:
+    """Open Q #1 + B8: aio.py is a STUB with only AsyncClient exported.
+
+    No top-level configure/login/get_X shims; no _default_async_client.
+    Phase 10 REFAC-04 grows it.
+    """
+    from matriz_client import aio as aio_mod
+
+    assert aio_mod.__all__ == ["AsyncClient"]
+    assert hasattr(aio_mod, "AsyncClient")
+    # The stub must NOT expose any REST surface or top-level shims.
+    assert not hasattr(aio_mod, "configure")
+    assert not hasattr(aio_mod, "login")
+    assert not hasattr(aio_mod, "get_segments")
+    assert not hasattr(aio_mod, "get_quote")
+    assert not hasattr(aio_mod, "_default_async_client")
+
+
+def test_matriz_client_exposes_async_client() -> None:
+    """The flat namespace re-exports AsyncClient (CONTEXT.md success criterion 3)."""
+    assert hasattr(matriz_client, "AsyncClient")
+    assert "AsyncClient" in matriz_client.__all__
