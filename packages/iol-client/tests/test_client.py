@@ -138,15 +138,18 @@ def test_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
 # ------ Regressions ------
 
 
-def test_refresh_token_success_path(httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — refresh path actualiza _token sin re-disparar password (finding F-NN).
 
-    El autouse fixture precarga _token; el monkeypatch lo limpia y setea
-    _refresh_token para forzar la rama refresh en _ensure_token.
+    El autouse fixture precarga _token; este test lo limpia y setea
+    _refresh_token para forzar la rama refresh en _ensure_token. Phase 6
+    migration: writes hit el ``_default_client._state`` directamente
+    porque el shim PEP 562 es read-only (Pitfall #1).
     """
-    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
-    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-cached", raising=False)
+    state = iol_client._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-cached"
 
     # Pitfall 5: match_content bind respuestas a bodies específicos (bytes literal).
     httpx_mock.add_response(
@@ -170,13 +173,12 @@ def test_refresh_token_success_path(httpx_mock: HTTPXMock, monkeypatch: pytest.M
     assert iol_client.client._refresh_token == "refresh-rotated"
 
 
-def test_refresh_fails_falls_back_to_password(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — refresh inválido cae al password grant (finding F-NN)."""
-    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
-    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-stale", raising=False)
+    state = iol_client._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-stale"
 
     # 1. Refresh attempt → 401
     httpx_mock.add_response(
@@ -208,13 +210,12 @@ def test_refresh_fails_falls_back_to_password(
     assert iol_client.client._refresh_token == "refresh-fresh"
 
 
-def test_refresh_and_password_both_fail(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_refresh_and_password_both_fail(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — ambos refresh y password fallan → IOLAuthError (finding F-NN)."""
-    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
-    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-stale", raising=False)
+    state = iol_client._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-stale"
 
     httpx_mock.add_response(
         url="https://api.test/token",
@@ -237,12 +238,11 @@ def test_refresh_and_password_both_fail(
     assert excinfo.value.status_code == 401
 
 
-def test_login_captures_refresh_token(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_login_captures_refresh_token(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — login() captura refresh_token del payload (finding F-NN)."""
-    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
-    monkeypatch.setattr(iol_client.client, "_refresh_token", None, raising=False)
+    state = iol_client._get_default()._state
+    state.token = None
+    state.refresh_token = None
 
     httpx_mock.add_response(
         url="https://api.test/token",
@@ -260,9 +260,7 @@ def test_login_captures_refresh_token(
     assert iol_client.client._refresh_token == "refresh-captured"
 
 
-def test_login_preserves_cached_refresh_token_when_server_omits(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_login_preserves_cached_refresh_token_when_server_omits(httpx_mock: HTTPXMock) -> None:
     """Regression CR-01: login() preserva _refresh_token cacheado si el server lo omite.
 
     Escenario: el cliente tiene ``_refresh_token = "refresh-original"`` cacheado de
@@ -272,9 +270,10 @@ def test_login_preserves_cached_refresh_token_when_server_omits(
     contradiciendo la política condicional de ``_refresh()`` (Pitfall 3). El fix
     alinea ambas funciones: si el payload omite, MANTENER el cached.
     """
-    monkeypatch.setattr(iol_client.client, "_token", None, raising=False)
-    monkeypatch.setattr(iol_client.client, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-original", raising=False)
+    state = iol_client._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-original"
 
     httpx_mock.add_response(
         url="https://api.test/token",
@@ -290,9 +289,7 @@ def test_login_preserves_cached_refresh_token_when_server_omits(
     assert iol_client.client._refresh_token == "refresh-original"
 
 
-def test_configure_resets_refresh_token_but_direct_password_mutation_preserves_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_configure_resets_refresh_token_but_direct_password_mutation_preserves_it() -> None:
     """Regression CR-03: locking del invariante que motiva CR-03 fix.
 
     ``iol_client.configure(password=...)`` resetea ``_refresh_token = None`` —
@@ -301,16 +298,22 @@ def test_configure_resets_refresh_token_but_direct_password_mutation_preserves_i
     set ``secrets`` del SUMMARY). El fix CR-03 evita ``configure()`` y muta
     ``_password`` directamente, preservando ``_refresh_token``.
 
-    Este test verifica AMBOS comportamientos para lockear la invariante.
+    Este test verifica AMBOS comportamientos para lockear la invariante. Phase 6
+    migration: en lugar de un direct-write a la atribute legacy del módulo (que
+    ahora hit el módulo dict por el shim PEP 562 read-only), se muta
+    ``_get_default()._state.password`` directamente — preserva la semántica de
+    "rotar password bypassing configure() preserves refresh_token".
     """
+    state = iol_client._get_default()._state
+
     # Setup: precargar un refresh_token cacheado.
-    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-cached", raising=False)
+    state.refresh_token = "refresh-cached"
 
     # Branch 1: configure() resetea (regresión sería si NO lo reseteara).
     iol_client.configure(password="dummy")
     assert iol_client.client._refresh_token is None
 
     # Branch 2: mutación directa de _password preserva refresh_token.
-    monkeypatch.setattr(iol_client.client, "_refresh_token", "refresh-cached-2", raising=False)
-    iol_client.client._password = "another"
+    state.refresh_token = "refresh-cached-2"
+    state.password = "another"
     assert iol_client.client._refresh_token == "refresh-cached-2"
