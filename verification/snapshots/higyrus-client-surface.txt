@@ -8,6 +8,8 @@
 #
 Administrador : class : (agente: 'Agente', operador: 'Operador', sucursal: 'Sucursal') -> None
 Agente : class : (codigo: 'str', denominacion: 'str') -> None
+AsyncClient : class : (*, base_url: 'str | None' = None, client_id: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
+Client : class : (*, base_url: 'str | None' = None, client_id: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 Cuenta : class : (id: 'str', tipo: 'str', cartera: 'str', categoria: 'str', clase: 'str', fechaAlta: 'str', denominacion: 'str', alias: 'str', titular: 'str', tipoTitular: 'str', estado: 'str', nota: 'str', disposicionesGenerales: 'DisposicionesGenerales', domicilios: 'list[Domicilio]', personasRelacionadas: 'list[PersonaRelacionada]', mediosComunicacion: 'list[MedioComunicacion]', cuentasBancarias: 'list[CuentaBancaria]', administrador: 'Administrador') -> None
 CuentaBancaria : class : (cbu: 'str', banco: 'str', moneda: 'str', vigenteDesde: 'str', vigenteHasta: 'str') -> None
 DisposicionesGenerales : class : (vigenciaDesde: 'str', vigenciaHasta: 'str', condicionesGenerales: 'str', autorizacionGeneral: 'str', fondosDisponibles: 'str', cuentaFCI: 'str', derivacionBYMA: 'str', instruccionesFondos: 'str', tipoCliente: 'str', horizonteInversion: 'str', perfilInversion: 'str', actividadEsperada: 'str', operatoria: 'str', vinculacionAgente: 'str', derivacionMAV: 'str') -> None
@@ -26,7 +28,7 @@ Posicion : class : (cuenta: 'str', fecha: 'str', tipoTitulo: 'str', tipoTituloAg
 PosicionValuada : class : (cuenta: 'str', operador: 'str', unidad: 'str', lugar: 'str', estado: 'str', uso: 'str', fecha: 'str', comprobante: 'str', informacion: 'str', cantidad: 'float', fechaCotizacion: 'str', precio: 'float', valuacion: 'float', administrador: 'str', cartera: 'str', mercado: 'str', segmento: 'str', sesion: 'str', tipoTitulo: 'str', monedaCotizacion: 'str', idMovimiento: 'str') -> None
 SafeModel : class : ()
 Sucursal : class : (codigo: 'str', denominacion: 'str') -> None
-configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, client_id: 'str | None' = None) -> 'None'
+configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, client_id: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 get_health : function : () -> 'dict[str, Any]'
 get_listado_cuentas : function : (*, id_cuenta: 'list[str] | None' = None, tipo_cuenta: 'str | None' = None, estado: 'str | None' = None, fecha_desde: 'dt.date | None' = None, fecha_hasta: 'dt.date | None' = None) -> 'list[Cuenta]'
 get_movimientos : function : (id_cuenta: 'str', fecha_desde: 'dt.date', fecha_hasta: 'dt.date', *, especie: 'str | None' = None, tipo_titulo: 'str | None' = None, tipo_titulo_agente: 'str | None' = None, movimiento: 'str | None' = None) -> 'list[Movimiento]'

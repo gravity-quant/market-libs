@@ -22,6 +22,7 @@ Las credenciales se leen de variables de entorno (``HIGYRUS_BASE_URL``,
 :func:`configure`.
 """
 
+from higyrus_client.aio import AsyncClient
 from higyrus_client.client import (
     Client,
     configure,
@@ -63,6 +64,7 @@ from higyrus_client.models import (
 __all__ = [
     "Administrador",
     "Agente",
+    "AsyncClient",
     "Client",
     "Cuenta",
     "CuentaBancaria",
