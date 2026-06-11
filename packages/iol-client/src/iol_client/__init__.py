@@ -20,6 +20,7 @@ Async::
     await aio.aclose()
 """
 
+from iol_client.aio import AsyncClient
 from iol_client.client import (
     Client,
     InstrumentType,
@@ -42,6 +43,7 @@ from iol_client.exceptions import (
 # underscore — NOT in ``__all__``) so tests and snapshot-helpers can access
 # it via ``iol_client._get_default()`` without reaching into ``.client``.
 __all__ = [
+    "AsyncClient",
     "Client",
     "IOLAPIError",
     "IOLAuthError",

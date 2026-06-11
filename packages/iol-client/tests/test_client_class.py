@@ -20,13 +20,15 @@ guard migration) appends the AsyncClient / aio shim cases at the bottom.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import pickle
 
 import pytest
 
 import iol_client
-from iol_client import Client
+from iol_client import AsyncClient, Client, aio
+from iol_client.client import _raise_for_response as _sync_raise
 
 # ----------------------------------------------------------------------
 # Sync — Client lifecycle / repr / pickle / deepcopy
@@ -165,3 +167,113 @@ def test_pep_562_shim_raises_for_base_url() -> None:
 def test_pep_562_shim_raises_for_unknown() -> None:
     with pytest.raises(AttributeError):
         iol_client.client._totally_unknown  # noqa: B018
+
+
+# ----------------------------------------------------------------------
+# Async — AsyncClient lifecycle / repr / pickle / deepcopy
+# ----------------------------------------------------------------------
+
+
+async def test_async_context_manager() -> None:
+    async with AsyncClient() as c:
+        assert isinstance(c, AsyncClient)
+    assert c._state.http_client is None
+
+
+async def test_aclose_idempotent() -> None:
+    c = AsyncClient()
+    await c._ensure_http_client()
+    assert c._state.http_client is not None
+    await c.aclose()
+    assert c._state.http_client is None
+    await c.aclose()  # no-op
+    assert c._state.http_client is None
+
+
+def test_async_repr_redacts_password_and_token() -> None:
+    c = AsyncClient(
+        base_url="https://api.test",
+        username="bob",
+        password="async-secret",
+        token="async-tok",
+    )
+    c._state.refresh_token = "rt-async-secret"
+    rep = repr(c)
+    assert "bob" in rep
+    assert "async-secret" not in rep
+    assert "async-tok" not in rep
+    assert "rt-async-secret" not in rep
+    assert "***" in rep
+
+
+def test_async_pickle_raises() -> None:
+    c = AsyncClient()
+    with pytest.raises(TypeError, match="not picklable"):
+        pickle.dumps(c)
+
+
+def test_async_deepcopy_raises() -> None:
+    c = AsyncClient()
+    with pytest.raises(TypeError, match="not deepcopy-safe"):
+        copy.deepcopy(c)
+
+
+async def test_async_configure_carry_forward() -> None:
+    aio.configure(base_url="https://b.test", username="u2")
+    aio.configure(token="t2", token_expires_at=8.0e9)
+    state = aio._get_default()._state
+    assert state.base_url == "https://b.test"
+    assert state.username == "u2"
+    assert state.token == "t2"
+    assert state.token_expires_at == 8.0e9
+
+
+async def test_async_explicit_unaffected_by_top_level_configure() -> None:
+    explicit = AsyncClient(
+        base_url="https://explicit-async.test",
+        username="explicit-async-user",
+        password="explicit-async-pw",
+        token="explicit-async-tok",
+    )
+    aio.configure(
+        base_url="https://default-async.test",
+        username="default-async-user",
+        password="default-async-pw",
+        token="default-async-tok",
+    )
+    assert explicit._state.base_url == "https://explicit-async.test"
+    assert explicit._state.token == "explicit-async-tok"
+    assert explicit._state.username == "explicit-async-user"
+
+
+async def test_async_pep_562_shim_forwards_token_lock() -> None:
+    """The aio shim must forward ``_token_lock`` to ``_state.token_lock`` (D-02 aio)."""
+    state = aio._get_default()._state
+    # Manually create the lock (the production path creates it lazily inside
+    # _ensure_token; for the shim test we only need the forwarding assertion).
+    state.token_lock = asyncio.Lock()
+    assert aio._token_lock is state.token_lock
+    assert isinstance(aio._token_lock, asyncio.Lock)
+
+
+async def test_async_pep_562_shim_forwards_refresh_token() -> None:
+    """Pitfall #3 enforcement for aio shim."""
+    aio._get_default()._state.refresh_token = "rt-async-1"
+    assert aio._refresh_token == "rt-async-1"
+
+
+def test_async_pep_562_shim_raises_for_user() -> None:
+    with pytest.raises(AttributeError):
+        aio._user  # noqa: B018
+
+
+# ----------------------------------------------------------------------
+# B8 lock-in: aio imports _raise_for_response from client
+# ----------------------------------------------------------------------
+
+
+def test_aio_imports_raise_for_response_from_client() -> None:
+    """B8: ``aio._raise_for_response`` IS ``client._raise_for_response``."""
+    from iol_client.aio import _raise_for_response as _async_raise
+
+    assert _async_raise is _sync_raise

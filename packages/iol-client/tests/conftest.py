@@ -39,14 +39,14 @@ def _configure_sync() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-async def _configure_async(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
-    # NOTE: async fixture still uses legacy monkeypatch until Task 2 lands
-    # the AsyncClient refactor + aio.configure(token=...) extension. After
-    # Task 2 this becomes a single ``aio.configure(token=..., token_expires_at=...)``
-    # call mirroring the sync fixture.
-    aio.configure(base_url="https://api.test", username="u", password="p")
-    monkeypatch.setattr(aio, "_token", "test-token", raising=False)
-    monkeypatch.setattr(aio, "_token_expires_at", 9_999_999_999.0, raising=False)
+async def _configure_async() -> AsyncIterator[None]:
+    aio.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
     yield
-    await aio.aclose()
+    await aio._get_default().aclose()
     aio.configure(base_url="https://api.test", username="", password="")

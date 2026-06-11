@@ -106,17 +106,18 @@ async def test_async_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) 
 # ------ Regressions ------
 
 
-async def test_async_refresh_token_success_path(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_async_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — refresh path async actualiza _token (finding F-NN, mirror del sync).
 
-    El autouse fixture precarga _token; el monkeypatch lo limpia y setea
+    El autouse fixture precarga _token; este test lo limpia y setea
     _refresh_token para forzar la rama refresh en _ensure_token dentro del _token_lock.
+    Phase 6 migration: writes hit ``_default_async_client._state`` directamente
+    porque el shim PEP 562 es read-only (Pitfall #1).
     """
-    monkeypatch.setattr(aio, "_token", None, raising=False)
-    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(aio, "_refresh_token", "refresh-cached", raising=False)
+    state = aio._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-cached"
 
     # Pitfall 5: match_content bind respuestas a bodies específicos (bytes literal).
     httpx_mock.add_response(
@@ -140,13 +141,12 @@ async def test_async_refresh_token_success_path(
     assert aio._refresh_token == "refresh-rotated"
 
 
-async def test_async_refresh_fails_falls_back_to_password(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_async_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — refresh inválido cae al password grant async (finding F-NN, mirror)."""
-    monkeypatch.setattr(aio, "_token", None, raising=False)
-    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(aio, "_refresh_token", "refresh-stale", raising=False)
+    state = aio._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-stale"
 
     httpx_mock.add_response(
         url="https://api.test/token",
@@ -176,13 +176,12 @@ async def test_async_refresh_fails_falls_back_to_password(
     assert aio._refresh_token == "refresh-fresh"
 
 
-async def test_async_refresh_and_password_both_fail(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_async_refresh_and_password_both_fail(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — ambos fallan async → IOLAuthError (finding F-NN, mirror)."""
-    monkeypatch.setattr(aio, "_token", None, raising=False)
-    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(aio, "_refresh_token", "refresh-stale", raising=False)
+    state = aio._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-stale"
 
     httpx_mock.add_response(
         url="https://api.test/token",
@@ -205,12 +204,11 @@ async def test_async_refresh_and_password_both_fail(
     assert excinfo.value.status_code == 401
 
 
-async def test_async_login_captures_refresh_token(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_async_login_captures_refresh_token(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — async login() captura refresh_token (finding F-NN, mirror)."""
-    monkeypatch.setattr(aio, "_token", None, raising=False)
-    monkeypatch.setattr(aio, "_refresh_token", None, raising=False)
+    state = aio._get_default()._state
+    state.token = None
+    state.refresh_token = None
 
     httpx_mock.add_response(
         url="https://api.test/token",
@@ -229,7 +227,7 @@ async def test_async_login_captures_refresh_token(
 
 
 async def test_async_login_preserves_cached_refresh_token_when_server_omits(
-    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+    httpx_mock: HTTPXMock,
 ) -> None:
     """Regression CR-01: async login() preserva _refresh_token si el server lo omite.
 
@@ -238,9 +236,10 @@ async def test_async_login_preserves_cached_refresh_token_when_server_omits(
     ``_refresh_unlocked()``: si el payload omite ``refresh_token``, MANTENER el
     cached. Cubre el flujo password-fallback tras refresh inválido.
     """
-    monkeypatch.setattr(aio, "_token", None, raising=False)
-    monkeypatch.setattr(aio, "_token_expires_at", 0.0, raising=False)
-    monkeypatch.setattr(aio, "_refresh_token", "refresh-original", raising=False)
+    state = aio._get_default()._state
+    state.token = None
+    state.token_expires_at = 0.0
+    state.refresh_token = "refresh-original"
 
     httpx_mock.add_response(
         url="https://api.test/token",
