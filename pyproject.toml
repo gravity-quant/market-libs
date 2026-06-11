@@ -91,7 +91,7 @@ files = ["packages/higyrus-client/src", "packages/wallets-client/src", "packages
 minversion = "8.0"
 # `tests/` cubre el harness (`verification/` y otros módulos repo-internos
 # no publicables); `packages/` cubre los clientes publicables.
-testpaths = ["packages", "tests"]
+testpaths = ["packages", "tests", "verification"]
 # La raíz del repo va en sys.path para que los tests del harness puedan
 # importar el módulo `verification/` (no publicable, vive en la raíz; Patrón 1).
 pythonpath = ["."]
