@@ -1,4 +1,11 @@
-"""Tests for the REST client (API a nivel módulo)."""
+"""Tests for the REST client (API a nivel módulo).
+
+Phase 6 Plan 06 migration: the legacy ``monkeypatch.setattr(_client, "_token",
+...)`` writes were replaced by either ``matriz_client.configure(...)`` calls
+or direct writes to the default singleton's ``_state`` dataclass. Module-level
+``_ensure_token``/``_request``/``_get`` helpers no longer exist (W5 closure);
+tests call the default instance methods directly.
+"""
 
 from __future__ import annotations
 
@@ -17,68 +24,69 @@ from matriz_client.models import NewOrderResponse
 # ------------------------------------------------------------------
 
 
-def test_login_requires_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_client, "_user", "")
-    monkeypatch.setattr(_client, "_password", "")
-    monkeypatch.setattr(_client, "_token", None)
+def test_login_requires_credentials() -> None:
+    default = matriz_client._get_default()
+    default._state.username = ""
+    default._state.password = ""
+    default._state.token = None
     with pytest.raises(AuthenticationError):
-        _client.login()
+        matriz_client.login()
 
 
-def test_login_stores_token_from_header(
-    monkeypatch: pytest.MonkeyPatch, httpx_mock: HTTPXMock
-) -> None:
-    monkeypatch.setattr(_client, "_token", None)
-    monkeypatch.setattr(_client, "_token_ts", 0.0)
+def test_login_stores_token_from_header(httpx_mock: HTTPXMock) -> None:
+    default = matriz_client._get_default()
+    default._state.token = None
+    default._state.token_expires_at = 0.0
     httpx_mock.add_response(
         url="https://api.test/auth/getToken",
         method="POST",
         headers={"X-Auth-Token": "tkn-123"},
     )
-    token = _client.login()
+    token = matriz_client.login()
     assert token == "tkn-123"
     assert _client._token == "tkn-123"
     assert _client._token_ts > 0
 
 
-def test_login_raises_when_header_missing(
-    monkeypatch: pytest.MonkeyPatch, httpx_mock: HTTPXMock
-) -> None:
-    monkeypatch.setattr(_client, "_token", None)
+def test_login_raises_when_header_missing(httpx_mock: HTTPXMock) -> None:
+    default = matriz_client._get_default()
+    default._state.token = None
     httpx_mock.add_response(
         url="https://api.test/auth/getToken",
         method="POST",
         headers={},
     )
     with pytest.raises(AuthenticationError):
-        _client.login()
+        matriz_client.login()
 
 
 def test_ensure_token_skips_when_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_client, "_token", "fresh")
-    monkeypatch.setattr(_client, "_token_ts", time.time())
+    default = matriz_client._get_default()
+    default._state.token = "fresh"
+    default._state.token_expires_at = time.time() + 60.0
     called = {"n": 0}
 
-    def fake_login() -> str:
+    def fake_login(self: object) -> str:
         called["n"] += 1
         return "new"
 
-    monkeypatch.setattr(_client, "login", fake_login)
-    _client._ensure_token()
+    monkeypatch.setattr(_client.Client, "login", fake_login)
+    default._ensure_token()
     assert called["n"] == 0
 
 
 def test_ensure_token_refreshes_when_stale(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_client, "_token", "old")
-    monkeypatch.setattr(_client, "_token_ts", time.time() - (24 * 60 * 60))
+    default = matriz_client._get_default()
+    default._state.token = "old"
+    default._state.token_expires_at = time.time() - (24 * 60 * 60)
     called = {"n": 0}
 
-    def fake_login() -> str:
+    def fake_login(self: object) -> str:
         called["n"] += 1
         return "new"
 
-    monkeypatch.setattr(_client, "login", fake_login)
-    _client._ensure_token()
+    monkeypatch.setattr(_client.Client, "login", fake_login)
+    default._ensure_token()
     assert called["n"] == 1
 
 
@@ -92,7 +100,7 @@ def test_request_raises_on_error_payload(httpx_mock: HTTPXMock) -> None:
         json={"status": "ERROR", "description": "bad symbol", "message": "x"},
     )
     with pytest.raises(PrimaryAPIError) as exc:
-        _client._request("GET", "/rest/anything")
+        matriz_client._get_default()._request("GET", "/rest/anything")
     assert exc.value.description == "bad symbol"
 
 
@@ -102,12 +110,12 @@ def test_request_sends_auth_header(httpx_mock: HTTPXMock) -> None:
         match_headers={"X-Auth-Token": "test-token"},
         json={"status": "OK"},
     )
-    _client._request("GET", "/rest/anything", params={"symbol": "DLR/DIC23"})
+    matriz_client._get_default()._request("GET", "/rest/anything", params={"symbol": "DLR/DIC23"})
 
 
 def test_request_with_basic_auth_skips_token(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"status": "OK"})
-    _client._request("GET", "/rest/risk/x", auth_basic=("u", "p"))
+    matriz_client._get_default()._request("GET", "/rest/risk/x", auth_basic=("u", "p"))
     [request] = httpx_mock.get_requests()
     # No mandamos X-Auth-Token cuando va Basic Auth.
     assert "x-auth-token" not in {h.lower() for h in request.headers}
@@ -120,7 +128,7 @@ def test_get_filters_none_params(httpx_mock: HTTPXMock) -> None:
         url="https://api.test/rest/x?symbol=ABC&bar=1",
         json={"status": "OK"},
     )
-    _client._get("/rest/x", symbol="ABC", foo=None, bar=1)
+    matriz_client._get_default()._get("/rest/x", symbol="ABC", foo=None, bar=1)
 
 
 # ------------------------------------------------------------------
@@ -455,10 +463,16 @@ def test_request_raises_runtime_error_if_ensure_token_leaves_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression: defensive guard against _ensure_token returning without populating _token (CONCERNS.md L52-55, finding F-NN)."""
-    monkeypatch.setattr(_client, "_token", None, raising=False)
-    monkeypatch.setattr(_client, "_ensure_token", lambda: None)
+    default = matriz_client._get_default()
+    default._state.token = None
+
+    def fake_ensure_token(self: object) -> None:
+        # No-op: deliberately leaves token=None to trigger the guard.
+        return None
+
+    monkeypatch.setattr(_client.Client, "_ensure_token", fake_ensure_token)
     with pytest.raises(RuntimeError, match="did not populate _token"):
-        _client._request("GET", "/rest/anything")
+        default._request("GET", "/rest/anything")
 
 
 def test_request_raises_primary_api_error_when_body_is_not_dict(

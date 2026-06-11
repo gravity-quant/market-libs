@@ -16,6 +16,7 @@ See the README and the in-module docstrings for usage details.
 """
 
 from matriz_client.client import (
+    Client,
     cancel_order,
     configure,
     get_account_report,
@@ -38,6 +39,9 @@ from matriz_client.client import (
     login,
     new_order,
     replace_order,
+)
+from matriz_client.client import (
+    _get_default as _get_default,
 )
 from matriz_client.exceptions import AuthenticationError, MatrizClientError, PrimaryAPIError
 from matriz_client.models import (
@@ -93,6 +97,8 @@ __all__ = [
     "AuthenticationError",
     # Types — Literals
     "CFICode",
+    # REST Client class (Phase 6 Plan 06)
+    "Client",
     "Currency",
     "DetailedPosition",
     "ExecutionReportFrame",

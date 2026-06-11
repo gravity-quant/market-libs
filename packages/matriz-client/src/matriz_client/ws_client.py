@@ -61,8 +61,14 @@ _connected = threading.Event()
 
 
 def _ws_url() -> str:
-    """Derive the WebSocket URL from the REST base URL."""
-    url = _rest._base_url
+    """Derive the WebSocket URL from the REST base URL.
+
+    Reads via the explicit ``_get_default()`` accessor (post Phase 6 Plan 06)
+    instead of the legacy module-level ``_base_url`` global; the PEP 562 shim
+    would also work, but the explicit form makes the cross-module ownership
+    boundary obvious in code review.
+    """
+    url = _rest._get_default()._state.base_url
     if url.startswith("https://"):
         return url.replace("https://", "wss://", 1)
     return url.replace("http://", "ws://", 1)
@@ -136,8 +142,9 @@ def ws_connect(
     if _ws is not None and _connected.is_set():
         return
 
-    _rest._ensure_token()
-    assert _rest._token is not None
+    default = _rest._get_default()
+    default._ensure_token()
+    assert default._state.token is not None
 
     _on_message = on_message
     _on_error = on_error
@@ -147,7 +154,7 @@ def ws_connect(
     url = _ws_url()
     _ws = websocket.WebSocketApp(
         url,
-        header={"X-Auth-Token": _rest._token},
+        header={"X-Auth-Token": default._state.token},
         on_open=_handle_open,
         on_message=_handle_message,
         on_error=_handle_error,
