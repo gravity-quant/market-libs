@@ -8,8 +8,10 @@
 #
 AccountId : class : (id: 'str | None' = None) -> None
 AccountReport : class : (accountName: 'str | None' = None, marketMember: 'str | None' = None, marketMemberIdentity: 'str | None' = None, collateral: 'float | None' = None, margin: 'float | None' = None, availableToCollateral: 'float | None' = None, detailedAccountReports: 'dict[str, Any]' = <factory>, portfolio: 'dict[str, Any]' = <factory>, ordersMargin: 'float | None' = None, currentCash: 'float | None' = None, dailyDiff: 'float | None' = None, uncoveredMargin: 'float | None' = None) -> None
+AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 AuthenticationError : class : (status: 'str', description: 'str | None' = None, message: 'str | None' = None)
 CFICode : _LiteralGenericAlias : 
+Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 Currency : _LiteralGenericAlias : 
 DEFAULT_MARKET_DATA_ENTRIES : tuple : 
 DetailedPosition : class : (account: 'str | None' = None, totalDailyDiffPlain: 'float | None' = None, totalMarketValue: 'float | None' = None, report: 'dict[str, Any]' = <factory>, lastCalculation: 'str | None' = None) -> None
@@ -40,7 +42,7 @@ TimeInForce : _LiteralGenericAlias :
 Trade : class : (symbol: 'str | None' = None, servertime: 'int | None' = None, size: 'int | None' = None, price: 'float | None' = None, datetime: 'str | None' = None) -> None
 UnknownFrame : class : (type: 'str | None' = None, raw: 'dict[str, Any]' = <factory>) -> None
 cancel_order : function : (cl_ord_id: 'str', proprietary: 'str') -> 'NewOrderResponse'
-configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None) -> 'None'
+configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 get_account_report : function : (account_name: 'str') -> 'AccountReport'
 get_active_orders : function : (account_id: 'str') -> 'list[Order]'
 get_all_instruments : function : () -> 'list[Instrument]'
