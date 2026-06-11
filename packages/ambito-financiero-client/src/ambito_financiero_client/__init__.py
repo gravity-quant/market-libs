@@ -1,9 +1,15 @@
 """Cliente HTTP (sync y async) para Ámbito Financiero.
 
-Sync::
+Sync (compat top-level)::
 
     import ambito_financiero_client as ambito
     precio = ambito.get_dollar_banco_nacion(date)
+
+Sync (per-instance, v1.1+)::
+
+    from ambito_financiero_client import Client
+    with Client() as c:
+        precio = c.get_dollar_banco_nacion(date)
 
 Async::
 
@@ -13,6 +19,7 @@ Async::
 """
 
 from ambito_financiero_client.client import (
+    Client,
     configure,
     get_dollar_banco_nacion,
 )
@@ -30,6 +37,7 @@ __all__ = [
     "AmbitoFinancieroClientError",
     "AmbitoFinancieroNoDataError",
     "AmbitoFinancieroRateLimitError",
+    "Client",
     "configure",
     "get_dollar_banco_nacion",
 ]

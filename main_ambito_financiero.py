@@ -138,7 +138,7 @@ def probe_happy_sync(today: dt.date) -> tuple[ProbeResult, list[list[str]] | Non
     re-pegar al servidor.
     """
     fecha = _last_business_day(today)
-    base_url = ambito.client._base_url  # estado resuelto en vivo; sólo lectura
+    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
     formatted = fecha.strftime("%Y-%m-%d")
     path = f"/dolarnacion/historico-general/{formatted}/{formatted}"
     try:
@@ -315,7 +315,7 @@ def probe_parity_sync_async(
             "SKIPPED",
             "(sync o async happy probe falló antes)",
         )
-    base_url = ambito.client._base_url  # estado resuelto en vivo; sólo lectura
+    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
     try:
         venta_sync = parse_ar_decimal(rows_sync[1][2])
     except Exception as exc:
@@ -372,7 +372,7 @@ def probe_parse_decimal_adversarial(rows_sync: list[list[str]] | None) -> ProbeR
             "SKIPPED",
             "(happy_sync falló antes)",
         )
-    base_url = ambito.client._base_url  # estado resuelto en vivo; sólo lectura
+    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
     try:
         venta_raw = rows_sync[1][2]
     except (IndexError, TypeError) as exc:
@@ -453,7 +453,7 @@ def probe_no_data(today: dt.date) -> ProbeResult:
     ``ERROR-MAP`` OPEN.
     """
     fecha_futura = today + dt.timedelta(days=60)
-    base_url = ambito.client._base_url  # estado resuelto en vivo; sólo lectura
+    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
     try:
         returned = ambito.get_dollar_banco_nacion(fecha_futura)
     except ambito.AmbitoFinancieroNoDataError:
@@ -507,7 +507,7 @@ def probe_schema_snapshot(
     """
     if rows_sync is None:
         return ProbeResult("schema_snapshot", "SKIPPED", "(happy_sync falló antes)")
-    base_url = ambito.client._base_url  # estado resuelto en vivo; sólo lectura
+    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
     fecha = _last_business_day(today)
     actual_schema = schema_of(rows_sync)
     envelope: dict[str, object] = {
@@ -557,8 +557,11 @@ def probe_antibot(today: dt.date) -> ProbeResult:
     - Sólo sync (D-17). El estado mutado vive en ``ambito.client``.
     - One-shot: una sola llamada, sin retry ni sleep (D-14).
     - ``BAD_UA = f"python-httpx/{httpx.__version__}"`` (D-16).
-    - ``GOOD_UA`` se lee dinámicamente de ``ambito.client._DEFAULT_USER_AGENT``
-      para evitar duplicación que se desincronice (Pitfall 8).
+    - ``GOOD_UA`` se lee dinámicamente del estado del default Client
+      (``ambito.client._get_default()._state.user_agent``) para evitar
+      duplicación que se desincronice (Pitfall 8). Post-refactor 06-03: el
+      constant moved to ``_state._DEFAULT_USER_AGENT`` y se materializa via
+      ``_ClientState`` defaults.
     - ``try/finally`` con ``ambito.configure(user_agent=good_ua)`` en
       ``finally`` para restaurar el cliente aun ante excepción (D-15).
     - Tres ramas D-18: 403 esperado -> EXPECTED terminal; 200 OK ->
@@ -569,8 +572,8 @@ def probe_antibot(today: dt.date) -> ProbeResult:
 
     fecha = _last_business_day(today)
     bad_ua = f"python-httpx/{httpx.__version__}"
-    good_ua = ambito.client._DEFAULT_USER_AGENT  # estado resuelto en vivo; sólo lectura
-    base_url = ambito.client._base_url  # estado resuelto en vivo; sólo lectura
+    good_ua = ambito.client._get_default()._state.user_agent  # post-refactor accessor
+    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
     try:
         ambito.configure(user_agent=bad_ua)
         try:
