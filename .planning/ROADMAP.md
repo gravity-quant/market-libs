@@ -48,8 +48,8 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — Public surface snapshot harness + regen script + 4 baseline snapshot files (REFAC-01)
-- [ ] 06-02-PLAN.md — Fixture-reaches-production guard tests (4 sync + 3 async + 1 matriz-async-skip) using legacy monkeypatch pattern (REFAC-01)
+- [x] 06-01-PLAN.md — Public surface snapshot harness + regen script + 4 baseline snapshot files (REFAC-01)
+- [x] 06-02-PLAN.md — Fixture-reaches-production guard tests (4 sync + 3 async + 1 matriz-async-skip) using legacy monkeypatch pattern (REFAC-01)
 - [ ] 06-03-PLAN.md — ambito-financiero-client skeleton: _state.py + Client + AsyncClient + PEP 562 shim + conftest migration + snapshot update (REFAC-02)
 - [ ] 06-04-PLAN.md — iol-client skeleton: _state.py + Client + AsyncClient with OAuth refresh + Pitfall #3 shim addendum + 15+ inline monkeypatch migrations + snapshot + guard migration (REFAC-02)
 - [ ] 06-05-PLAN.md — higyrus-client skeleton: _state.py + Client + AsyncClient + _token_ts→token_expires_at rename mapping + URL-encoding preservation + snapshot + guard migration (REFAC-02)
@@ -148,7 +148,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 3. IOL Verification                                                | v1.0      | 3/3            | Complete    | 2026-06-06 |
 | 4. Higyrus Verification                                            | v1.0      | 4/4            | Complete    | 2026-06-08 |
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
-| 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 0/7            | Not started | -          |
+| 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 2/7 | In Progress|  |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 0/?            | Not started | -          |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
