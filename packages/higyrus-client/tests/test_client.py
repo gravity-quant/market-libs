@@ -58,8 +58,11 @@ def test_login_credenciales_rechazadas(httpx_mock: HTTPXMock) -> None:
     assert exc_info.value.timestamp == "2026-04-24T12:00:00Z"
 
 
-def test_login_falla_si_falta_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(higyrus_client.client, "_base_url", "")
+def test_login_falla_si_falta_base_url() -> None:
+    # Phase 6 Plan 05 (Pitfall #4): el legacy monkeypatch a
+    # higyrus_client.client._base_url=`""` ya no llega al state desde el
+    # refactor. Usamos configure(base_url="") que es la vía soportada.
+    higyrus_client.configure(base_url="")
     with pytest.raises(HigyrusAuthError) as exc_info:
         higyrus_client.login()
     assert exc_info.value.status_code == 0

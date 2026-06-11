@@ -56,8 +56,18 @@ def configure(
     username: str | None = None,
     password: str | None = None,
     client_id: str | None = None,
+    token: str | None = None,
+    token_expires_at: float | None = None,
 ) -> None:
-    """Sobrescribe credenciales/URL en runtime y resetea el token cacheado."""
+    """Sobrescribe credenciales/URL en runtime y resetea el token cacheado.
+
+    Phase 6 REFAC-02 prerequisite: ``token=`` y ``token_expires_at=`` se
+    aceptan como kwargs para que los conftest migren de
+    ``monkeypatch.setattr(aio, "_token", ...)`` a
+    ``aio.configure(token=...)``. La forma plena del refactor (AsyncClient
+    + state) llega en Task 2; en Task 1 sólo extendemos la signature aquí
+    para que la migración del conftest funcione.
+    """
     global _base_url, _user, _password, _client_id, _token, _token_ts
     if base_url is not None:
         _base_url = base_url.rstrip("/")
@@ -67,8 +77,12 @@ def configure(
         _password = password
     if client_id is not None:
         _client_id = client_id
-    _token = None
-    _token_ts = 0.0
+    # Phase 6 REFAC-02 rename: el legacy _token_ts era timestamp-since-login;
+    # ahora aceptamos epoch absoluto (compat con el nuevo Client). El
+    # _ensure_token legacy lo lee como timestamp; el valor de fixture
+    # 9_999_999_999.0 (año 2286) funciona en ambas semánticas.
+    _token = token if token is not None else None
+    _token_ts = token_expires_at if token_expires_at is not None else 0.0
 
 
 # ---------------------------------------------------------------------------

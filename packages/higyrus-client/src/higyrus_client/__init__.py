@@ -23,6 +23,7 @@ Las credenciales se leen de variables de entorno (``HIGYRUS_BASE_URL``,
 """
 
 from higyrus_client.client import (
+    Client,
     configure,
     get_health,
     get_listado_cuentas,
@@ -30,6 +31,9 @@ from higyrus_client.client import (
     get_posicion_valuada,
     get_posiciones,
     login,
+)
+from higyrus_client.client import (
+    _get_default as _get_default,
 )
 from higyrus_client.exceptions import (
     HigyrusAPIError,
@@ -59,6 +63,7 @@ from higyrus_client.models import (
 __all__ = [
     "Administrador",
     "Agente",
+    "Client",
     "Cuenta",
     "CuentaBancaria",
     "DisposicionesGenerales",

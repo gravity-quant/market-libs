@@ -30,8 +30,6 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import higyrus_client
-from higyrus_client import aio
-
 
 # ---------------------------------------------------------------------------
 # Sync Client lifecycle
