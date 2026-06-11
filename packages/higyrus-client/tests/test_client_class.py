@@ -30,6 +30,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import higyrus_client
+from higyrus_client import aio
 
 # ---------------------------------------------------------------------------
 # Sync Client lifecycle
@@ -212,3 +213,157 @@ def test_url_encoding_preserves_slash_in_query(httpx_mock: HTTPXMock) -> None:
     assert "fechaDesde=08/05/2026" in query_str
     assert "fechaHasta=07/06/2026" in query_str
     assert "%2F" not in query_str
+
+
+# ---------------------------------------------------------------------------
+# Async AsyncClient lifecycle
+# ---------------------------------------------------------------------------
+
+
+def test_async_client_init_with_explicit_kwargs() -> None:
+    """``AsyncClient(...)`` setea state per-instancia."""
+    c = aio.AsyncClient(
+        base_url="https://api.test/",
+        client_id="async-tenant",
+        username="async-user",
+        password="async-pass",
+        token="async-token",
+        token_expires_at=4321.0,
+    )
+    assert c._state.base_url == "https://api.test"  # trailing slash removed
+    assert c._state.client_id == "async-tenant"
+    assert c._state.username == "async-user"
+    assert c._state.password == "async-pass"
+    assert c._state.token == "async-token"
+    assert c._state.token_expires_at == 4321.0
+
+
+async def test_async_context_manager_closes_http_client() -> None:
+    """``async with AsyncClient(...) as c:`` cierra el http_client al salir."""
+    c = aio.AsyncClient(base_url="https://api.test")
+    async with c as ctx:
+        await ctx._ensure_http_client()
+        assert ctx._state.http_client is not None
+    assert c._state.http_client is None
+
+
+async def test_aclose_is_idempotent() -> None:
+    """``aclose()`` puede invocarse repetidas veces sin error."""
+    c = aio.AsyncClient(base_url="https://api.test")
+    await c.aclose()
+    await c.aclose()
+    await c.aclose()
+    assert c._state.http_client is None
+
+
+def test_async_repr_redacts_password_and_token() -> None:
+    """``AsyncClient.__repr__`` redacta credenciales (D-18)."""
+    c = aio.AsyncClient(
+        base_url="https://api.test",
+        client_id="async-tenant",
+        username="async-user",
+        password="super-secret",
+        token="bearer-secret",
+    )
+    r = repr(c)
+    assert "super-secret" not in r
+    assert "bearer-secret" not in r
+    assert "https://api.test" in r
+    assert "async-user" in r
+    assert "async-tenant" in r
+    assert "***" in r
+
+
+def test_async_client_pickle_raises_type_error() -> None:
+    """``AsyncClient.__reduce__`` levanta ``TypeError`` (D-23)."""
+    c = aio.AsyncClient(base_url="https://api.test")
+    with pytest.raises(TypeError):
+        pickle.dumps(c)
+
+
+def test_async_client_deepcopy_raises_type_error() -> None:
+    """``AsyncClient.__deepcopy__`` levanta ``TypeError`` (D-23)."""
+    c = aio.AsyncClient(base_url="https://api.test")
+    with pytest.raises(TypeError):
+        copy.deepcopy(c)
+
+
+# ---------------------------------------------------------------------------
+# PEP 562 shim — async
+# ---------------------------------------------------------------------------
+
+
+async def test_async_pep_562_shim_token_read_forwards_to_state() -> None:
+    """``aio._token`` forwardea a ``state.token`` del default async client."""
+    aio._get_default()._state.token = "async-shim-tok"
+    assert aio._token == "async-shim-tok"
+
+
+async def test_async_pep_562_shim_token_ts_renamed_to_token_expires_at() -> None:
+    """``aio._token_ts`` mapea a ``state.token_expires_at`` (rename mapping)."""
+    aio._get_default()._state.token_expires_at = 1234.5
+    assert aio._token_ts == 1234.5
+
+
+async def test_async_pep_562_shim_forwards_token_lock() -> None:
+    """``aio._token_lock`` forwardea a ``state.token_lock`` (creado lazy)."""
+    default = aio._get_default()
+    # Forzar la creación del lock por el path normal (acceso público).
+    lock = default._ensure_token_lock()
+    assert aio._token_lock is lock
+
+
+async def test_async_pep_562_shim_client_forwards_to_http_client() -> None:
+    """``aio._client`` forwardea a ``state.http_client``."""
+    default = aio._get_default()
+    await default._ensure_http_client()
+    assert aio._client is default._state.http_client
+
+
+def test_async_pep_562_shim_raises_for_legacy_credential_names() -> None:
+    """Reads de ``_user`` / ``_password`` / ``_client_id`` / ``_base_url`` levantan ``AttributeError``."""
+    for name in ("_user", "_password", "_client_id", "_base_url"):
+        with pytest.raises(AttributeError):
+            getattr(aio, name)
+
+
+# ---------------------------------------------------------------------------
+# URL-encoding regression (async mirror)
+# ---------------------------------------------------------------------------
+
+
+async def test_async_url_encoding_preserves_slash(httpx_mock: HTTPXMock) -> None:
+    """Async mirror del regression: preserva ``/`` en query string."""
+    httpx_mock.add_response(
+        url=re.compile(r"^https://api\.test/api/cuentas/CTA-001/movimientos\?.*"),
+        method="GET",
+        json=[],
+    )
+    await aio.get_movimientos(
+        "CTA-001",
+        fecha_desde=dt.date(2026, 5, 8),
+        fecha_hasta=dt.date(2026, 6, 7),
+    )
+    [req] = httpx_mock.get_requests()
+    query_str = req.url.query.decode()
+    assert "fechaDesde=08/05/2026" in query_str
+    assert "fechaHasta=07/06/2026" in query_str
+    assert "%2F" not in query_str
+
+
+# ---------------------------------------------------------------------------
+# B8 — Shared _raise_for_response between client.py and aio.py
+# ---------------------------------------------------------------------------
+
+
+def test_aio_imports_raise_for_response_from_client() -> None:
+    """B8 enforcement: ``aio._raise_for_response is client._raise_for_response``.
+
+    aio.py importa el helper de client.py — no duplica la lógica de mapeo
+    de errores. Esta es la single source of truth para
+    ``HigyrusClientError`` mapping.
+    """
+    from higyrus_client.aio import _raise_for_response as a_impl
+    from higyrus_client.client import _raise_for_response as c_impl
+
+    assert a_impl is c_impl
