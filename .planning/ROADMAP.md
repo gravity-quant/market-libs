@@ -43,7 +43,14 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
   3. Los 4 paquetes exponen `Client` (sync) y `AsyncClient` (async) con `close()`/`aclose()` y context managers (`with`/`async with`); estado `base_url`/credenciales/token/http_client/refresh_token vive en `_ClientState` por instancia.
   4. La API top-level (`pkg.get_X(...)`, `pkg.configure(...)`) sigue funcionando 100% sin cambios para callers; los 277 tests mockeados pasan verde después del refactor (conftest migrado a `configure(token=..., token_expires_at=...)` donde aplique).
   5. `ruff` + `mypy strict` + `pytest` corren verde en CI al finalizar la phase para ambos Python 3.12 y 3.13.
-**Plans**: TBD
+**Plans**: 7 plans
+- [ ] 06-01-PLAN.md — Public surface snapshot harness + regen script + 4 baseline snapshot files (REFAC-01)
+- [ ] 06-02-PLAN.md — Fixture-reaches-production guard tests (4 sync + 3 async + 1 matriz-async-skip) using legacy monkeypatch pattern (REFAC-01)
+- [ ] 06-03-PLAN.md — ambito-financiero-client skeleton: _state.py + Client + AsyncClient + PEP 562 shim + conftest migration + snapshot update (REFAC-02)
+- [ ] 06-04-PLAN.md — iol-client skeleton: _state.py + Client + AsyncClient with OAuth refresh + Pitfall #3 shim addendum + 15+ inline monkeypatch migrations + snapshot + guard migration (REFAC-02)
+- [ ] 06-05-PLAN.md — higyrus-client skeleton: _state.py + Client + AsyncClient + _token_ts→token_expires_at rename mapping + URL-encoding preservation + snapshot + guard migration (REFAC-02)
+- [ ] 06-06-PLAN.md — matriz-client skeleton: _state.py + Client (X-Auth-Token header) + stub AsyncClient + _base_url shim extension (Open Q #4) + ws_client.py + cross-package mutation_gate test migration + snapshot + guard migration (REFAC-02)
+- [ ] 06-07-PLAN.md — CI green gate: full pytest + ruff + mypy strict + snapshot diff + driver smoke + operator checkpoint on CI 3.12 + 3.13 matrix (REFAC-01, REFAC-02)
 
 ### Phase 7: `_core.py` Extraction — Sync/Async Logic Dedup
 **Goal**: Eliminar la duplicación de lógica entre `client.py` y `aio.py` por paquete; ambos quedan como shells de transporte sobre helpers puros en `_core.py`.
@@ -115,7 +122,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 3. IOL Verification                                                | v1.0      | 3/3            | Complete    | 2026-06-06 |
 | 4. Higyrus Verification                                            | v1.0      | 4/4            | Complete    | 2026-06-08 |
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
-| 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 0/?            | Not started | -          |
+| 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 0/7            | Not started | -          |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 0/?            | Not started | -          |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
