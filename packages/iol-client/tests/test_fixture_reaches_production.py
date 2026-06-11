@@ -40,3 +40,23 @@ def test_iol_sync_sentinel_token_reaches_authorization_header(
 
     [req] = httpx_mock.get_requests()
     assert req.headers["Authorization"] == "Bearer SYNC-sentinel-iol"
+
+
+async def test_iol_async_sentinel_token_reaches_authorization_header(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ASYNC: sentinel monkeypatched onto ``aio._token`` reaches the Authorization header."""
+    from iol_client import aio
+
+    monkeypatch.setattr(aio, "_token", "ASYNC-sentinel-iol", raising=False)
+    monkeypatch.setattr(aio, "_token_expires_at", 9_999_999_999.0, raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json={"instrumentos": []},
+    )
+
+    await aio.get_instruments("argentina")
+
+    [req] = httpx_mock.get_requests()
+    assert req.headers["Authorization"] == "Bearer ASYNC-sentinel-iol"

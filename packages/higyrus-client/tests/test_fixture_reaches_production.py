@@ -37,3 +37,23 @@ def test_higyrus_sync_sentinel_token_reaches_authorization_header(
 
     [req] = httpx_mock.get_requests()
     assert req.headers["Authorization"] == "Bearer SYNC-sentinel-higyrus"
+
+
+async def test_higyrus_async_sentinel_token_reaches_authorization_header(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ASYNC: sentinel monkeypatched onto ``aio._token`` reaches the Authorization header."""
+    from higyrus_client import aio
+
+    monkeypatch.setattr(aio, "_token", "ASYNC-sentinel-higyrus", raising=False)
+    monkeypatch.setattr(aio, "_token_ts", 9_999_999_999.0, raising=False)
+
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/listadoCuentas?estado=alta",
+        json=[],
+    )
+
+    await aio.get_listado_cuentas(estado="alta")
+
+    [req] = httpx_mock.get_requests()
+    assert req.headers["Authorization"] == "Bearer ASYNC-sentinel-higyrus"

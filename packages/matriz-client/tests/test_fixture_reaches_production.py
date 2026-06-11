@@ -42,3 +42,16 @@ def test_matriz_sync_sentinel_token_reaches_x_auth_token_header(
 
     [req] = httpx_mock.get_requests()
     assert req.headers["X-Auth-Token"] == "SYNC-sentinel-matriz"
+
+
+async def test_matriz_async_skipped_until_phase_10() -> None:
+    """ASYNC: matriz aio.py is deferred to Phase 10 REFAC-04.
+
+    Plan 06 ships a stub ``AsyncClient`` with no REST methods (Open Q #1). The
+    real async guard activates in Phase 10 once the matriz async REST surface
+    lands on the TokenStore. Keeping this test as a permanent ``pytest.skip``
+    gives a discoverable reminder in CI output (1 skipped + reason string).
+    """
+    pytest.skip(
+        "matriz aio.py is Phase 10 REFAC-04; stub AsyncClient ships in Plan 06 with no REST methods"
+    )
