@@ -18,6 +18,7 @@ Async::
     await aio.aclose()
 """
 
+from ambito_financiero_client.aio import AsyncClient
 from ambito_financiero_client.client import (
     Client,
     configure,
@@ -37,6 +38,7 @@ __all__ = [
     "AmbitoFinancieroClientError",
     "AmbitoFinancieroNoDataError",
     "AmbitoFinancieroRateLimitError",
+    "AsyncClient",
     "Client",
     "configure",
     "get_dollar_banco_nacion",

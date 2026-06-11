@@ -225,7 +225,7 @@ async def probe_happy_async(today: dt.date) -> tuple[ProbeResult, float | None]:
     parseado (que el probe 3 compara contra el sync).
     """
     fecha = _last_business_day(today)
-    base_url = aio._base_url  # estado resuelto en vivo; sólo lectura
+    base_url = aio._get_default()._state.base_url  # post-refactor accessor
     formatted = fecha.strftime("%Y-%m-%d")
     path = f"/dolarnacion/historico-general/{formatted}/{formatted}"
     try:
