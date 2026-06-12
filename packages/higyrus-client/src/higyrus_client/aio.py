@@ -1,18 +1,12 @@
 """Cliente HTTP asincrónico para la API de Higyrus.
 
-Hay dos formas equivalentes de usar el cliente:
+Dos formas equivalentes de usar el cliente:
 
-1. **API a nivel módulo (legacy):** las funciones se llaman directamente
-   sobre el submódulo. Internamente delegan en una instancia perezosa
-   de :class:`AsyncClient` creada en el primer uso::
+1. **API a nivel módulo (legacy):** ``from higyrus_client import aio`` +
+   ``await aio.get_listado_cuentas(estado="alta")``. Delega en una
+   instancia perezosa de :class:`AsyncClient`.
 
-        from higyrus_client import aio
-
-        cuentas = await aio.get_listado_cuentas(estado="alta")
-        await aio.aclose()
-
-2. **Instancia explícita** (Phase 6 REFAC-02, recomendado para tests y
-   aplicaciones que necesitan aislamiento de state)::
+2. **Instancia explícita** (Phase 6 REFAC-02)::
 
         from higyrus_client import AsyncClient
 
@@ -20,42 +14,39 @@ Hay dos formas equivalentes de usar el cliente:
                                username="...", password="...") as c:
             cuentas = await c.get_listado_cuentas(estado="alta")
 
-El login se dispara automáticamente en la primera llamada que lo necesite;
-``aio.login()`` está expuesto por si querés validar credenciales temprano,
-pero no es obligatorio. State independiente del módulo sync
-(``higyrus_client.client``): hacer login en uno no afecta el otro.
+State independiente del módulo sync (``higyrus_client.client``): hacer
+login en uno no afecta el otro.
 
-**B8 — Helper compartido:** ``_raise_for_response`` se importa de
-``higyrus_client.client`` (no se duplica). Single source of truth para el
-mapping de errores Higyrus.
+**Phase 7 REFAC-03** — transport shell async mirror del sync. La lógica
+pura vive en :mod:`higyrus_client._core`. Endpoint methods = 3-liners.
 
-**PEP 562 compat shim** (D-01, D-02): este módulo expone reads de los
-nombres legacy ``_token``, ``_token_ts`` (renamed internamente a
-``token_expires_at``), ``_token_lock``, y ``_client`` como aliases
-read-only del state del default async client. Reads de ``_user``,
-``_password``, ``_client_id``, ``_base_url`` levantan ``AttributeError``.
+**B8 — D-04:** ``_raise_for_response`` se importa de
+``higyrus_client._core`` directamente. El re-export con
+``as _raise_for_response`` satisface mypy strict y preserva la identidad
+``aio._raise_for_response is client._raise_for_response`` (ambos aliases
+referencian el MISMO objeto en ``_core``).
 
-Notar: NO se llama ``load_dotenv()`` en este módulo (D-19) — la carga del
-``.env`` la hace ``higyrus_client.client`` cuando se importa. Importar
-``aio`` directamente sin importar ``higyrus_client`` antes funciona
-porque los defaults del state leen env vars que ``higyrus_client.client``
-ya cargó (todo el paquete pasa por el import side-effect).
+**PEP 562 compat shim** (D-01, D-02): reads de ``_token``, ``_token_ts``
+(renamed a ``token_expires_at``), ``_token_lock`` y ``_client`` forwardean
+al state. Reads de ``_user``/``_password``/``_client_id``/``_base_url``
+levantan ``AttributeError``.
+
+NO se llama ``load_dotenv()`` acá (D-19) — la carga del ``.env`` la hace
+``higyrus_client.client`` cuando se importa.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import time
 from typing import Any, Self
-from urllib.parse import quote, urlencode
 
 import httpx
 
-from higyrus_client._params import drop_none, format_bool, format_date
-from higyrus_client._state import _REQUEST_TIMEOUT, _TOKEN_TTL_SECONDS, _ClientState
-from higyrus_client.client import _raise_for_response  # B8: shared helper
-from higyrus_client.exceptions import HigyrusAPIError, HigyrusAuthError
+from higyrus_client import _core
+from higyrus_client._core import RequestSpec
+from higyrus_client._core import raise_for_response as _raise_for_response  # D-04 B8 alias
+from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
 from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
 
 # Re-export for tests / external introspection. B8 enforcement test
@@ -76,19 +67,16 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# AsyncClient class
+# AsyncClient class — Phase 7 transport shell async
 # ---------------------------------------------------------------------------
 
 
 class AsyncClient:
-    """Async HTTP client for Higyrus.
+    """Async HTTP client for Higyrus. Phase 7 transport shell.
 
-    State lives in ``self._state`` (``_ClientState``). The async-specific
-    bits (``_client_lock`` for http-client creation; ``state.token_lock``
-    for token refresh) are created lazy inside the loop so the class is
-    safe to instantiate at import time / outside an event loop.
-
-    Pickle / deepcopy contract (D-23): NOT supported.
+    Async-specific bits (``_client_lock`` para http-client; ``state.token_lock``
+    para token refresh) se crean lazy dentro del loop. Pickle/deepcopy NO
+    soportados (D-23).
     """
 
     __slots__ = ("_client_lock", "_state")
@@ -133,7 +121,7 @@ class AsyncClient:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Cierra el ``httpx.AsyncClient`` si fue inicializado. Idempotente."""
+        """Cierra ``httpx.AsyncClient`` si fue inicializado. Idempotente."""
         client_lock = self._ensure_client_lock()
         async with client_lock:
             client = self._state.http_client
@@ -166,7 +154,7 @@ class AsyncClient:
             "owns TCP pool + SSL context)"
         )
 
-    # ---- Lock lifecycle ----
+    # ---- Locks + HTTP client + auth ----
 
     def _ensure_client_lock(self) -> asyncio.Lock:
         """Crea el lock de http-client lazy (bind to current loop)."""
@@ -175,16 +163,13 @@ class AsyncClient:
         return self._client_lock
 
     def _ensure_token_lock(self) -> asyncio.Lock:
-        """Crea el lock de token lazy (bind to current loop). Expuesto vía
-        shim PEP 562 como ``aio._token_lock`` para callers legacy."""
+        """Crea el lock de token lazy. Expuesto via PEP 562 como ``aio._token_lock``."""
         if self._state.token_lock is None:
             self._state.token_lock = asyncio.Lock()
         return self._state.token_lock
 
-    # ---- HTTP client lifecycle ----
-
     async def _ensure_http_client(self) -> httpx.AsyncClient:
-        """Crea ``httpx.AsyncClient`` lazy en el primer uso (necesita loop)."""
+        """Crea ``httpx.AsyncClient`` lazy (necesita loop)."""
         client = self._state.http_client
         if isinstance(client, httpx.AsyncClient):
             return client
@@ -197,45 +182,14 @@ class AsyncClient:
             self._state.http_client = new_client
             return new_client
 
-    # ---- Auth ----
-
     async def _login_unlocked(self) -> str:
-        """Login sin tomar el lock (asume que el caller ya lo tiene)."""
-        if not self._state.base_url:
-            raise HigyrusAuthError(
-                0, [{"title": "config", "detail": "HIGYRUS_BASE_URL must be set"}]
-            )
-        if not self._state.username or not self._state.password:
-            raise HigyrusAuthError(
-                0,
-                [{"title": "config", "detail": "HIGYRUS_USER and HIGYRUS_PASSWORD must be set"}],
-            )
-
-        http_client = await self._ensure_http_client()
-        resp = await http_client.post(
-            f"{self._state.base_url}/api/login",
-            json={
-                "clientId": self._state.client_id,
-                "username": self._state.username,
-                "password": self._state.password,
-            },
-        )
-        # WR-01 mirror (review-04): canalizar todos los non-2xx por
-        # _raise_for_response para preservar la jerarquía HigyrusClientError.
-        if not resp.is_success:
-            _raise_for_response(resp)
-
-        data: dict[str, Any] = resp.json()
-        token = data.get("token")
-        if not isinstance(token, str) or not token:
-            raise HigyrusAuthError(
-                resp.status_code,
-                [{"title": "auth", "detail": "No token in login response"}],
-            )
-
+        """Login sin tomar el lock (asume que el caller lo tiene)."""
+        spec = _core.build_login_request(self._state)
+        http = await self._ensure_http_client()
+        resp = await http.post(f"{self._state.base_url}{spec.path}", json=spec.json_body)
+        token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
-        # Phase 6 REFAC-02 rename: epoch absoluto de expiración.
-        self._state.token_expires_at = time.time() + _TOKEN_TTL_SECONDS
+        self._state.token_expires_at = expires_at
         return token
 
     async def login(self) -> str:
@@ -245,86 +199,39 @@ class AsyncClient:
             return await self._login_unlocked()
 
     async def _ensure_token(self) -> None:
-        """Refresca el token si no existe o si superó ``_TOKEN_TTL_SECONDS``.
-
-        Usa double-checked locking para evitar el thundering-herd cuando
-        múltiples coroutines llegan a un endpoint con token vencido al mismo
-        tiempo.
-        """
-        if self._state.token and time.time() < self._state.token_expires_at:
+        """Refresca el token; double-checked locking para evitar thundering-herd."""
+        if _core.token_is_fresh(self._state):
             return
         token_lock = self._ensure_token_lock()
         async with token_lock:
-            # Double-check tras esperar el lock — otro coroutine pudo refrescar.
-            if self._state.token and time.time() < self._state.token_expires_at:
+            if _core.token_is_fresh(self._state):
                 return
             await self._login_unlocked()
 
-    # ---- Internals ----
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict[str, Any] | None = None,
-        json_body: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | list[Any] | None:
-        """Ejecuta una request autenticada y decodifica el JSON.
-
-        Devuelve ``None`` si la API responde 204 o cuerpo vacío. Preserva
-        la quirk higyrus de NO encodear ``/`` en query strings.
-        """
+    async def _request(self, spec: RequestSpec) -> httpx.Response:
+        """Transport shell async — orquesta auth + dispatch HTTP. Quirk vive en ``_core``."""
         await self._ensure_token()
         token_lock = self._ensure_token_lock()
         async with token_lock:
             token = self._state.token
         assert token is not None
+        http = await self._ensure_http_client()
+        url = f"{self._state.base_url}{spec.path}"
+        headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
+        # WR-02 mirror: omitir `json` cuando no hay body.
+        kwargs: dict[str, Any] = {"headers": headers}
+        if spec.json_body is not None:
+            kwargs["json"] = spec.json_body
+        if not spec.url_pre_encoded and spec.params is not None:
+            kwargs["params"] = spec.params
+        return await http.request(spec.method, url, **kwargs)
 
-        http_client = await self._ensure_http_client()
-        clean_params = drop_none(params) if params else None
-        url = f"{self._state.base_url}{path}"
-        if clean_params:
-            # B6 - same logic as sync: preservar `/` literal en query y
-            # re-emitir `list[str]` como claves repetidas.
-            query = urlencode(clean_params, doseq=True, quote_via=quote, safe="/")
-            url = f"{url}?{query}"
-        # WR-02 mirror (review-04): omitir `json` cuando no hay body.
-        kwargs: dict[str, Any] = {"headers": {"Authorization": f"Bearer {token}"}}
-        if json_body is not None:
-            kwargs["json"] = json_body
-        resp = await http_client.request(method, url, **kwargs)
-
-        if not resp.is_success:
-            _raise_for_response(resp)
-
-        if resp.status_code == 204 or not resp.content:
-            return None
-
-        body: dict[str, Any] | list[Any] = resp.json()
-        return body
-
-    async def _get(self, path: str, **params: Any) -> dict[str, Any] | list[Any] | None:
-        return await self._request("GET", path, params=params)
-
-    # ---- Health ----
+    # ---- Endpoints (Phase 7 3-liner shells) ----
 
     async def get_health(self) -> dict[str, Any]:
-        """Estado del servidor vía ``GET /api/health``."""
-        raw = await self._request("GET", "/api/health")
-        if not isinstance(raw, dict):
-            raise HigyrusAPIError(
-                status_code=0,
-                errors=[
-                    {
-                        "title": "shape mismatch",
-                        "detail": f"expected dict, got {type(raw).__name__}",
-                    }
-                ],
-            )
-        return raw
-
-    # ---- Cuentas ----
+        """``GET /api/health``."""
+        spec = _core.build_get_health_request(self._state)
+        return _core.parse_get_health_response(await self._request(spec))
 
     async def get_movimientos(
         self,
@@ -337,29 +244,13 @@ class AsyncClient:
         tipo_titulo_agente: str | None = None,
         movimiento: str | None = None,
     ) -> list[Movimiento]:
-        """Movimientos de una cuenta en un rango de fechas (async)."""
-        raw = await self._get(
-            f"/api/cuentas/{id_cuenta}/movimientos",
-            fechaDesde=format_date(fecha_desde),
-            fechaHasta=format_date(fecha_hasta),
-            especie=especie,
-            tipoTitulo=tipo_titulo,
-            tipoTituloAgente=tipo_titulo_agente,
-            movimiento=movimiento,
-        )
-        if raw is None:
-            return []
-        if not isinstance(raw, list):
-            raise HigyrusAPIError(
-                status_code=0,
-                errors=[
-                    {
-                        "title": "shape mismatch",
-                        "detail": f"expected list, got {type(raw).__name__}",
-                    }
-                ],
-            )
-        return [Movimiento.from_api(item) for item in raw]
+        """``GET /api/cuentas/{id_cuenta}/movimientos`` (async)."""
+        spec = _core.build_get_movimientos_request(
+            self._state, id_cuenta, fecha_desde, fecha_hasta,
+            especie=especie, tipo_titulo=tipo_titulo,
+            tipo_titulo_agente=tipo_titulo_agente, movimiento=movimiento,
+        )  # fmt: skip
+        return _core.parse_get_movimientos_response(await self._request(spec))
 
     async def get_posicion_valuada(
         self,
@@ -378,35 +269,15 @@ class AsyncClient:
         concertacion: bool | None = None,
         actualizar: bool | None = None,
     ) -> list[PosicionValuada]:
-        """Posición valuada de una cuenta en un rango de fechas (async)."""
-        raw = await self._get(
-            f"/api/cuentas/{id_cuenta}/posicionValuada",
-            tipoCuenta=tipo_cuenta,
-            nivel=nivel,
-            desde=format_date(desde),
-            hasta=format_date(hasta),
-            lugar=lugar,
-            estado=estado,
-            tipoTitulo=tipo_titulo,
-            extracto=extracto,
-            ocultarCerradas=format_bool(ocultar_cerradas),
-            especie=especie,
-            concertacion=format_bool(concertacion),
-            actualizar=format_bool(actualizar),
-        )
-        if raw is None:
-            return []
-        if not isinstance(raw, list):
-            raise HigyrusAPIError(
-                status_code=0,
-                errors=[
-                    {
-                        "title": "shape mismatch",
-                        "detail": f"expected list, got {type(raw).__name__}",
-                    }
-                ],
-            )
-        return [PosicionValuada.from_api(item) for item in raw]
+        """``GET /api/cuentas/{id_cuenta}/posicionValuada`` (async)."""
+        spec = _core.build_get_posicion_valuada_request(
+            self._state, id_cuenta, tipo_cuenta=tipo_cuenta, nivel=nivel,
+            desde=desde, hasta=hasta, lugar=lugar, estado=estado,
+            tipo_titulo=tipo_titulo, extracto=extracto,
+            ocultar_cerradas=ocultar_cerradas, especie=especie,
+            concertacion=concertacion, actualizar=actualizar,
+        )  # fmt: skip
+        return _core.parse_get_posicion_valuada_response(await self._request(spec))
 
     async def get_listado_cuentas(
         self,
@@ -417,28 +288,12 @@ class AsyncClient:
         fecha_desde: dt.date | None = None,
         fecha_hasta: dt.date | None = None,
     ) -> list[Cuenta]:
-        """Listado completo de cuentas, filtrable (async)."""
-        raw = await self._get(
-            "/api/cuentas/listadoCuentas",
-            idCuenta=id_cuenta,
-            tipoCuenta=tipo_cuenta,
-            estado=estado,
-            fechaDesde=format_date(fecha_desde),
-            fechaHasta=format_date(fecha_hasta),
-        )
-        if raw is None:
-            return []
-        if not isinstance(raw, list):
-            raise HigyrusAPIError(
-                status_code=0,
-                errors=[
-                    {
-                        "title": "shape mismatch",
-                        "detail": f"expected list, got {type(raw).__name__}",
-                    }
-                ],
-            )
-        return [Cuenta.from_api(item) for item in raw]
+        """``GET /api/cuentas/listadoCuentas`` (async)."""
+        spec = _core.build_get_listado_cuentas_request(
+            self._state, id_cuenta=id_cuenta, tipo_cuenta=tipo_cuenta,
+            estado=estado, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
+        )  # fmt: skip
+        return _core.parse_get_listado_cuentas_response(await self._request(spec))
 
     async def get_posiciones(
         self,
@@ -448,26 +303,12 @@ class AsyncClient:
         especie: str | None = None,
         incluir_parking: bool = False,
     ) -> list[Posicion]:
-        """Resumen de posiciones de una cuenta a una fecha (async)."""
-        raw = await self._get(
-            f"/api/cuentas/{id_cuenta}/posiciones",
-            fecha=format_date(fecha),
-            especie=especie,
-            incluirParking=format_bool(incluir_parking),
-        )
-        if raw is None:
-            return []
-        if not isinstance(raw, list):
-            raise HigyrusAPIError(
-                status_code=0,
-                errors=[
-                    {
-                        "title": "shape mismatch",
-                        "detail": f"expected list, got {type(raw).__name__}",
-                    }
-                ],
-            )
-        return [Posicion.from_api(item) for item in raw]
+        """``GET /api/cuentas/{id_cuenta}/posiciones`` (async)."""
+        spec = _core.build_get_posiciones_request(
+            self._state, id_cuenta, fecha=fecha, especie=especie,
+            incluir_parking=incluir_parking,
+        )  # fmt: skip
+        return _core.parse_get_posiciones_response(await self._request(spec))
 
 
 # ---------------------------------------------------------------------------
@@ -478,11 +319,7 @@ _default_async_client: AsyncClient | None = None
 
 
 def _get_default() -> AsyncClient:
-    """Devuelve el ``AsyncClient`` perezoso a nivel módulo.
-
-    Se crea en el primer uso leyendo env vars vía los defaults de
-    ``_ClientState``. ``configure()`` lo reemplaza por una nueva instancia.
-    """
+    """Devuelve el ``AsyncClient`` perezoso a nivel módulo."""
     global _default_async_client
     if _default_async_client is None:
         _default_async_client = AsyncClient()
@@ -498,15 +335,7 @@ def configure(
     token: str | None = None,
     token_expires_at: float | None = None,
 ) -> None:
-    """Sobrescribe credenciales/URL del default async client en runtime.
-
-    Mismo carry-forward semantic que el sync ``configure()``: el default
-    se reemplaza por una nueva instancia copiando los valores actuales
-    para los kwargs no pasados. ``token=`` y ``token_expires_at=`` se
-    aceptan como kwargs para que los conftest migren de
-    ``monkeypatch.setattr(aio, "_token", ...)`` a
-    ``aio.configure(token=...)``.
-    """
+    """Sobrescribe credenciales/URL del default async client (carry-forward semantic)."""
     global _default_async_client
     current = _get_default()
     new = AsyncClient(
@@ -517,20 +346,15 @@ def configure(
         token=token,
         token_expires_at=token_expires_at,
     )
-    # NOTE: no podemos await current.aclose() acá (configure es sync). El
-    # default antiguo queda sin un http_client cerrado hasta el próximo
-    # `await aio.aclose()`. Llamar a aclose explícitamente desde el
-    # teardown del fixture sigue siendo necesario.
+    # NOTE: no podemos await current.aclose() acá (configure es sync).
     _default_async_client = new
 
 
 async def aclose() -> None:
-    """Cierra ``httpx.AsyncClient`` del default si fue inicializado."""
     await _get_default().aclose()
 
 
 async def login() -> str:
-    """Login a nivel módulo (D-20): delega en el ``AsyncClient`` perezoso."""
     return await _get_default().login()
 
 
@@ -549,14 +373,10 @@ async def get_movimientos(
     movimiento: str | None = None,
 ) -> list[Movimiento]:
     return await _get_default().get_movimientos(
-        id_cuenta,
-        fecha_desde,
-        fecha_hasta,
-        especie=especie,
-        tipo_titulo=tipo_titulo,
-        tipo_titulo_agente=tipo_titulo_agente,
-        movimiento=movimiento,
-    )
+        id_cuenta, fecha_desde, fecha_hasta,
+        especie=especie, tipo_titulo=tipo_titulo,
+        tipo_titulo_agente=tipo_titulo_agente, movimiento=movimiento,
+    )  # fmt: skip
 
 
 async def get_posicion_valuada(
@@ -576,20 +396,11 @@ async def get_posicion_valuada(
     actualizar: bool | None = None,
 ) -> list[PosicionValuada]:
     return await _get_default().get_posicion_valuada(
-        id_cuenta,
-        tipo_cuenta,
-        nivel,
-        desde,
-        hasta,
-        lugar=lugar,
-        estado=estado,
-        tipo_titulo=tipo_titulo,
-        extracto=extracto,
-        ocultar_cerradas=ocultar_cerradas,
-        especie=especie,
-        concertacion=concertacion,
-        actualizar=actualizar,
-    )
+        id_cuenta, tipo_cuenta, nivel, desde, hasta,
+        lugar=lugar, estado=estado, tipo_titulo=tipo_titulo,
+        extracto=extracto, ocultar_cerradas=ocultar_cerradas,
+        especie=especie, concertacion=concertacion, actualizar=actualizar,
+    )  # fmt: skip
 
 
 async def get_listado_cuentas(
@@ -601,12 +412,9 @@ async def get_listado_cuentas(
     fecha_hasta: dt.date | None = None,
 ) -> list[Cuenta]:
     return await _get_default().get_listado_cuentas(
-        id_cuenta=id_cuenta,
-        tipo_cuenta=tipo_cuenta,
-        estado=estado,
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-    )
+        id_cuenta=id_cuenta, tipo_cuenta=tipo_cuenta, estado=estado,
+        fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
+    )  # fmt: skip
 
 
 async def get_posiciones(
@@ -617,15 +425,12 @@ async def get_posiciones(
     incluir_parking: bool = False,
 ) -> list[Posicion]:
     return await _get_default().get_posiciones(
-        id_cuenta,
-        fecha,
-        especie=especie,
-        incluir_parking=incluir_parking,
-    )
+        id_cuenta, fecha, especie=especie, incluir_parking=incluir_parking,
+    )  # fmt: skip
 
 
 # ---------------------------------------------------------------------------
-# Internal accessors for the module-level _request shim
+# Legacy module-level `_request` shim + PEP 562 read-only shim
 # ---------------------------------------------------------------------------
 
 
@@ -636,21 +441,20 @@ async def _request(
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
 ) -> dict[str, Any] | list[Any] | None:
-    """Module-level shim — delega en el default async client.
+    """Module-level shim async — preserva signature pre-Phase-7."""
+    spec = RequestSpec(method=method, path=path, params=params, json_body=json_body)
+    resp = await _get_default()._request(spec)
+    if not resp.is_success:
+        _raise_for_response(resp)
+    if resp.status_code == 204 or not resp.content:
+        return None
+    body: dict[str, Any] | list[Any] = resp.json()
+    return body
 
-    Mantenido para preservar compatibilidad con tests legacy que invocan
-    ``aio._request(...)`` directamente.
-    """
-    return await _get_default()._request(method, path, params=params, json_body=json_body)
 
-
-# ---------------------------------------------------------------------------
-# PEP 562 read-only shim — D-01, D-02
-# ---------------------------------------------------------------------------
-
-# Maps legacy module-level name -> _ClientState attribute name. The
-# ``_token_ts`` entry encodes the cross-pkg rename to ``token_expires_at``;
-# ``_token_lock`` exposes the lazy state.token_lock created on first use.
+# Maps legacy module-level name -> _ClientState attribute name. ``_token_ts``
+# encodes the cross-pkg rename to ``token_expires_at``; ``_token_lock``
+# exposes the lazy state.token_lock.
 _FORWARDED_TO_STATE: dict[str, str] = {
     "_token": "token",
     "_token_ts": "token_expires_at",
