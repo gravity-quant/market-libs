@@ -260,6 +260,27 @@ def test_build_get_listado_cuentas_no_params_returns_path_only() -> None:
     assert spec.path == "/api/cuentas/listadoCuentas"
 
 
+def test_build_get_listado_cuentas_estado_with_slash_preserves_literal() -> None:
+    """``estado`` con ``/`` debe preservarse literal — la quirk Higyrus aplica a TODOS los params.
+
+    Regression test para WR-02 Phase 7 review: el contrato del quirk
+    ``urlencode(..., safe="/")`` aplica a todos los valores de la query,
+    no sólo a los date params. ``estado="alta/test"`` debe producir
+    ``estado=alta/test`` (sin ``%2F``) consistente con el patrón de los
+    otros tests de quirk encapsulation (movimientos / posiciones).
+
+    Esto cierra el gap del isolation test (``test_sync_async_isolation.py``)
+    que sólo verifica el happy-path sin caracteres especiales en ``estado``.
+    """
+    state = _ClientState(base_url="https://api.test")
+    spec = _core.build_get_listado_cuentas_request(state, estado="alta/test")
+    assert spec.method == "GET"
+    assert spec.url_pre_encoded is True
+    # La quirk preserva `/` literal en CUALQUIER valor — no sólo dates.
+    assert "estado=alta/test" in spec.path
+    assert "%2F" not in spec.path
+
+
 def test_build_get_posicion_valuada_request_preserves_slash_and_bool() -> None:
     state = _ClientState(base_url="https://api.test")
     spec = _core.build_get_posicion_valuada_request(
