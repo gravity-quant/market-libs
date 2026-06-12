@@ -99,6 +99,25 @@ def test_raise_for_response_tolerates_non_json_body() -> None:
     assert exc_info.value.errors == []
 
 
+def test_raise_for_response_does_not_raise_on_2xx() -> None:
+    """2xx responses must be a no-op — consistent contract with ambito/iol/matriz.
+
+    Regression test para CR-01 Phase 7 review: la función levantaba
+    ``HigyrusAPIError(status_code=200, ...)`` para CUALQUIER status (incluso
+    200 OK) porque no tenía guard al inicio. Cualquier caller directo de
+    ``raise_for_response(resp)`` sobre un happy-path obtendría excepción
+    silenciosa.
+    """
+    resp = httpx.Response(200, content=b"{}")
+    _core.raise_for_response(resp)  # no exception
+
+
+def test_raise_for_response_no_op_for_3xx() -> None:
+    """3xx redirects también son no-op — la función sólo mapea ``resp.is_error``."""
+    resp = httpx.Response(302, content=b"")
+    _core.raise_for_response(resp)  # no exception
+
+
 # ---------------------------------------------------------------------------
 # token_is_fresh
 # ---------------------------------------------------------------------------

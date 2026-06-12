@@ -121,15 +121,25 @@ class RequestSpec:
 def raise_for_response(resp: httpx.Response) -> None:
     """Mapea respuestas non-2xx a la jerarquía ``HigyrusClientError``.
 
-    Body-consume implícito: ``resp.json()`` ya consume el stream del body.
-    Tolerante a body no-JSON: si falla el decode, ``errors`` y ``timestamp``
-    quedan vacíos pero la excepción se levanta igual.
+    No-op para respuestas 2xx/3xx — contrato compartido con ambito/iol/matriz
+    (CR-01 fix Phase 7 review). Sin este guard cualquier caller directo
+    obtendría ``HigyrusAPIError(status_code=200, ...)`` en un happy-path.
+
+    Precondición (D-06): ``resp.read()`` (o ``_consume_and_check``) ya fue
+    llamado antes de este helper — el body está en buffer. ``resp.json()``
+    acá es idempotente sobre el buffer en memoria; el caller es responsable
+    del orden body-consume-then-raise. Tolerante a body no-JSON: si falla
+    el decode, ``errors`` y ``timestamp`` quedan vacíos pero la excepción
+    se levanta igual.
 
     D-04: single source of truth para el mapping de errores. ``client.py`` y
     ``aio.py`` lo aliasean como ``_raise_for_response = _core.raise_for_response``;
     la identidad ``aio._raise_for_response is client._raise_for_response`` se
     preserva.
     """
+    if not resp.is_error:
+        return  # no-op para 2xx/3xx — consistente con el resto del monorepo
+
     try:
         payload: dict[str, Any] = resp.json()
     except ValueError:
