@@ -1,12 +1,14 @@
 """REST client for the MATBA ROFEX Primary API v1.21.
 
-Thin wrapper over the HTTP endpoints of the Primary API. State is held at
-module level (token, HTTP client, credentials) and the token is refreshed
-automatically a little before the 24 h server-side expiry.
+Phase 6 Plan 06 ships a ``Client`` class with the full sync REST surface plus
+backwards-compatible top-level shims (``configure``, ``login``, ``get_*``,
+``new_order``, ``replace_order``, ``cancel_order``, ``get_market_data``, …)
+delegating to a lazy default singleton.
 
 Auth modes:
 - **Token** (default, most endpoints): obtained via ``POST /auth/getToken``
-  and sent as ``X-Auth-Token`` on every subsequent request.
+  and sent as ``X-Auth-Token`` on every subsequent request. The token is
+  parsed from the *response header* ``X-Auth-Token`` (D-22), not the body.
 - **HTTP Basic** (Risk API only): uses ``PRIMARY_USER``/``PRIMARY_PASSWORD``
   directly on each request.
 
@@ -20,14 +22,14 @@ See :mod:`matriz_client.ws_client` for the WebSocket streaming counterpart.
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Self
 
 import httpx
 from dotenv import load_dotenv
 
+from matriz_client._state import _REQUEST_TIMEOUT, _TOKEN_TTL, _ClientState
 from matriz_client.exceptions import AuthenticationError, PrimaryAPIError
 from matriz_client.models import (
     AccountReport,
@@ -54,15 +56,499 @@ from matriz_client.types import (
 
 load_dotenv()
 
-# -- Module-level state --
-_base_url: str = os.getenv("PRIMARY_BASE_URL", "https://api.remarkets.primary.com.ar").rstrip("/")
-_user: str = os.getenv("PRIMARY_USER", "")
-_password: str = os.getenv("PRIMARY_PASSWORD", "")
-_token: str | None = None
-_token_ts: float = 0.0
-_TOKEN_TTL = 23 * 60 * 60  # refresh 1 h before the 24 h expiry
-_REQUEST_TIMEOUT = 30.0
-_session = httpx.Client(timeout=_REQUEST_TIMEOUT)
+__all__ = [
+    "Client",
+    "cancel_order",
+    "configure",
+    "get_account_report",
+    "get_active_orders",
+    "get_all_instruments",
+    "get_all_orders",
+    "get_detailed_positions",
+    "get_filled_orders",
+    "get_instrument_detail",
+    "get_instruments_by_cfi",
+    "get_instruments_by_segment",
+    "get_instruments_details",
+    "get_market_data",
+    "get_order_by_exec_id",
+    "get_order_history",
+    "get_order_status",
+    "get_positions",
+    "get_segments",
+    "get_trades",
+    "login",
+    "new_order",
+    "replace_order",
+]
+
+
+# ------------------------------------------------------------------
+# Module-level helpers (stateless)
+# ------------------------------------------------------------------
+
+
+def _raise_for_response(resp: httpx.Response) -> None:
+    """Map HTTP error status codes to typed exceptions.
+
+    Centralized so both sync ``Client`` and (in Phase 10) ``AsyncClient`` can
+    share the same error semantics (B8: do NOT duplicate in ``aio.py``).
+    """
+    resp.raise_for_status()
+
+
+def _unwrap(data: dict[str, Any], key: str, endpoint: str) -> Any:
+    """Return ``data[key]`` or raise ``PrimaryAPIError`` if missing.
+
+    Surfaces a typed ``PrimaryAPIError`` (status ``"ERROR"``) when the Primary
+    API response is missing the envelope key the wrapper expects. Without this
+    guard, the caller would see an opaque ``KeyError`` that is not part of the
+    client's documented exception contract (D-MATZ-9).
+    """
+    if key not in data:
+        raise PrimaryAPIError(
+            status="ERROR",
+            description=f"missing envelope key '{key}' in response from {endpoint}",
+            message=None,
+        )
+    return data[key]
+
+
+# ------------------------------------------------------------------
+# Client class
+# ------------------------------------------------------------------
+
+
+class Client:
+    """Synchronous REST client for the MATBA ROFEX Primary API.
+
+    Lazy auth: ``login()`` is called automatically on the first authenticated
+    request and refreshed before the 24h server-side expiry.
+
+    Args:
+        base_url: Primary API base URL. Defaults to ``PRIMARY_BASE_URL`` env.
+        username: ``PRIMARY_USER`` env override.
+        password: ``PRIMARY_PASSWORD`` env override.
+        token: Pre-existing token (useful for tests). If provided alongside
+            ``token_expires_at`` in the future, ``_ensure_token()`` skips the
+            login round-trip.
+        token_expires_at: Unix timestamp at which the cached token expires.
+
+    Example::
+
+        with Client() as c:
+            segments = c.get_segments()
+    """
+
+    __slots__ = ("_state",)
+
+    def __init__(
+        self,
+        *,
+        base_url: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        token: str | None = None,
+        token_expires_at: float | None = None,
+    ) -> None:
+        self._state = _ClientState()
+        if base_url is not None:
+            self._state.base_url = base_url.rstrip("/")
+        if username is not None:
+            self._state.username = username
+        if password is not None:
+            self._state.password = password
+        if token is not None:
+            self._state.token = token
+        if token_expires_at is not None:
+            self._state.token_expires_at = token_expires_at
+
+    # -- Lifecycle ---------------------------------------------------
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Idempotently close the underlying HTTP client."""
+        http_client = self._state.http_client
+        if http_client is not None and isinstance(http_client, httpx.Client):
+            http_client.close()
+        self._state.http_client = None
+
+    def __repr__(self) -> str:
+        return (
+            f"Client(base_url={self._state.base_url!r}, "
+            f"username={self._state.username!r}, "
+            f"password='***', "
+            f"token='***')"
+        )
+
+    def __reduce__(self) -> Any:
+        raise NotImplementedError(
+            "matriz_client.Client is not picklable: it holds live HTTP/socket state"
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        raise NotImplementedError(
+            "matriz_client.Client cannot be deep-copied: it holds live HTTP/socket state"
+        )
+
+    # -- HTTP client lazy accessor ----------------------------------
+
+    def _ensure_http_client(self) -> httpx.Client:
+        """Return the persistent ``httpx.Client``; create lazily if needed."""
+        existing = self._state.http_client
+        if isinstance(existing, httpx.Client):
+            return existing
+        new = httpx.Client(timeout=_REQUEST_TIMEOUT)
+        self._state.http_client = new
+        return new
+
+    # -- Auth -------------------------------------------------------
+
+    def login(self) -> str:
+        """Authenticate against ``/auth/getToken`` and cache the token.
+
+        D-22: The Primary API returns the token in the ``X-Auth-Token``
+        *response header*, NOT the JSON body. Raises ``AuthenticationError``
+        if the header is missing or credentials are unset.
+        """
+        if not self._state.username or not self._state.password:
+            raise AuthenticationError("ERROR", "PRIMARY_USER and PRIMARY_PASSWORD must be set")
+        http = self._ensure_http_client()
+        resp = http.post(
+            f"{self._state.base_url}/auth/getToken",
+            headers={
+                "X-Username": self._state.username,
+                "X-Password": self._state.password,
+            },
+        )
+        _raise_for_response(resp)
+        token = resp.headers.get("X-Auth-Token")
+        if not isinstance(token, str) or not token:
+            raise AuthenticationError("ERROR", "No X-Auth-Token header in response")
+        self._state.token = token
+        self._state.token_expires_at = time.time() + _TOKEN_TTL
+        return token
+
+    def _ensure_token(self) -> None:
+        """Log in if there is no cached token or it is past expiry."""
+        if self._state.token and time.time() < self._state.token_expires_at:
+            return
+        self.login()
+
+    def _risk_auth(self) -> tuple[str, str]:
+        """Return the (user, password) tuple for Risk API HTTP Basic Auth."""
+        return (self._state.username, self._state.password)
+
+    # -- Request plumbing -------------------------------------------
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        auth_basic: tuple[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Execute an HTTP request and decode the JSON payload."""
+        http = self._ensure_http_client()
+        url = f"{self._state.base_url}{path}"
+        if auth_basic:
+            resp = http.request(
+                method,
+                url,
+                params=params,
+                auth=httpx.BasicAuth(*auth_basic),
+            )
+        else:
+            self._ensure_token()
+            if self._state.token is None:
+                raise RuntimeError("matriz_client.client: _ensure_token() did not populate _token")
+            resp = http.request(
+                method,
+                url,
+                params=params,
+                headers={"X-Auth-Token": self._state.token},
+            )
+
+        _raise_for_response(resp)
+        raw = resp.json()
+        if not isinstance(raw, dict):
+            # Defense for CR-01: see prior comment in legacy module.
+            raise PrimaryAPIError(
+                status="ERROR",
+                description=f"expected JSON object body at {path}, got {type(raw).__name__}",
+                message=None,
+            )
+        data: dict[str, Any] = raw
+        if data.get("status") == "ERROR":
+            raise PrimaryAPIError(
+                status="ERROR",
+                description=data.get("description"),
+                message=data.get("message"),
+            )
+        return data
+
+    def _get(self, path: str, **params: Any) -> dict[str, Any]:
+        clean = {k: v for k, v in params.items() if v is not None}
+        return self._request("GET", path, params=clean)
+
+    # -- Segments (§4) ----------------------------------------------
+
+    def get_segments(self) -> list[Segment]:
+        path = "/rest/segment/all"
+        return [Segment.from_api(s) for s in _unwrap(self._get(path), "segments", path)]
+
+    # -- Instruments (§5) -------------------------------------------
+
+    def get_all_instruments(self) -> list[Instrument]:
+        path = "/rest/instruments/all"
+        return [Instrument.from_api(i) for i in _unwrap(self._get(path), "instruments", path)]
+
+    def get_instruments_details(self) -> list[InstrumentDetail]:
+        path = "/rest/instruments/details"
+        return [InstrumentDetail.from_api(i) for i in _unwrap(self._get(path), "instruments", path)]
+
+    def get_instrument_detail(self, symbol: str, market_id: MarketId = "ROFX") -> InstrumentDetail:
+        path = "/rest/instruments/detail"
+        return InstrumentDetail.from_api(
+            _unwrap(self._get(path, symbol=symbol, marketId=market_id), "instrument", path)
+        )
+
+    def get_instruments_by_cfi(self, cfi_code: CFICode) -> list[Instrument]:
+        path = "/rest/instruments/byCFICode"
+        return [
+            Instrument.from_api(i)
+            for i in _unwrap(self._get(path, CFICode=cfi_code), "instruments", path)
+        ]
+
+    def get_instruments_by_segment(
+        self, segment_id: SegmentId, market_id: MarketId = "ROFX"
+    ) -> list[Instrument]:
+        path = "/rest/instruments/bySegment"
+        return [
+            Instrument.from_api(i)
+            for i in _unwrap(
+                self._get(path, MarketSegmentID=segment_id, MarketID=market_id),
+                "instruments",
+                path,
+            )
+        ]
+
+    # -- Orders (§6) ------------------------------------------------
+
+    def new_order(
+        self,
+        symbol: str,
+        side: Side,
+        qty: int,
+        account: str,
+        price: float | None = None,
+        *,
+        order_type: OrderType = "LIMIT",
+        time_in_force: TimeInForce = "DAY",
+        market_id: MarketId = "ROFX",
+        cancel_previous: bool = False,
+        iceberg: bool = False,
+        display_qty: int | None = None,
+        expire_date: str | None = None,
+    ) -> NewOrderResponse:
+        params: dict[str, Any] = {
+            "marketId": market_id,
+            "symbol": symbol,
+            "side": side,
+            "orderQty": qty,
+            "ordType": order_type,
+            "timeInForce": time_in_force,
+            "account": account,
+            "cancelPrevious": str(cancel_previous),
+            "iceberg": str(iceberg),
+        }
+        if price is not None:
+            params["price"] = price
+        if display_qty is not None:
+            params["displayQty"] = display_qty
+        if expire_date is not None:
+            params["expireDate"] = expire_date
+        path = "/rest/order/newSingleOrder"
+        return NewOrderResponse.from_api(_unwrap(self._get(path, **params), "order", path))
+
+    def replace_order(
+        self, cl_ord_id: str, proprietary: str, qty: int, price: float
+    ) -> NewOrderResponse:
+        path = "/rest/order/replaceById"
+        return NewOrderResponse.from_api(
+            _unwrap(
+                self._get(
+                    path,
+                    clOrdId=cl_ord_id,
+                    proprietary=proprietary,
+                    orderQty=qty,
+                    price=price,
+                ),
+                "order",
+                path,
+            )
+        )
+
+    def cancel_order(self, cl_ord_id: str, proprietary: str) -> NewOrderResponse:
+        path = "/rest/order/cancelById"
+        return NewOrderResponse.from_api(
+            _unwrap(
+                self._get(path, clOrdId=cl_ord_id, proprietary=proprietary),
+                "order",
+                path,
+            )
+        )
+
+    def get_order_status(self, cl_ord_id: str, proprietary: str) -> Order:
+        path = "/rest/order/id"
+        return Order.from_api(
+            _unwrap(
+                self._get(path, clOrdId=cl_ord_id, proprietary=proprietary),
+                "order",
+                path,
+            )
+        )
+
+    def get_order_history(self, cl_ord_id: str, proprietary: str) -> list[Order]:
+        path = "/rest/order/allById"
+        return [
+            Order.from_api(o)
+            for o in _unwrap(
+                self._get(path, clOrdId=cl_ord_id, proprietary=proprietary),
+                "orders",
+                path,
+            )
+        ]
+
+    def get_active_orders(self, account_id: str) -> list[Order]:
+        path = "/rest/order/actives"
+        return [
+            Order.from_api(o)
+            for o in _unwrap(self._get(path, accountId=account_id), "orders", path)
+        ]
+
+    def get_filled_orders(self, account_id: str) -> list[Order]:
+        path = "/rest/order/filleds"
+        return [
+            Order.from_api(o)
+            for o in _unwrap(self._get(path, accountId=account_id), "orders", path)
+        ]
+
+    def get_all_orders(self, account_id: str) -> list[Order]:
+        path = "/rest/order/all"
+        return [
+            Order.from_api(o)
+            for o in _unwrap(self._get(path, accountId=account_id), "orders", path)
+        ]
+
+    def get_order_by_exec_id(self, exec_id: str) -> Order:
+        path = "/rest/order/byExecId"
+        return Order.from_api(_unwrap(self._get(path, execId=exec_id), "order", path))
+
+    # -- Market Data (§8) -------------------------------------------
+
+    def get_market_data(
+        self,
+        symbol: str,
+        entries: Sequence[MarketDataEntry] = DEFAULT_MARKET_DATA_ENTRIES,
+        *,
+        market_id: MarketId = "ROFX",
+        depth: int | None = None,
+    ) -> MarketDataSnapshot:
+        path = "/rest/marketdata/get"
+        return MarketDataSnapshot.from_api(
+            _unwrap(
+                self._get(
+                    path,
+                    marketId=market_id,
+                    symbol=symbol,
+                    entries=",".join(entries),
+                    depth=depth,
+                ),
+                "marketData",
+                path,
+            )
+        )
+
+    def get_trades(
+        self,
+        symbol: str,
+        *,
+        date: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        market_id: MarketId = "ROFX",
+        environment: str | None = None,
+    ) -> list[Trade]:
+        path = "/rest/data/getTrades"
+        return [
+            Trade.from_api(t)
+            for t in _unwrap(
+                self._get(
+                    path,
+                    marketId=market_id,
+                    symbol=symbol,
+                    date=date,
+                    dateFrom=date_from,
+                    dateTo=date_to,
+                    environment=environment,
+                ),
+                "trades",
+                path,
+            )
+        ]
+
+    # -- Risk API (§9) ----------------------------------------------
+
+    def get_positions(self, account_name: str) -> list[Position]:
+        path = f"/rest/risk/position/getPositions/{account_name}"
+        return [
+            Position.from_api(p)
+            for p in _unwrap(
+                self._request("GET", path, auth_basic=self._risk_auth()),
+                "positions",
+                path,
+            )
+        ]
+
+    def get_detailed_positions(self, account_name: str) -> DetailedPosition:
+        return DetailedPosition.from_api(
+            self._request(
+                "GET",
+                f"/rest/risk/detailedPosition/{account_name}",
+                auth_basic=self._risk_auth(),
+            )
+        )
+
+    def get_account_report(self, account_name: str) -> AccountReport:
+        return AccountReport.from_api(
+            self._request(
+                "GET",
+                f"/rest/risk/accountReport/{account_name}",
+                auth_basic=self._risk_auth(),
+            )
+        )
+
+
+# ------------------------------------------------------------------
+# Default-singleton shims (D-04 / D-13 / D-20)
+# ------------------------------------------------------------------
+
+_default_client: Client | None = None
+
+
+def _get_default() -> Client:
+    """Return the lazily-constructed default ``Client`` singleton."""
+    global _default_client
+    if _default_client is None:
+        _default_client = Client()
+    return _default_client
 
 
 def configure(
@@ -70,175 +556,66 @@ def configure(
     base_url: str | None = None,
     username: str | None = None,
     password: str | None = None,
+    token: str | None = None,
+    token_expires_at: float | None = None,
 ) -> None:
-    """Sobrescribe credenciales/URL en runtime y resetea el token cacheado."""
-    global _base_url, _user, _password, _token, _token_ts
+    """Sobrescribe credenciales/URL/token en runtime y resetea cache.
+
+    D-04 extension: ``token`` and ``token_expires_at`` kwargs are accepted so
+    test fixtures can pre-seed the cache without monkeypatching module state.
+    Any base_url/username/password update without an explicit ``token`` resets
+    the token cache to force re-auth.
+    """
+    default = _get_default()
     if base_url is not None:
-        _base_url = base_url.rstrip("/")
+        default._state.base_url = base_url.rstrip("/")
     if username is not None:
-        _user = username
+        default._state.username = username
     if password is not None:
-        _password = password
-    _token = None
-    _token_ts = 0.0
-
-
-# ------------------------------------------------------------------
-# Auth
-# ------------------------------------------------------------------
-
-
-def _ensure_token() -> None:
-    """Log in if there is no cached token or it is older than ``_TOKEN_TTL``."""
-    if _token and (time.time() - _token_ts) < _TOKEN_TTL:
-        return
-    login()
+        default._state.password = password
+    # Token semantics: explicit override wins; otherwise base/cred changes
+    # invalidate the cache.
+    if token is not None or token_expires_at is not None:
+        if token is not None:
+            default._state.token = token
+        if token_expires_at is not None:
+            default._state.token_expires_at = token_expires_at
+    elif base_url is not None or username is not None or password is not None:
+        default._state.token = None
+        default._state.token_expires_at = 0.0
 
 
 def login() -> str:
-    """Authenticate against ``/auth/getToken`` and cache the resulting token.
-
-    Returns:
-        The newly issued token string, also stored in module state.
-
-    Raises:
-        AuthenticationError: If credentials are missing or the response has
-            no ``X-Auth-Token`` header.
-    """
-    global _token, _token_ts
-    if not _user or not _password:
-        raise AuthenticationError("ERROR", "PRIMARY_USER and PRIMARY_PASSWORD must be set")
-
-    resp = _session.post(
-        f"{_base_url}/auth/getToken",
-        headers={"X-Username": _user, "X-Password": _password},
-    )
-    resp.raise_for_status()
-    token = resp.headers.get("X-Auth-Token")
-    if not isinstance(token, str) or not token:
-        raise AuthenticationError("ERROR", "No X-Auth-Token header in response")
-    _token = token
-    _token_ts = time.time()
-
-    return token
+    return _get_default().login()
 
 
-# ------------------------------------------------------------------
-# Internal helpers
-# ------------------------------------------------------------------
-
-
-def _request(
-    method: str,
-    path: str,
-    *,
-    params: dict[str, Any] | None = None,
-    auth_basic: tuple[str, str] | None = None,
-) -> dict[str, Any]:
-    """Execute an HTTP request and decode the JSON payload.
-
-    When ``auth_basic`` is provided, HTTP Basic Auth is used and the token
-    flow is skipped (Risk API). Otherwise, the token is ensured/refreshed
-    and sent via ``X-Auth-Token``.
-
-    Raises:
-        PrimaryAPIError: If the decoded payload has ``status == "ERROR"``.
-    """
-    url = f"{_base_url}{path}"
-    if auth_basic:
-        resp = _session.request(
-            method,
-            url,
-            params=params,
-            auth=httpx.BasicAuth(*auth_basic),
-        )
-    else:
-        _ensure_token()
-        assert _token is not None
-        resp = _session.request(
-            method,
-            url,
-            params=params,
-            headers={"X-Auth-Token": _token},
-        )
-
-    resp.raise_for_status()
-    data: dict[str, Any] = resp.json()
-    if data.get("status") == "ERROR":
-        raise PrimaryAPIError(
-            status="ERROR",
-            description=data.get("description"),
-            message=data.get("message"),
-        )
-    return data
-
-
-def _get(path: str, **params: Any) -> dict[str, Any]:
-    """GET ``path`` with ``params`` after dropping keys whose value is ``None``."""
-    clean = {k: v for k, v in params.items() if v is not None}
-    return _request("GET", path, params=clean)
-
-
-def _risk_auth() -> tuple[str, str]:
-    """Return the (user, password) tuple used for Risk API HTTP Basic Auth."""
-    return (_user, _password)
-
-
-# ------------------------------------------------------------------
-# Segments  (§4)
-# ------------------------------------------------------------------
+# -- Top-level domain delegators -----------------------------------
 
 
 def get_segments() -> list[Segment]:
-    """Return all available market segments."""
-    return [Segment.from_api(s) for s in _get("/rest/segment/all")["segments"]]
-
-
-# ------------------------------------------------------------------
-# Instruments  (§5)
-# ------------------------------------------------------------------
+    return _get_default().get_segments()
 
 
 def get_all_instruments() -> list[Instrument]:
-    """Return all tradable instruments with basic info (symbol + ``marketId``)."""
-    return [Instrument.from_api(i) for i in _get("/rest/instruments/all")["instruments"]]
+    return _get_default().get_all_instruments()
 
 
 def get_instruments_details() -> list[InstrumentDetail]:
-    """Return all instruments with full detail (tick size, contract size, etc.)."""
-    return [InstrumentDetail.from_api(i) for i in _get("/rest/instruments/details")["instruments"]]
+    return _get_default().get_instruments_details()
 
 
 def get_instrument_detail(symbol: str, market_id: MarketId = "ROFX") -> InstrumentDetail:
-    """Return the full detail record for a single instrument."""
-    return InstrumentDetail.from_api(
-        _get("/rest/instruments/detail", symbol=symbol, marketId=market_id)["instrument"]
-    )
+    return _get_default().get_instrument_detail(symbol, market_id)
 
 
 def get_instruments_by_cfi(cfi_code: CFICode) -> list[Instrument]:
-    """Return instruments filtered by ISO 10962 CFI code."""
-    return [
-        Instrument.from_api(i)
-        for i in _get("/rest/instruments/byCFICode", CFICode=cfi_code)["instruments"]
-    ]
+    return _get_default().get_instruments_by_cfi(cfi_code)
 
 
 def get_instruments_by_segment(
     segment_id: SegmentId, market_id: MarketId = "ROFX"
 ) -> list[Instrument]:
-    """Return instruments belonging to the given market segment."""
-    return [
-        Instrument.from_api(i)
-        for i in _get(
-            "/rest/instruments/bySegment", MarketSegmentID=segment_id, MarketID=market_id
-        )["instruments"]
-    ]
-
-
-# ------------------------------------------------------------------
-# Orders  (§6)
-# ------------------------------------------------------------------
+    return _get_default().get_instruments_by_segment(segment_id, market_id)
 
 
 def new_order(
@@ -256,90 +633,52 @@ def new_order(
     display_qty: int | None = None,
     expire_date: str | None = None,
 ) -> NewOrderResponse:
-    """Submit a new single order (§6.3).
-
-    Note: The Primary API accepts order submission over HTTP **GET**; this
-    is a quirk of the upstream API, not a bug in this client.
-    """
-    params: dict[str, Any] = {
-        "marketId": market_id,
-        "symbol": symbol,
-        "side": side,
-        "orderQty": qty,
-        "ordType": order_type,
-        "timeInForce": time_in_force,
-        "account": account,
-        "cancelPrevious": str(cancel_previous),
-        "iceberg": str(iceberg),
-    }
-    if price is not None:
-        params["price"] = price
-    if display_qty is not None:
-        params["displayQty"] = display_qty
-    if expire_date is not None:
-        params["expireDate"] = expire_date
-
-    return NewOrderResponse.from_api(_get("/rest/order/newSingleOrder", **params)["order"])
+    return _get_default().new_order(
+        symbol,
+        side,
+        qty,
+        account,
+        price,
+        order_type=order_type,
+        time_in_force=time_in_force,
+        market_id=market_id,
+        cancel_previous=cancel_previous,
+        iceberg=iceberg,
+        display_qty=display_qty,
+        expire_date=expire_date,
+    )
 
 
 def replace_order(cl_ord_id: str, proprietary: str, qty: int, price: float) -> NewOrderResponse:
-    """Modify an existing order, identified by ``(clOrdId, proprietary)`` (§6.5)."""
-    return NewOrderResponse.from_api(
-        _get(
-            "/rest/order/replaceById",
-            clOrdId=cl_ord_id,
-            proprietary=proprietary,
-            orderQty=qty,
-            price=price,
-        )["order"]
-    )
+    return _get_default().replace_order(cl_ord_id, proprietary, qty, price)
 
 
 def cancel_order(cl_ord_id: str, proprietary: str) -> NewOrderResponse:
-    """Cancel the order identified by ``(clOrdId, proprietary)`` (§6.6)."""
-    return NewOrderResponse.from_api(
-        _get("/rest/order/cancelById", clOrdId=cl_ord_id, proprietary=proprietary)["order"]
-    )
+    return _get_default().cancel_order(cl_ord_id, proprietary)
 
 
 def get_order_status(cl_ord_id: str, proprietary: str) -> Order:
-    """Return the latest status record for ``(clOrdId, proprietary)`` (§6.8)."""
-    return Order.from_api(
-        _get("/rest/order/id", clOrdId=cl_ord_id, proprietary=proprietary)["order"]
-    )
+    return _get_default().get_order_status(cl_ord_id, proprietary)
 
 
 def get_order_history(cl_ord_id: str, proprietary: str) -> list[Order]:
-    """Return the full list of status transitions for ``(clOrdId, proprietary)`` (§6.9)."""
-    return [
-        Order.from_api(o)
-        for o in _get("/rest/order/allById", clOrdId=cl_ord_id, proprietary=proprietary)["orders"]
-    ]
+    return _get_default().get_order_history(cl_ord_id, proprietary)
 
 
 def get_active_orders(account_id: str) -> list[Order]:
-    """Return all orders currently active (``NEW`` or ``PARTIALLY_FILLED``) for an account (§6.10)."""
-    return [Order.from_api(o) for o in _get("/rest/order/actives", accountId=account_id)["orders"]]
+    return _get_default().get_active_orders(account_id)
 
 
 def get_filled_orders(account_id: str) -> list[Order]:
-    """Return all fully filled orders for an account (§6.11)."""
-    return [Order.from_api(o) for o in _get("/rest/order/filleds", accountId=account_id)["orders"]]
+    return _get_default().get_filled_orders(account_id)
 
 
 def get_all_orders(account_id: str) -> list[Order]:
-    """Return the latest status record of every request sent by an account (§6.12)."""
-    return [Order.from_api(o) for o in _get("/rest/order/all", accountId=account_id)["orders"]]
+    return _get_default().get_all_orders(account_id)
 
 
 def get_order_by_exec_id(exec_id: str) -> Order:
-    """Return the order matching the given execution ID (``execId``) (§6.13)."""
-    return Order.from_api(_get("/rest/order/byExecId", execId=exec_id)["order"])
-
-
-# ------------------------------------------------------------------
-# Market Data  (§8)
-# ------------------------------------------------------------------
+    return _get_default().get_order_by_exec_id(exec_id)
 
 
 def get_market_data(
@@ -349,16 +688,7 @@ def get_market_data(
     market_id: MarketId = "ROFX",
     depth: int | None = None,
 ) -> MarketDataSnapshot:
-    """Return real-time market data for an instrument (§8.1)."""
-    return MarketDataSnapshot.from_api(
-        _get(
-            "/rest/marketdata/get",
-            marketId=market_id,
-            symbol=symbol,
-            entries=",".join(entries),
-            depth=depth,
-        )["marketData"]
-    )
+    return _get_default().get_market_data(symbol, entries, market_id=market_id, depth=depth)
 
 
 def get_trades(
@@ -370,47 +700,55 @@ def get_trades(
     market_id: MarketId = "ROFX",
     environment: str | None = None,
 ) -> list[Trade]:
-    """Return historical trades for an instrument (§8.4)."""
-    return [
-        Trade.from_api(t)
-        for t in _get(
-            "/rest/data/getTrades",
-            marketId=market_id,
-            symbol=symbol,
-            date=date,
-            dateFrom=date_from,
-            dateTo=date_to,
-            environment=environment,
-        )["trades"]
-    ]
-
-
-# ------------------------------------------------------------------
-# Risk API  (§9) — uses HTTP Basic Auth
-# ------------------------------------------------------------------
+    return _get_default().get_trades(
+        symbol,
+        date=date,
+        date_from=date_from,
+        date_to=date_to,
+        market_id=market_id,
+        environment=environment,
+    )
 
 
 def get_positions(account_name: str) -> list[Position]:
-    """Return aggregated positions for an account (§9.1, HTTP Basic Auth)."""
-    return [
-        Position.from_api(p)
-        for p in _request(
-            "GET",
-            f"/rest/risk/position/getPositions/{account_name}",
-            auth_basic=_risk_auth(),
-        )["positions"]
-    ]
+    return _get_default().get_positions(account_name)
 
 
 def get_detailed_positions(account_name: str) -> DetailedPosition:
-    """Return trade-level detailed positions for an account (§9.2)."""
-    return DetailedPosition.from_api(
-        _request("GET", f"/rest/risk/detailedPosition/{account_name}", auth_basic=_risk_auth())
-    )
+    return _get_default().get_detailed_positions(account_name)
 
 
 def get_account_report(account_name: str) -> AccountReport:
-    """Return the full account report (cash, margins, P&L) for an account (§9.3)."""
-    return AccountReport.from_api(
-        _request("GET", f"/rest/risk/accountReport/{account_name}", auth_basic=_risk_auth())
-    )
+    return _get_default().get_account_report(account_name)
+
+
+# ------------------------------------------------------------------
+# PEP 562 read-only shim (D-01, D-02, Open Q #4)
+# ------------------------------------------------------------------
+
+# Names whose reads forward to ``_get_default()._state.<attr>``.
+_FORWARDED_TO_STATE: dict[str, str] = {
+    "_token": "token",
+    "_token_ts": "token_expires_at",
+    "_base_url": "base_url",  # Open Q #4 — verification/mutation_gate.py reads this.
+}
+
+# Legacy HTTP client names that forward to ``_get_default()._state.http_client``.
+# Matriz historically named the global ``_session`` (Pitfall #5); for parity
+# with the other packages we also forward ``_client``.
+_FORWARDED_HTTP_CLIENT_NAMES: frozenset[str] = frozenset({"_session", "_client"})
+
+
+def __getattr__(name: str) -> Any:
+    """PEP 562 read-only forwarding to the default Client's state.
+
+    Writes are not supported through module attribute access; mutate via
+    ``configure(...)`` instead. Reads of ``_user``/``_password`` raise
+    ``AttributeError`` deliberately — credentials must never be observed
+    through the legacy module global path (security hardening).
+    """
+    if name in _FORWARDED_TO_STATE:
+        return getattr(_get_default()._state, _FORWARDED_TO_STATE[name])
+    if name in _FORWARDED_HTTP_CLIENT_NAMES:
+        return _get_default()._state.http_client
+    raise AttributeError(f"module 'matriz_client.client' has no attribute {name!r}")

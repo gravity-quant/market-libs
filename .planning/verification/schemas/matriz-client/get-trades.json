@@ -1,0 +1,11 @@
+{
+  "endpoint": "/rest/data/getTrades",
+  "client_function": "get_trades",
+  "captured_at": "2026-06-10T01:01:55.428193+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {
+    "symbol": "SOJ.ROS/NOV26 308 P",
+    "windowDays": 7
+  },
+  "schema": []
+}

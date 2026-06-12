@@ -1,0 +1,18 @@
+{
+  "endpoint": "/rest/marketdata/get",
+  "client_function": "get_market_data",
+  "captured_at": "2026-06-10T01:01:55.427800+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {
+    "symbol": "SOJ.ROS/NOV26 308 P"
+  },
+  "schema": {
+    "BI": [],
+    "CL": "NoneType",
+    "LA": "NoneType",
+    "OF": [],
+    "OI": "NoneType",
+    "OP": "NoneType",
+    "SE": "NoneType"
+  }
+}

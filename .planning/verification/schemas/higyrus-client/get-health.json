@@ -1,0 +1,10 @@
+{
+  "endpoint": "/api/health",
+  "client_function": "get_health",
+  "captured_at": "2026-06-08T02:03:51.813583+00:00",
+  "base_url": "https://becerra.aunesa.com/Irmo",
+  "sample_params": {},
+  "schema": {
+    "status": "str"
+  }
+}

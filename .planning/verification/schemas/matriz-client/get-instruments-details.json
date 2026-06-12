@@ -1,0 +1,54 @@
+{
+  "endpoint": "/rest/instruments/details",
+  "client_function": "get_instruments_details",
+  "captured_at": "2026-06-10T01:01:55.426039+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {},
+  "schema": [
+    {
+      "cficode": "str",
+      "contractMultiplier": "float",
+      "currency": "str",
+      "highLimitPrice": "float",
+      "instrumentId": {
+        "marketId": "str",
+        "symbol": "str"
+      },
+      "instrumentPricePrecision": "int",
+      "instrumentSizePrecision": "int",
+      "lowLimitPrice": "float",
+      "maturityDate": "str",
+      "maxTradeVol": "float",
+      "minPriceIncrement": "float",
+      "minTradeVol": "float",
+      "orderTypes": [
+        "str"
+      ],
+      "priceConvertionFactor": "float",
+      "roundLot": "float",
+      "securityDescription": "str",
+      "securityId": "NoneType",
+      "securityIdSource": "NoneType",
+      "securityType": "NoneType",
+      "segment": {
+        "marketId": "str",
+        "marketSegmentId": "str"
+      },
+      "settlType": "NoneType",
+      "strike": "float",
+      "symbol": "NoneType",
+      "tickPriceRanges": {
+        "0": {
+          "lowerLimit": "int",
+          "tick": "float",
+          "upperLimit": "NoneType"
+        }
+      },
+      "tickSize": "float",
+      "timesInForce": [
+        "str"
+      ],
+      "underlying": "str"
+    }
+  ]
+}

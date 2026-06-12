@@ -20,7 +20,8 @@ class HigyrusAPIError(HigyrusClientError):
     """La API devolvió una respuesta no-2xx.
 
     Atributos:
-        status_code: HTTP status devuelto.
+        status_code: HTTP status devuelto, o 0 si el error fue detectado
+            client-side (e.g., shape mismatch tras un 2xx exitoso).
         errors: Lista de ``{"title": ..., "detail": ...}`` del envelope.
         timestamp: Timestamp del servidor incluido en el envelope.
     """

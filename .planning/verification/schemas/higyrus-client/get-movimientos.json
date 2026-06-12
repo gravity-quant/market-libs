@@ -1,0 +1,37 @@
+{
+  "endpoint": "/api/cuentas/{id_cuenta}/movimientos",
+  "client_function": "get_movimientos",
+  "captured_at": "2026-06-08T02:03:51.815240+00:00",
+  "base_url": "https://becerra.aunesa.com/Irmo",
+  "sample_params": {
+    "id_cuenta": "5208",
+    "fecha_desde": "2026-05-08",
+    "fecha_hasta": "2026-06-07"
+  },
+  "schema": [
+    {
+      "cantidad": "float",
+      "comprobante": "str",
+      "concepto": "NoneType",
+      "cuenta": "str",
+      "especie": "str",
+      "estado": "str",
+      "factorizacion": "NoneType",
+      "fecha": "str",
+      "fechaConcertacion": "NoneType",
+      "fechaDesde": "str",
+      "fechaHasta": "str",
+      "idMovimientos": "NoneType",
+      "informacion": "str",
+      "lugar": "str",
+      "movimiento": "str",
+      "simboloLocal": "str",
+      "subCuenta": "str",
+      "tipoEspecie": "NoneType",
+      "tipoOperacion": "NoneType",
+      "tipoTitulo": "NoneType",
+      "tipoTituloAgente": "NoneType",
+      "valuacion": "NoneType"
+    }
+  ]
+}

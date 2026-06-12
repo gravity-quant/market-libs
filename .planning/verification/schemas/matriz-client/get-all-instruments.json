@@ -1,0 +1,16 @@
+{
+  "endpoint": "/rest/instruments/all",
+  "client_function": "get_all_instruments",
+  "captured_at": "2026-06-10T01:01:55.425498+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {},
+  "schema": [
+    {
+      "cficode": "str",
+      "instrumentId": {
+        "marketId": "str",
+        "symbol": "str"
+      }
+    }
+  ]
+}

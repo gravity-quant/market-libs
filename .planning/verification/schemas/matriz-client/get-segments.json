@@ -1,0 +1,13 @@
+{
+  "endpoint": "/rest/segment/all",
+  "client_function": "get_segments",
+  "captured_at": "2026-06-10T01:01:55.424366+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {},
+  "schema": [
+    {
+      "marketId": "str",
+      "marketSegmentId": "str"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "endpoint": "/api/cuentas/{id_cuenta}/posicionValuada",
+  "client_function": "get_posicion_valuada",
+  "captured_at": "2026-06-08T02:03:51.815774+00:00",
+  "base_url": "https://becerra.aunesa.com/Irmo",
+  "sample_params": {
+    "id_cuenta": "5208",
+    "tipo_cuenta": "Comitentes y propias",
+    "nivel": "Global",
+    "desde": "2026-06-07",
+    "hasta": "2026-06-07"
+  },
+  "schema": [
+    {
+      "administrador": "NoneType",
+      "cantidad": "float",
+      "cartera": "NoneType",
+      "comprobante": "NoneType",
+      "cuenta": "str",
+      "estado": "str",
+      "fecha": "NoneType",
+      "fechaCotizacion": "str",
+      "idMovimiento": "NoneType",
+      "informacion": "str",
+      "lugar": "str",
+      "mercado": "NoneType",
+      "monedaCotizacion": "NoneType",
+      "operador": "str",
+      "precio": "NoneType",
+      "segmento": "NoneType",
+      "sesion": "NoneType",
+      "tipoTitulo": "NoneType",
+      "unidad": "str",
+      "uso": "str",
+      "valuacion": "float"
+    }
+  ]
+}

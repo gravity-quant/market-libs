@@ -1,0 +1,15 @@
+{
+  "endpoint": "/rest/instruments/bySegment",
+  "client_function": "get_instruments_by_segment",
+  "captured_at": "2026-06-10T01:01:55.427426+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {
+    "segmentId": "DDA"
+  },
+  "schema": [
+    {
+      "marketId": "str",
+      "symbol": "str"
+    }
+  ]
+}

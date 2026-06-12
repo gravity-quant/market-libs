@@ -1,0 +1,15 @@
+{
+  "endpoint": "/rest/instruments/byCFICode",
+  "client_function": "get_instruments_by_cfi_ESXXXX",
+  "captured_at": "2026-06-10T01:01:55.427054+00:00",
+  "base_url": "https://api.remarkets.primary.com.ar",
+  "sample_params": {
+    "CFICode": "ESXXXX"
+  },
+  "schema": [
+    {
+      "marketId": "str",
+      "symbol": "str"
+    }
+  ]
+}

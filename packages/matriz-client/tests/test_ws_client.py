@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from matriz_client import client as _rest
+import matriz_client
 from matriz_client import ws_client as _ws
 from matriz_client.models import (
     ExecutionReportFrame,
@@ -23,13 +23,13 @@ def capture_send(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return sent
 
 
-def test_ws_url_converts_https(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_rest, "_base_url", "https://api.remarkets.primary.com.ar")
+def test_ws_url_converts_https() -> None:
+    matriz_client.configure(base_url="https://api.remarkets.primary.com.ar")
     assert _ws._ws_url() == "wss://api.remarkets.primary.com.ar"
 
 
-def test_ws_url_converts_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_rest, "_base_url", "http://localhost:8080")
+def test_ws_url_converts_http() -> None:
+    matriz_client.configure(base_url="http://localhost:8080")
     assert _ws._ws_url() == "ws://localhost:8080"
 
 

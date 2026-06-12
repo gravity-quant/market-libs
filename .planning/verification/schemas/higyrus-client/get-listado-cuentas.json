@@ -1,0 +1,10 @@
+{
+  "endpoint": "/api/cuentas/listadoCuentas",
+  "client_function": "get_listado_cuentas",
+  "captured_at": "2026-06-08T02:03:51.814843+00:00",
+  "base_url": "https://becerra.aunesa.com/Irmo",
+  "sample_params": {
+    "estado": "alta"
+  },
+  "schema": []
+}
