@@ -84,10 +84,10 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 2** *(blocked on Wave 1 completion; 4 plans can run in parallel — no file overlap)*
 
-- [ ] 07-02-PLAN.md — ámbito canary: `ambito_financiero_client/_core.py` + transport shells + tests/test_core.py + B8 D-04 alias + LOC drop ≥30% (REFAC-03)
-- [ ] 07-03-PLAN.md — iol: `iol_client/_core.py` + auth-flow primitives + CR-01 conditional refresh_token rotation preserved + transport shells + LOC drop ≥30% (REFAC-03)
-- [ ] 07-04-PLAN.md — higyrus: `higyrus_client/_core.py` + URL-encoding quirk encapsulated in builders + transport shells + LOC drop ≥30% (REFAC-03)
-- [ ] 07-05-PLAN.md — matriz ATOMIC: `matriz_client/_core.py` + CR-03 closure (`parse_envelope_response` body-consume-then-raise) + CR-05 closure (`_envelope_probe` x18 in `main_matriz.py`) + snapshot guard + back-compat wrapper (REFAC-03, CR-03, CR-05)
+- [x] 07-02-PLAN.md — ámbito canary: `ambito_financiero_client/_core.py` + transport shells + tests/test_core.py + B8 D-04 alias + LOC drop ≥30% (REFAC-03)
+- [x] 07-03-PLAN.md — iol: `iol_client/_core.py` + auth-flow primitives + CR-01 conditional refresh_token rotation preserved + transport shells + LOC drop ≥30% (REFAC-03)
+- [x] 07-04-PLAN.md — higyrus: `higyrus_client/_core.py` + URL-encoding quirk encapsulated in builders + transport shells + LOC drop ≥30% (REFAC-03)
+- [x] 07-05-PLAN.md — matriz ATOMIC: `matriz_client/_core.py` + CR-03 closure (`parse_envelope_response` body-consume-then-raise) + CR-05 closure (`_envelope_probe` x18 in `main_matriz.py`) + snapshot guard + back-compat wrapper (REFAC-03, CR-03, CR-05)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -164,7 +164,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 4. Higyrus Verification                                            | v1.0      | 4/4            | Complete    | 2026-06-08 |
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
-| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 1/6 | In Progress|  |
+| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 5/6 | In Progress|  |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
