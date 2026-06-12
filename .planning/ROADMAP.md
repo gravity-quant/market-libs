@@ -76,7 +76,22 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
   4. CR-03 cerrado: el `_request` de matriz consume el response body explícitamente antes de raise cuando `data.status=="ERROR"` (no más resource leak potencial con HTTP/2).
   5. CR-05 cerrado: las 18 sweep probes de `main_matriz.py` refactorizadas a un helper único `_envelope_probe(envelope_key=...)` que preserva las 2 risk probes sin envelope (`envelope_key=None`); todos los 277+ tests siguen verde.
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+**Wave 1**
+
+- [ ] 07-01-PLAN.md — CI gates infrastructure: import-linter v2.11 setup + 4 forbidden contracts + 4 `_core.py` placeholders + cross-leak sentinel test parametrizado en `verification/test_sync_async_isolation.py` (matriz skip) + CI step `lint-imports` (REFAC-03)
+
+**Wave 2** *(blocked on Wave 1 completion; 4 plans can run in parallel — no file overlap)*
+
+- [ ] 07-02-PLAN.md — ámbito canary: `ambito_financiero_client/_core.py` + transport shells + tests/test_core.py + B8 D-04 alias + LOC drop ≥30% (REFAC-03)
+- [ ] 07-03-PLAN.md — iol: `iol_client/_core.py` + auth-flow primitives + CR-01 conditional refresh_token rotation preserved + transport shells + LOC drop ≥30% (REFAC-03)
+- [ ] 07-04-PLAN.md — higyrus: `higyrus_client/_core.py` + URL-encoding quirk encapsulated in builders + transport shells + LOC drop ≥30% (REFAC-03)
+- [ ] 07-05-PLAN.md — matriz ATOMIC: `matriz_client/_core.py` + CR-03 closure (`parse_envelope_response` body-consume-then-raise) + CR-05 closure (`_envelope_probe` x18 in `main_matriz.py`) + snapshot guard + back-compat wrapper (REFAC-03, CR-03, CR-05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 07-06-PLAN.md — Green gate consolidation: full pytest matrix Python 3.12 + 3.13 + ruff + mypy strict + lint-imports + cross-leak sentinel + matriz sweep snapshot + Phase 6 public-surface snapshot (zero diff) + `07-VALIDATION.md` con `nyquist_compliant: true` + operator checkpoint (REFAC-03)
 
 ### Phase 8: Retries, Backoff, Structured Logging
 
@@ -149,7 +164,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 4. Higyrus Verification                                            | v1.0      | 4/4            | Complete    | 2026-06-08 |
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
-| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 0/?            | Not started | -          |
+| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 0/6            | Not started | -          |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
