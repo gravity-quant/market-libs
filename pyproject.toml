@@ -29,6 +29,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-httpx>=0.34",
     "pre-commit>=4.0",
+    "import-linter>=2.11,<3",  # Phase 7 REFAC-03 enforcement
 ]
 
 # ---------------------------------------------------------------------------
@@ -117,3 +118,45 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
+
+# ---------------------------------------------------------------------------
+# import-linter: boundary enforcement Phase 7 REFAC-03.
+# Cada paquete tiene un módulo `_core.py` (pure builders/parsers) que NO debe
+# importar ni `client.py` ni `aio.py` del mismo paquete. Los 4 contracts
+# `forbidden` bloquean el re-coupling declarativamente; `lint-imports` corre
+# como CI gate (.github/workflows/ci.yml).
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = [
+    "ambito_financiero_client",
+    "iol_client",
+    "higyrus_client",
+    "matriz_client",
+]
+
+[[tool.importlinter.contracts]]
+name = "ambito_financiero_client._core does not depend on transport modules"
+type = "forbidden"
+source_modules = ["ambito_financiero_client._core"]
+forbidden_modules = [
+    "ambito_financiero_client.client",
+    "ambito_financiero_client.aio",
+]
+
+[[tool.importlinter.contracts]]
+name = "higyrus_client._core does not depend on transport modules"
+type = "forbidden"
+source_modules = ["higyrus_client._core"]
+forbidden_modules = ["higyrus_client.client", "higyrus_client.aio"]
+
+[[tool.importlinter.contracts]]
+name = "iol_client._core does not depend on transport modules"
+type = "forbidden"
+source_modules = ["iol_client._core"]
+forbidden_modules = ["iol_client.client", "iol_client.aio"]
+
+[[tool.importlinter.contracts]]
+name = "matriz_client._core does not depend on transport modules"
+type = "forbidden"
+source_modules = ["matriz_client._core"]
+forbidden_modules = ["matriz_client.client", "matriz_client.aio"]
