@@ -25,7 +25,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 ### v1.1 Tech Debt Cleanup (Phases 6-11)
 
 - [x] **Phase 6: Compat Safety Net + Client Class Skeleton** — Golden public-surface snapshot, fixture-reaches-production guard, then `Client`/`AsyncClient` per package with PEP 562 compat shim (no breaking change). (completed 2026-06-11)
-- [ ] **Phase 7: `_core.py` Extraction — Sync/Async Logic Dedup** — Pure builders/parsers per package; `client.py` and `aio.py` collapse to transport shells; import-linter rule blocks `_core.py` from importing `client.py`/`aio.py`.
+- [x] **Phase 7: `_core.py` Extraction — Sync/Async Logic Dedup** — Pure builders/parsers per package; `client.py` and `aio.py` collapse to transport shells; import-linter rule blocks `_core.py` from importing `client.py`/`aio.py`. (completed 2026-06-12)
 - [ ] **Phase 8: Retries, Backoff, Structured Logging** — `tenacity` with full-jitter backoff and `Retry-After` cap (60 s); mutating-aware retry gate via `RequestSpec.idempotent`; per-package `getLogger` + `NullHandler` + `RedactingFilter`.
 - [ ] **Phase 9: Deferred Bug Fixes** — F-09 matriz ERROR-MAP, F-02 higyrus `get_listado_cuentas=0`, IOL refresh_token in-instance persistence, HIGY multi-account iteration; each lands once in `_core.py` and propagates to both surfaces.
 - [ ] **Phase 10: matriz `aio.py` Creation + TokenStore** — Full async REST surface for matriz; `TokenStore` with `threading.Lock` callable from sync, asyncio, and ws_client daemon thread. **Research flag**: TokenStore spike before plan.
@@ -91,7 +91,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 07-06-PLAN.md — Green gate consolidation: full pytest matrix Python 3.12 + 3.13 + ruff + mypy strict + lint-imports + cross-leak sentinel + matriz sweep snapshot + Phase 6 public-surface snapshot (zero diff) + `07-VALIDATION.md` con `nyquist_compliant: true` + operator checkpoint (REFAC-03)
+- [x] 07-06-PLAN.md — Green gate consolidation: full pytest matrix Python 3.12 + 3.13 + ruff + mypy strict + lint-imports + cross-leak sentinel + matriz sweep snapshot + Phase 6 public-surface snapshot (zero diff) + `07-VALIDATION.md` con `nyquist_compliant: true` + operator checkpoint (REFAC-03)
 
 ### Phase 8: Retries, Backoff, Structured Logging
 
@@ -164,7 +164,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 4. Higyrus Verification                                            | v1.0      | 4/4            | Complete    | 2026-06-08 |
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
-| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 5/6 | In Progress|  |
+| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete   | 2026-06-12 |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
