@@ -33,6 +33,7 @@ Decisiones que emergieron del spiking y son **non-negotiables** para el real bui
 | 001b | tokenstore-asyncio-lock-run_threadsafe | comparison | `asyncio.Lock` + sync usa `run_coroutine_threadsafe` | ✗ INVALIDATED | landmine, asyncio, loop-binding |
 | 001c | tokenstore-double-checked-locking | comparison | DCL: `threading.Lock` (state) + per-loop `asyncio.Lock` (coord) | ✓ **WINNER** | dcl, matriz-pattern, winner |
 | 002 | tokenstore-3way-integration-stress | standard | 100+100+5 callers × 2 phases (cold + TTL expiry) usando 001c | ✓ VALIDATED | stress, integration, phase-10-ready |
+| 003 | tokenstore-refresh-policy | standard | RefreshPolicy decorator (retry + exp backoff + fail-cache + transient/permanent classification) composed with 001c | ✓ VALIDATED | refresh-policy, retry, backoff, dos-prevention |
 
 ## Head-to-Head Comparison
 
