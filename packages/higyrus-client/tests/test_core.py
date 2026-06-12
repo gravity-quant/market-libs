@@ -29,7 +29,6 @@ from higyrus_client.exceptions import (
 )
 from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
 
-
 # ---------------------------------------------------------------------------
 # RequestSpec dataclass shape
 # ---------------------------------------------------------------------------
