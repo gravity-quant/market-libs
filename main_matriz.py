@@ -269,7 +269,11 @@ def _envelope_probe(
     Returns:
         ``(ProbeResult, raw_payload_or_None)`` — misma shape que las 18 probes pre-refactor.
     """
-    if _auth_failed:
+    # WR-04 fix Phase 7 review: el cascade SKIPPED por _auth_failed sólo aplica
+    # a probes que dependen del token X-Auth-Token. Risk probes con auth_basic_fn
+    # usan credenciales HTTP Basic independientes del token, así que NO se las
+    # debería skipear si la auth del token falló — podrían ser ejecutables.
+    if _auth_failed and auth_basic_fn is None:
         return (ProbeResult(name, "SKIPPED", f"auth failed: {_auth_failure_reason}"), None)
     base_url = primary.client._base_url
     auth = auth_basic_fn() if auth_basic_fn is not None else None
