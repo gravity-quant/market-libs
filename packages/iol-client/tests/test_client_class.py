@@ -98,7 +98,7 @@ def test_configure_carry_forward() -> None:
     # Carry-forward: each call only overrides the kwargs that are not None.
     iol_client.configure(base_url="https://a.test", username="u1")
     iol_client.configure(token="t1", token_expires_at=9.0e9)
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     assert state.base_url == "https://a.test"
     assert state.username == "u1"
     assert state.token == "t1"
@@ -130,27 +130,27 @@ def test_explicit_client_unaffected_by_top_level_configure() -> None:
 
 
 def test_pep_562_shim_forwards_token() -> None:
-    iol_client._get_default()._state.token = "tok-shim"
+    iol_client.client._get_default()._state.token = "tok-shim"
     assert iol_client.client._token == "tok-shim"
 
 
 def test_pep_562_shim_forwards_token_expires_at() -> None:
-    iol_client._get_default()._state.token_expires_at = 1234.5
+    iol_client.client._get_default()._state.token_expires_at = 1234.5
     assert iol_client.client._token_expires_at == 1234.5
 
 
 def test_pep_562_shim_forwards_refresh_token() -> None:
     """Pitfall #3 enforcement: ``_refresh_token`` MUST be in the allowlist."""
-    iol_client._get_default()._state.refresh_token = "rt-1"
+    iol_client.client._get_default()._state.refresh_token = "rt-1"
     assert iol_client.client._refresh_token == "rt-1"
 
 
 def test_pep_562_shim_forwards_http_client() -> None:
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     state.http_client = None
     # Lazily create via _ensure_http_client; the shim should forward.
-    iol_client._get_default()._ensure_http_client()
-    assert iol_client.client._client is iol_client._get_default()._state.http_client
+    iol_client.client._get_default()._ensure_http_client()
+    assert iol_client.client._client is iol_client.client._get_default()._state.http_client
     assert iol_client.client._client is not None
 
 
@@ -274,6 +274,6 @@ def test_async_pep_562_shim_raises_for_user() -> None:
 
 def test_aio_imports_raise_for_response_from_client() -> None:
     """B8: ``aio._raise_for_response`` IS ``client._raise_for_response``."""
-    from iol_client.aio import _raise_for_response as _async_raise
+    from iol_client.client import _raise_for_response as _async_raise
 
     assert _async_raise is _sync_raise

@@ -34,7 +34,7 @@ def _configure_sync() -> Iterator[None]:
     yield
     # Cierre del transport: cada test arranca con un httpx.Client fresco
     # que ``httpx_mock`` intercepta vía el patch de Transport.
-    iol_client._get_default().close()
+    iol_client.client._get_default().close()
     iol_client.configure(base_url="https://api.test", username="", password="")
 
 

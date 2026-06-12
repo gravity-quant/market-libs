@@ -146,7 +146,7 @@ def test_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     migration: writes hit el ``_default_client._state`` directamente
     porque el shim PEP 562 es read-only (Pitfall #1).
     """
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     state.token = None
     state.token_expires_at = 0.0
     state.refresh_token = "refresh-cached"
@@ -175,7 +175,7 @@ def test_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
 
 def test_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — refresh inválido cae al password grant (finding F-NN)."""
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     state.token = None
     state.token_expires_at = 0.0
     state.refresh_token = "refresh-stale"
@@ -212,7 +212,7 @@ def test_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
 
 def test_refresh_and_password_both_fail(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — ambos refresh y password fallan → IOLAuthError (finding F-NN)."""
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     state.token = None
     state.token_expires_at = 0.0
     state.refresh_token = "refresh-stale"
@@ -240,7 +240,7 @@ def test_refresh_and_password_both_fail(httpx_mock: HTTPXMock) -> None:
 
 def test_login_captures_refresh_token(httpx_mock: HTTPXMock) -> None:
     """Regression: IOL-07 — login() captura refresh_token del payload (finding F-NN)."""
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     state.token = None
     state.refresh_token = None
 
@@ -270,7 +270,7 @@ def test_login_preserves_cached_refresh_token_when_server_omits(httpx_mock: HTTP
     contradiciendo la política condicional de ``_refresh()`` (Pitfall 3). El fix
     alinea ambas funciones: si el payload omite, MANTENER el cached.
     """
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
     state.token = None
     state.token_expires_at = 0.0
     state.refresh_token = "refresh-original"
@@ -304,7 +304,7 @@ def test_configure_resets_refresh_token_but_direct_password_mutation_preserves_i
     ``_get_default()._state.password`` directamente — preserva la semántica de
     "rotar password bypassing configure() preserves refresh_token".
     """
-    state = iol_client._get_default()._state
+    state = iol_client.client._get_default()._state
 
     # Setup: precargar un refresh_token cacheado.
     state.refresh_token = "refresh-cached"
