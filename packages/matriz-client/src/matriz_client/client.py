@@ -1,36 +1,32 @@
 """REST client for the MATBA ROFEX Primary API v1.21.
 
-Phase 6 Plan 06 ships a ``Client`` class with the full sync REST surface plus
-backwards-compatible top-level shims (``configure``, ``login``, ``get_*``,
-``new_order``, ``replace_order``, ``cancel_order``, ``get_market_data``, …)
-delegating to a lazy default singleton.
+Phase 7 Plan 05 (REFAC-03 + CR-03 + CR-05) — transport shell delgado. Las
+pure builders/parsers viven en ``matriz_client._core``; este módulo sólo
+dispatcha HTTP y delega parsing.
 
-Auth modes:
-- **Token** (default, most endpoints): obtained via ``POST /auth/getToken``
-  and sent as ``X-Auth-Token`` on every subsequent request. The token is
-  parsed from the *response header* ``X-Auth-Token`` (D-22), not the body.
-- **HTTP Basic** (Risk API only): uses ``PRIMARY_USER``/``PRIMARY_PASSWORD``
-  directly on each request.
+Auth modes: ``X-Auth-Token`` (default) y HTTP Basic (Risk API §9).
 
-Environment variables (loaded from ``.env`` via ``python-dotenv``):
-- ``PRIMARY_USER`` — API username (required)
-- ``PRIMARY_PASSWORD`` — API password (required)
-- ``PRIMARY_BASE_URL`` — defaults to ``https://api.remarkets.primary.com.ar``
+D-04 alias preservation (B8 invariant, forward-compat con Phase 10 REFAC-04
+matriz async REST): ``_raise_for_response = _core.raise_for_response`` y
+``_unwrap = _core.unwrap`` referencian al mismo objeto que el (future)
+``aio._raise_for_response`` → identidad preservada para tests B8.
+
+Env vars: ``PRIMARY_USER``, ``PRIMARY_PASSWORD``, ``PRIMARY_BASE_URL``.
 
 See :mod:`matriz_client.ws_client` for the WebSocket streaming counterpart.
 """
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from typing import Any, Self
 
 import httpx
 from dotenv import load_dotenv
 
-from matriz_client._state import _REQUEST_TIMEOUT, _TOKEN_TTL, _ClientState
-from matriz_client.exceptions import AuthenticationError, PrimaryAPIError
+from matriz_client import _core
+from matriz_client._core import RequestSpec
+from matriz_client._state import _REQUEST_TIMEOUT, _ClientState
 from matriz_client.models import (
     AccountReport,
     DetailedPosition,
@@ -82,41 +78,11 @@ __all__ = [
     "replace_order",
 ]
 
-
-# ------------------------------------------------------------------
-# Module-level helpers (stateless)
-# ------------------------------------------------------------------
-
-
-def _raise_for_response(resp: httpx.Response) -> None:
-    """Map HTTP error status codes to typed exceptions.
-
-    Centralized so both sync ``Client`` and (in Phase 10) ``AsyncClient`` can
-    share the same error semantics (B8: do NOT duplicate in ``aio.py``).
-    """
-    resp.raise_for_status()
-
-
-def _unwrap(data: dict[str, Any], key: str, endpoint: str) -> Any:
-    """Return ``data[key]`` or raise ``PrimaryAPIError`` if missing.
-
-    Surfaces a typed ``PrimaryAPIError`` (status ``"ERROR"``) when the Primary
-    API response is missing the envelope key the wrapper expects. Without this
-    guard, the caller would see an opaque ``KeyError`` that is not part of the
-    client's documented exception contract (D-MATZ-9).
-    """
-    if key not in data:
-        raise PrimaryAPIError(
-            status="ERROR",
-            description=f"missing envelope key '{key}' in response from {endpoint}",
-            message=None,
-        )
-    return data[key]
-
-
-# ------------------------------------------------------------------
-# Client class
-# ------------------------------------------------------------------
+# D-04 aliases — preserve B8 identity (forward-compat con Phase 10 REFAC-04
+# que destapará el async REST surface: ``aio._raise_for_response`` también
+# referenciará ``_core.raise_for_response`` directamente).
+_raise_for_response = _core.raise_for_response
+_unwrap = _core.unwrap
 
 
 class Client:
@@ -124,15 +90,6 @@ class Client:
 
     Lazy auth: ``login()`` is called automatically on the first authenticated
     request and refreshed before the 24h server-side expiry.
-
-    Args:
-        base_url: Primary API base URL. Defaults to ``PRIMARY_BASE_URL`` env.
-        username: ``PRIMARY_USER`` env override.
-        password: ``PRIMARY_PASSWORD`` env override.
-        token: Pre-existing token (useful for tests). If provided alongside
-            ``token_expires_at`` in the future, ``_ensure_token()`` skips the
-            login round-trip.
-        token_expires_at: Unix timestamp at which the cached token expires.
 
     Example::
 
@@ -172,7 +129,6 @@ class Client:
         self.close()
 
     def close(self) -> None:
-        """Idempotently close the underlying HTTP client."""
         http_client = self._state.http_client
         if http_client is not None and isinstance(http_client, httpx.Client):
             http_client.close()
@@ -182,8 +138,7 @@ class Client:
         return (
             f"Client(base_url={self._state.base_url!r}, "
             f"username={self._state.username!r}, "
-            f"password='***', "
-            f"token='***')"
+            f"password='***', token='***')"
         )
 
     def __reduce__(self) -> Any:
@@ -196,10 +151,9 @@ class Client:
             "matriz_client.Client cannot be deep-copied: it holds live HTTP/socket state"
         )
 
-    # -- HTTP client lazy accessor ----------------------------------
+    # -- HTTP / auth -------------------------------------------------
 
     def _ensure_http_client(self) -> httpx.Client:
-        """Return the persistent ``httpx.Client``; create lazily if needed."""
         existing = self._state.http_client
         if isinstance(existing, httpx.Client):
             return existing
@@ -207,46 +161,41 @@ class Client:
         self._state.http_client = new
         return new
 
-    # -- Auth -------------------------------------------------------
-
     def login(self) -> str:
-        """Authenticate against ``/auth/getToken`` and cache the token.
-
-        D-22: The Primary API returns the token in the ``X-Auth-Token``
-        *response header*, NOT the JSON body. Raises ``AuthenticationError``
-        if the header is missing or credentials are unset.
-        """
-        if not self._state.username or not self._state.password:
-            raise AuthenticationError("ERROR", "PRIMARY_USER and PRIMARY_PASSWORD must be set")
+        """Authenticate via ``POST /auth/getToken`` (D-22: token en header)."""
+        spec = _core.build_login_request(self._state)
         http = self._ensure_http_client()
-        resp = http.post(
-            f"{self._state.base_url}/auth/getToken",
-            headers={
-                "X-Username": self._state.username,
-                "X-Password": self._state.password,
-            },
-        )
-        _raise_for_response(resp)
-        token = resp.headers.get("X-Auth-Token")
-        if not isinstance(token, str) or not token:
-            raise AuthenticationError("ERROR", "No X-Auth-Token header in response")
+        resp = http.post(f"{self._state.base_url}{spec.path}", headers=spec.headers)
+        token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
-        self._state.token_expires_at = time.time() + _TOKEN_TTL
+        self._state.token_expires_at = expires_at
         return token
 
     def _ensure_token(self) -> None:
-        """Log in if there is no cached token or it is past expiry."""
-        if self._state.token and time.time() < self._state.token_expires_at:
+        if _core.token_is_fresh(self._state):
             return
         self.login()
 
     def _risk_auth(self) -> tuple[str, str]:
-        """Return the (user, password) tuple for Risk API HTTP Basic Auth."""
         return (self._state.username, self._state.password)
 
-    # -- Request plumbing -------------------------------------------
+    # -- Transport shell (D-03) --------------------------------------
 
-    def _request(
+    def _request(self, spec: RequestSpec) -> httpx.Response:
+        """Dispatch HTTP, return raw ``httpx.Response``. Parsing en ``_core``."""
+        http = self._ensure_http_client()
+        url = f"{self._state.base_url}{spec.path}"
+        if spec.auth_basic is not None:
+            return http.request(
+                spec.method, url, params=spec.params, auth=httpx.BasicAuth(*spec.auth_basic)
+            )
+        self._ensure_token()
+        if self._state.token is None:
+            raise RuntimeError("matriz_client.client: _ensure_token() did not populate _token")
+        headers = {"X-Auth-Token": self._state.token, **(spec.headers or {})}
+        return http.request(spec.method, url, params=spec.params, headers=headers)
+
+    def _matriz_legacy_request(
         self,
         method: str,
         path: str,
@@ -254,90 +203,48 @@ class Client:
         params: dict[str, Any] | None = None,
         auth_basic: tuple[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Execute an HTTP request and decode the JSON payload."""
-        http = self._ensure_http_client()
-        url = f"{self._state.base_url}{path}"
-        if auth_basic:
-            resp = http.request(
-                method,
-                url,
-                params=params,
-                auth=httpx.BasicAuth(*auth_basic),
-            )
-        else:
-            self._ensure_token()
-            if self._state.token is None:
-                raise RuntimeError("matriz_client.client: _ensure_token() did not populate _token")
-            resp = http.request(
-                method,
-                url,
-                params=params,
-                headers={"X-Auth-Token": self._state.token},
-            )
-
-        _raise_for_response(resp)
-        raw = resp.json()
-        if not isinstance(raw, dict):
-            # Defense for CR-01: see prior comment in legacy module.
-            raise PrimaryAPIError(
-                status="ERROR",
-                description=f"expected JSON object body at {path}, got {type(raw).__name__}",
-                message=None,
-            )
-        data: dict[str, Any] = raw
-        if data.get("status") == "ERROR":
-            raise PrimaryAPIError(
-                status="ERROR",
-                description=data.get("description"),
-                message=data.get("message"),
-            )
-        return data
-
-    def _get(self, path: str, **params: Any) -> dict[str, Any]:
-        clean = {k: v for k, v in params.items() if v is not None}
-        return self._request("GET", path, params=clean)
+        """DEPRECATED back-compat wrapper for ``main_matriz.py`` probes (Pitfall 7)."""
+        spec = RequestSpec(method=method, path=path, params=params, auth_basic=auth_basic)
+        resp = self._request(spec)
+        return _core.parse_envelope_response(resp, path)
 
     # -- Segments (§4) ----------------------------------------------
 
     def get_segments(self) -> list[Segment]:
-        path = "/rest/segment/all"
-        return [Segment.from_api(s) for s in _unwrap(self._get(path), "segments", path)]
+        return _core.parse_get_segments_response(
+            self._request(_core.build_get_segments_request(self._state))
+        )
 
     # -- Instruments (§5) -------------------------------------------
 
     def get_all_instruments(self) -> list[Instrument]:
-        path = "/rest/instruments/all"
-        return [Instrument.from_api(i) for i in _unwrap(self._get(path), "instruments", path)]
+        return _core.parse_get_all_instruments_response(
+            self._request(_core.build_get_all_instruments_request(self._state))
+        )
 
     def get_instruments_details(self) -> list[InstrumentDetail]:
-        path = "/rest/instruments/details"
-        return [InstrumentDetail.from_api(i) for i in _unwrap(self._get(path), "instruments", path)]
+        return _core.parse_get_instruments_details_response(
+            self._request(_core.build_get_instruments_details_request(self._state))
+        )
 
     def get_instrument_detail(self, symbol: str, market_id: MarketId = "ROFX") -> InstrumentDetail:
-        path = "/rest/instruments/detail"
-        return InstrumentDetail.from_api(
-            _unwrap(self._get(path, symbol=symbol, marketId=market_id), "instrument", path)
+        return _core.parse_get_instrument_detail_response(
+            self._request(_core.build_get_instrument_detail_request(self._state, symbol, market_id))
         )
 
     def get_instruments_by_cfi(self, cfi_code: CFICode) -> list[Instrument]:
-        path = "/rest/instruments/byCFICode"
-        return [
-            Instrument.from_api(i)
-            for i in _unwrap(self._get(path, CFICode=cfi_code), "instruments", path)
-        ]
+        return _core.parse_get_instruments_by_cfi_response(
+            self._request(_core.build_get_instruments_by_cfi_request(self._state, cfi_code))
+        )
 
     def get_instruments_by_segment(
         self, segment_id: SegmentId, market_id: MarketId = "ROFX"
     ) -> list[Instrument]:
-        path = "/rest/instruments/bySegment"
-        return [
-            Instrument.from_api(i)
-            for i in _unwrap(
-                self._get(path, MarketSegmentID=segment_id, MarketID=market_id),
-                "instruments",
-                path,
+        return _core.parse_get_instruments_by_segment_response(
+            self._request(
+                _core.build_get_instruments_by_segment_request(self._state, segment_id, market_id)
             )
-        ]
+        )
 
     # -- Orders (§6) ------------------------------------------------
 
@@ -357,99 +264,68 @@ class Client:
         display_qty: int | None = None,
         expire_date: str | None = None,
     ) -> NewOrderResponse:
-        params: dict[str, Any] = {
-            "marketId": market_id,
-            "symbol": symbol,
-            "side": side,
-            "orderQty": qty,
-            "ordType": order_type,
-            "timeInForce": time_in_force,
-            "account": account,
-            "cancelPrevious": str(cancel_previous),
-            "iceberg": str(iceberg),
-        }
-        if price is not None:
-            params["price"] = price
-        if display_qty is not None:
-            params["displayQty"] = display_qty
-        if expire_date is not None:
-            params["expireDate"] = expire_date
-        path = "/rest/order/newSingleOrder"
-        return NewOrderResponse.from_api(_unwrap(self._get(path, **params), "order", path))
+        spec = _core.build_new_order_request(
+            self._state,
+            symbol,
+            side,
+            qty,
+            account,
+            price,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            market_id=market_id,
+            cancel_previous=cancel_previous,
+            iceberg=iceberg,
+            display_qty=display_qty,
+            expire_date=expire_date,
+        )
+        return _core.parse_new_order_response(self._request(spec))
 
     def replace_order(
         self, cl_ord_id: str, proprietary: str, qty: int, price: float
     ) -> NewOrderResponse:
-        path = "/rest/order/replaceById"
-        return NewOrderResponse.from_api(
-            _unwrap(
-                self._get(
-                    path,
-                    clOrdId=cl_ord_id,
-                    proprietary=proprietary,
-                    orderQty=qty,
-                    price=price,
-                ),
-                "order",
-                path,
+        return _core.parse_replace_order_response(
+            self._request(
+                _core.build_replace_order_request(self._state, cl_ord_id, proprietary, qty, price)
             )
         )
 
     def cancel_order(self, cl_ord_id: str, proprietary: str) -> NewOrderResponse:
-        path = "/rest/order/cancelById"
-        return NewOrderResponse.from_api(
-            _unwrap(
-                self._get(path, clOrdId=cl_ord_id, proprietary=proprietary),
-                "order",
-                path,
-            )
+        return _core.parse_cancel_order_response(
+            self._request(_core.build_cancel_order_request(self._state, cl_ord_id, proprietary))
         )
 
     def get_order_status(self, cl_ord_id: str, proprietary: str) -> Order:
-        path = "/rest/order/id"
-        return Order.from_api(
-            _unwrap(
-                self._get(path, clOrdId=cl_ord_id, proprietary=proprietary),
-                "order",
-                path,
-            )
+        return _core.parse_get_order_status_response(
+            self._request(_core.build_get_order_status_request(self._state, cl_ord_id, proprietary))
         )
 
     def get_order_history(self, cl_ord_id: str, proprietary: str) -> list[Order]:
-        path = "/rest/order/allById"
-        return [
-            Order.from_api(o)
-            for o in _unwrap(
-                self._get(path, clOrdId=cl_ord_id, proprietary=proprietary),
-                "orders",
-                path,
+        return _core.parse_get_order_history_response(
+            self._request(
+                _core.build_get_order_history_request(self._state, cl_ord_id, proprietary)
             )
-        ]
+        )
 
     def get_active_orders(self, account_id: str) -> list[Order]:
-        path = "/rest/order/actives"
-        return [
-            Order.from_api(o)
-            for o in _unwrap(self._get(path, accountId=account_id), "orders", path)
-        ]
+        return _core.parse_get_active_orders_response(
+            self._request(_core.build_get_active_orders_request(self._state, account_id))
+        )
 
     def get_filled_orders(self, account_id: str) -> list[Order]:
-        path = "/rest/order/filleds"
-        return [
-            Order.from_api(o)
-            for o in _unwrap(self._get(path, accountId=account_id), "orders", path)
-        ]
+        return _core.parse_get_filled_orders_response(
+            self._request(_core.build_get_filled_orders_request(self._state, account_id))
+        )
 
     def get_all_orders(self, account_id: str) -> list[Order]:
-        path = "/rest/order/all"
-        return [
-            Order.from_api(o)
-            for o in _unwrap(self._get(path, accountId=account_id), "orders", path)
-        ]
+        return _core.parse_get_all_orders_response(
+            self._request(_core.build_get_all_orders_request(self._state, account_id))
+        )
 
     def get_order_by_exec_id(self, exec_id: str) -> Order:
-        path = "/rest/order/byExecId"
-        return Order.from_api(_unwrap(self._get(path, execId=exec_id), "order", path))
+        return _core.parse_get_order_by_exec_id_response(
+            self._request(_core.build_get_order_by_exec_id_request(self._state, exec_id))
+        )
 
     # -- Market Data (§8) -------------------------------------------
 
@@ -461,18 +337,11 @@ class Client:
         market_id: MarketId = "ROFX",
         depth: int | None = None,
     ) -> MarketDataSnapshot:
-        path = "/rest/marketdata/get"
-        return MarketDataSnapshot.from_api(
-            _unwrap(
-                self._get(
-                    path,
-                    marketId=market_id,
-                    symbol=symbol,
-                    entries=",".join(entries),
-                    depth=depth,
-                ),
-                "marketData",
-                path,
+        return _core.parse_get_market_data_response(
+            self._request(
+                _core.build_get_market_data_request(
+                    self._state, symbol, entries, market_id=market_id, depth=depth
+                )
             )
         )
 
@@ -486,53 +355,38 @@ class Client:
         market_id: MarketId = "ROFX",
         environment: str | None = None,
     ) -> list[Trade]:
-        path = "/rest/data/getTrades"
-        return [
-            Trade.from_api(t)
-            for t in _unwrap(
-                self._get(
-                    path,
-                    marketId=market_id,
-                    symbol=symbol,
+        return _core.parse_get_trades_response(
+            self._request(
+                _core.build_get_trades_request(
+                    self._state,
+                    symbol,
                     date=date,
-                    dateFrom=date_from,
-                    dateTo=date_to,
+                    date_from=date_from,
+                    date_to=date_to,
+                    market_id=market_id,
                     environment=environment,
-                ),
-                "trades",
-                path,
+                )
             )
-        ]
+        )
 
     # -- Risk API (§9) ----------------------------------------------
 
     def get_positions(self, account_name: str) -> list[Position]:
-        path = f"/rest/risk/position/getPositions/{account_name}"
-        return [
-            Position.from_api(p)
-            for p in _unwrap(
-                self._request("GET", path, auth_basic=self._risk_auth()),
-                "positions",
-                path,
-            )
-        ]
+        return _core.parse_get_positions_response(
+            self._request(_core.build_get_positions_request(self._state, account_name)),
+            account_name,
+        )
 
     def get_detailed_positions(self, account_name: str) -> DetailedPosition:
-        return DetailedPosition.from_api(
-            self._request(
-                "GET",
-                f"/rest/risk/detailedPosition/{account_name}",
-                auth_basic=self._risk_auth(),
-            )
+        return _core.parse_get_detailed_positions_response(
+            self._request(_core.build_get_detailed_positions_request(self._state, account_name)),
+            account_name,
         )
 
     def get_account_report(self, account_name: str) -> AccountReport:
-        return AccountReport.from_api(
-            self._request(
-                "GET",
-                f"/rest/risk/accountReport/{account_name}",
-                auth_basic=self._risk_auth(),
-            )
+        return _core.parse_get_account_report_response(
+            self._request(_core.build_get_account_report_request(self._state, account_name)),
+            account_name,
         )
 
 
@@ -544,7 +398,6 @@ _default_client: Client | None = None
 
 
 def _get_default() -> Client:
-    """Return the lazily-constructed default ``Client`` singleton."""
     global _default_client
     if _default_client is None:
         _default_client = Client()
@@ -559,13 +412,7 @@ def configure(
     token: str | None = None,
     token_expires_at: float | None = None,
 ) -> None:
-    """Sobrescribe credenciales/URL/token en runtime y resetea cache.
-
-    D-04 extension: ``token`` and ``token_expires_at`` kwargs are accepted so
-    test fixtures can pre-seed the cache without monkeypatching module state.
-    Any base_url/username/password update without an explicit ``token`` resets
-    the token cache to force re-auth.
-    """
+    """Sobrescribe credenciales/URL/token en runtime y resetea cache (D-04)."""
     default = _get_default()
     if base_url is not None:
         default._state.base_url = base_url.rstrip("/")
@@ -573,8 +420,6 @@ def configure(
         default._state.username = username
     if password is not None:
         default._state.password = password
-    # Token semantics: explicit override wins; otherwise base/cred changes
-    # invalidate the cache.
     if token is not None or token_expires_at is not None:
         if token is not None:
             default._state.token = token
@@ -587,9 +432,6 @@ def configure(
 
 def login() -> str:
     return _get_default().login()
-
-
-# -- Top-level domain delegators -----------------------------------
 
 
 def get_segments() -> list[Segment]:
@@ -722,31 +564,38 @@ def get_account_report(account_name: str) -> AccountReport:
     return _get_default().get_account_report(account_name)
 
 
+# Module-level back-compat for ``main_matriz.py`` driver (Pitfall 7).
+
+
+def _request(
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    auth_basic: tuple[str, str] | None = None,
+) -> dict[str, Any]:
+    """DEPRECATED: back-compat para `main_matriz.py`. Delega a ``_matriz_legacy_request``."""
+    return _get_default()._matriz_legacy_request(method, path, params=params, auth_basic=auth_basic)
+
+
+def _risk_auth() -> tuple[str, str]:
+    return _get_default()._risk_auth()
+
+
 # ------------------------------------------------------------------
 # PEP 562 read-only shim (D-01, D-02, Open Q #4)
 # ------------------------------------------------------------------
 
-# Names whose reads forward to ``_get_default()._state.<attr>``.
 _FORWARDED_TO_STATE: dict[str, str] = {
     "_token": "token",
     "_token_ts": "token_expires_at",
-    "_base_url": "base_url",  # Open Q #4 — verification/mutation_gate.py reads this.
+    "_base_url": "base_url",
 }
-
-# Legacy HTTP client names that forward to ``_get_default()._state.http_client``.
-# Matriz historically named the global ``_session`` (Pitfall #5); for parity
-# with the other packages we also forward ``_client``.
 _FORWARDED_HTTP_CLIENT_NAMES: frozenset[str] = frozenset({"_session", "_client"})
 
 
 def __getattr__(name: str) -> Any:
-    """PEP 562 read-only forwarding to the default Client's state.
-
-    Writes are not supported through module attribute access; mutate via
-    ``configure(...)`` instead. Reads of ``_user``/``_password`` raise
-    ``AttributeError`` deliberately — credentials must never be observed
-    through the legacy module global path (security hardening).
-    """
+    """PEP 562 read-only forwarding. Writes via ``configure(...)`` only."""
     if name in _FORWARDED_TO_STATE:
         return getattr(_get_default()._state, _FORWARDED_TO_STATE[name])
     if name in _FORWARDED_HTTP_CLIENT_NAMES:

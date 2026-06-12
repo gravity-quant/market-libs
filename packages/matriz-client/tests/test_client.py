@@ -16,6 +16,7 @@ from pytest_httpx import HTTPXMock
 
 import matriz_client
 from matriz_client import client as _client
+from matriz_client._core import RequestSpec
 from matriz_client.exceptions import AuthenticationError, PrimaryAPIError
 from matriz_client.models import NewOrderResponse
 
@@ -96,11 +97,15 @@ def test_ensure_token_refreshes_when_stale(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_request_raises_on_error_payload(httpx_mock: HTTPXMock) -> None:
+    """Phase 7 D-03: el body-shape + status==ERROR check vive en
+    ``_core.parse_envelope_response``, que ``_matriz_legacy_request`` invoca
+    para preservar el contrato Phase 6.
+    """
     httpx_mock.add_response(
         json={"status": "ERROR", "description": "bad symbol", "message": "x"},
     )
     with pytest.raises(PrimaryAPIError) as exc:
-        matriz_client._get_default()._request("GET", "/rest/anything")
+        matriz_client._get_default()._matriz_legacy_request("GET", "/rest/anything")
     assert exc.value.description == "bad symbol"
 
 
@@ -110,12 +115,16 @@ def test_request_sends_auth_header(httpx_mock: HTTPXMock) -> None:
         match_headers={"X-Auth-Token": "test-token"},
         json={"status": "OK"},
     )
-    matriz_client._get_default()._request("GET", "/rest/anything", params={"symbol": "DLR/DIC23"})
+    matriz_client._get_default()._matriz_legacy_request(
+        "GET", "/rest/anything", params={"symbol": "DLR/DIC23"}
+    )
 
 
 def test_request_with_basic_auth_skips_token(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"status": "OK"})
-    matriz_client._get_default()._request("GET", "/rest/risk/x", auth_basic=("u", "p"))
+    matriz_client._get_default()._matriz_legacy_request(
+        "GET", "/rest/risk/x", auth_basic=("u", "p")
+    )
     [request] = httpx_mock.get_requests()
     # No mandamos X-Auth-Token cuando va Basic Auth.
     assert "x-auth-token" not in {h.lower() for h in request.headers}
@@ -124,11 +133,18 @@ def test_request_with_basic_auth_skips_token(httpx_mock: HTTPXMock) -> None:
 
 
 def test_get_filters_none_params(httpx_mock: HTTPXMock) -> None:
+    """Phase 7: el filtrado de params=None vive en los `_core.build_*` builders
+    (e.g. ``build_new_order_request`` drop None price/displayQty/expireDate);
+    ya no hay un ``_get`` helper. El back-compat wrapper acepta params=dict
+    y los pasa tal cual.
+    """
     httpx_mock.add_response(
         url="https://api.test/rest/x?symbol=ABC&bar=1",
         json={"status": "OK"},
     )
-    matriz_client._get_default()._get("/rest/x", symbol="ABC", foo=None, bar=1)
+    matriz_client._get_default()._matriz_legacy_request(
+        "GET", "/rest/x", params={"symbol": "ABC", "bar": 1}
+    )
 
 
 # ------------------------------------------------------------------
@@ -470,9 +486,11 @@ def test_request_raises_runtime_error_if_ensure_token_leaves_none(
         # No-op: deliberately leaves token=None to trigger the guard.
         return None
 
+    # Phase 7 D-03: _request takes a RequestSpec; the guard is preserved.
+    spec = RequestSpec(method="GET", path="/rest/anything")
     monkeypatch.setattr(_client.Client, "_ensure_token", fake_ensure_token)
     with pytest.raises(RuntimeError, match="did not populate _token"):
-        default._request("GET", "/rest/anything")
+        default._request(spec)
 
 
 def test_request_raises_primary_api_error_when_body_is_not_dict(

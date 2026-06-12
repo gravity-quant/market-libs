@@ -158,7 +158,9 @@ def test_request_sends_x_auth_token_header(httpx_mock: HTTPXMock) -> None:
         match_headers={"X-Auth-Token": "LIVE-TOK"},
         json={"status": "OK"},
     )
-    c._request("GET", "/rest/anything", params={"symbol": "DLR"})
+    # Phase 7 D-03: _request takes a RequestSpec and returns httpx.Response;
+    # back-compat wrapper preserves the original dict-decoded contract.
+    c._matriz_legacy_request("GET", "/rest/anything", params={"symbol": "DLR"})
 
 
 # ------------------------------------------------------------------

@@ -51,6 +51,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -233,6 +234,134 @@ def _write_or_check_schema(
 
 
 # ---------------------------------------------------------------------------
+# CR-05 close (Phase 7 Plan 5 / D-07 / Pitfall 5):
+# `_envelope_probe` dedupea los ~13 envelope probes "limpios" + 2 risk probes
+# (envelope_key=None). Las 3 probes con side-effect / lógica especial
+# (`probe_get_segments` setea `_resolved_segment`; `probe_get_all_instruments`
+# setea `_resolved_symbol`; `probe_get_market_data` tiene market-hours guard)
+# permanecen custom — A4 honesty flag. `probe_get_instruments_by_cfi_sanity`
+# (loop sobre 8 CFI codes) tampoco encaja en el helper plano.
+# ---------------------------------------------------------------------------
+
+
+def _envelope_probe(
+    name: str,
+    path: str,
+    *,
+    envelope_key: str | None = None,
+    request_params: dict[str, Any] | None = None,
+    auth_basic_fn: Callable[[], tuple[str, str]] | None = None,
+    pass_detail: Callable[[Any], str] | None = None,
+) -> tuple[ProbeResult, Any | None]:
+    """Sweep probe helper — CR-05 close.
+
+    Args:
+        name: ProbeResult label.
+        path: REST path (e.g. ``/rest/segment/all``).
+        envelope_key: Envelope key to unwrap. ``None`` para risk probes (D-07)
+            donde el payload raíz ES el resultado.
+        request_params: Forwarded to ``_matriz_request("GET", path, params=...)``.
+        auth_basic_fn: Returns ``(user, pass)`` for Risk API HTTP Basic; ``None``
+            usa el token X-Auth-Token cacheado.
+        pass_detail: Optional callable que mapea ``payload -> str`` para
+            personalizar el ``ProbeResult.detail`` en el camino PASS.
+
+    Returns:
+        ``(ProbeResult, raw_payload_or_None)`` — misma shape que las 18 probes pre-refactor.
+    """
+    if _auth_failed:
+        return (ProbeResult(name, "SKIPPED", f"auth failed: {_auth_failure_reason}"), None)
+    base_url = primary.client._base_url
+    auth = auth_basic_fn() if auth_basic_fn is not None else None
+    try:
+        raw = _matriz_request("GET", path, params=request_params, auth_basic=auth)
+    except PrimaryAPIError as exc:
+        fid = _next_fid()
+        expected = (
+            f"200 OK con envelope {{{envelope_key}: ...}}"
+            if envelope_key
+            else "200 OK con dict raíz (sin envelope key, D-07)"
+        )
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"{name} levantó PrimaryAPIError inesperado",
+            expected=expected,
+            actual=f"PrimaryAPIError: {exc}",
+            diff="error upstream o envelope key ausente / status='ERROR'",
+            base_url=base_url,
+        )
+        return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
+    if envelope_key is None:
+        # Risk probe (D-07): payload raíz ES el resultado.
+        if not isinstance(raw, dict):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="sync",
+                status="OPEN",
+                title=f"{name} payload shape incorrecto",
+                expected="payload raíz es dict (sin envelope key, D-07)",
+                actual=f"raw={type(raw).__name__}",
+                diff="payload raíz no es dict",
+                base_url=base_url,
+            )
+            return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
+        detail = pass_detail(raw) if pass_detail is not None else "received"
+        return (ProbeResult(name, "PASS", detail), raw)
+    # Envelope probe: unwrap key, validate shape (list o dict según el endpoint).
+    payload = raw.get(envelope_key)
+    # Para single-resource envelopes (instrument, order, marketData), `payload` es dict;
+    # para list envelopes (instruments, segments, orders, trades, positions), es list.
+    expected_dict = name in {
+        "get_instrument_detail",
+        "get_order_status",
+        "get_order_by_exec_id",
+    }
+    if expected_dict:
+        if not isinstance(payload, dict):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="sync",
+                status="OPEN",
+                title=f"{name} envelope shape incorrecto",
+                expected=f"raw['{envelope_key}'] es dict",
+                actual=f"raw['{envelope_key}']={type(payload).__name__}",
+                diff=f"envelope key '{envelope_key}' ausente o no-dict",
+                base_url=base_url,
+            )
+            return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
+        detail = pass_detail(payload) if pass_detail is not None else "received"
+        return (ProbeResult(name, "PASS", detail), payload)
+    # List envelope.
+    if not isinstance(payload, list):
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="sync",
+            status="OPEN",
+            title=f"{name} envelope shape incorrecto",
+            expected=f"raw['{envelope_key}'] es list",
+            actual=f"raw['{envelope_key}']={type(payload).__name__}",
+            diff=f"envelope key '{envelope_key}' ausente o no-list",
+            base_url=base_url,
+        )
+        return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
+    detail = pass_detail(payload) if pass_detail is not None else f"{len(payload)} items"
+    return (ProbeResult(name, "PASS", detail), payload)
+
+
+# ---------------------------------------------------------------------------
 # Probe 1: login_sync (D-MATZ-29 #1, MATZ-01)
 # ---------------------------------------------------------------------------
 
@@ -412,52 +541,12 @@ def probe_get_all_instruments() -> tuple[ProbeResult, list[dict[str, Any]] | Non
 
 
 def probe_get_instruments_details() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
-    """Probe 4 (D-MATZ-29 #4): ``GET /rest/instruments/details``."""
-    if _auth_failed:
-        return (
-            ProbeResult(
-                "get_instruments_details", "SKIPPED", f"auth failed: {_auth_failure_reason}"
-            ),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = "/rest/instruments/details"
-    try:
-        raw = _matriz_request("GET", path)
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_instruments_details levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {instruments: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instruments_details", "FINDING", f"{fid} (OPEN)"), None)
-    instruments = raw.get("instruments")
-    if not isinstance(instruments, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_instruments_details envelope shape incorrecto",
-            expected="raw['instruments'] es list",
-            actual=f"raw['instruments']={type(instruments).__name__}",
-            diff="envelope key 'instruments' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instruments_details", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult("get_instruments_details", "PASS", f"{len(instruments)} instrument details"),
-        instruments,
+    """Probe 4 (D-MATZ-29 #4): ``GET /rest/instruments/details`` — vía ``_envelope_probe``."""
+    return _envelope_probe(
+        "get_instruments_details",
+        "/rest/instruments/details",
+        envelope_key="instruments",
+        pass_detail=lambda p: f"{len(p)} instrument details",
     )
 
 
@@ -466,54 +555,17 @@ def probe_get_instrument_detail() -> tuple[ProbeResult, dict[str, Any] | None]:
 
     SKIPPED si ``_resolved_symbol`` no se resolvió (probe #3 falló o instruments vacío).
     """
-    if _auth_failed:
-        return (
-            ProbeResult("get_instrument_detail", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _resolved_symbol is None:
+    if _resolved_symbol is None and not _auth_failed:
         return (
             ProbeResult("get_instrument_detail", "SKIPPED", "no _resolved_symbol from probe #3"),
             None,
         )
-    base_url = primary.client._base_url
-    path = "/rest/instruments/detail"
-    try:
-        raw = _matriz_request("GET", path, params={"symbol": _resolved_symbol, "marketId": "ROFX"})
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_instrument_detail levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {instrument: {...}}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instrument_detail", "FINDING", f"{fid} (OPEN)"), None)
-    instrument = raw.get("instrument")
-    if not isinstance(instrument, dict):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_instrument_detail envelope shape incorrecto",
-            expected="raw['instrument'] es dict",
-            actual=f"raw['instrument']={type(instrument).__name__}",
-            diff="envelope key 'instrument' ausente o no-dict",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instrument_detail", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult("get_instrument_detail", "PASS", f"symbol={_resolved_symbol}"),
-        instrument,
+    return _envelope_probe(
+        "get_instrument_detail",
+        "/rest/instruments/detail",
+        envelope_key="instrument",
+        request_params={"symbol": _resolved_symbol, "marketId": "ROFX"},
+        pass_detail=lambda _: f"symbol={_resolved_symbol}",
     )
 
 
@@ -522,55 +574,12 @@ def probe_get_instruments_by_cfi_ESXXXX() -> tuple[ProbeResult, list[dict[str, A
 
     Baseline para schema snapshot D-MATZ-6 (los otros 8 CFI van por probe #7).
     """
-    if _auth_failed:
-        return (
-            ProbeResult(
-                "get_instruments_by_cfi_ESXXXX",
-                "SKIPPED",
-                f"auth failed: {_auth_failure_reason}",
-            ),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = "/rest/instruments/byCFICode"
-    try:
-        raw = _matriz_request("GET", path, params={"CFICode": "ESXXXX"})
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_instruments_by_cfi(ESXXXX) levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {instruments: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instruments_by_cfi_ESXXXX", "FINDING", f"{fid} (OPEN)"), None)
-    instruments = raw.get("instruments")
-    if not isinstance(instruments, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_instruments_by_cfi(ESXXXX) envelope shape incorrecto",
-            expected="raw['instruments'] es list",
-            actual=f"raw['instruments']={type(instruments).__name__}",
-            diff="envelope key 'instruments' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instruments_by_cfi_ESXXXX", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult(
-            "get_instruments_by_cfi_ESXXXX", "PASS", f"{len(instruments)} ESXXXX instruments"
-        ),
-        instruments,
+    return _envelope_probe(
+        "get_instruments_by_cfi_ESXXXX",
+        "/rest/instruments/byCFICode",
+        envelope_key="instruments",
+        request_params={"CFICode": "ESXXXX"},
+        pass_detail=lambda p: f"{len(p)} ESXXXX instruments",
     )
 
 
@@ -647,64 +656,19 @@ def probe_get_instruments_by_segment() -> tuple[ProbeResult, list[dict[str, Any]
 
     SKIPPED si ``_resolved_segment`` no se resolvió (probe #2 falló o segments vacío).
     """
-    if _auth_failed:
-        return (
-            ProbeResult(
-                "get_instruments_by_segment", "SKIPPED", f"auth failed: {_auth_failure_reason}"
-            ),
-            None,
-        )
-    if _resolved_segment is None:
+    if _resolved_segment is None and not _auth_failed:
         return (
             ProbeResult(
                 "get_instruments_by_segment", "SKIPPED", "no _resolved_segment from probe #2"
             ),
             None,
         )
-    base_url = primary.client._base_url
-    path = "/rest/instruments/bySegment"
-    try:
-        raw = _matriz_request(
-            "GET", path, params={"MarketSegmentID": _resolved_segment, "MarketID": "ROFX"}
-        )
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_instruments_by_segment levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {instruments: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instruments_by_segment", "FINDING", f"{fid} (OPEN)"), None)
-    instruments = raw.get("instruments")
-    if not isinstance(instruments, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_instruments_by_segment envelope shape incorrecto",
-            expected="raw['instruments'] es list",
-            actual=f"raw['instruments']={type(instruments).__name__}",
-            diff="envelope key 'instruments' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_instruments_by_segment", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult(
-            "get_instruments_by_segment",
-            "PASS",
-            f"segment={_resolved_segment}: {len(instruments)} instruments",
-        ),
-        instruments,
+    return _envelope_probe(
+        "get_instruments_by_segment",
+        "/rest/instruments/bySegment",
+        envelope_key="instruments",
+        request_params={"MarketSegmentID": _resolved_segment, "MarketID": "ROFX"},
+        pass_detail=lambda p: f"segment={_resolved_segment}: {len(p)} instruments",
     )
 
 
@@ -800,65 +764,27 @@ def probe_get_market_data() -> tuple[ProbeResult, dict[str, Any] | None]:
 def probe_get_trades() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 10 (D-MATZ-29 #10): ``GET /rest/data/getTrades`` con ``date_from=today-7d``.
 
-    D-MATZ-8: si lista vacía → finding NO-DATA OPEN + PASS-shape.
+    D-MATZ-8: si lista vacía → finding NO-DATA OPEN + PASS-shape (reportado por
+    el caller pre-_envelope_probe; el helper sólo cubre el envelope happy path).
     """
-    if _auth_failed:
-        return (
-            ProbeResult("get_trades", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _resolved_symbol is None:
-        return (
-            ProbeResult("get_trades", "SKIPPED", "no _resolved_symbol from probe #3"),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = "/rest/data/getTrades"
+    if _resolved_symbol is None and not _auth_failed:
+        return (ProbeResult("get_trades", "SKIPPED", "no _resolved_symbol from probe #3"), None)
     today = dt.date.today()
     seven_days_ago = today - dt.timedelta(days=7)
-    try:
-        raw = _matriz_request(
-            "GET",
-            path,
-            params={
-                "marketId": "ROFX",
-                "symbol": _resolved_symbol,
-                "dateFrom": seven_days_ago.isoformat(),
-                "dateTo": today.isoformat(),
-            },
-        )
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_trades levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {trades: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_trades", "FINDING", f"{fid} (OPEN)"), None)
-    trades = raw.get("trades")
-    if not isinstance(trades, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_trades envelope shape incorrecto",
-            expected="raw['trades'] es list",
-            actual=f"raw['trades']={type(trades).__name__}",
-            diff="envelope key 'trades' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_trades", "FINDING", f"{fid} (OPEN)"), None)
-    if not trades:
+    result, payload = _envelope_probe(
+        "get_trades",
+        "/rest/data/getTrades",
+        envelope_key="trades",
+        request_params={
+            "marketId": "ROFX",
+            "symbol": _resolved_symbol,
+            "dateFrom": seven_days_ago.isoformat(),
+            "dateTo": today.isoformat(),
+        },
+        pass_detail=lambda p: f"{len(p)} trades" if p else "empty trades",
+    )
+    # D-MATZ-8 NO-DATA finding solo aplica si el helper devolvió PASS con lista vacía.
+    if result.status == "PASS" and isinstance(payload, list) and not payload:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -870,182 +796,54 @@ def probe_get_trades() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
             expected="al menos 1 trade en ventana de 7 días (símbolo líquido)",
             actual="trades list vacía",
             diff="símbolo ilíquido o ventana sin actividad",
-            base_url=base_url,
+            base_url=primary.client._base_url,
         )
-        return (ProbeResult("get_trades", "PASS", f"empty trades ({fid} NO-DATA)"), trades)
-    return (ProbeResult("get_trades", "PASS", f"{len(trades)} trades"), trades)
+        result = ProbeResult("get_trades", "PASS", f"empty trades ({fid} NO-DATA)")
+    return (result, payload)
 
 
 def probe_get_active_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
-    """Probe 11 (D-MATZ-29 #11): ``GET /rest/order/actives`` con ``PRIMARY_ACCOUNT``.
-
-    SKIPPED si ``PRIMARY_ACCOUNT`` no está seteado (D-MATZ-3).
-    """
-    if _auth_failed:
-        return (
-            ProbeResult("get_active_orders", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _PRIMARY_ACCOUNT is None:
-        return (
-            ProbeResult("get_active_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = "/rest/order/actives"
-    try:
-        raw = _matriz_request("GET", path, params={"accountId": _PRIMARY_ACCOUNT})
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_active_orders levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {orders: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_active_orders", "FINDING", f"{fid} (OPEN)"), None)
-    orders = raw.get("orders")
-    if not isinstance(orders, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_active_orders envelope shape incorrecto",
-            expected="raw['orders'] es list",
-            actual=f"raw['orders']={type(orders).__name__}",
-            diff="envelope key 'orders' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_active_orders", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_active_orders", "PASS", f"{len(orders)} active orders"), orders)
+    """Probe 11 (D-MATZ-29 #11): ``GET /rest/order/actives`` con ``PRIMARY_ACCOUNT``."""
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return (ProbeResult("get_active_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
+    return _envelope_probe(
+        "get_active_orders",
+        "/rest/order/actives",
+        envelope_key="orders",
+        request_params={"accountId": _PRIMARY_ACCOUNT},
+        pass_detail=lambda p: f"{len(p)} active orders",
+    )
 
 
 def probe_get_filled_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
-    """Probe 12 (D-MATZ-29 #12): ``GET /rest/order/filleds`` con ``PRIMARY_ACCOUNT``.
-
-    SKIPPED si ``PRIMARY_ACCOUNT`` no está seteado (D-MATZ-3).
-    """
-    if _auth_failed:
-        return (
-            ProbeResult("get_filled_orders", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _PRIMARY_ACCOUNT is None:
-        return (
-            ProbeResult("get_filled_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = "/rest/order/filleds"
-    try:
-        raw = _matriz_request("GET", path, params={"accountId": _PRIMARY_ACCOUNT})
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_filled_orders levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {orders: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_filled_orders", "FINDING", f"{fid} (OPEN)"), None)
-    orders = raw.get("orders")
-    if not isinstance(orders, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_filled_orders envelope shape incorrecto",
-            expected="raw['orders'] es list",
-            actual=f"raw['orders']={type(orders).__name__}",
-            diff="envelope key 'orders' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_filled_orders", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_filled_orders", "PASS", f"{len(orders)} filled orders"), orders)
+    """Probe 12 (D-MATZ-29 #12): ``GET /rest/order/filleds`` con ``PRIMARY_ACCOUNT``."""
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return (ProbeResult("get_filled_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
+    return _envelope_probe(
+        "get_filled_orders",
+        "/rest/order/filleds",
+        envelope_key="orders",
+        request_params={"accountId": _PRIMARY_ACCOUNT},
+        pass_detail=lambda p: f"{len(p)} filled orders",
+    )
 
 
 def probe_get_all_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
-    """Probe 13 (D-MATZ-29 #13): ``GET /rest/order/all`` con ``PRIMARY_ACCOUNT``.
-
-    SKIPPED si ``PRIMARY_ACCOUNT`` no está seteado (D-MATZ-3).
-    """
-    if _auth_failed:
-        return (
-            ProbeResult("get_all_orders", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _PRIMARY_ACCOUNT is None:
-        return (
-            ProbeResult("get_all_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = "/rest/order/all"
-    try:
-        raw = _matriz_request("GET", path, params={"accountId": _PRIMARY_ACCOUNT})
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_all_orders levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {orders: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_all_orders", "FINDING", f"{fid} (OPEN)"), None)
-    orders = raw.get("orders")
-    if not isinstance(orders, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_all_orders envelope shape incorrecto",
-            expected="raw['orders'] es list",
-            actual=f"raw['orders']={type(orders).__name__}",
-            diff="envelope key 'orders' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_all_orders", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_all_orders", "PASS", f"{len(orders)} total orders"), orders)
+    """Probe 13 (D-MATZ-29 #13): ``GET /rest/order/all`` con ``PRIMARY_ACCOUNT``."""
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return (ProbeResult("get_all_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
+    return _envelope_probe(
+        "get_all_orders",
+        "/rest/order/all",
+        envelope_key="orders",
+        request_params={"accountId": _PRIMARY_ACCOUNT},
+        pass_detail=lambda p: f"{len(p)} total orders",
+    )
 
 
 def probe_get_order_status() -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 14 (D-MATZ-29 #14): ``GET /rest/order/id`` con ``cl_ord_id``+``proprietary``.
-
-    SKIPPED si ``MATRIZ_SAMPLE_CL_ORD_ID`` o ``MATRIZ_SAMPLE_PROPRIETARY`` ausentes (D-MATZ-4).
-    """
-    if _auth_failed:
-        return (
-            ProbeResult("get_order_status", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None:
+    """Probe 14 (D-MATZ-29 #14): ``GET /rest/order/id`` con ``cl_ord_id``+``proprietary``."""
+    if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
         return (
             ProbeResult(
                 "get_order_status",
@@ -1054,62 +852,18 @@ def probe_get_order_status() -> tuple[ProbeResult, dict[str, Any] | None]:
             ),
             None,
         )
-    base_url = primary.client._base_url
-    path = "/rest/order/id"
-    try:
-        raw = _matriz_request(
-            "GET",
-            path,
-            params={"clOrdId": _SAMPLE_CL_ORD_ID, "proprietary": _SAMPLE_PROPRIETARY},
-        )
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_order_status levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {order: {...}}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_order_status", "FINDING", f"{fid} (OPEN)"), None)
-    order = raw.get("order")
-    if not isinstance(order, dict):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_order_status envelope shape incorrecto",
-            expected="raw['order'] es dict",
-            actual=f"raw['order']={type(order).__name__}",
-            diff="envelope key 'order' ausente o no-dict",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_order_status", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult("get_order_status", "PASS", f"clOrdId={_SAMPLE_CL_ORD_ID}"),
-        order,
+    return _envelope_probe(
+        "get_order_status",
+        "/rest/order/id",
+        envelope_key="order",
+        request_params={"clOrdId": _SAMPLE_CL_ORD_ID, "proprietary": _SAMPLE_PROPRIETARY},
+        pass_detail=lambda _: f"clOrdId={_SAMPLE_CL_ORD_ID}",
     )
 
 
 def probe_get_order_history() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
-    """Probe 15 (D-MATZ-29 #15): ``GET /rest/order/allById`` con ``cl_ord_id``+``proprietary``.
-
-    SKIPPED si ``MATRIZ_SAMPLE_CL_ORD_ID`` o ``MATRIZ_SAMPLE_PROPRIETARY`` ausentes (D-MATZ-4).
-    """
-    if _auth_failed:
-        return (
-            ProbeResult("get_order_history", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None:
+    """Probe 15 (D-MATZ-29 #15): ``GET /rest/order/allById`` con ``cl_ord_id``+``proprietary``."""
+    if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
         return (
             ProbeResult(
                 "get_order_history",
@@ -1118,286 +872,87 @@ def probe_get_order_history() -> tuple[ProbeResult, list[dict[str, Any]] | None]
             ),
             None,
         )
-    base_url = primary.client._base_url
-    path = "/rest/order/allById"
-    try:
-        raw = _matriz_request(
-            "GET",
-            path,
-            params={"clOrdId": _SAMPLE_CL_ORD_ID, "proprietary": _SAMPLE_PROPRIETARY},
-        )
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_order_history levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {orders: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_order_history", "FINDING", f"{fid} (OPEN)"), None)
-    orders = raw.get("orders")
-    if not isinstance(orders, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_order_history envelope shape incorrecto",
-            expected="raw['orders'] es list",
-            actual=f"raw['orders']={type(orders).__name__}",
-            diff="envelope key 'orders' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_order_history", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult("get_order_history", "PASS", f"{len(orders)} history rows"),
-        orders,
+    return _envelope_probe(
+        "get_order_history",
+        "/rest/order/allById",
+        envelope_key="orders",
+        request_params={"clOrdId": _SAMPLE_CL_ORD_ID, "proprietary": _SAMPLE_PROPRIETARY},
+        pass_detail=lambda p: f"{len(p)} history rows",
     )
 
 
 def probe_get_order_by_exec_id() -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 16 (D-MATZ-29 #16): ``GET /rest/order/byExecId`` con ``MATRIZ_SAMPLE_EXEC_ID``.
-
-    SKIPPED si ``MATRIZ_SAMPLE_EXEC_ID`` no está seteado (D-MATZ-4).
-    """
-    if _auth_failed:
-        return (
-            ProbeResult("get_order_by_exec_id", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _SAMPLE_EXEC_ID is None:
+    """Probe 16 (D-MATZ-29 #16): ``GET /rest/order/byExecId`` con ``MATRIZ_SAMPLE_EXEC_ID``."""
+    if _SAMPLE_EXEC_ID is None and not _auth_failed:
         return (
             ProbeResult("get_order_by_exec_id", "SKIPPED", "no MATRIZ_SAMPLE_EXEC_ID env var"),
             None,
         )
-    base_url = primary.client._base_url
-    path = "/rest/order/byExecId"
-    try:
-        raw = _matriz_request("GET", path, params={"execId": _SAMPLE_EXEC_ID})
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_order_by_exec_id levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {order: {...}}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_order_by_exec_id", "FINDING", f"{fid} (OPEN)"), None)
-    order = raw.get("order")
-    if not isinstance(order, dict):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_order_by_exec_id envelope shape incorrecto",
-            expected="raw['order'] es dict",
-            actual=f"raw['order']={type(order).__name__}",
-            diff="envelope key 'order' ausente o no-dict",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_order_by_exec_id", "FINDING", f"{fid} (OPEN)"), None)
-    return (
-        ProbeResult("get_order_by_exec_id", "PASS", f"execId={_SAMPLE_EXEC_ID}"),
-        order,
+    return _envelope_probe(
+        "get_order_by_exec_id",
+        "/rest/order/byExecId",
+        envelope_key="order",
+        request_params={"execId": _SAMPLE_EXEC_ID},
+        pass_detail=lambda _: f"execId={_SAMPLE_EXEC_ID}",
     )
 
 
 def probe_get_positions() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 17 (D-MATZ-29 #17): ``GET /rest/risk/position/getPositions/{account}``.
 
-    **Risk API HTTP Basic Auth** (Pitfall 2 RESEARCH L640): bypassa ``_get`` y
-    llama ``_matriz_request`` directo con ``auth_basic=_risk_auth()``.
-    SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
+    **Risk API HTTP Basic Auth** (Pitfall 2 RESEARCH L640): el helper acepta
+    ``auth_basic_fn``. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
-    if _auth_failed:
-        return (
-            ProbeResult("get_positions", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _PRIMARY_ACCOUNT is None:
-        return (
-            ProbeResult("get_positions", "SKIPPED", "no PRIMARY_ACCOUNT env var"),
-            None,
-        )
-    base_url = primary.client._base_url
-    path = f"/rest/risk/position/getPositions/{_PRIMARY_ACCOUNT}"
-    try:
-        raw = _matriz_request("GET", path, auth_basic=_risk_auth())
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_positions levantó PrimaryAPIError inesperado",
-            expected="200 OK con envelope {positions: [...]}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o envelope key ausente (ejercita _unwrap fix Plan 05-01)",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_positions", "FINDING", f"{fid} (OPEN)"), None)
-    positions = raw.get("positions")
-    if not isinstance(positions, list):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_positions envelope shape incorrecto",
-            expected="raw['positions'] es list",
-            actual=f"raw['positions']={type(positions).__name__}",
-            diff="envelope key 'positions' ausente o no-list",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_positions", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_positions", "PASS", f"{len(positions)} positions"), positions)
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return (ProbeResult("get_positions", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
+    return _envelope_probe(
+        "get_positions",
+        f"/rest/risk/position/getPositions/{_PRIMARY_ACCOUNT}",
+        envelope_key="positions",
+        auth_basic_fn=_risk_auth,
+        pass_detail=lambda p: f"{len(p)} positions",
+    )
 
 
 def probe_get_detailed_positions() -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 18 (D-MATZ-29 #18): ``GET /rest/risk/detailedPosition/{account}``.
 
-    Risk API HTTP Basic Auth. **SIN envelope key** — el payload raíz es el dict
-    completo de ``DetailedPosition.from_api(raw)``. SKIPPED si ``PRIMARY_ACCOUNT``
-    ausente (D-MATZ-3).
+    Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
+    el dict completo. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
-    if _auth_failed:
-        return (
-            ProbeResult(
-                "get_detailed_positions", "SKIPPED", f"auth failed: {_auth_failure_reason}"
-            ),
-            None,
-        )
-    if _PRIMARY_ACCOUNT is None:
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (
             ProbeResult("get_detailed_positions", "SKIPPED", "no PRIMARY_ACCOUNT env var"),
             None,
         )
-    base_url = primary.client._base_url
-    path = f"/rest/risk/detailedPosition/{_PRIMARY_ACCOUNT}"
-    try:
-        raw = _matriz_request("GET", path, auth_basic=_risk_auth())
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_detailed_positions levantó PrimaryAPIError inesperado",
-            expected="200 OK con dict {account, totalDailyDiffPlain, ...}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o status='ERROR' en payload",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_detailed_positions", "FINDING", f"{fid} (OPEN)"), None)
-    if not isinstance(raw, dict):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_detailed_positions payload shape incorrecto",
-            expected="payload raíz es dict (sin envelope key)",
-            actual=f"raw={type(raw).__name__}",
-            diff="payload raíz no es dict",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_detailed_positions", "FINDING", f"{fid} (OPEN)"), None)
-    # WR-01 belt-and-suspenders: aunque PRIMARY_ACCOUNT está en `secrets` y
-    # safe_print lo redacta, no insertamos el accountId completo en el detail
-    # string. Reportamos sólo "received" como evidencia estructural — el
-    # accountId real ya está en el endpoint template del schema snapshot
-    # como placeholder <PRIMARY_ACCOUNT>.
-    _ = raw.get("account", "<unknown>")
-    return (
-        ProbeResult("get_detailed_positions", "PASS", "account received"),
-        raw,
+    return _envelope_probe(
+        "get_detailed_positions",
+        f"/rest/risk/detailedPosition/{_PRIMARY_ACCOUNT}",
+        envelope_key=None,
+        auth_basic_fn=_risk_auth,
+        # WR-01: no insertamos accountId completo en detail string.
+        pass_detail=lambda _: "account received",
     )
 
 
 def probe_get_account_report() -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 19 (D-MATZ-29 #19): ``GET /rest/risk/accountReport/{account}``.
 
-    Risk API HTTP Basic Auth. **SIN envelope key** — el payload raíz es el dict
-    completo de ``AccountReport.from_api(raw)``. SKIPPED si ``PRIMARY_ACCOUNT``
-    ausente (D-MATZ-3).
+    Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
+    el dict completo. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
-    if _auth_failed:
-        return (
-            ProbeResult("get_account_report", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            None,
-        )
-    if _PRIMARY_ACCOUNT is None:
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (
             ProbeResult("get_account_report", "SKIPPED", "no PRIMARY_ACCOUNT env var"),
             None,
         )
-    base_url = primary.client._base_url
-    path = f"/rest/risk/accountReport/{_PRIMARY_ACCOUNT}"
-    try:
-        raw = _matriz_request("GET", path, auth_basic=_risk_auth())
-    except PrimaryAPIError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="ERROR-MAP",
-            surface="sync",
-            status="OPEN",
-            title="get_account_report levantó PrimaryAPIError inesperado",
-            expected="200 OK con dict {accountName, marketMember, ...}",
-            actual=f"PrimaryAPIError: {exc}",
-            diff="error de upstream o status='ERROR' en payload",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_account_report", "FINDING", f"{fid} (OPEN)"), None)
-    if not isinstance(raw, dict):
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_account_report payload shape incorrecto",
-            expected="payload raíz es dict (sin envelope key)",
-            actual=f"raw={type(raw).__name__}",
-            diff="payload raíz no es dict",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_account_report", "FINDING", f"{fid} (OPEN)"), None)
-    # WR-01: idem get_detailed_positions — no inserto el accountName real en
-    # el detail string. La evidencia estructural ("received") basta para PASS;
-    # el accountId real queda redactado por `safe_print` a través de la lista
-    # secrets ahora que PRIMARY_ACCOUNT figura allí.
-    _ = raw.get("accountName", "<unknown>")
-    return (
-        ProbeResult("get_account_report", "PASS", "accountName received"),
-        raw,
+    return _envelope_probe(
+        "get_account_report",
+        f"/rest/risk/accountReport/{_PRIMARY_ACCOUNT}",
+        envelope_key=None,
+        auth_basic_fn=_risk_auth,
+        # WR-01: no insertamos accountName real en detail string.
+        pass_detail=lambda _: "accountName received",
     )
 
 
