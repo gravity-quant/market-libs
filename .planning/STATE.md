@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: Tech Debt Cleanup
 status: executing
 last_updated: "2026-06-11T02:30:45.051Z"
-last_activity: 2026-06-11 -- Phase 06 execution started
+last_activity: 2026-06-11 -- Completed quick task 260611-u0v (CI fixes on phase-06)
 progress:
   total_phases: 6
   completed_phases: 0
@@ -87,6 +87,12 @@ Recent decisions affecting current work:
 - [Phase 8]: Pitfall #4 (retry of mutating POST) — regression test asserting exactly 1 outgoing request per POST mockeado contra 503 is mandatory before enabling retry decorator.
 - [Phase 8]: Pitfall #6 (library logging.basicConfig) — CI grep rule + regression test for `logging.root.handlers` unchanged after import is mandatory.
 - [Phase 10]: TokenStore 3-way design is the highest-uncertainty item of v1.1; research flag triggered — spike must happen before `/gsd-plan-phase 10`.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commits | Directory |
+|---|-------------|------|---------|-----------|
+| 260611-u0v | Fix CI failures on phase-06-compat-safety-net (snapshot trailing whitespace + iol tests mypy strict + v1.0 archive whitespace) | 2026-06-11 | bc16e26, 2be4e90, 9360cf5 | [260611-u0v-fix-ci-failures-on-phase-06-compat-safet](./quick/260611-u0v-fix-ci-failures-on-phase-06-compat-safet/) |
 
 ## Deferred Items
 
