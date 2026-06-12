@@ -392,3 +392,23 @@ def test_parse_get_health_response_raises_on_non_dict() -> None:
     resp = httpx.Response(200, json=["unexpected", "list"])
     with pytest.raises(HigyrusAPIError):
         _core.parse_get_health_response(resp)
+
+
+def test_parse_get_health_response_handles_204() -> None:
+    """204 No Content → ``{}``. Sin body = healthy, NO levantar shape-mismatch.
+
+    Regression test para CR-02 Phase 7 review: el parser levantaba
+    HigyrusAPIError(status_code=0, ...) en 204, rompiendo el contrato HTTP
+    (204 es una respuesta válida para health). Ahora colapsa a ``{}`` igual
+    que los list parsers colapsan 204 a ``[]``.
+    """
+    resp = httpx.Response(204, content=b"")
+    result = _core.parse_get_health_response(resp)
+    assert result == {}
+
+
+def test_parse_get_health_response_handles_empty_body_200() -> None:
+    """200 OK con body vacío → ``{}``. Mismo principio: sin body = healthy."""
+    resp = httpx.Response(200, content=b"")
+    result = _core.parse_get_health_response(resp)
+    assert result == {}

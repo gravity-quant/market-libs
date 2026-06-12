@@ -364,20 +364,22 @@ def _consume_and_check(resp: httpx.Response) -> bytes:
 
 
 def parse_get_health_response(resp: httpx.Response) -> dict[str, Any]:
-    """Parser ``GET /api/health`` → dict."""
+    """Parser ``GET /api/health`` → dict. 204 / body vacío → ``{}`` (sin body = healthy).
+
+    CR-02 fix Phase 7 review: el comportamiento previo levantaba
+    ``HigyrusAPIError(status_code=0, errors=[{shape mismatch, expected dict, got
+    empty body}])`` en 204 o body vacío, lo cual rompe el contrato HTTP (204
+    No Content es una respuesta válida para health check sin body) y produce un
+    error confuso con ``status_code=0`` que el caller no puede distinguir de
+    un error real. Si el servidor alguna vez cambia 200→204, el cliente rompía
+    silenciosamente.
+
+    Consistente con los otros parsers de lista del módulo, que tratan
+    204/empty body como su zero-value (``[]`` para list parsers, ``{}`` acá).
+    """
     body = _consume_and_check(resp)
     if resp.status_code == 204 or not body:
-        # Salud sin body se trata como dict vacío — el cliente legacy
-        # levantaba shape mismatch acá; lo preservamos.
-        raise HigyrusAPIError(
-            status_code=0,
-            errors=[
-                {
-                    "title": "shape mismatch",
-                    "detail": "expected dict, got empty body",
-                }
-            ],
-        )
+        return {}
     raw = resp.json()
     if not isinstance(raw, dict):
         raise HigyrusAPIError(
