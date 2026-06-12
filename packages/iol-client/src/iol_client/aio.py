@@ -8,7 +8,7 @@ API a nivel módulo (back-compat 100% con v1.0)::
     quote = await aio.get_quote("GGAL")
     await aio.aclose()
 
-API basada en clase (nueva en Phase 6)::
+API basada en clase (Phase 6+)::
 
     from iol_client import AsyncClient
 
@@ -23,34 +23,43 @@ Cleanup contract (D-16): caller-responsible. El ``AsyncClient`` implementa
 ``aclose()`` + ``__aenter__/__aexit__``. NO hay ``atexit`` ni
 ``__del__``-driven cleanup (Pitfall #12). NO se llama ``load_dotenv()``
 acá — eso vive en ``client.py`` (D-19) y se ejecuta como side effect del
-import de ``InstrumentType``/``_raise_for_response``.
+import de ``InstrumentType``.
 
-B8 lock-in: ``_raise_for_response`` se importa desde ``iol_client.client``
-— NO se duplica. Replica el patrón ya documentado en ARCHITECTURE.md de
-``aio.py`` importando ``InstrumentType`` desde ``client.py``.
+B8 lock-in (D-04): ``_raise_for_response`` se importa desde
+``iol_client._core`` — NO se duplica. Mismo objeto que en ``client.py``,
+así el invariante ``aio._raise_for_response is client._raise_for_response``
+se preserva (ambos aliases apuntan a ``_core.raise_for_response``).
+
+CR-01: la política conditional refresh-token rotation (Phase 6 D-05) se
+preserva en este transport shell: ``_login_unlocked()`` y
+``_refresh_unlocked()`` actualizan ``self._state.refresh_token`` SOLO si
+el parser retorna un valor non-None — el server puede omitir el nuevo
+refresh_token en algunas respuestas y se preserva el cacheado.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import time
 from typing import Any, Literal, Self
 
 import httpx
 
-from iol_client._state import (
-    _REQUEST_TIMEOUT,
-    _TOKEN_TTL_BUFFER_SECONDS,
-    _ClientState,
-)
+from iol_client import _core
+from iol_client._core import RequestSpec
 
-# B8: import the shared, stateless helper + the InstrumentType alias from
-# the sync module. Same import pattern already documented for
-# InstrumentType in ARCHITECTURE.md; ``_raise_for_response`` follows the
-# same shape (no shared state involved).
-from iol_client.client import InstrumentType, _raise_for_response
+# B8 (D-04): import the shared, stateless helper from _core (NOT from
+# client.py). Same import pattern as the InstrumentType alias which still
+# lives in client.py. Explicit ``as _raise_for_response`` satisfies mypy
+# strict ``implicit_reexport=False``.
+from iol_client._core import raise_for_response as _raise_for_response
+from iol_client._state import _REQUEST_TIMEOUT, _ClientState
+from iol_client.client import InstrumentType
 from iol_client.exceptions import IOLAuthError
+
+# Suppress ruff F401 for the deliberate re-export alias (consumed by tests
+# via ``from iol_client.aio import _raise_for_response``).
+_ = _raise_for_response
 
 
 class AsyncClient:
@@ -169,69 +178,44 @@ class AsyncClient:
 
     async def _login_unlocked(self) -> str:
         """Caller MUST hold ``self._state.token_lock``."""
-        if not self._state.username or not self._state.password:
-            raise IOLAuthError(0, "IOL_USER y IOL_PASSWORD son requeridos")
-
-        client = await self._ensure_http_client()
-        resp = await client.post(
-            f"{self._state.base_url}/token",
-            data={
-                "username": self._state.username,
-                "password": self._state.password,
-                "grant_type": "password",
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        spec = _core.build_login_request(self._state)
+        http = await self._ensure_http_client()
+        resp = await http.request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            data=spec.data,
+            headers=spec.headers,
         )
-        if resp.is_error:
-            _raise_for_response(resp)
-
-        data: dict[str, Any] = resp.json()
-        access_token = data.get("access_token")
-        expires_in = data.get("expires_in", 900)
-        if not isinstance(access_token, str) or not access_token:
-            raise IOLAuthError(resp.status_code, "No access_token in response")
-
-        self._state.token = access_token
+        token, expires_at, refresh = _core.parse_login_response(resp)
+        self._state.token = token
+        self._state.token_expires_at = expires_at
         # CR-01 mirror: condicional, preserva refresh cacheado si server omite.
-        new_refresh = data.get("refresh_token")
-        if isinstance(new_refresh, str) and new_refresh:
-            self._state.refresh_token = new_refresh
-        self._state.token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
-        return access_token
+        if refresh is not None:
+            self._state.refresh_token = refresh
+        return token
 
     async def _refresh_unlocked(self) -> str:
         """Caller MUST hold ``self._state.token_lock``.
 
         Pitfall 6: NO llamar ``self._ensure_token()`` / ``self._login_unlocked()``
         / ``self._request(...)`` adentro — re-adquirirían el lock y causarían
-        deadlock. Solo httpx.post directo. ``_ensure_http_client`` usa un lock
-        separado (``self._client_lock``), sin conflicto.
+        deadlock. Solo httpx.request directo. ``_ensure_http_client`` usa un
+        lock separado (``self._client_lock``), sin conflicto.
         """
-        refresh_token = self._state.refresh_token
-        if not refresh_token:
-            raise IOLAuthError(0, "No refresh_token cached")
-
-        client = await self._ensure_http_client()
-        resp = await client.post(
-            f"{self._state.base_url}/token",
-            data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        spec = _core.build_refresh_request(self._state)
+        http = await self._ensure_http_client()
+        resp = await http.request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            data=spec.data,
+            headers=spec.headers,
         )
-        if resp.is_error:
-            _raise_for_response(resp)
-
-        data: dict[str, Any] = resp.json()
-        access_token = data.get("access_token")
-        expires_in = data.get("expires_in", 900)
-        if not isinstance(access_token, str) or not access_token:
-            raise IOLAuthError(resp.status_code, "No access_token in refresh response")
-
-        self._state.token = access_token
-        new_refresh = data.get("refresh_token")
-        if isinstance(new_refresh, str) and new_refresh:
-            self._state.refresh_token = new_refresh
-        self._state.token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
-        return access_token
+        token, expires_at, refresh = _core.parse_refresh_response(resp)
+        self._state.token = token
+        self._state.token_expires_at = expires_at
+        if refresh is not None:
+            self._state.refresh_token = refresh
+        return token
 
     async def login(self) -> str:
         lock = self._ensure_token_lock()
@@ -239,48 +223,42 @@ class AsyncClient:
             return await self._login_unlocked()
 
     async def _ensure_token(self) -> None:
-        if self._state.token and time.time() < self._state.token_expires_at:
+        if _core.token_is_fresh(self._state):
             return
         lock = self._ensure_token_lock()
         async with lock:
-            if self._state.token and time.time() < self._state.token_expires_at:
+            if _core.token_is_fresh(self._state):
                 return
             if self._state.refresh_token:
                 try:
                     await self._refresh_unlocked()
-                    return
                 except IOLAuthError:
                     pass
+                else:
+                    return
             await self._login_unlocked()
 
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict[str, Any] | None = None,
-        json_body: dict[str, Any] | None = None,
-    ) -> httpx.Response:
+    async def _request(self, spec: RequestSpec) -> httpx.Response:
+        """Dispatch an authenticated async request (Bearer) — D-03 returns Response."""
         await self._ensure_token()
         lock = self._ensure_token_lock()
         async with lock:
             token = self._state.token
         assert token is not None
 
-        client = await self._ensure_http_client()
-        resp = await client.request(
-            method,
-            f"{self._state.base_url}{path}",
-            params=params,
-            json=json_body,
-            headers={"Authorization": f"Bearer {token}"},
+        http = await self._ensure_http_client()
+        url = f"{self._state.base_url}{spec.path}"
+        headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
+        return await http.request(
+            spec.method,
+            url,
+            params=spec.params,
+            json=spec.json_body,
+            headers=headers,
         )
-        if resp.is_error:
-            _raise_for_response(resp)
-        return resp
 
     # ------------------------------------------------------------------
-    # Public endpoint methods (mirror sync Client)
+    # Public endpoint methods (mirror sync Client) — 3-liner shells
     # ------------------------------------------------------------------
 
     async def get_quote(
@@ -291,17 +269,9 @@ class AsyncClient:
         plazo: str = "t2",
     ) -> dict[str, Any]:
         """Cotización actual de un título (async)."""
-        resp = await self._request(
-            "GET",
-            f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion",
-            params={
-                "model.mercado": mercado,
-                "model.simbolo": simbolo,
-                "model.plazo": plazo,
-            },
-        )
-        data: dict[str, Any] = resp.json()
-        return data
+        spec = _core.build_get_quote_request(self._state, simbolo, mercado=mercado, plazo=plazo)
+        resp = await self._request(spec)
+        return _core.parse_get_quote_response(resp)
 
     async def get_historical_quotes(
         self,
@@ -313,18 +283,17 @@ class AsyncClient:
         ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
     ) -> list[dict[str, Any]]:
         """Serie histórica de cotizaciones diarias (async)."""
-        resp = await self._request(
-            "GET",
-            f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/"
-            f"{desde:%Y-%m-%d}/{hasta:%Y-%m-%d}/{ajustada}",
+        spec = _core.build_get_historical_quotes_request(
+            self._state, simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
         )
-        data: list[dict[str, Any]] = resp.json()
-        return data
+        resp = await self._request(spec)
+        return _core.parse_get_historical_quotes_response(resp)
 
     async def get_instruments(self, pais: str = "argentina") -> Any:
         """Listado de instrumentos cotizando en ``pais`` (async)."""
-        resp = await self._request("GET", f"/api/v2/{pais}/Titulos/Cotizacion/Instrumentos")
-        return resp.json()
+        spec = _core.build_get_instruments_request(self._state, pais)
+        resp = await self._request(spec)
+        return _core.parse_get_instruments_response(resp)
 
     async def get_instruments_by_type(
         self,
@@ -333,10 +302,9 @@ class AsyncClient:
         pais: str = "argentina",
     ) -> list[dict[str, Any]]:
         """Listado de instrumentos por tipo y país (async)."""
-        resp = await self._request("GET", f"/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos")
-        data: dict[str, Any] = resp.json()
-        titulos: list[dict[str, Any]] = data.get("titulos", [])
-        return titulos
+        spec = _core.build_get_instruments_by_type_request(self._state, instrument_type, pais=pais)
+        resp = await self._request(spec)
+        return _core.parse_get_instruments_by_type_response(resp)
 
 
 # ----------------------------------------------------------------------
@@ -439,8 +407,21 @@ async def _request(
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
 ) -> httpx.Response:
-    """Top-level shim for legacy tests that call ``aio._request(...)``."""
-    return await _get_default()._request(method, path, params=params, json_body=json_body)
+    """Top-level shim for legacy tests that call ``aio._request(...)``.
+
+    Adapts the legacy (method, path, params=, json_body=) signature to the
+    Phase 7 ``AsyncClient._request(spec)`` signature by constructing a
+    transient ``RequestSpec`` on the fly. Mirrors the sync shim by
+    raising the typed exception on error status (D-03 the new
+    ``AsyncClient._request`` returns raw ``httpx.Response``; the legacy
+    shim keeps the v1.0 raise-on-error semantic for tests that called
+    ``iol_client.aio._request(...)`` directly).
+    """
+    spec = RequestSpec(method=method, path=path, params=params, json_body=json_body)
+    resp = await _get_default()._request(spec)
+    if resp.is_error:
+        _raise_for_response(resp)
+    return resp
 
 
 # ----------------------------------------------------------------------

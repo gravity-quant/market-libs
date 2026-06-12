@@ -7,7 +7,7 @@ API a nivel módulo (back-compat 100% con v1.0)::
     iol_client.login()
     quote = iol_client.get_quote("GGAL")
 
-API basada en clase (nueva en Phase 6)::
+API basada en clase (Phase 6+)::
 
     from iol_client import Client
 
@@ -29,27 +29,31 @@ Variables de entorno (cargadas con ``python-dotenv``):
 El módulo expone un shim PEP 562 (read-only) que forwarda lecturas legacy
 de ``_token``, ``_token_expires_at``, ``_refresh_token`` y ``_client`` al
 ``_default_client._state.*`` para preservar back-compat con tests/drivers
-existentes. El helper ``_raise_for_response`` se mantiene a nivel módulo
-porque es stateless y ``aio.py`` lo importa directamente (B8 — sin
-duplicación; consistente con el patrón actual de ``aio.py`` importando
-``InstrumentType`` desde ``client.py``).
+existentes. El helper ``_raise_for_response`` es un alias module-level
+(``= _core.raise_for_response`` — D-04) que mantiene la identidad B8
+(``aio._raise_for_response is client._raise_for_response``) sin duplicar
+lógica de mapeo de errores. La auth-flow + endpoint dispatch viven en
+``iol_client._core`` (D-02).
+
+CR-01: la política conditional refresh-token rotation (Phase 6 D-05) se
+preserva en este transport shell: ``login()`` y ``_refresh()`` actualizan
+``self._state.refresh_token`` SOLO si el parser retorna un valor
+non-None — si el server omite el nuevo refresh_token, se mantiene el
+cacheado.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import time
 from typing import Any, Literal, Self
 
 import httpx
 from dotenv import load_dotenv
 
-from iol_client._state import (
-    _REQUEST_TIMEOUT,
-    _TOKEN_TTL_BUFFER_SECONDS,
-    _ClientState,
-)
-from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
+from iol_client import _core
+from iol_client._core import RequestSpec
+from iol_client._state import _REQUEST_TIMEOUT, _ClientState
+from iol_client.exceptions import IOLAuthError
 
 InstrumentType = Literal[
     "obligacionesNegociables",
@@ -64,21 +68,13 @@ load_dotenv()
 
 
 # ----------------------------------------------------------------------
-# Stateless helpers
+# Stateless helpers (D-04 alias — sourced from _core.py to preserve B8)
 # ----------------------------------------------------------------------
 
-
-def _raise_for_response(resp: httpx.Response) -> None:
-    """Map an HTTP error response to the package's exception hierarchy.
-
-    Shared with ``aio.py`` — imported there; not duplicated (B8).
-    """
-    if resp.status_code in (401, 403):
-        raise IOLAuthError(resp.status_code, resp.text)
-    if resp.status_code == 429:
-        raise IOLRateLimitError(resp.status_code, resp.text)
-    if resp.is_error:
-        raise IOLAPIError(resp.status_code, resp.text)
+# D-04: preserves B8 identity. Tests `aio._raise_for_response is
+# client._raise_for_response` stay green because BOTH aliases reference
+# the SAME object (_core.raise_for_response).
+_raise_for_response = _core.raise_for_response
 
 
 # ----------------------------------------------------------------------
@@ -168,7 +164,7 @@ class Client:
     def __deepcopy__(self, memo: dict[int, Any]) -> Client:  # D-23
         raise TypeError(
             "IOLClient is not deepcopy-safe (httpx.Client owns TCP pool + "
-            "SSL context). Recreate the client from configure() in the "
+            "SSL context). Recreate from configure() in the "
             "target context instead."
         )
 
@@ -188,107 +184,74 @@ class Client:
 
     def login(self) -> str:
         """Autentica contra ``POST /token`` (OAuth password grant)."""
-        if not self._state.username or not self._state.password:
-            raise IOLAuthError(0, "IOL_USER y IOL_PASSWORD son requeridos")
-
-        client = self._ensure_http_client()
-        resp = client.post(
-            f"{self._state.base_url}/token",
-            data={
-                "username": self._state.username,
-                "password": self._state.password,
-                "grant_type": "password",
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        spec = _core.build_login_request(self._state)
+        http = self._ensure_http_client()
+        resp = http.request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            data=spec.data,
+            headers=spec.headers,
         )
-        if resp.is_error:
-            _raise_for_response(resp)
-
-        data: dict[str, Any] = resp.json()
-        access_token = data.get("access_token")
-        expires_in = data.get("expires_in", 900)
-        if not isinstance(access_token, str) or not access_token:
-            raise IOLAuthError(resp.status_code, "No access_token in response")
-
-        self._state.token = access_token
-        # CR-01: política condicional simétrica con _refresh() (Pitfall 3).
-        # Si el server NO incluye refresh_token, MANTENER el cached.
-        new_refresh = data.get("refresh_token")
-        if isinstance(new_refresh, str) and new_refresh:
-            self._state.refresh_token = new_refresh
-        self._state.token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
-        return access_token
+        token, expires_at, refresh = _core.parse_login_response(resp)
+        self._state.token = token
+        self._state.token_expires_at = expires_at
+        # CR-01 conditional rotation preserved (Phase 6 D-05): solo escribir
+        # state.refresh_token cuando el parser nos da un valor truthy.
+        if refresh is not None:
+            self._state.refresh_token = refresh
+        return token
 
     def _refresh(self) -> str:
         """POST /token con ``grant_type=refresh_token`` (mirror de login())."""
-        # Local copy para mypy narrowing (Pitfall 4): el field es Optional.
-        refresh_token = self._state.refresh_token
-        if not refresh_token:
-            raise IOLAuthError(0, "No refresh_token cached")
-
-        client = self._ensure_http_client()
-        resp = client.post(
-            f"{self._state.base_url}/token",
-            data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        spec = _core.build_refresh_request(self._state)
+        http = self._ensure_http_client()
+        resp = http.request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            data=spec.data,
+            headers=spec.headers,
         )
-        if resp.is_error:
-            _raise_for_response(resp)
-
-        data: dict[str, Any] = resp.json()
-        access_token = data.get("access_token")
-        expires_in = data.get("expires_in", 900)
-        if not isinstance(access_token, str) or not access_token:
-            raise IOLAuthError(resp.status_code, "No access_token in refresh response")
-
-        self._state.token = access_token
-        # Rotación condicional (Pitfall 3): si el server retorna nuevo
-        # refresh_token, lo cacheamos; si no, mantenemos el existente.
-        new_refresh = data.get("refresh_token")
-        if isinstance(new_refresh, str) and new_refresh:
-            self._state.refresh_token = new_refresh
-        self._state.token_expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
-        return access_token
+        token, expires_at, refresh = _core.parse_refresh_response(resp)
+        self._state.token = token
+        self._state.token_expires_at = expires_at
+        # CR-01 conditional rotation preserved: server puede no rotar el
+        # refresh_token en cada refresh — preservar el cacheado entonces.
+        if refresh is not None:
+            self._state.refresh_token = refresh
+        return token
 
     def _ensure_token(self) -> None:
-        if self._state.token and time.time() < self._state.token_expires_at:
+        if _core.token_is_fresh(self._state):
             return
         # D-IOL-10: si tenemos refresh_token, intentar refresh antes de password.
         if self._state.refresh_token:
             try:
                 self._refresh()
-                return
             except IOLAuthError:
                 # Refresh inválido (revocado, expirado) — fallback a password.
                 pass
+            else:
+                return
         self.login()
 
-    def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict[str, Any] | None = None,
-        json_body: dict[str, Any] | None = None,
-    ) -> httpx.Response:
-        """Ejecuta una request autenticada (Bearer)."""
+    def _request(self, spec: RequestSpec) -> httpx.Response:
+        """Ejecuta una request autenticada (Bearer) — D-03 retorna Response."""
         self._ensure_token()
         assert self._state.token is not None
 
-        client = self._ensure_http_client()
-        resp = client.request(
-            method,
-            f"{self._state.base_url}{path}",
-            params=params,
-            json=json_body,
-            headers={"Authorization": f"Bearer {self._state.token}"},
+        http = self._ensure_http_client()
+        url = f"{self._state.base_url}{spec.path}"
+        headers = {"Authorization": f"Bearer {self._state.token}", **(spec.headers or {})}
+        return http.request(
+            spec.method,
+            url,
+            params=spec.params,
+            json=spec.json_body,
+            headers=headers,
         )
-        if resp.is_error:
-            _raise_for_response(resp)
-        return resp
 
     # ------------------------------------------------------------------
-    # Public endpoint methods
+    # Public endpoint methods — 3-liner shells consume _core builders/parsers
     # ------------------------------------------------------------------
 
     def get_quote(
@@ -302,17 +265,9 @@ class Client:
 
         Endpoint: ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion``.
         """
-        resp = self._request(
-            "GET",
-            f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion",
-            params={
-                "model.mercado": mercado,
-                "model.simbolo": simbolo,
-                "model.plazo": plazo,
-            },
-        )
-        data: dict[str, Any] = resp.json()
-        return data
+        spec = _core.build_get_quote_request(self._state, simbolo, mercado=mercado, plazo=plazo)
+        resp = self._request(spec)
+        return _core.parse_get_quote_response(resp)
 
     def get_historical_quotes(
         self,
@@ -328,21 +283,20 @@ class Client:
         Endpoint:
         ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/{desde}/{hasta}/{ajustada}``.
         """
-        resp = self._request(
-            "GET",
-            f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/"
-            f"{desde:%Y-%m-%d}/{hasta:%Y-%m-%d}/{ajustada}",
+        spec = _core.build_get_historical_quotes_request(
+            self._state, simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
         )
-        data: list[dict[str, Any]] = resp.json()
-        return data
+        resp = self._request(spec)
+        return _core.parse_get_historical_quotes_response(resp)
 
     def get_instruments(self, pais: str = "argentina") -> Any:
         """Listado de instrumentos cotizando en ``pais``.
 
         Endpoint: ``GET /api/v2/{pais}/Titulos/Cotizacion/Instrumentos``.
         """
-        resp = self._request("GET", f"/api/v2/{pais}/Titulos/Cotizacion/Instrumentos")
-        return resp.json()
+        spec = _core.build_get_instruments_request(self._state, pais)
+        resp = self._request(spec)
+        return _core.parse_get_instruments_response(resp)
 
     def get_instruments_by_type(
         self,
@@ -355,10 +309,9 @@ class Client:
         Endpoint: ``GET /api/v2/Cotizaciones/{instrument_type}/{pais}/Todos``.
         Devuelve la lista bajo la clave ``"titulos"`` del payload.
         """
-        resp = self._request("GET", f"/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos")
-        data: dict[str, Any] = resp.json()
-        titulos: list[dict[str, Any]] = data.get("titulos", [])
-        return titulos
+        spec = _core.build_get_instruments_by_type_request(self._state, instrument_type, pais=pais)
+        resp = self._request(spec)
+        return _core.parse_get_instruments_by_type_response(resp)
 
 
 # ----------------------------------------------------------------------
@@ -470,8 +423,23 @@ def _request(
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
 ) -> httpx.Response:
-    """Top-level shim used by legacy tests calling ``iol_client.client._request``."""
-    return _get_default()._request(method, path, params=params, json_body=json_body)
+    """Top-level shim used by legacy tests calling ``iol_client.client._request``.
+
+    Adapts the legacy (method, path, params=, json_body=) signature to the
+    Phase 7 ``Client._request(spec)`` signature by constructing a transient
+    ``RequestSpec`` on the fly. Preserves the v1.0 contract of "raise on
+    error status before returning" — the new ``Client._request`` (D-03)
+    returns the raw ``httpx.Response`` un-touched, but this top-level shim
+    keeps the legacy semantic so tests that called the shim directly
+    (e.g. ``iol_client.client._request("GET", "/api/anything")``) still
+    see ``IOLAuthError`` / ``IOLRateLimitError`` / ``IOLAPIError`` raised
+    on 4xx/5xx responses.
+    """
+    spec = RequestSpec(method=method, path=path, params=params, json_body=json_body)
+    resp = _get_default()._request(spec)
+    if resp.is_error:
+        _raise_for_response(resp)
+    return resp
 
 
 # ----------------------------------------------------------------------
