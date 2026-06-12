@@ -1,45 +1,23 @@
-"""Cliente HTTP asincrónico para Ámbito Financiero.
+"""Cliente HTTP asincrónico para Ámbito Financiero — transport shell.
 
-Phase 06 Plan 06-03 (REFAC-02, Task 2): introduce la `AsyncClient` class con
-estado por-instancia (`_ClientState`) y un shim PEP 562 read-only que preserva
-la API top-level legacy (``aio.get_dollar_banco_nacion(...)``,
-``aio.configure(...)``, ``aio.aclose()``) sin breaking changes.
-
-API a nivel módulo (compat 100% con v1.0)::
+Phase 07 Plan 07-02 (REFAC-03, Task 2): mirror sync con ``await``. Consume
+``_core``; endpoints colapsan a 3-liner; ``_request(spec)`` (D-03);
+``_raise_for_response = _core.raise_for_response`` (D-04 mirror — identidad
+``aio._raise_for_response is client._raise_for_response`` preservada). ``__all__``
+lista el alias para satisfacer mypy strict ``implicit_reexport=False``::
 
     from ambito_financiero_client import aio
-    import datetime as dt
-
-    precio = await aio.get_dollar_banco_nacion(dt.date(2026, 4, 7))
+    precio = await aio.get_dollar_banco_nacion(date)
     await aio.aclose()
 
-API a nivel instancia (nuevo en v1.1)::
-
     from ambito_financiero_client import AsyncClient
-
     async with AsyncClient() as c:
-        precio = await c.get_dollar_banco_nacion(dt.date(2026, 4, 7))
+        precio = await c.get_dollar_banco_nacion(date)
 
-**B7 divergence (vs iol/higyrus/matriz):** ambito has NO auth and NO token
-refresh race. The asyncio.Lock pattern used by iol/higyrus/matriz to
-serialize token refresh is unnecessary here; `AsyncClient.__slots__` is
-`("_state",)` only (no `_client_lock`), and `_ensure_http_client` lazy-creates
-the underlying `httpx.AsyncClient` without locking. In the (rare) case of two
-concurrent first-calls, the worst case is a single leaked `httpx.AsyncClient`
-per process — acceptable for ambito's low-frequency FX-rate polling workload
-(T-06-13 in the plan's threat model).
-
-**B8 shared helper policy:** `_raise_for_response` is imported from
-``ambito_financiero_client.client`` — NOT redefined here. The helper is
-stateless and follows the same import pattern that ARCHITECTURE.md confirms
-for `aio.py` importing shared types (e.g. `iol_client.aio` imports
-`InstrumentType` from `iol_client.client`). The B8 invariant is enforced by
-`test_aio_imports_raise_for_response_from_client` in
-`tests/test_client_class.py`.
-
-PEP 562 shim (D-01, D-02): reads of the legacy module-level global `_client`
-forward to ``_get_default()._state.http_client``. NO other forwarded names —
-`_base_url`, `_user_agent` are removed from the module namespace.
+**B7 divergence:** ámbito sin auth → ``__slots__ = ("_state",)`` (sin
+``_client_lock``). Concurrent first-call puede leakear UN ``httpx.AsyncClient``
+por proceso (T-06-13), aceptable para FX-rate polling. PEP 562 shim
+(D-01/D-02): sólo ``_client`` es forward.
 """
 
 from __future__ import annotations
@@ -49,45 +27,34 @@ from typing import Any, Self
 
 import httpx
 
-from ambito_financiero_client._parsing import parse_ar_decimal
+from ambito_financiero_client import _core
 from ambito_financiero_client._state import _ClientState
 
-# B8: shared, not duplicated. The explicit re-export alias (`as _raise_for_response`)
-# satisfies mypy --strict's `implicit_reexport=False` so callers can import the
-# helper directly via `from ambito_financiero_client.aio import _raise_for_response`.
-from ambito_financiero_client.client import (
-    _raise_for_response as _raise_for_response,
-)
-from ambito_financiero_client.exceptions import AmbitoFinancieroNoDataError
+# D-04 mirror alias — identidad B8 preservada vía shared _core source.
+# Listado en __all__ para satisfacer mypy strict implicit_reexport=False.
+_raise_for_response = _core.raise_for_response
+
+__all__ = [
+    "AsyncClient",
+    "_raise_for_response",
+    "_request",
+    "aclose",
+    "configure",
+    "get_dollar_banco_nacion",
+]
 
 _REQUEST_TIMEOUT = 30.0
 
 
-# ---------------------------------------------------------------------------
-# Async Client class
-# ---------------------------------------------------------------------------
+# --- Async Client class (Phase 6 skeleton preserved; endpoint bodies collapse) ---
 
 
 class AsyncClient:
-    """Async client para la API pública de Ámbito Financiero.
+    """Async client para Ámbito Financiero (estado per-instancia ``_ClientState``).
 
-    Cada instancia mantiene su propio `_ClientState` (base_url, user_agent,
-    http_client). Las instancias explícitas creadas por el caller NO son
-    afectadas por `aio.configure(...)` (Pitfall #2 / D-14).
-
-    Lifecycle (D-15, D-16):
-    - `httpx.AsyncClient` se crea perezosamente en el primer `_request(...)`.
-    - `aclose()` es idempotente (calling twice no-op).
-    - `__aenter__`/`__aexit__` delegan a `aclose()` en salida.
-
-    **B7 divergence:** `__slots__ = ("_state",)` only. No `_client_lock`.
-    Ambito has no auth and no token refresh race; the asyncio.Lock used by
-    iol/higyrus/matriz is unnecessary. See module docstring.
-
-    Pickle / deepcopy contract (D-23): NOT supported. The underlying
-    `httpx.AsyncClient` owns a TCP connection pool and an SSL context that
-    are not safe to serialize. Both `__reduce__` and `__deepcopy__` raise
-    `TypeError` loud and early.
+    ``aclose()`` idempotente (T-06-04); pickle/deepcopy raise ``TypeError`` (D-23).
+    Instancias explícitas NO afectadas por ``configure()`` (D-14). B7: ``__slots__
+    = ("_state",)`` — sin ``_client_lock``.
     """
 
     __slots__ = ("_state",)
@@ -107,25 +74,17 @@ class AsyncClient:
     async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: object,
-        exc: object,
-        tb: object,
-    ) -> None:
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Cierra el `httpx.AsyncClient` subyacente; idempotente (T-06-04)."""
         if self._state.http_client is not None:
             assert isinstance(self._state.http_client, httpx.AsyncClient)
             await self._state.http_client.aclose()
             self._state.http_client = None
 
     def __repr__(self) -> str:
-        # D-18 mirror: same redaction as sync Client; ambito has no token /
-        # credentials so the repr exposes only base_url, user_agent, and the
-        # `client_open` boolean.
+        # D-18 mirror: ambito has no credentials; repr exposes only non-secret state.
         return (
             f"AmbitoFinancieroAsyncClient("
             f"base_url={self._state.base_url!r}, "
@@ -133,31 +92,17 @@ class AsyncClient:
             f"client_open={self._state.http_client is not None})"
         )
 
-    def __reduce__(self) -> Any:  # D-23
+    def __reduce__(self) -> Any:  # D-23 — httpx.AsyncClient owns TCP pool + SSL context
         raise TypeError(
-            "AmbitoFinancieroAsyncClient is not picklable; use multiprocessing's "
-            "fork start method or recreate via ambito_financiero_client.AsyncClient(...)"
+            "AmbitoFinancieroAsyncClient is not picklable; recreate via AsyncClient(...)"
         )
 
     def __deepcopy__(self, memo: Any) -> Any:  # D-23
         raise TypeError(
-            "AmbitoFinancieroAsyncClient is not deepcopy-safe "
-            "(httpx.AsyncClient owns TCP pool + SSL context)"
+            "AmbitoFinancieroAsyncClient is not deepcopy-safe (httpx.AsyncClient TCP pool)"
         )
 
-    # -- private --------------------------------------------------------
-
     def _ensure_http_client(self) -> httpx.AsyncClient:
-        """Lazy-create the underlying `httpx.AsyncClient` on first use.
-
-        **B7 lock-less rationale:** ambito has no auth and no token refresh
-        race. The asyncio.Lock pattern used by iol/higyrus/matriz
-        AsyncClient._ensure_http_client (PATTERNS.md Section 7) is
-        unnecessary here — concurrent first-call would at worst leak one
-        httpx.AsyncClient per accidental race per process (T-06-13). This is
-        acceptable for ambito's low-frequency FX-rate polling workload and
-        bounded by process lifetime.
-        """
         if self._state.http_client is None:
             self._state.http_client = httpx.AsyncClient(
                 timeout=_REQUEST_TIMEOUT,
@@ -166,40 +111,31 @@ class AsyncClient:
         assert isinstance(self._state.http_client, httpx.AsyncClient)
         return self._state.http_client
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    async def _request(self, spec: _core.RequestSpec) -> httpx.Response:
+        """Transport shell async — dispatch HTTP only (D-03 mirror)."""
         client = self._ensure_http_client()
-        resp = await client.request(method, f"{self._state.base_url}{path}", **kwargs)
-        _raise_for_response(resp)
-        return resp
-
-    # -- endpoints ------------------------------------------------------
+        return await client.request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            params=spec.params,
+            headers=spec.headers,
+        )
 
     async def get_dollar_banco_nacion(self, date: dt.date) -> float:
         """Cotización vendedor del dólar Banco Nación para ``date`` (async)."""
-        formatted = date.strftime("%Y-%m-%d")
-        resp = await self._request(
-            "GET",
-            f"/dolarnacion/historico-general/{formatted}/{formatted}",
-        )
-        rows: list[list[str]] = resp.json()
-        if len(rows) < 2:
-            raise AmbitoFinancieroNoDataError(
-                f"Sin cotización del dólar Banco Nación para {formatted}"
-            )
-        _, _, venta = rows[1]
-        return parse_ar_decimal(venta)
+        spec = _core.build_get_dollar_banco_nacion_request(self._state, date)
+        resp = await self._request(spec)
+        return _core.parse_get_dollar_banco_nacion_response(resp)
 
 
-# ---------------------------------------------------------------------------
-# Default AsyncClient + top-level delegators (back-compat with v1.0 module API)
-# ---------------------------------------------------------------------------
+# --- Default AsyncClient + module-level delegators (back-compat con v1.0) ---
 
 
 _default_async_client: AsyncClient | None = None
 
 
 def _get_default() -> AsyncClient:
-    """Return the lazy default `AsyncClient`; constructs it on first access (D-15)."""
+    """Lazy default ``AsyncClient`` (D-15)."""
     global _default_async_client
     if _default_async_client is None:
         _default_async_client = AsyncClient()
@@ -207,16 +143,10 @@ def _get_default() -> AsyncClient:
 
 
 def configure(*, base_url: str | None = None, user_agent: str | None = None) -> None:
-    """Sobrescribe la URL base o el User-Agent en runtime (async surface).
+    """Sobrescribe URL base / User-Agent runtime (carry-forward, D-14).
 
-    Per RESEARCH.md Open Q #5: carry-forward semantics — campos con valor
-    `None` se preservan del `_default_async_client` previo (si existe); campos
-    con valor explícito reemplazan. Esto matchea la semántica de
-    `client.configure(...)` y preserva la separación de state sync ↔ async
-    (ARCHITECTURE.md "Dual sync/async surfaces con state independiente").
-
-    Per CONTEXT.md D-19: este `configure` NO llama `load_dotenv()`; la única
-    invocación de dotenv vive en `client.py`.
+    Reemplaza ``_default_async_client``. Instancias explícitas NO se afectan.
+    D-19: NO llama ``load_dotenv()``.
     """
     global _default_async_client
     prior_base_url: str | None = None
@@ -230,58 +160,35 @@ def configure(*, base_url: str | None = None, user_agent: str | None = None) -> 
 
 
 async def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
-    """Module-level async delegator preserved for back-compat with v1.0 callers.
-
-    Existing tests and drivers (e.g. ``main_ambito_financiero.py``) call
-    ``await aio._request(...)`` directly. Post-refactor this delegates to
-    ``_get_default()._request(...)`` so the call site keeps working without
-    monkeypatch gymnastics. `monkeypatch.setattr(aio, "_request", mock)` still
-    functions because it replaces this module-level binding.
-    """
-    return await _get_default()._request(method, path, **kwargs)
+    """Module-level async delegator back-compat (mirror sync ``client._request``)."""
+    spec = _core.RequestSpec(
+        method=method,
+        path=path,
+        params=kwargs.get("params"),
+        headers=kwargs.get("headers"),
+    )
+    resp = await _get_default()._request(spec)
+    _raise_for_response(resp)
+    return resp
 
 
 async def aclose() -> None:
-    """Cierra el `httpx.AsyncClient` del default lazy (idempotente).
-
-    Post-refactor: delega a ``_get_default().aclose()``. Si el default
-    todavía no se instanció (caso de teardown sin haber hecho ninguna
-    request), construye uno y aclose()-eando trivialmente — mantiene el
-    contrato de "aclose es siempre seguro" del autouse fixture en conftest.
-    """
+    """Cierra el ``httpx.AsyncClient`` del default lazy (idempotente)."""
     await _get_default().aclose()
 
 
 async def get_dollar_banco_nacion(date: dt.date) -> float:
-    """Cotización vendedor del dólar Banco Nación (async, delegador top-level).
-
-    Endpoint: ``GET /dolarnacion/historico-general/<YYYY-MM-DD>/<YYYY-MM-DD>``.
-
-    Levanta :class:`AmbitoFinancieroNoDataError` si no hay cotización para la
-    fecha (fin de semana, feriado o fecha futura).
-    """
+    """Cotización vendedor del dólar Banco Nación (async delegador top-level)."""
     return await _get_default().get_dollar_banco_nacion(date)
 
 
-# ---------------------------------------------------------------------------
-# PEP 562 read-only shim (D-01, D-02)
-# ---------------------------------------------------------------------------
-
-# Ambito row of D-02: only `_client` is forwarded. The other v1.0 module-level
-# globals (`_base_url`, `_user_agent`) are deliberately removed; reads of them
-# raise `AttributeError`. T-06-01 mitigation enforced by
-# `test_async_pep_562_shim_raises_for_unknown` in `tests/test_client_class.py`.
+# --- PEP 562 read-only shim (D-01, D-02 — only `_client` forwarded) ---
 
 _FORWARDED_HTTP_CLIENT = "_client"
 
 
 def __getattr__(name: str) -> Any:
-    """PEP 562 read-only shim — forwards `_client` only.
-
-    Reads of `_client` resolve to `_get_default()._state.http_client` (which
-    may be `None` if no request has been made yet). Any other name raises
-    `AttributeError`. No `DeprecationWarning` per D-03.
-    """
+    """PEP 562 shim — forwards ``_client``; otherwise ``AttributeError``."""
     if name == _FORWARDED_HTTP_CLIENT:
         return _get_default()._state.http_client
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
