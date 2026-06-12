@@ -65,6 +65,7 @@ cierre de los 8 concerns del code review final de Phase 5.
 - ✓ DRIFT-02 cycle closure: baseline `verification-cycle-2026-Q2` con `CYCLE-REPORT.md` consolidado (4 pkgs, 14 findings, 18 schemas, `verify_cycle_closure × 4`) y commit canónico forensic-localizable — Validado en Phase 5 (2026-06-10)
 - ✓ Bug/discrepancia documentado por cada paquete: 1 ámbito + 1 iol + 2 higyrus + 10 matriz = 14 findings con clasificación operator-driven (CONFIRMED/FIXED/EXPECTED/NO-FIX) — Validado en Phases 2-5
 - ✓ Regression tests mockeados por cada bug confirmado fixeado in-cycle (24+ higyrus en Phase 4 + 19 matriz + 4 code-review-BLOCKER regressions en Phase 5) — Validado en Phases 4-5
+- ✓ REFAC-03 `_core.py` extraction per paquete (ambito/iol/higyrus/matriz): builders/parsers puros + auth-flow primitives en `_core.py`, `client.py`/`aio.py` colapsados a transport shells, `import-linter` v2.11 + 4 forbidden contracts en CI, cross-leak sentinel test `SYNC-/ASYNC-sentinel-<pkg>` runtime guard, B8 alias `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` preservado. CR-03 cerrado (`parse_envelope_response` body-consume-before-raise HTTP/2 safe). CR-05 cerrado (15 sweep probes migradas a `_envelope_probe(envelope_key=...)` + 2 risk con `envelope_key=None` + 3 custom side-effect preserved). Code review in-cycle: 6/6 critical+warning fixed con regression tests (CR-01 higyrus raise_for_response 2xx guard + CR-02 parse_get_health_response 204 handling + WR-01..04). LOC drop partial: ámbito -31.2% + higyrus -33% PASS, iol -5.1% + matriz client.py -20% deviation documentada (back-compat surface; v1.2 driver migration cierra el gap). 527 passed + 2 skipped en suite final. — Validado en Phase 7 (2026-06-12)
 
 ### Out of Scope
 
@@ -130,4 +131,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-10 — v1.1 Tech Debt Cleanup milestone started (refactor clase Client + dedup sync/async + aio matriz + retries/backoff + logging + 4 deferred fixes + driver bundle + WR-01..WR-08). v1.0 archived (5 phases / 18 plans / 35/35 requirements / 277 tests / DRIFT-02 baseline `verification-cycle-2026-Q2`).*
+*Last updated: 2026-06-12 — Phase 7 `_core.py` extraction complete (6/6 plans, 527 tests, REFAC-03 + CR-03 + CR-05 closed; LOC drop partial for iol/matriz client.py — back-compat surface, v1.2 driver migration tracks residual). v1.1 milestone continues with Phase 8 (retries, backoff, structured logging). v1.0 archived (5 phases / 18 plans / 35/35 requirements / 277 tests / DRIFT-02 baseline `verification-cycle-2026-Q2`).*
