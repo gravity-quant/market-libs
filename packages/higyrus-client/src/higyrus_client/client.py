@@ -50,6 +50,7 @@ from dotenv import load_dotenv
 from higyrus_client import _core
 from higyrus_client._core import RequestSpec
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
+from higyrus_client.exceptions import HigyrusAuthError
 from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
 
 load_dotenv()
@@ -173,10 +174,20 @@ class Client:
             self.login()
 
     def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Transport shell — orquesta auth + dispatch HTTP. Quirk vive en ``_core``."""
+        """Transport shell — orquesta auth + dispatch HTTP. Quirk vive en ``_core``.
+
+        WR-03 fix Phase 7 review: si ``_ensure_token()`` retorna sin excepción
+        pero ``self._state.token`` queda ``None`` (estado inconsistente —
+        servidor responde 200 sin token), reemplazamos el ``assert`` por
+        ``HigyrusAuthError`` tipado. Mirror del fix en ``aio._request``.
+        """
         self._ensure_token()
         token = self._state.token
-        assert token is not None
+        if token is None:
+            raise HigyrusAuthError(
+                0,
+                [{"title": "auth", "detail": "_ensure_token() returned without populating token"}],
+            )
         http = self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}

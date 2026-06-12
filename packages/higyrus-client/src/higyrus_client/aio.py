@@ -47,6 +47,7 @@ from higyrus_client import _core
 from higyrus_client._core import RequestSpec
 from higyrus_client._core import raise_for_response as _raise_for_response  # D-04 B8 alias
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
+from higyrus_client.exceptions import HigyrusAuthError
 from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
 
 # Re-export for tests / external introspection. B8 enforcement test
@@ -209,12 +210,23 @@ class AsyncClient:
             await self._login_unlocked()
 
     async def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Transport shell async — orquesta auth + dispatch HTTP. Quirk vive en ``_core``."""
+        """Transport shell async — orquesta auth + dispatch HTTP. Quirk vive en ``_core``.
+
+        WR-03 fix Phase 7 review: si ``_ensure_token()`` retorna sin excepción
+        pero ``self._state.token`` queda ``None`` (estado inconsistente —
+        servidor responde 200 sin token), reemplazamos el ``assert`` por
+        ``HigyrusAuthError`` tipado para que el caller pueda capturarlo dentro
+        de la jerarquía del paquete en vez de un ``AssertionError`` genérico.
+        """
         await self._ensure_token()
         token_lock = self._ensure_token_lock()
         async with token_lock:
             token = self._state.token
-        assert token is not None
+        if token is None:
+            raise HigyrusAuthError(
+                0,
+                [{"title": "auth", "detail": "_ensure_token() returned without populating token"}],
+            )
         http = await self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
