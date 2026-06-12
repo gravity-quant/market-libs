@@ -193,7 +193,7 @@ The async surface uses `AsyncRetrying` identically with `async for attempt in As
    ```python
    _logger = logging.getLogger("iol_client")
    _logger.addHandler(logging.NullHandler())  # at module init, library convention
-   
+
    _logger.info(
        "http_request_complete",
        extra={
@@ -278,7 +278,7 @@ class Client:
     _http: httpx.Client = field(default_factory=lambda: httpx.Client(timeout=30.0))
     _token: str | None = None
     _token_ts: float = 0.0
-    
+
     def login(self) -> None: ...
     def _ensure_token(self) -> None: ...
     def _request(self, method: str, path: str, *, mutating: bool = False, **kw) -> httpx.Response: ...
