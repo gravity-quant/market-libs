@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
 status: executing
-last_updated: "2026-06-12T16:28:28.199Z"
-last_activity: 2026-06-12 -- Phase 07 planning complete
+last_updated: "2026-06-12T17:25:03.547Z"
+last_activity: 2026-06-12 -- Phase 07 execution started
 progress:
   total_phases: 6
   completed_phases: 1
@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.1 layer: saldar la deuda arquitectónica que vino a la luz durante el ciclo de verificación v1.0 — refactor Client class, sync/async dedup, matriz aio.py, retries/backoff, structured logging, deferred fixes, harness hardening.)
 
-**Current focus:** Phase 06 — compat-safety-net-client-class-skeleton
+**Current focus:** Phase 07 — core-py-extraction-sync-async-logic-dedup
 
 ## Current Position
 
-Phase: 06 (compat-safety-net-client-class-skeleton) — EXECUTING
-Plan: 1 of 7
-Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 07 planning complete
+Phase: 07 (core-py-extraction-sync-async-logic-dedup) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 07
+Last activity: 2026-06-12 -- Phase 07 execution started
 
 ## Performance Metrics
 

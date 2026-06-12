@@ -80,7 +80,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — CI gates infrastructure: import-linter v2.11 setup + 4 forbidden contracts + 4 `_core.py` placeholders + cross-leak sentinel test parametrizado en `verification/test_sync_async_isolation.py` (matriz skip) + CI step `lint-imports` (REFAC-03)
+- [x] 07-01-PLAN.md — CI gates infrastructure: import-linter v2.11 setup + 4 forbidden contracts + 4 `_core.py` placeholders + cross-leak sentinel test parametrizado en `verification/test_sync_async_isolation.py` (matriz skip) + CI step `lint-imports` (REFAC-03)
 
 **Wave 2** *(blocked on Wave 1 completion; 4 plans can run in parallel — no file overlap)*
 
@@ -164,7 +164,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 4. Higyrus Verification                                            | v1.0      | 4/4            | Complete    | 2026-06-08 |
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
-| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 0/6            | Not started | -          |
+| 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 1/6 | In Progress|  |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
