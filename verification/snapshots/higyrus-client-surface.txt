@@ -17,7 +17,7 @@ Domicilio : class : (uso: 'str', pais: 'str', provincia: 'str', codigoPostal: 's
 HigyrusAPIError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 HigyrusAuthError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 HigyrusAuthorizationError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
-HigyrusClientError : class : 
+HigyrusClientError : class :
 HigyrusRateLimitError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 MedioComunicacion : class : (tipo: 'str', medio: 'str', vigenciaDesde: 'str', vigenciaHasta: 'str', uso: 'str', principal: 'str', notas: 'str') -> None
 Movimiento : class : (cuenta: 'str', fechaDesde: 'str', fechaHasta: 'str', fechaConcertacion: 'str', tipoTitulo: 'str', tipoTituloAgente: 'str', especie: 'str', simboloLocal: 'str', lugar: 'str', estado: 'str', fecha: 'str', tipoOperacion: 'str', comprobante: 'str', informacion: 'str', subCuenta: 'str', cantidad: 'float', tipoEspecie: 'str', movimiento: 'str', valuacion: 'float', factorizacion: 'str', concepto: 'str', idMovimientos: 'list[int]') -> None

@@ -10,9 +10,9 @@ AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' 
 Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 IOLAPIError : class : (status_code: 'int', message: 'str') -> 'None'
 IOLAuthError : class : (status_code: 'int', message: 'str') -> 'None'
-IOLClientError : class : 
+IOLClientError : class :
 IOLRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
-InstrumentType : _LiteralGenericAlias : 
+InstrumentType : _LiteralGenericAlias :
 configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None) -> 'None'
 get_historical_quotes : function : (simbolo: 'str', desde: 'dt.date', hasta: 'dt.date', *, mercado: 'str' = 'bcba', ajustada: "Literal['ajustada', 'sinAjustar']" = 'sinAjustar') -> 'list[dict[str, Any]]'
 get_instruments : function : (pais: 'str' = 'argentina') -> 'Any'

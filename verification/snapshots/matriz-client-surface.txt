@@ -10,35 +10,35 @@ AccountId : class : (id: 'str | None' = None) -> None
 AccountReport : class : (accountName: 'str | None' = None, marketMember: 'str | None' = None, marketMemberIdentity: 'str | None' = None, collateral: 'float | None' = None, margin: 'float | None' = None, availableToCollateral: 'float | None' = None, detailedAccountReports: 'dict[str, Any]' = <factory>, portfolio: 'dict[str, Any]' = <factory>, ordersMargin: 'float | None' = None, currentCash: 'float | None' = None, dailyDiff: 'float | None' = None, uncoveredMargin: 'float | None' = None) -> None
 AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
 AuthenticationError : class : (status: 'str', description: 'str | None' = None, message: 'str | None' = None)
-CFICode : _LiteralGenericAlias : 
+CFICode : _LiteralGenericAlias :
 Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
-Currency : _LiteralGenericAlias : 
-DEFAULT_MARKET_DATA_ENTRIES : tuple : 
+Currency : _LiteralGenericAlias :
+DEFAULT_MARKET_DATA_ENTRIES : tuple :
 DetailedPosition : class : (account: 'str | None' = None, totalDailyDiffPlain: 'float | None' = None, totalMarketValue: 'float | None' = None, report: 'dict[str, Any]' = <factory>, lastCalculation: 'str | None' = None) -> None
 ExecutionReportFrame : class : (type: 'str | None' = None, timestamp: 'int | None' = None, orderReport: 'OrderReport' = <factory>) -> None
 Instrument : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None) -> None
 InstrumentDetail : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None, segment: 'Segment' = <factory>, lowLimitPrice: 'float | None' = None, highLimitPrice: 'float | None' = None, minPriceIncrement: 'float | None' = None, minTradeVol: 'float | None' = None, maxTradeVol: 'float | None' = None, tickSize: 'float | None' = None, contractMultiplier: 'float | None' = None, roundLot: 'float | None' = None, priceConvertionFactor: 'float | None' = None, maturityDate: 'str | None' = None, currency: 'Currency | None' = None, orderTypes: 'list[OrderType]' = <factory>, timesInForce: 'list[TimeInForce]' = <factory>, instrumentPricePrecision: 'int | None' = None, instrumentSizePrecision: 'int | None' = None, securityDescription: 'str | None' = None, tickPriceRanges: 'dict[str, Any]' = <factory>) -> None
 InstrumentId : class : (marketId: 'MarketId | None' = None, symbol: 'str | None' = None) -> None
-MARKET_DATA_ENTRIES : tuple : 
-MarketDataEntry : _LiteralGenericAlias : 
+MARKET_DATA_ENTRIES : tuple :
+MarketDataEntry : _LiteralGenericAlias :
 MarketDataEntryValue : class : (price: 'float | None' = None, size: 'int | None' = None, date: 'int | None' = None) -> None
 MarketDataFrame : class : (type: 'str | None' = None, timestamp: 'int | None' = None, instrumentId: 'InstrumentId' = <factory>, marketData: 'MarketDataSnapshot' = <factory>) -> None
 MarketDataLevel : class : (price: 'float | None' = None, size: 'int | None' = None) -> None
 MarketDataSnapshot : class : (BI: 'list[MarketDataLevel]' = <factory>, OF: 'list[MarketDataLevel]' = <factory>, LA: 'MarketDataEntryValue' = <factory>, SE: 'MarketDataEntryValue' = <factory>, OI: 'MarketDataEntryValue' = <factory>, CL: 'MarketDataEntryValue' = <factory>, OP: 'float | None' = None, HI: 'float | None' = None, LO: 'float | None' = None, TV: 'float | None' = None, IV: 'float | None' = None, EV: 'float | None' = None, NV: 'float | None' = None, ACP: 'float | None' = None) -> None
-MarketId : _LiteralGenericAlias : 
-MatrizClientError : class : 
+MarketId : _LiteralGenericAlias :
+MatrizClientError : class :
 NewOrderResponse : class : (clientId: 'str | None' = None, proprietary: 'str | None' = None) -> None
 Order : class : (orderId: 'str | None' = None, clOrdId: 'str | None' = None, proprietary: 'str | None' = None, execId: 'str | None' = None, accountId: 'str | None' = None, instrumentId: 'InstrumentId' = <factory>, price: 'float | None' = None, orderQty: 'float | None' = None, ordType: 'OrderType | None' = None, side: 'Side | None' = None, timeInForce: 'TimeInForce | None' = None, transactTime: 'str | None' = None, avgPx: 'float | None' = None, lastPx: 'float | None' = None, lastQty: 'float | None' = None, cumQty: 'float | None' = None, leavesQty: 'float | None' = None, status: 'OrderStatus | None' = None, text: 'str | None' = None) -> None
 OrderReport : class : (orderId: 'str | None' = None, clOrdId: 'str | None' = None, proprietary: 'str | None' = None, execId: 'str | None' = None, accountId: 'str | None' = None, instrumentId: 'InstrumentId' = <factory>, price: 'float | None' = None, orderQty: 'float | None' = None, ordType: 'OrderType | None' = None, side: 'Side | None' = None, timeInForce: 'TimeInForce | None' = None, transactTime: 'str | None' = None, avgPx: 'float | None' = None, lastPx: 'float | None' = None, lastQty: 'float | None' = None, cumQty: 'float | None' = None, leavesQty: 'float | None' = None, status: 'OrderStatus | None' = None, text: 'str | None' = None, wsClOrdId: 'str | None' = None) -> None
-OrderStatus : _LiteralGenericAlias : 
-OrderType : _LiteralGenericAlias : 
+OrderStatus : _LiteralGenericAlias :
+OrderType : _LiteralGenericAlias :
 Position : class : (symbol: 'str | None' = None, buySize: 'float | None' = None, buyPrice: 'float | None' = None, sellSize: 'float | None' = None, sellPrice: 'float | None' = None, totalDailyDiff: 'float | None' = None, totalDiff: 'float | None' = None, tradingSymbol: 'str | None' = None) -> None
 PrimaryAPIError : class : (status: 'str', description: 'str | None' = None, message: 'str | None' = None)
-PrimaryWsMessage : UnionType : 
+PrimaryWsMessage : UnionType :
 Segment : class : (marketSegmentId: 'SegmentId | None' = None, marketId: 'MarketId | None' = None) -> None
-SegmentId : _LiteralGenericAlias : 
-Side : _LiteralGenericAlias : 
-TimeInForce : _LiteralGenericAlias : 
+SegmentId : _LiteralGenericAlias :
+Side : _LiteralGenericAlias :
+TimeInForce : _LiteralGenericAlias :
 Trade : class : (symbol: 'str | None' = None, servertime: 'int | None' = None, size: 'int | None' = None, price: 'float | None' = None, datetime: 'str | None' = None) -> None
 UnknownFrame : class : (type: 'str | None' = None, raw: 'dict[str, Any]' = <factory>) -> None
 cancel_order : function : (cl_ord_id: 'str', proprietary: 'str') -> 'NewOrderResponse'

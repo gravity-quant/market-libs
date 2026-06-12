@@ -100,7 +100,11 @@ def _enumerate_surface(pkg_name: str) -> list[str]:
         obj = getattr(pkg, name)
         kind = _kind(obj)
         sig = _stringify_signature(obj) if kind in ("class", "function", "coroutine") else ""
-        lines.append(f"{name} : {kind} : {sig}")
+        # When ``sig`` is empty (non-introspectable objects per RESEARCH.md
+        # Pitfall 9), drop the trailing space so the pre-commit
+        # ``trailing-whitespace`` hook does not strip our committed snapshot
+        # files and trigger spurious drift on every regen.
+        lines.append(f"{name} : {kind} : {sig}" if sig else f"{name} : {kind} :")
     return lines
 
 

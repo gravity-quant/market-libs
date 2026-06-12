@@ -8,8 +8,8 @@
 #
 AmbitoFinancieroAPIError : class : (status_code: 'int', message: 'str') -> 'None'
 AmbitoFinancieroAuthError : class : (status_code: 'int', message: 'str') -> 'None'
-AmbitoFinancieroClientError : class : 
-AmbitoFinancieroNoDataError : class : 
+AmbitoFinancieroClientError : class :
+AmbitoFinancieroNoDataError : class :
 AmbitoFinancieroRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
 AsyncClient : class : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None) -> 'None'
 Client : class : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None) -> 'None'
