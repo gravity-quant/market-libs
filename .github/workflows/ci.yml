@@ -37,6 +37,8 @@ jobs:
         run: uv run ruff check .
       - name: ruff format --check
         run: uv run ruff format --check .
+      - name: import-linter (boundary enforcement, Phase 7 REFAC-03)
+        run: uv run lint-imports
 
   pre-commit:
     name: pre-commit hooks
