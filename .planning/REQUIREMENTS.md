@@ -27,7 +27,7 @@ compat layer sobre la clase `Client` interna.
   (`base_url`, credenciales, token, http client, refresh_token); top-level
   functions (`pkg.get_X(...)`) y `configure(...)` quedan delegando en un
   default-client lazy module-level, vía PEP 562 `__getattr__` shim.
-- [ ] **REFAC-03**: Módulo `_core.py` por paquete con builders/parsers puros
+- [x] **REFAC-03**: Módulo `_core.py` por paquete con builders/parsers puros
   (`RequestSpec`, `raise_for_response`, `unwrap_envelope`, auth-flow helpers);
   `client.py` y `aio.py` quedan como shells de transporte (~30-50 LOC por
   endpoint) llamando a `_core`; CI rule (import-linter / grep) que prohíbe
@@ -108,12 +108,12 @@ compat layer sobre la clase `Client` interna.
   refleja `PRIMARY_ACCOUNT` live; alinear ambos.
 - [ ] **CR-02** (WR-02): `probe_login_sync` retorna `"FAIL"` mientras el resto
   del driver usa `"FINDING"` para fallos de auth; unificar a `FINDING`.
-- [ ] **CR-03** (WR-03): `packages/matriz-client/src/matriz_client/client.py:166-174`
+- [x] **CR-03** (WR-03): `packages/matriz-client/src/matriz_client/client.py:166-174`
   `_request` no consume response body antes de raise cuando `data.status=="ERROR"`
   — potential connection-pool resource leak con HTTP/2; consumir body explícito.
 - [ ] **CR-04** (WR-04): `main_matriz.py:172-179` `_first_dict` silenciosamente
   acepta non-list / empty-list inputs; distinguir y reportar.
-- [ ] **CR-05** (WR-05): `main_matriz.py:300-1394` 18 sweep probes con
+- [x] **CR-05** (WR-05): `main_matriz.py:300-1394` 18 sweep probes con
   ~95% boilerplate duplicado — refactor a helper único; previene drift entre
   probes (con `_core.py` + `Client` ya en v1.1 esto se simplifica).
 - [ ] **CR-06** (WR-06): `main_matriz.py` + `main_higyrus.py` bare `except
