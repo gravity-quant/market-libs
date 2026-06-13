@@ -163,7 +163,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 09-03-PLAN.md — matriz BUG-01 hybrid Literal+regex CFI guard + cycle_closure FAIL→PASS (BUG-01)
+- [x] 09-03-PLAN.md — matriz BUG-01 hybrid Literal+regex CFI guard + cycle_closure FAIL→PASS (BUG-01)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -219,7 +219,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
-| 9. Deferred Bug Fixes                                              | v1.1      | 2/4 | In Progress|  |
+| 9. Deferred Bug Fixes                                              | v1.1      | 3/4 | In Progress|  |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
 
