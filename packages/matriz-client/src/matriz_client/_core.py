@@ -39,10 +39,11 @@ Example::
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, get_args
 
 import httpx
 
@@ -70,6 +71,14 @@ from matriz_client.types import (
     Side,
     TimeInForce,
 )
+
+# Phase 9 BUG-01 (F-09) — hybrid CFI guard constants.
+# Source of truth: ``matriz_client.types.CFICode`` (Literal, 9 valores).
+# Pattern S5: compile-once regex + frozenset inmutable + hashable derivada del
+# Literal via ``typing.get_args`` (Python 3.12+ garantiza orden de declaración).
+_CFI_ISO_RE = re.compile(r"^[A-Z]{6}$")
+_CFI_LITERAL_VALUES: frozenset[str] = frozenset(get_args(CFICode))
+
 
 __all__ = [
     "RequestSpec",
@@ -424,7 +433,40 @@ def build_get_instruments_by_cfi_request(
     state: _ClientState,
     cfi_code: CFICode,
 ) -> RequestSpec:
-    """``GET /rest/instruments/byCFICode?CFICode=...``."""
+    """``GET /rest/instruments/byCFICode?CFICode=...``.
+
+    Phase 9 BUG-01 (F-09) — Hybrid Literal + ISO 10962 regex guard pre-HTTP.
+
+    El typed signature declara ``CFICode`` (``Literal[...]`` con 9 valores
+    válidos), pero callers pueden bypass con ``cast(CFICode, "INVALID-CFI")``
+    y mypy strict no captura el cast en runtime. F-09 (CONFIRMED en cycle
+    ``verification-cycle-2026-Q2``) documentó que pre-fix el cliente
+    propagaba CFIs malformados al wire sin levantar excepción. El guard
+    runtime hybrid bloquea esto:
+
+    1. Si ``cfi_code`` está en ``_CFI_LITERAL_VALUES`` (frozenset derivado
+       de ``types.CFICode`` via ``get_args``) → pass (literal-known).
+    2. Si ``_CFI_ISO_RE.match(cfi_code)`` matchea ``^[A-Z]{6}$`` → pass
+       (forward-compat ISO 10962:2021 sin lib bump).
+    3. Otherwise → raise ``PrimaryAPIError(status="ERROR")`` pre-HTTP.
+
+    **Deviation D-02 vs ROADMAP literal** (``_core.raise_for_response``):
+    el guard vive en el builder, NO en ``raise_for_response``, porque
+    ``raise_for_response(resp: httpx.Response)`` solo ve la response y
+    no tiene acceso al ``cfi_code`` param. El contrato observable
+    (``PrimaryAPIError(status="ERROR")``) se preserva — el probe driver
+    ``probe_error_malformed_cfi`` (``main_matriz.py:1194``) captura el
+    outcome esperado vía ``except PrimaryAPIError as exc: if exc.status
+    == "ERROR": PASS``.
+    """
+    if cfi_code not in _CFI_LITERAL_VALUES and not _CFI_ISO_RE.match(cfi_code):
+        raise PrimaryAPIError(
+            status="ERROR",
+            description=(
+                f"CFI inválido: {cfi_code!r} (no está en CFICode Literal ni matchea ^[A-Z]{{6}}$)"
+            ),
+            message=None,
+        )
     return RequestSpec(
         method="GET",
         path="/rest/instruments/byCFICode",

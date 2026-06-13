@@ -345,7 +345,7 @@ def test_parse_get_detailed_positions_response_returns_model() -> None:
 
 
 @pytest.mark.parametrize(
-    "cfi,expect_raise",
+    ("cfi", "expect_raise"),
     [
         # Literal-known bucket (2 valores del Literal CFICode declarado en
         # matriz_client.types.CFICode — source of truth para `_CFI_LITERAL_VALUES`).
@@ -372,10 +372,10 @@ def test_get_instruments_by_cfi_validates_cfi_code(cfi: str, expect_raise: bool)
     otra cosa levanta ``PrimaryAPIError(status="ERROR")`` pre-HTTP.
 
     Cubre 3 buckets en 10 casos paramétricos:
-    - Literal-known × 2 (``ESXXXX``, ``DBXXXX``) → pass.
-    - Regex forward-compat × 2 (``ABXXXX``, ``ZQXXXX``) → pass (6 mayúsculas
+    - Literal-known x2 (``ESXXXX``, ``DBXXXX``) → pass.
+    - Regex forward-compat x2 (``ABXXXX``, ``ZQXXXX``) → pass (6 mayúsculas
       no declaradas en el Literal pero válidas por estructura).
-    - Malformed × 6 (hyphen/lowercase/digit/len5/len7/empty) → raise.
+    - Malformed x6 (hyphen/lowercase/digit/len5/len7/empty) → raise.
 
     El ``# type: ignore[arg-type]`` es necesario porque los malformed strings
     no satisfacen ``CFICode`` (Literal), pero mypy NO captura ``cast(CFICode,

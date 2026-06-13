@@ -769,26 +769,33 @@ def test_get_active_orders_raises_primary_api_error_on_invalid_account(
     assert "invalid account" in (exc_info.value.description or "")
 
 
-def test_get_instruments_by_cfi_raises_primary_api_error_on_malformed_cfi(
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Verified Phase 5: MATZ-05 — {'status':'ERROR'} -> PrimaryAPIError(status='ERROR') para malformed CFI (finding F-NN)."""
+def test_get_instruments_by_cfi_raises_primary_api_error_on_malformed_cfi() -> None:
+    """Phase 9 BUG-01 (F-09 close): malformed CFI → ``PrimaryAPIError`` pre-HTTP.
+
+    Originally Phase 5 MATZ-05 documented el contrato deseado mockeando un
+    server-side ``{'status':'ERROR'}`` para CFI inválido. F-09 (CONFIRMED en
+    cycle ``verification-cycle-2026-Q2``) reportó que el server real NO
+    rechazaba — el cliente propagaba el CFI malformado al wire y retornaba
+    sin excepción. Phase 9 BUG-01 lo cierra con un guard runtime **pre-HTTP**
+    en ``_core.build_get_instruments_by_cfi_request`` (hybrid Literal +
+    ISO 10962 regex).
+
+    Post-fix el test ya no necesita ``httpx_mock`` porque el guard rechaza
+    antes de salir el wire. Cobertura paramétrica completa de los 3 buckets
+    (literal-known x2, regex forward-compat x2, malformed x6) vive en
+    ``tests/test_core.py::test_get_instruments_by_cfi_validates_cfi_code``.
+    Este test sigue siendo el smoke contract-level a través del top-level
+    ``matriz_client.get_instruments_by_cfi`` (Phase 7 single-site fix
+    REFAC-03 propaga el guard automáticamente).
+    """
     from typing import cast
 
     from matriz_client.types import CFICode
 
-    httpx_mock.add_response(
-        method="GET",
-        json={
-            "status": "ERROR",
-            "description": "malformed CFI code 'INVALID-CFI'",
-            "message": None,
-        },
-    )
     with pytest.raises(PrimaryAPIError) as exc_info:
         matriz_client.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
     assert exc_info.value.status == "ERROR"
-    assert "malformed" in (exc_info.value.description or "")
+    assert "CFI inválido" in (exc_info.value.description or "")
 
 
 # ------ MATZ-06 mock-only contract ------
