@@ -9,6 +9,7 @@ created: 2026-06-13
 updated: 2026-06-13
 approved_by: operator
 approved_on: 2026-06-13
+last_audited: 2026-06-13
 ---
 
 # Phase 9 — Validation Strategy
@@ -320,3 +321,37 @@ across all 4 plans + tracking docs.
    closure + update STATE.md, ROADMAP.md, REQUIREMENTS.md traceability.
 3. Phase 10 — matriz aio.py REST + TokenStore (Plan based on spike
    findings auto-loaded via `Skill("spike-findings-market-libs")`).
+
+---
+
+## Validation Audit 2026-06-13
+
+Retroactive Nyquist audit run via `/gsd-validate-phase 9`. Input state A
+(VALIDATION.md existed pre-audit). No subagent required (zero gaps).
+
+| Metric | Count |
+|--------|-------|
+| Requirements audited | 4 (BUG-01..04) |
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated to manual-only | 0 |
+| Test files re-verified on disk | 5 |
+| Targeted regression suite | 26 passed in 0.09s |
+
+**Coverage cross-check (all COVERED):**
+
+| Requirement | Automated Test | Status |
+|-------------|----------------|--------|
+| BUG-01 | `packages/matriz-client/tests/test_core.py::test_get_instruments_by_cfi_validates_cfi_code` (10 parametric) | ✅ green |
+| BUG-02 | `packages/higyrus-client/tests/test_client.py::test_get_listado_cuentas_url_con_estado_alta` (happy-path guard, bucket (a) NO-FIX) | ✅ green |
+| BUG-03 | `packages/iol-client/tests/test_refresh_token_lifecycle.py` (4) + `test_refresh_token_lifecycle_async.py` (4) | ✅ green |
+| BUG-04 | `packages/higyrus-client/tests/test_multi_account.py::test_multi_account_iteration_via_per_call_id_cuenta` | ✅ green |
+
+Manual-only verifications (BUG-02 live triage, BUG-04 live iteration,
+BUG-01 cycle_closure flip) remain as documented in §Manual-Only
+Verifications — each backed by a regression test that guards the
+client-side contract, so the manual gates are scoped to live API
+behavior that mocked tests cannot reproduce.
+
+Audit verdict: **Phase 9 remains Nyquist-compliant.** No new test files
+generated; no escalations.
