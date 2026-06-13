@@ -308,6 +308,8 @@ class AsyncClient:
         try:
             _raise_for_response(resp)
         except HigyrusAuthError:
+            # WR-02 hardening (async mirror): explicit body-consume before re-auth.
+            await resp.aread()
             # D-02 exactly-one re-auth (async mirror).
             self._state.token = None
             await self._ensure_token()
@@ -325,6 +327,8 @@ class AsyncClient:
                 ) from None
             req.headers["Authorization"] = f"Bearer {new_token}"
             resp = await http.send(req)
+            # WR-02 hardening: body-consume on second response BEFORE second raise.
+            await resp.aread()
             _raise_for_response(resp)
         return resp
 

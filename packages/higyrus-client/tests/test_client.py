@@ -461,3 +461,47 @@ def test_get_request_omits_body_and_content_type(httpx_mock: HTTPXMock) -> None:
     assert not req.content
     # El Content-Type no debe ser application/json (no hay body).
     assert "content-type" not in {k.lower() for k in req.headers}
+
+
+# ---- WR-02 Phase 8 review fix: body-consume-then-raise on 401 carve-outs ----
+
+
+def test_401_carve_out_body_consumed_before_raise(httpx_mock: HTTPXMock) -> None:
+    """WR-02 regression: 401 re-auth flow consumes body before raising HigyrusAuthError.
+
+    The shell ``_request()`` catches HigyrusAuthError on the initial response,
+    runs the re-auth-once flow, retries, and on the second 401 raises
+    HigyrusAuthError. WR-02 hardens both raise paths with explicit
+    ``resp.read()`` so the body-consume-then-raise contract (Phase 7 D-06) is
+    preserved on the carve-out path.
+
+    Mock: 401 (with non-empty body) → login 200 → 401 (with non-empty body).
+    Assert HigyrusAuthError raised + exactly 3 wire requests.
+    """
+    higyrus_client.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="STALE",
+        token_expires_at=9_999_999_999.0,
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/listadoCuentas?estado=alta",
+        status_code=401,
+        content=b'{"errors":[{"title":"auth"}]}',
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        json={"token": "FRESH"},
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/listadoCuentas?estado=alta",
+        status_code=401,
+        content=b'{"errors":[{"title":"auth-again"}]}',
+    )
+    with pytest.raises(HigyrusAuthError):
+        higyrus_client.get_listado_cuentas(estado="alta")
+    # 3 wire requests = initial 401 + login 200 + retry 401 (D-02 exactly once).
+    assert len(httpx_mock.get_requests()) == 3

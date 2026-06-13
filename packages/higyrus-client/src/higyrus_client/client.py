@@ -286,6 +286,13 @@ class Client:
         try:
             _raise_for_response(resp)
         except HigyrusAuthError:
+            # WR-02 hardening: explicit body-consume before the re-auth path
+            # (Phase 7 D-06 body-consume-then-raise contract applied uniformly
+            # to non-retryable carve-out paths). httpx.Client.send already does
+            # response.read() by default and _raise_for_response touches
+            # resp.json() which buffers the body; this is therefore idempotent
+            # but documents the contract explicitly.
+            resp.read()
             # D-02 exactly-one re-auth: clear cached token, re-authenticate, retry once.
             # higyrus has no Risk API → no auth_basic branch to skip (cf. matriz D-23).
             self._state.token = None
@@ -303,6 +310,8 @@ class Client:
                 ) from None
             req.headers["Authorization"] = f"Bearer {new_token}"
             resp = http.send(req)
+            # WR-02 hardening: body-consume on second response BEFORE second raise.
+            resp.read()
             _raise_for_response(resp)
         return resp
 
