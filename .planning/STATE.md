@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 Phase: 10
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-06-13
+Last activity: 2026-06-13 - Completed quick task 260613-nwb: fix INT-01 main_iol.py _base_url legacy
 
 ## Performance Metrics
 
@@ -108,6 +108,7 @@ Recent decisions affecting current work:
 | # | Description | Date | Commits | Directory |
 |---|-------------|------|---------|-----------|
 | 260611-u0v | Fix CI failures on phase-06-compat-safety-net (snapshot trailing whitespace + iol tests mypy strict + v1.0 archive whitespace) | 2026-06-11 | bc16e26, 2be4e90, 9360cf5 | [260611-u0v-fix-ci-failures-on-phase-06-compat-safet](./quick/260611-u0v-fix-ci-failures-on-phase-06-compat-safet/) |
+| 260613-nwb | Fix INT-01: replace denied `_base_url` with `_get_default()._state.base_url` in main_iol.py (15 probes) — closes INT-01, unblocks LIVE-01 (Phase 11) | 2026-06-13 | 3de1940 | [260613-nwb-fix-int-01-main-iol-py-crashea-con-attri](./quick/260613-nwb-fix-int-01-main-iol-py-crashea-con-attri/) |
 
 ## Deferred Items
 
