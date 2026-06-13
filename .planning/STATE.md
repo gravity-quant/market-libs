@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
 status: executing
-last_updated: "2026-06-13T07:29:22.262Z"
+last_updated: "2026-06-13T07:48:30.199Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 19
-  completed_plans: 16
+  completed_plans: 17
   percent: 33
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 ## Current Position
 
 Phase: 08 (Retries, Backoff, Structured Logging) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-06-13
 
@@ -61,6 +61,7 @@ Last activity: 2026-06-13
 | Phase 08 P01 | 15 | 2 tasks | 13 files |
 | Phase 08 P02 | 10 | 2 tasks | 12 files |
 | Phase 08 P03 | 20 | 2 tasks | 13 files |
+| Phase 08 P04 | 25 | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 8 Plan 2 (ámbito canary): RetryTransport + AsyncRetryTransport + RedactingFilter wired; pattern verified for Plan 3 replication
 - [Phase ?]: Phase 8 Plan 3 (iol): RetryTransport+AsyncRetryTransport+RedactingFilter mirrored from ámbito + 401 re-auth-once at shell tier (D-02) + OAuth refresh_token URL+JSON redaction (D-10). Auth-paquete pattern established for Plans 4 (higyrus) and 5 (matriz).
 - [Phase ?]: Plan 8-01 cross-cutting test bug fixed: test_idempotent_get_retries_on_503 expected_count corrected from 2 to 3 — Plan 8-01 author had a notation slip; canonical default is max_retries=2 = 3 attempts per D-15+D-19. Unblocks Plans 4+5 too.
+- [Phase ?]: Phase 8 Plan 4 (higyrus)
 
 ### Pending Todos
 
@@ -121,7 +123,7 @@ See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit conte
 
 ## Session Continuity
 
-Last session: 2026-06-13T07:29:22.256Z
+Last session: 2026-06-13T07:48:08.087Z
 Stopped at: Phase 8 context gathered
 Resume file: None
 

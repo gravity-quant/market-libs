@@ -122,7 +122,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 08-04-PLAN.md — higyrus: mirror iol + RequestSpec.account_id propagation (D-11) + RedactingFilter JSON password + JSON token + cuit query (PII); URL-encoding quirk preserved (RELY-01..04, LOG-01..03)
+- [x] 08-04-PLAN.md — higyrus: mirror iol + RequestSpec.account_id propagation (D-11) + RedactingFilter JSON password + JSON token + cuit query (PII); URL-encoding quirk preserved (RELY-01..04, LOG-01..03)
 
 **Wave 5** *(blocked on Wave 4)*
 
@@ -198,7 +198,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
-| 8. Retries, Backoff, Structured Logging                            | v1.1      | 3/6 | In Progress|  |
+| 8. Retries, Backoff, Structured Logging                            | v1.1      | 4/6 | In Progress|  |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
