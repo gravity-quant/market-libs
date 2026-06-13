@@ -93,8 +93,7 @@ def _validate_max_retries(value: int) -> None:
         )
     if not isinstance(value, int):
         raise ValueError(
-            f"max_retries must be a non-negative int, got {value!r} "
-            f"(type={type(value).__name__})"
+            f"max_retries must be a non-negative int, got {value!r} (type={type(value).__name__})"
         )
     if value < 0:
         raise ValueError(f"max_retries must be a non-negative int, got {value!r}")

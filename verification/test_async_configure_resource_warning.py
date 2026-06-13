@@ -24,7 +24,6 @@ import importlib
 
 import pytest
 
-
 _ASYNC_PACKAGES = ["ambito_financiero_client", "iol_client", "higyrus_client"]
 
 

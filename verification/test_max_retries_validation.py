@@ -148,9 +148,7 @@ def test_sync_configure_rejects_invalid_max_retries(pkg_name: str, bad: Any) -> 
         pkg.configure(max_retries=bad)
 
 
-@pytest.mark.parametrize(
-    "pkg_name", ["ambito_financiero_client", "iol_client", "higyrus_client"]
-)
+@pytest.mark.parametrize("pkg_name", ["ambito_financiero_client", "iol_client", "higyrus_client"])
 @pytest.mark.parametrize("bad", [-1, -100, 1.5, "2", True, False])
 def test_async_configure_rejects_invalid_max_retries(pkg_name: str, bad: Any) -> None:
     """WR-06: ``aio.configure(max_retries=BAD)`` raises ``ValueError`` per package."""
