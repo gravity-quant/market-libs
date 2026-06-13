@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
 status: executing
-last_updated: "2026-06-13T03:24:03.273Z"
-last_activity: 2026-06-13 -- Phase 8 planning complete
+last_updated: "2026-06-13T06:52:36.303Z"
+last_activity: 2026-06-13
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 19
-  completed_plans: 13
+  completed_plans: 14
   percent: 33
 ---
 
@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.1 layer: saldar la deuda arquitectónica que vino a la luz durante el ciclo de verificación v1.0 — refactor Client class, sync/async dedup, matriz aio.py, retries/backoff, structured logging, deferred fixes, harness hardening.)
 
-**Current focus:** Phase 8 — retries, backoff, structured logging
+**Current focus:** Phase 08 — Retries, Backoff, Structured Logging
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
+Phase: 08 (Retries, Backoff, Structured Logging) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-06-13 -- Phase 8 planning complete
+Last activity: 2026-06-13
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Last activity: 2026-06-13 -- Phase 8 planning complete
 | 09    | TBD   | Not started |
 | 10    | TBD   | Not started |
 | 11    | TBD   | Not started |
+| Phase 08 P01 | 15 | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Recent decisions affecting current work:
 - [v1.1 Roadmap]: Non-breaking via PEP 562 `__getattr__` shim + `configure(token=..., token_expires_at=...)` extension for conftest migration; 277 tests baseline must stay green after EVERY phase.
 - [v1.1 Roadmap]: Mutation gate is mandatory — `RequestSpec.idempotent` defaults False; POST/PATCH NEVER retry without explicit `idempotent=True`; `AuthError`/`PrimaryAPIError`/`HigyrusAPIError` NEVER in `retry_on=` tuple.
 - [v1.1 Research Flag]: Phase 10 (matriz `aio.py` + TokenStore) requires phase-level research spike before planning — the 3-way concurrent token store (sync REST + async REST + ws_client daemon thread with `threading.Lock` callable from asyncio context) is the single architectural unknown in v1.1.
+- [Phase ?]: Phase 8 Plan 1: Wave 1 cross-cutting scaffolding landed — tenacity 9.1.4 dep + 6 guard tests (14 RED awaiting Plans 2-5) + ruff LOG + CI grep step (D-15, D-21, D-26, D-27)
 
 ### Pending Todos
 
@@ -114,9 +116,9 @@ See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit conte
 
 ## Session Continuity
 
-Last session: 2026-06-13T01:40:54.367Z
+Last session: 2026-06-13T06:52:31.753Z
 Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-retries-backoff-structured-logging/08-CONTEXT.md
+Resume file: None
 
 ## Operator Next Steps
 

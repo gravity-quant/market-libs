@@ -110,7 +110,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — Cross-cutting infra (tests-first): tenacity dep + 6 cross-cutting guard tests in verification/ + CI grep lint-logging + ruff LOG ruleset; NO packages/<pkg>/src/ touched (RELY-01..04, LOG-01..03)
+- [x] 08-01-PLAN.md — Cross-cutting infra (tests-first): tenacity dep + 6 cross-cutting guard tests in verification/ + CI grep lint-logging + ruff LOG ruleset; NO packages/<pkg>/src/ touched (RELY-01..04, LOG-01..03)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -198,7 +198,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
-| 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/6            | Planned     | -          |
+| 8. Retries, Backoff, Structured Logging                            | v1.1      | 1/6 | In Progress|  |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
