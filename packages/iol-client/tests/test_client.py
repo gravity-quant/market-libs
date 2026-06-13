@@ -330,3 +330,48 @@ def test_configure_resets_refresh_token_but_direct_password_mutation_preserves_i
     state.refresh_token = "refresh-cached-2"
     state.password = "another"
     assert iol_client.client._refresh_token == "refresh-cached-2"
+
+
+# ---- WR-02 Phase 8 review fix: body-consume-then-raise on 401 carve-outs ----
+
+
+def test_401_carve_out_body_consumed_before_raise(httpx_mock: HTTPXMock) -> None:
+    """WR-02 regression: 401 re-auth flow consumes body before raising IOLAuthError.
+
+    The shell ``_request()`` catches IOLAuthError on the initial response, runs
+    the re-auth-once flow, retries, and on the second 401 raises IOLAuthError.
+    WR-02 hardens both raise paths with explicit ``resp.read()`` so the
+    body-consume-then-raise contract (Phase 7 D-06) is preserved on the
+    carve-out path (where ``_raise_for_response`` already buffers the body via
+    ``resp.text``, but the explicit read documents the contract and guards
+    against future httpx auto-consume behavior changes or http2=True streaming).
+
+    Mock: 401 (with non-empty body) → login 200 → 401 (with non-empty body).
+    Assert IOLAuthError raised + exactly 3 wire requests.
+    """
+    iol_client.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="STALE",
+        token_expires_at=9_999_999_999.0,
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/anything",
+        status_code=401,
+        content=b'{"error":"unauthorized"}',
+    )
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        json={"access_token": "FRESH", "expires_in": 900},
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/anything",
+        status_code=401,
+        content=b'{"error":"still unauthorized"}',
+    )
+    with pytest.raises(IOLAuthError):
+        iol_client.client._request("GET", "/api/anything")
+    # 3 wire requests = initial 401 + login 200 + retry 401 (D-02 exactly once).
+    assert len(httpx_mock.get_requests()) == 3

@@ -302,6 +302,15 @@ class Client:
         try:
             _raise_for_response(resp)
         except IOLAuthError:
+            # WR-02 hardening: explicit body-consume before re-auth path.
+            # httpx.Client.send already calls response.read() by default
+            # (stream=False), and _raise_for_response touches resp.text which
+            # buffers the body; this resp.read() is therefore idempotent on the
+            # in-memory buffer but documents the body-consume-then-raise
+            # contract (Phase 7 D-06) explicitly for the carve-out path. Belt
+            # and suspenders against future httpx auto-consume changes or
+            # http2=True streaming responses.
+            resp.read()
             # D-02 exactly-one re-auth: clear cached token, re-authenticate, retry once.
             # IOL has no Risk API → no auth_basic branch to skip (cf. matriz D-23).
             self._state.token = None
@@ -309,6 +318,10 @@ class Client:
             assert self._state.token is not None
             req.headers["Authorization"] = f"Bearer {self._state.token}"
             resp = http.send(req)
+            # WR-02 hardening: same body-consume on the second response BEFORE
+            # _raise_for_response. If the second send returned a 401 still, the
+            # AuthError that surfaces will already have a fully-consumed body.
+            resp.read()
             _raise_for_response(resp)
         return resp
 

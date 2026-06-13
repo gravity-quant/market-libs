@@ -305,6 +305,11 @@ class AsyncClient:
         try:
             _raise_for_response(resp)
         except IOLAuthError:
+            # WR-02 hardening (async mirror): explicit body-consume before
+            # re-auth path. httpx.AsyncClient.send already does response.aread()
+            # by default (stream=False), but explicit aread() documents the
+            # body-consume-then-raise contract (Phase 7 D-06) on the carve-out.
+            await resp.aread()
             # D-02 exactly-one re-auth (async mirror).
             self._state.token = None
             await self._ensure_token()
@@ -313,6 +318,8 @@ class AsyncClient:
             assert new_token is not None
             req.headers["Authorization"] = f"Bearer {new_token}"
             resp = await http.send(req)
+            # WR-02 hardening: body-consume on second response BEFORE second raise.
+            await resp.aread()
             _raise_for_response(resp)
         return resp
 
