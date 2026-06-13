@@ -106,7 +106,40 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
   4. Por cada paquete, `logging.getLogger("<pkg>")` configurado con `NullHandler` en `__init__.py`; CI grep rule bloquea `logging.basicConfig` y `logging.root` en `packages/*/src/`; regression test verifica `logging.root.handlers` unchanged tras `import <pkg>`.
   5. `RedactingFilter` por paquete redacta Bearer/X-Auth-Token/`password=`/IOL refresh_token/Higyrus JSON password aunque el consumer habilite DEBUG; regression test con `caplog` verifica que el token literal NO aparece en ningún `record.getMessage()` ni `record.args`. Convención de niveles (DEBUG/INFO/WARNING/ERROR) y campos estructurados (`package`, `method`, `url`, `status_code`, `attempt`, `duration_ms`, `account_id` cuando aplique) aplicada en `_transport.py`/`_atransport.py`/`client.py`/`aio.py`.
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+**Wave 1**
+
+- [ ] 08-01-PLAN.md — Cross-cutting infra (tests-first): tenacity dep + 6 cross-cutting guard tests in verification/ + CI grep lint-logging + ruff LOG ruleset; NO packages/<pkg>/src/ touched (RELY-01..04, LOG-01..03)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 08-02-PLAN.md — ámbito canary: _transport.py + _atransport.py + _logging.py + Client/AsyncClient/configure() 2 new kwargs (max_retries, http_client) + snapshot update; no 401 re-auth (no auth) (RELY-01..04, LOG-01..03)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 08-03-PLAN.md — iol: mirror ámbito + OAuth refresh_token URL/JSON RedactingFilter patterns + 401 re-auth-once flow in shell _request() per RESEARCH §Pattern 3; CR-01 conditional refresh_token rotation preserved (RELY-01..04, LOG-01..03)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 08-04-PLAN.md — higyrus: mirror iol + RequestSpec.account_id propagation (D-11) + RedactingFilter JSON password + JSON token + cuit query (PII); URL-encoding quirk preserved (RELY-01..04, LOG-01..03)
+
+**Wave 5** *(blocked on Wave 4)*
+
+- [ ] 08-05-PLAN.md — matriz ATOMIC sync-only: _transport.py ONLY (NO _atransport.py per D-25 — Phase 10 territory); _logging.py with D-22 auth_basic redaction; shell _request() with Risk API branch (no re-auth per D-23) + token path 401 re-auth-once; mutating builders (new_order, cancel_order, replace_order) KEEP idempotent=False (Pitfall 4 / D-24 — duplicate-order prevention); aio.py UNCHANGED (Phase 6 stub 103 LOC); CR-03 + CR-05 preserved (RELY-01..04, LOG-01..03)
+
+**Wave 6** *(blocked on Waves 2-5)*
+
+- [ ] 08-06-PLAN.md — Green gate consolidation: full pytest matrix Python 3.12 + 3.13 + ruff + ruff LOG ruleset + ruff format + mypy strict + lint-imports + CI grep lint-logging + 6 cross-cutting guard tests GREEN + matriz sweep snapshot (CR-05) + parse_envelope_consumes_body (CR-03) + Phase 6 public surface snapshot (zero diff except 2 new kwargs per signature) + matriz aio.py == 103 LOC + matriz _atransport.py absent + tenacity 9.1.4 verified + Pitfall 18 statement + operator checkpoint (RELY-01..04, LOG-01..03)
+
+**Cross-cutting constraints:**
+
+- D-21: Per-package serial idiom (ámbito → iol → higyrus → matriz) — Phase 6/7 baseline lesson; matriz LAST due to max surface + Risk API + status=ERROR specials
+- D-21: 1 commit atómico por paquete (Plans 2-5 each); Plan 1 single commit; Plan 6 validation file only
+- D-25: matriz aio.py NOT touched in Phase 8 (Phase 10 REFAC-04 territory); matriz _atransport.py NOT created
+- D-26: 6 cross-cutting guard tests in verification/ tests-first (RED in HEAD; turn GREEN as Plans 2-5 land)
+- D-28: Snapshot updates per-plan atomic (each per-package plan updates its own snapshot)
+- security_enforcement=true: each plan has STRIDE threat_model block; T-8-01..T-8-06 cross-package threats addressed
 
 ### Phase 9: Deferred Bug Fixes
 
@@ -165,7 +198,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
-| 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/?            | Not started | -          |
+| 8. Retries, Backoff, Structured Logging                            | v1.1      | 0/6            | Planned     | -          |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
