@@ -138,8 +138,7 @@ def test_401_then_login_then_200_triggers_exactly_one_reauth(
     last = requests[-1]
     last_auth = last.headers.get(header_name, "")
     assert "FRESH-TOKEN" in last_auth, (
-        f"{pkg_name}: expected FRESH-TOKEN in retry's {header_name} header, "
-        f"got: {last_auth!r}"
+        f"{pkg_name}: expected FRESH-TOKEN in retry's {header_name} header, got: {last_auth!r}"
     )
     assert expected_prefix == "" or last_auth.startswith(expected_prefix), (
         f"{pkg_name}: expected {expected_prefix!r} prefix in {header_name}, got {last_auth!r}"

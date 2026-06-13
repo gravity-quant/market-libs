@@ -41,7 +41,10 @@ jobs:
         run: uv run lint-imports
       - name: lint-logging (Phase 8 LOG-01 — no logging.basicConfig / logging.root in package src)
         run: |
-          if grep -rn --include='*.py' 'logging\.basicConfig\|logging\.root' packages/*/src/; then
+          # Match actual code calls only, not docstring/comment references:
+          #   logging.basicConfig(...)  — call with paren
+          #   logging.root.<identifier> — attribute access (not bare "logging.root" in docstrings)
+          if grep -rnE --include='*.py' 'logging\.basicConfig\s*\(|logging\.root\.\w' packages/*/src/; then
             echo "::error::Phase 8 LOG-01 violated — package source must not call logging.basicConfig or logging.root.*"
             exit 1
           fi
