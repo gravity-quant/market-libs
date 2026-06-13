@@ -33,8 +33,6 @@ Fields:
 - ``password``: from ``HIGYRUS_PASSWORD``
 - ``token``: cached Bearer token, ``None`` until first login
 - ``token_expires_at``: absolute epoch when ``token`` becomes stale
-- ``account_id``: forward-declared for Phase 9 BUG-04 (multi-account
-  iteration). Unused in Phase 6.
 - ``http_client``: lazy ``httpx.Client`` / ``httpx.AsyncClient``.
 - ``token_lock``: lazy ``asyncio.Lock`` for async double-checked locking
   in ``aio.py``; ``None`` for sync ``Client``.
@@ -94,8 +92,6 @@ class _ClientState:
     password: str = field(default_factory=_env_password)
     token: str | None = None
     token_expires_at: float = 0.0
-    # Forward-declared for Phase 9 BUG-04 (multi-account iteration).
-    account_id: str | None = None
     # Lazy: created on first ``_ensure_http_client()`` call. Holds either
     # ``httpx.Client`` (sync) or ``httpx.AsyncClient`` (async).
     http_client: httpx.Client | httpx.AsyncClient | None = None

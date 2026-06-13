@@ -22,11 +22,11 @@ The ``token_lock`` field is consumed by ``AsyncClient`` only; the sync
 in ``__init__``) so that the lock is bound to whatever event loop is
 running when authentication first happens (research Pitfall #6).
 
-The ``refresh_token`` and ``account_id`` fields are forward-declared for
-schema consistency across packages (RESEARCH.md Per-Package Divergence
-Matrix). Phase 6 ``Client.__init__`` does NOT accept them as kwargs
-(D-13). ``refresh_token`` is mutated by ``Client.login()`` / ``_refresh()``
-internally; ``account_id`` is populated by Phase 9 BUG-04.
+The ``refresh_token`` field is forward-declared for schema consistency
+across packages (RESEARCH.md Per-Package Divergence Matrix). Phase 6
+``Client.__init__`` does NOT accept it as a kwarg (D-13).
+``refresh_token`` is mutated by ``Client.login()`` / ``_refresh()``
+internally.
 """
 
 from __future__ import annotations
@@ -78,10 +78,6 @@ class _ClientState:
     token: str | None = None
     token_expires_at: float = 0.0
     refresh_token: str | None = None
-    # Forward-declared for Phase 9 BUG-04 (multi-account iteration). Not
-    # populated in Phase 6 but kept in the schema for cross-package shape
-    # consistency with higyrus.
-    account_id: str | None = None
     http_client: httpx.Client | httpx.AsyncClient | None = None
     # Lazy-created in AsyncClient._ensure_token on first async use; sync
     # Client never touches this field.

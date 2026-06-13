@@ -139,6 +139,12 @@ _SAMPLE_CUENTA: str | None = os.getenv("HIGYRUS_SAMPLE_CUENTA")
 _SAMPLE_TIPO_CUENTA: str = os.getenv("HIGYRUS_SAMPLE_TIPO_CUENTA", "propia")
 _SAMPLE_NIVEL: str = os.getenv("HIGYRUS_SAMPLE_NIVEL", "detalle")
 
+# Phase 9 D-10 (BUG-04): CSV de cuentas para el multi-account iteration probe.
+# Override de la fuente "live ``get_listado_cuentas``" cuando devuelve <2
+# cuentas o cuando el operator quiere forzar IDs conocidas. Formato CSV
+# ``"A,B"`` (python-dotenv no soporta arrays nativos).
+_SAMPLE_CUENTAS_CSV: str = os.getenv("HIGYRUS_SAMPLE_CUENTAS", "")
+
 # D-HIGY-10 presentation order: lista declarada de los 18 probes en el orden en
 # que se imprimen al final de main() (NO el orden de ejecución).
 _D_HIGY_10_ORDER: tuple[str, ...] = (
@@ -159,6 +165,7 @@ _D_HIGY_10_ORDER: tuple[str, ...] = (
     "schema_snapshot",
     "errors_envelope_sync",
     "errors_envelope_async",
+    "multi_account_iteration",
     "auth_401",
 )
 
@@ -2046,6 +2053,85 @@ def probe_auth_401() -> ProbeResult:
 
 
 # ---------------------------------------------------------------------------
+# Phase 9 BUG-04 (D-08, D-10): multi-account iteration probe
+# ---------------------------------------------------------------------------
+
+
+def probe_multi_account_iteration() -> ProbeResult:
+    """Probe BUG-04 (D-08 per-call only): itera ≥2 cuentas via per-call kwarg.
+
+    Source order:
+    1. ``HIGYRUS_SAMPLE_CUENTAS`` env var (CSV ``"A,B"``) — operator override.
+    2. ``get_listado_cuentas(estado="alta")`` live — primeras 2 ids.
+    3. SKIPPED si <2 cuentas disponibles.
+
+    Por cada cuenta corre ``get_movimientos(id_cuenta=acct, fecha_desde=today,
+    fecha_hasta=today)``. PASS si ambas calls succeed; FINDING + ``append_finding``
+    on first ``HigyrusAPIError``; SKIPPED si la cascade upstream (auth, fuente
+    cuentas <2) impide ejercerlo.
+    """
+    if _auth_failed:
+        return ProbeResult(
+            "multi_account_iteration",
+            "SKIPPED",
+            f"auth failed: {_auth_failure_reason}",
+        )
+    base_url = higyrus_client.client._base_url
+    # Source 1: env var override (CSV).
+    if _SAMPLE_CUENTAS_CSV.strip():
+        cuentas = [c.strip() for c in _SAMPLE_CUENTAS_CSV.split(",") if c.strip()]
+    else:
+        # Source 2: live get_listado_cuentas() — si non-empty, primeras 2.
+        try:
+            live = higyrus_client.get_listado_cuentas(estado="alta")
+        except Exception as exc:
+            return ProbeResult(
+                "multi_account_iteration",
+                "SKIPPED",
+                f"listado_cuentas failed: {exc!r}",
+            )
+        cuentas = [c.id for c in live[:2]] if len(live) >= 2 else []
+    if len(cuentas) < 2:
+        return ProbeResult(
+            "multi_account_iteration",
+            "SKIPPED",
+            "need >=2 cuentas; set HIGYRUS_SAMPLE_CUENTAS=A,B",
+        )
+    today = dt.date.today()
+    for acct in cuentas[:2]:
+        try:
+            higyrus_client.get_movimientos(
+                id_cuenta=acct,
+                fecha_desde=today,
+                fecha_hasta=today,
+            )
+        except HigyrusAPIError as exc:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"multi_account: get_movimientos({acct})",
+                expected="200 OK",
+                actual=repr(exc),
+                diff=f"status={exc.status_code!r}",
+                base_url=base_url,
+            )
+            return ProbeResult(
+                "multi_account_iteration",
+                "FINDING",
+                f"{fid} (OPEN)",
+            )
+    return ProbeResult(
+        "multi_account_iteration",
+        "PASS",
+        f"iterated {len(cuentas[:2])} cuentas successfully",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Async wrapper — un único asyncio.run (D-HIGY-13, IN-03 Phase 2 mirror)
 # ---------------------------------------------------------------------------
 
@@ -2279,6 +2365,12 @@ def main() -> None:
 
     # (k) Probe 16 (errors_envelope_sync) — always-on.
     results["errors_envelope_sync"] = probe_errors_envelope_sync(today)
+
+    # (k.5) Phase 9 BUG-04 (D-08, D-10): multi-account iteration probe.
+    # Corre después de get_listado_cuentas + get_movimientos (sync + async) para
+    # que _resolved_cuenta esté disponible si el operator quiere comparar; el
+    # propio probe puede consumir get_listado_cuentas o el override CSV.
+    results["multi_account_iteration"] = probe_multi_account_iteration()
 
     # (l) Probe 18 (auth_401) — opt-in, single-shot, ÚLTIMO.
     results["auth_401"] = probe_auth_401()
