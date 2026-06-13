@@ -35,6 +35,33 @@ _REQUEST_TIMEOUT = 30.0
 # Listed in `__all__` to satisfy mypy --strict's implicit_reexport=False.
 _raise_for_response = _core.raise_for_response
 
+
+# WR-06 Phase 8 review fix: validate max_retries kwarg early. Duplicated 4x
+# across packages per the "no shared internals" project constraint.
+def _validate_max_retries(value: int) -> None:
+    """Validate the ``max_retries`` kwarg accepted by ``Client.__init__`` / ``configure()``.
+
+    Phase 8 D-19: ``max_retries`` is a non-negative ``int`` (``0`` disables
+    retries entirely). Negative values, floats, and non-int types are rejected
+    early with a clean ``ValueError`` instead of being silently accepted and
+    crashing later inside tenacity with a less actionable message.
+    """
+    # Reject bool explicitly: bool is a subclass of int in Python, so a bare
+    # ``isinstance(value, int)`` would pass ``True``/``False`` silently. The
+    # resulting transport would still work (True coerces to 1) but accepting it
+    # masks a likely caller error (e.g. ``max_retries=True`` instead of ``=1``).
+    if isinstance(value, bool):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} (bool not accepted)"
+        )
+    if not isinstance(value, int):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} "
+            f"(type={type(value).__name__})"
+        )
+    if value < 0:
+        raise ValueError(f"max_retries must be a non-negative int, got {value!r}")
+
 __all__ = [
     "Client",
     "_raise_for_response",
@@ -64,6 +91,9 @@ class Client:
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
     ) -> None:
+        # WR-06: validate max_retries early so the surfacing error is
+        # a clean ValueError, not a confusing tenacity error later.
+        _validate_max_retries(max_retries)
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -176,6 +206,8 @@ def configure(
     ``http_client`` (used AS-IS without auto-wrapping with ``RetryTransport``
     per D-16) are carry-forward kwargs.
     """
+    # WR-06: validate max_retries before any state mutation.
+    _validate_max_retries(max_retries)
     global _default_client
     prior_base_url: str | None = None
     prior_user_agent: str | None = None

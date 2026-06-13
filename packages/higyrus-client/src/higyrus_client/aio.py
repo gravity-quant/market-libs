@@ -48,6 +48,7 @@ from higyrus_client import _atransport, _core
 from higyrus_client._core import RequestSpec
 from higyrus_client._core import raise_for_response as _raise_for_response  # D-04 B8 alias
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
+from higyrus_client.client import _validate_max_retries
 from higyrus_client.exceptions import HigyrusAuthError
 from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
 
@@ -95,6 +96,8 @@ class AsyncClient:
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
+        # WR-06: validate max_retries early.
+        _validate_max_retries(max_retries)
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -462,6 +465,9 @@ def configure(
     BEFORE reconfiguring the http client to avoid leaking the prior connection
     pool.
     """
+    # WR-06: validate max_retries (only when explicitly passed).
+    if max_retries is not None:
+        _validate_max_retries(max_retries)
     global _default_async_client
     current = _get_default()
     next_max_retries = max_retries if max_retries is not None else current._max_retries

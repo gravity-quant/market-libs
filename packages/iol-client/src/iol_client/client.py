@@ -78,6 +78,28 @@ load_dotenv()
 _raise_for_response = _core.raise_for_response
 
 
+# WR-06 Phase 8 review fix: validate max_retries kwarg early. Duplicated 4x
+# across packages per the "no shared internals" project constraint.
+def _validate_max_retries(value: int) -> None:
+    """Validate the ``max_retries`` kwarg.
+
+    Phase 8 D-19: ``max_retries`` must be a non-negative ``int``. Negative
+    values and non-int types (incl. ``float``, ``bool``) are rejected early
+    with ``ValueError`` instead of crashing later inside tenacity.
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} (bool not accepted)"
+        )
+    if not isinstance(value, int):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} "
+            f"(type={type(value).__name__})"
+        )
+    if value < 0:
+        raise ValueError(f"max_retries must be a non-negative int, got {value!r}")
+
+
 # ----------------------------------------------------------------------
 # Client class
 # ----------------------------------------------------------------------
@@ -114,6 +136,8 @@ class Client:
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
     ) -> None:
+        # WR-06: validate max_retries early.
+        _validate_max_retries(max_retries)
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -438,6 +462,9 @@ def configure(
     cached ``httpx.Client`` so the next request re-creates it with the
     new transport.
     """
+    # WR-06: validate max_retries (only when explicitly passed).
+    if max_retries is not None:
+        _validate_max_retries(max_retries)
     client = _get_default()
     if base_url is not None:
         client._state.base_url = base_url.rstrip("/")

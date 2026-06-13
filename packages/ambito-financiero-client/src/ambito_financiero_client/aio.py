@@ -30,6 +30,7 @@ import httpx
 
 from ambito_financiero_client import _atransport, _core
 from ambito_financiero_client._state import _ClientState
+from ambito_financiero_client.client import _validate_max_retries
 
 # D-04 mirror alias — identidad B8 preservada vía shared _core source.
 # Listado en __all__ para satisfacer mypy strict implicit_reexport=False.
@@ -68,6 +69,8 @@ class AsyncClient:
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
+        # WR-06: validate max_retries early (mirror sync Client).
+        _validate_max_retries(max_retries)
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -175,6 +178,8 @@ def configure(
 
     Phase 8 D-15: ``max_retries`` / ``http_client`` mirror sync ``configure``.
     """
+    # WR-06: validate max_retries before any state mutation.
+    _validate_max_retries(max_retries)
     global _default_async_client
     prior_base_url: str | None = None
     prior_user_agent: str | None = None

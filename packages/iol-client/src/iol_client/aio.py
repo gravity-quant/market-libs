@@ -55,7 +55,7 @@ from iol_client._core import RequestSpec
 # strict ``implicit_reexport=False``.
 from iol_client._core import raise_for_response as _raise_for_response
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
-from iol_client.client import InstrumentType
+from iol_client.client import InstrumentType, _validate_max_retries
 from iol_client.exceptions import IOLAuthError
 
 # Suppress ruff F401 for the deliberate re-export alias (consumed by tests
@@ -96,6 +96,8 @@ class AsyncClient:
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
+        # WR-06: validate max_retries early.
+        _validate_max_retries(max_retries)
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -437,6 +439,9 @@ def configure(
     call ``await aclose()`` BEFORE reconfiguring the http client to avoid
     leaking the prior connection pool.
     """
+    # WR-06: validate max_retries (only when explicitly passed).
+    if max_retries is not None:
+        _validate_max_retries(max_retries)
     client = _get_default()
     if base_url is not None:
         client._state.base_url = base_url.rstrip("/")
