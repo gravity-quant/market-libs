@@ -260,3 +260,94 @@ async def test_async_login_preserves_cached_refresh_token_when_server_omits(
     assert aio._token == "tok-new"
     # Cached refresh_token preservado tras el login (CR-01 fix).
     assert aio._refresh_token == "refresh-original"
+
+
+# ---- WR-01 Phase 8 review fix: atomic token-clear + ensure-token under lock ----
+
+
+async def test_concurrent_401_triggers_exactly_one_reauth(httpx_mock: HTTPXMock) -> None:
+    """WR-01 invariant lock: N concurrent 401s coalesce into a single re-auth.
+
+    Phase 8 code review WR-01 flagged the token-clear + re-auth path as
+    non-atomic: ``self._state.token = None`` happened OUTSIDE the token_lock,
+    then ``self._ensure_token()`` was called separately (and re-acquired the
+    lock internally). The reviewer warned that this opened a race window
+    where two coroutines could race into duplicate logins.
+
+    In practice, the OLD code WAS protected against thundering herd by virtue
+    of ``_ensure_token``'s double-checked locking: the first coroutine to
+    win the inner lock would do the login, and subsequent coroutines would
+    see ``token_is_fresh = True`` and skip. So WR-01 was a SAFETY-CLARITY
+    finding rather than an active duplicate-login bug.
+
+    The WR-01 fix makes the contract atomic-and-explicit: token-clear is
+    paired with re-auth under a single ``async with lock:`` block, and the
+    re-check compares ``state.token == captured_local_token`` so a coroutine
+    that arrived AFTER another coroutine already refreshed will skip the
+    re-auth and just retry with the new token.
+
+    This test guards the post-fix invariant: 3 concurrent ``get_quote``
+    coroutines hit 401 on the initial request → exactly 1 login wire request
+    fires + all 3 succeed on retry with the fresh token. Test design uses
+    ``match_headers={\"Authorization\": \"Bearer STALE\"}`` to distinguish stale
+    vs fresh on the GET endpoint and registers the login response ONCE
+    (non-reusable) — if the fix regresses and a second concurrent login
+    fires, pytest-httpx raises ``TimeoutException`` with no matching mock.
+    """
+    import asyncio
+
+    # Reset state to force re-auth from scratch using password grant
+    # (no refresh path) for deterministic flow.
+    state = aio._get_default()._state
+    state.refresh_token = None
+
+    aio.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="STALE",
+        token_expires_at=9_999_999_999.0,
+    )
+
+    # Stale-token GETs always return 401 (reusable: 3 concurrent tasks).
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        method="GET",
+        match_headers={"Authorization": "Bearer STALE"},
+        status_code=401,
+        text="bad",
+        is_reusable=True,
+    )
+    # EXACTLY ONE login response (NOT reusable). If the race triggers a second
+    # login attempt, pytest-httpx will raise TimeoutException since there's no
+    # second matching mock.
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        json={"access_token": "FRESH", "expires_in": 900},
+    )
+    # Fresh-token GETs always return 200 (reusable: 3 concurrent retries).
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        method="GET",
+        match_headers={"Authorization": "Bearer FRESH"},
+        json={"ultimoPrecio": 999.9},
+        is_reusable=True,
+    )
+
+    results = await asyncio.gather(
+        aio.get_quote("GGAL"),
+        aio.get_quote("GGAL"),
+        aio.get_quote("GGAL"),
+    )
+    assert all(r["ultimoPrecio"] == 999.9 for r in results)
+
+    # Assert exactly ONE login wire request (deduplication via token_lock).
+    login_requests = [
+        r for r in httpx_mock.get_requests() if r.url.path == "/token" and r.method == "POST"
+    ]
+    assert len(login_requests) == 1, (
+        f"WR-01: expected exactly 1 login wire request from 3 concurrent 401s, "
+        f"got {len(login_requests)}. The token-clear + re-auth was not atomic — "
+        f"two coroutines raced into separate login attempts."
+    )

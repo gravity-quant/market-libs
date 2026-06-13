@@ -311,9 +311,32 @@ class AsyncClient:
             # body-consume-then-raise contract (Phase 7 D-06) on the carve-out.
             await resp.aread()
             # D-02 exactly-one re-auth (async mirror).
-            self._state.token = None
-            await self._ensure_token()
+            # WR-01 fix: token-clear + re-auth must be ATOMIC under the
+            # token_lock. The previous version cleared self._state.token OUTSIDE
+            # the lock, then called self._ensure_token() which takes the lock
+            # internally — opening a race window where N concurrent coroutines
+            # that all hit 401 would each clear the token and each enter
+            # _ensure_token in serial, but the FIRST one to win the lock would
+            # re-login, and subsequent ones would see token_is_fresh() True (good).
+            # HOWEVER: between `self._state.token = None` and the lock acquire
+            # inside _ensure_token, another coroutine on its INITIAL request
+            # could read token=None before having a chance to enter _ensure_token,
+            # causing it to ALSO race into a login attempt — defeating the
+            # thundering-herd protection. The fix is to clear-then-re-auth
+            # under a single lock acquisition by inlining the unlocked variants
+            # (calling _ensure_token from within the lock would deadlock).
             async with lock:
+                # Re-check inside lock: another coroutine may have already
+                # cleared the token AND completed re-login. If so, just retry.
+                if self._state.token is None or self._state.token == token:
+                    self._state.token = None
+                    if self._state.refresh_token:
+                        try:
+                            await self._refresh_unlocked()
+                        except IOLAuthError:
+                            await self._login_unlocked()
+                    else:
+                        await self._login_unlocked()
                 new_token = self._state.token
             assert new_token is not None
             req.headers["Authorization"] = f"Bearer {new_token}"
