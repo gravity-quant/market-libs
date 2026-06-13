@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
-status: verifying
-last_updated: "2026-06-13T09:10:00.000Z"
+status: ready_to_plan
+last_updated: 2026-06-13T13:51:55.028Z
 last_activity: 2026-06-13
 progress:
   total_phases: 6
@@ -11,6 +11,7 @@ progress:
   total_plans: 19
   completed_plans: 19
   percent: 50
+stopped_at: Phase 8 complete (6/6) — ready to discuss Phase 9
 ---
 
 # Project State
@@ -21,20 +22,20 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.1 layer: saldar la deuda arquitectónica que vino a la luz durante el ciclo de verificación v1.0 — refactor Client class, sync/async dedup, matriz aio.py, retries/backoff, structured logging, deferred fixes, harness hardening.)
 
-**Current focus:** Phase 08 — Retries, Backoff, Structured Logging
+**Current focus:** Phase 9 — deferred bug fixes
 
 ## Current Position
 
-Phase: 08 (Retries, Backoff, Structured Logging) — READY FOR VERIFY
-Plan: 6 of 6 — closed (operator-approved 2026-06-13)
-Status: Phase complete — Plan 6 Task 2 operator checkpoint closed; ready for `/gsd-verify-work 8`
-Last activity: 2026-06-13 — Plan 08-06 Task 2 operator checkpoint closure (6 spot-checks PASS)
+Phase: 9
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-13
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 24 (v1.0)
+- Total plans completed: 30 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
