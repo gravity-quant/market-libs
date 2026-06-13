@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import uuid
+import warnings
 from typing import Any, Literal, Self
 
 import httpx
@@ -463,9 +464,31 @@ def configure(
     # transport. Pitfall: configure() is sync; we cannot await prior.aclose()
     # here. Caller is expected to await aclose() before reconfiguring (D-16).
     if max_retries is not None:
+        # WR-07: warn before dropping a live httpx.AsyncClient — its connection
+        # pool + SSL context leak until garbage collection. The recommended
+        # consumer pattern is `await aio.aclose()` BEFORE configure(...).
+        if client._state.http_client is not None:
+            warnings.warn(
+                "iol_client.aio.configure(): replacing a live httpx.AsyncClient "
+                "(via max_retries=) without awaiting aclose() leaks the "
+                "connection pool. Call `await iol_client.aio.aclose()` before "
+                "configure(...) to avoid the leak.",
+                ResourceWarning,
+                stacklevel=2,
+            )
         client._max_retries = max_retries
         client._state.http_client = None
     if http_client is not None:
+        # WR-07: same warning if caller is replacing a live client via http_client=.
+        if client._state.http_client is not None and client._state.http_client is not http_client:
+            warnings.warn(
+                "iol_client.aio.configure(): replacing a live httpx.AsyncClient "
+                "(via http_client=) without awaiting aclose() leaks the "
+                "connection pool. Call `await iol_client.aio.aclose()` before "
+                "configure(...) to avoid the leak.",
+                ResourceWarning,
+                stacklevel=2,
+            )
         client._state.http_client = http_client
 
 

@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import uuid
+import warnings
 from typing import Any, Self
 
 import httpx
@@ -471,6 +472,18 @@ def configure(
     global _default_async_client
     current = _get_default()
     next_max_retries = max_retries if max_retries is not None else current._max_retries
+    # WR-07: warn before dropping a live httpx.AsyncClient — its connection
+    # pool + SSL context leak until garbage collection. The recommended
+    # consumer pattern is `await aio.aclose()` BEFORE configure(...).
+    if current._state.http_client is not None:
+        warnings.warn(
+            "higyrus_client.aio.configure(): replacing a live httpx.AsyncClient "
+            "without awaiting aclose() leaks the connection pool. Call "
+            "`await higyrus_client.aio.aclose()` before configure(...) to avoid "
+            "the leak.",
+            ResourceWarning,
+            stacklevel=2,
+        )
     new = AsyncClient(
         base_url=base_url if base_url is not None else current._state.base_url,
         client_id=client_id if client_id is not None else current._state.client_id,

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+import warnings
 from typing import Any, Self
 
 import httpx
@@ -183,9 +184,25 @@ def configure(
     global _default_async_client
     prior_base_url: str | None = None
     prior_user_agent: str | None = None
+    # WR-07: warn if we're about to drop a live httpx.AsyncClient without
+    # awaiting aclose() (configure is sync, so we cannot await here). The
+    # connection pool + SSL context of the prior client leak until garbage
+    # collection; for long-running processes with rotating credentials this
+    # accumulates unbounded. The recommended consumer pattern is
+    # ``await aio.aclose()`` BEFORE calling aio.configure(...).
     if _default_async_client is not None:
         prior_base_url = _default_async_client._state.base_url
         prior_user_agent = _default_async_client._state.user_agent
+        prior_http_client = _default_async_client._state.http_client
+        if prior_http_client is not None:
+            warnings.warn(
+                "ambito_financiero_client.aio.configure(): replacing a live "
+                "httpx.AsyncClient without awaiting aclose() leaks the connection "
+                "pool. Call `await ambito_financiero_client.aio.aclose()` before "
+                "configure(...) to avoid the leak.",
+                ResourceWarning,
+                stacklevel=2,
+            )
     new_base_url = base_url if base_url is not None else prior_base_url
     new_user_agent = user_agent if user_agent is not None else prior_user_agent
     _default_async_client = AsyncClient(
