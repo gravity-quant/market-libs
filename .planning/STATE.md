@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
 status: executing
-last_updated: "2026-06-13T06:52:36.303Z"
+last_updated: "2026-06-13T07:07:28.659Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 19
-  completed_plans: 14
+  completed_plans: 15
   percent: 33
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 ## Current Position
 
 Phase: 08 (Retries, Backoff, Structured Logging) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-06-13
 
@@ -59,6 +59,7 @@ Last activity: 2026-06-13
 | 10    | TBD   | Not started |
 | 11    | TBD   | Not started |
 | Phase 08 P01 | 15 | 2 tasks | 13 files |
+| Phase 08 P02 | 10 | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,7 @@ Recent decisions affecting current work:
 - [v1.1 Roadmap]: Mutation gate is mandatory — `RequestSpec.idempotent` defaults False; POST/PATCH NEVER retry without explicit `idempotent=True`; `AuthError`/`PrimaryAPIError`/`HigyrusAPIError` NEVER in `retry_on=` tuple.
 - [v1.1 Research Flag]: Phase 10 (matriz `aio.py` + TokenStore) requires phase-level research spike before planning — the 3-way concurrent token store (sync REST + async REST + ws_client daemon thread with `threading.Lock` callable from asyncio context) is the single architectural unknown in v1.1.
 - [Phase ?]: Phase 8 Plan 1: Wave 1 cross-cutting scaffolding landed — tenacity 9.1.4 dep + 6 guard tests (14 RED awaiting Plans 2-5) + ruff LOG + CI grep step (D-15, D-21, D-26, D-27)
+- [Phase ?]: Phase 8 Plan 2 (ámbito canary): RetryTransport + AsyncRetryTransport + RedactingFilter wired; pattern verified for Plan 3 replication
 
 ### Pending Todos
 
@@ -116,7 +118,7 @@ See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit conte
 
 ## Session Continuity
 
-Last session: 2026-06-13T06:52:31.753Z
+Last session: 2026-06-13T07:07:23.826Z
 Stopped at: Phase 8 context gathered
 Resume file: None
 

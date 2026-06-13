@@ -39,31 +39,31 @@ compat layer sobre la clase `Client` interna.
 
 ### Reliability — retries + backoff (RELY)
 
-- [ ] **RELY-01**: Retries transparentes via `tenacity` para status codes
+- [x] **RELY-01**: Retries transparentes via `tenacity` para status codes
   408/409/429/≥500 + connection errors (`ConnectError`, `ConnectTimeout`,
   `ReadTimeout`); default `max_attempts=2`; aplica a los 4 paquetes.
-- [ ] **RELY-02**: Backoff exponencial con **full jitter** (AWS-recommended);
+- [x] **RELY-02**: Backoff exponencial con **full jitter** (AWS-recommended);
   honra `Retry-After` header en 429 y 503 con cap configurable de 60 s.
-- [ ] **RELY-03**: Mutation-aware retry gate — `idempotent: bool = False` por
+- [x] **RELY-03**: Mutation-aware retry gate — `idempotent: bool = False` por
   `_request()`; GET endpoints lo marcan `True` explícitamente; POST/PATCH NUNCA
   se reintentan sin `idempotent=True`; regression test asegura exactamente UN
   request outgoing por POST mockeado contra 503.
-- [ ] **RELY-04**: Manejo explícito de 401 en `_request()` con **exactly one**
+- [x] **RELY-04**: Manejo explícito de 401 en `_request()` con **exactly one**
   re-auth attempt (clear token → `_ensure_token()` → retry once); `AuthError` y
   `<Pkg>APIError`/`PrimaryAPIError`/`HigyrusAPIError` NUNCA entran al
   `retry_on=` tuple de tenacity.
 
 ### Structured logging (LOG)
 
-- [ ] **LOG-01**: `logging.getLogger("<pkg>")` por paquete + `NullHandler` en
+- [x] **LOG-01**: `logging.getLogger("<pkg>")` por paquete + `NullHandler` en
   `__init__.py`; nunca `logging.basicConfig()` ni handlers en `logging.root`;
   CI grep rule que prohíbe ambos en `packages/*/src/`; regression test
   asegura `logging.root.handlers` unchanged tras `import <pkg>`.
-- [ ] **LOG-02**: `RedactingFilter` por paquete con lógica de Bearer/`X-Auth-Token`/
+- [x] **LOG-02**: `RedactingFilter` por paquete con lógica de Bearer/`X-Auth-Token`/
   `password=`/IOL refresh_token/Higyrus JSON password redaction (duplicado 4x,
   no importable de `verification/`); regression test (`caplog`) asegura que no
   hay substring de token en records aunque consumer habilite DEBUG.
-- [ ] **LOG-03**: Convención de niveles + structured `extra={}`:
+- [x] **LOG-03**: Convención de niveles + structured `extra={}`:
   DEBUG=request/response (sin body por default), INFO=auth events, WARNING=
   retries, ERROR=terminal failures; fields obligatorios:
   `package`, `method`, `url`, `status_code`, `attempt`, `duration_ms`;
