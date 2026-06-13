@@ -34,8 +34,9 @@ key-files:
     - "packages/higyrus-client/src/higyrus_client/_state.py — drop `account_id` field + docstring entry"
     - "packages/iol-client/src/iol_client/_state.py — drop `account_id` field + docstring entry (cross-package D-09)"
     - "main_higyrus.py — add `_SAMPLE_CUENTAS_CSV` + `probe_multi_account_iteration` + register in `_D_HIGY_10_ORDER`"
-    - "packages/higyrus-client/src/higyrus_client/client.py — `_FORWARDED_TO_STATE` += `_base_url` forwarder (out-of-scope drift repair, commit `67ca550`)"
-    - "packages/higyrus-client/src/higyrus_client/aio.py — `_FORWARDED_TO_STATE` += `_base_url` + new module-level `_ensure_http_client()` wrapper (out-of-scope drift repair, commit `67ca550`)"
+    - "packages/higyrus-client/src/higyrus_client/client.py — initial shim extension `67ca550` reverted in `c1371fb` (net change: zero from main pre-09-02)"
+    - "packages/higyrus-client/src/higyrus_client/aio.py — initial shim extension `67ca550` reverted in `c1371fb` (net change: zero from main pre-09-02)"
+    - "main_higyrus.py — initial Task 2 probe additions (commit `4f86387`) + post-merge driver migration 21 sites to `_get_default()._state.base_url` / `_get_default()._ensure_http_client()` (commit `c1371fb`)"
     - ".planning/verification/higyrus-client-findings.md — F-02 OPEN → NO-FIX (commit `e2c71ae`)"
 
 key-decisions:
@@ -93,10 +94,11 @@ completed: 2026-06-13
 1. **Task 1: Cross-package `_state.account_id` removal** — `4f0d686` (refactor)
 2. **Task 2: BUG-04 mocked regression + driver probe extension** — `4f86387` (test)
 3. **(safety) Partial SUMMARY pre-checkpoint** — `f59aa24` (docs, executor #2070 protocol)
-4. **(triage) Phase 6 migration drift repair** — `67ca550` (fix; out-of-scope but necessary blocker)
+4. **(triage, INITIAL — superseded)** Phase 6 migration drift — shim extension approach — `67ca550` (fix; reverted in `c1371fb`)
 5. **Task 3: F-02 BUG-02 bucket (a) NO-FIX closure** — `e2c71ae` (docs)
 6. **Task 4:** SKIPPED per plan (Conditional, ejecutar solo si Task 3 retornó bucket (c))
-7. **(final) Updated SUMMARY** — to be authored by orchestrator after this Edit
+7. **(final SUMMARY commit, pre-merge)** — `e628ae1`
+8. **(post-merge correction)** Driver migration to `_get_default()` (restores Phase 6/7 shim contract) — `c1371fb`
 
 ## Files Created/Modified
 
@@ -116,7 +118,11 @@ completed: 2026-06-13
 
 ## Deviations from Plan
 
-- **Out-of-scope shim drift repair (commit `67ca550`).** Live triage required `main_higyrus.py` to execute end-to-end, which was blocked by `AttributeError: module 'higyrus_client.client' has no attribute '_base_url'` and the missing `aio._ensure_http_client` module-level function. Both are Phase 6 migration drift surfaced by Phase 9 (no test had exercised the legacy module-level names since the migration; live driver never ran end-to-end since then). Repair scope: 2 forwarded names + 1 wrapper, totally aligned with the shim's stated purpose (D-01). All tests GREEN before and after. Filed as a deviation because the plan's `files_modified` did not declare `packages/higyrus-client/src/higyrus_client/{client,aio}.py`.
+- **Out-of-scope driver drift repair (final approach: commit `c1371fb`).** Live triage required `main_higyrus.py` to execute end-to-end, which was blocked by `AttributeError: module 'higyrus_client.client' has no attribute '_base_url'` and the missing `aio._ensure_http_client` module-level function. Both are Phase 6 migration drift surfaced by Phase 9 (no test had exercised the legacy module-level names since the migration; live driver never ran end-to-end since then).
+  - **Initial approach (commit `67ca550`, on worktree-merged main):** extended the PEP 562 shim to forward `_base_url` and added a module-level `aio._ensure_http_client()` wrapper. This worked but violated the documented Phase 6/7 contract that credential-adjacent attrs (`_user`, `_password`, `_client_id`, `_base_url`) MUST raise `AttributeError` to force migration to the Client API. The regression test `test_pep_562_shim_raises_for_legacy_credential_names` failed post-merge during the post-merge test gate.
+  - **Corrected approach (commit `c1371fb`, on main):** reverted the shim extension in `{client,aio}.py` and migrated 21 sites in `main_higyrus.py` from `{higyrus_client.client,aio}._base_url` and `aio._ensure_http_client()` to the `_get_default()._state.base_url` and `_get_default()._ensure_http_client()` pattern. This respects the Phase 6/7 contract while keeping the driver runnable.
+  - Full test suite returned to 766 PASSED (+ 3 matriz Phase 10 skipped). Live driver run identical SUMMARY to triage runs.
+  - Filed as a deviation because the plan's `files_modified` declared `main_higyrus.py` as a probe-additions target, not a logic-refactor target.
 - The two literal `httpx_mock.add_response` calls vs. a loop are an interpretation of acceptance grep criteria, not a behavioral deviation (kept from executor Tasks 1+2).
 
 ## Issues Encountered
