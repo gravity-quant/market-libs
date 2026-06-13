@@ -362,6 +362,19 @@ def test_parse_get_detailed_positions_response_returns_model() -> None:
         ("ABCDE", True),  # len 5
         ("ABCDEFG", True),  # len 7
         ("", True),  # empty
+        # WR-01 fix (Phase 9 code review): trailing/leading whitespace bypassa
+        # ``^[A-Z]{6}$`` (Python ``$`` matchea antes de ``\n`` final). Con
+        # ``\A...\Z`` anchors estos casos deben raise.
+        ("ESXXXX\n", True),  # trailing newline
+        ("ESXXXX ", True),  # trailing space
+        (" ESXXXX", True),  # leading space
+        # WR-02 fix (Phase 9 code review): bypass de tipos via ``cast(CFICode,
+        # X)`` para X non-str debe raise PrimaryAPIError, NO TypeError. El
+        # ``# type: ignore[list-item]`` evita que mypy tire el Literal[str]
+        # mismatch del propio parametrize.
+        (None, True),  # type: ignore[list-item]
+        (123, True),  # type: ignore[list-item]
+        ([], True),  # type: ignore[list-item]
     ],
 )
 def test_get_instruments_by_cfi_validates_cfi_code(cfi: str, expect_raise: bool) -> None:

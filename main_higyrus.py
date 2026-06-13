@@ -1,10 +1,11 @@
-"""Driver de verificación en vivo del paquete ``higyrus-client`` (Phase 4).
+"""Driver de verificación en vivo del paquete ``higyrus-client`` (Phase 4 → 9).
 
-Ejecuta 18 probes nombrados que ejercitan la superficie pública sync+async del
-cliente Higyrus contra ``https://cliente.aunesa.com/Irmo`` (o el override
-``HIGYRUS_BASE_URL``) y producen seis artefactos committeables: el findings
-markdown clasificado y 5 schema snapshots JSON (DRIFT-01 mirror, uno por
-endpoint).
+Ejecuta 19 probes nombrados (18 originales Phase 4 + ``probe_multi_account_iteration``
+agregado en Phase 9 Plan 09-02 para BUG-04) que ejercitan la superficie pública
+sync+async del cliente Higyrus contra ``https://cliente.aunesa.com/Irmo`` (o el
+override ``HIGYRUS_BASE_URL``) y producen seis artefactos committeables: el
+findings markdown clasificado y 5 schema snapshots JSON (DRIFT-01 mirror, uno
+por endpoint).
 
 Probes en orden de PRESENTATION D-HIGY-10 (las líneas ``PROBE ...: ...`` se
 imprimen al final en este orden — la EXECUTION order es distinta y respeta
@@ -27,7 +28,8 @@ imprimen al final en este orden — la EXECUTION order es distinta y respeta
 15. ``probe_schema_snapshot``                  — 5 snapshots con envelope D-21 + D-25 no-overwrite (D-HIGY-16).
 16. ``probe_errors_envelope_sync``             — id_cuenta inválido → envelope ``[{title, detail}]`` (HIGY-05).
 17. ``probe_errors_envelope_async``            — espejo async (HIGY-05).
-18. ``probe_auth_401``                         — opt-in vía ``VERIFY_HIGYRUS_BAD_CREDS=1`` (HIGY-AUTH, D-HIGY-10 #18).
+18. ``probe_multi_account_iteration``          — loop sobre 2 cuentas con per-call ``id_cuenta`` kwarg; source order ``HIGYRUS_SAMPLE_CUENTAS`` CSV > live ``get_listado_cuentas`` (BUG-04, Phase 9 Plan 09-02).
+19. ``probe_auth_401``                         — opt-in vía ``VERIFY_HIGYRUS_BAD_CREDS=1`` (HIGY-AUTH, D-HIGY-10 #18).
 
 Uso::
 
@@ -40,6 +42,7 @@ Variables de entorno (cargadas por ``higyrus_client`` vía ``python-dotenv``):
 - ``HIGYRUS_BASE_URL`` (requerido)
 - ``HIGYRUS_CLIENT_ID`` (opcional, default ``""``)
 - ``HIGYRUS_SAMPLE_CUENTA`` (opcional; override de ``cuentas[0].id`` resuelto por probe 5, D-HIGY-11)
+- ``HIGYRUS_SAMPLE_CUENTAS`` (opcional; CSV ``A,B`` con ≥2 ids para forzar el multi-account probe sin depender de live ``get_listado_cuentas``, BUG-04 Phase 9)
 - ``HIGYRUS_SAMPLE_TIPO_CUENTA`` (opcional, default ``"propia"``, D-HIGY-14)
 - ``HIGYRUS_SAMPLE_NIVEL`` (opcional, default ``"detalle"``, D-HIGY-14)
 - ``VERIFY_HIGYRUS_BAD_CREDS=1`` (opcional; activa ``probe_auth_401``, D-HIGY-10 #18)

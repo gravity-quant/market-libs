@@ -76,7 +76,9 @@ from matriz_client.types import (
 # Source of truth: ``matriz_client.types.CFICode`` (Literal, 9 valores).
 # Pattern S5: compile-once regex + frozenset inmutable + hashable derivada del
 # Literal via ``typing.get_args`` (Python 3.12+ garantiza orden de declaración).
-_CFI_ISO_RE = re.compile(r"^[A-Z]{6}$")
+# WR-01 fix (Phase 9 code review): ``\A...\Z`` anchors rechazan trailing ``\n``
+# (Python ``$`` matchea antes de newline final por default sin re.MULTILINE).
+_CFI_ISO_RE = re.compile(r"\A[A-Z]{6}\Z")
 _CFI_LITERAL_VALUES: frozenset[str] = frozenset(get_args(CFICode))
 
 
@@ -459,11 +461,17 @@ def build_get_instruments_by_cfi_request(
     outcome esperado vía ``except PrimaryAPIError as exc: if exc.status
     == "ERROR": PASS``.
     """
-    if cfi_code not in _CFI_LITERAL_VALUES and not _CFI_ISO_RE.match(cfi_code):
+    # WR-02 fix (Phase 9 code review): bypass de tipos (``cast(CFICode, None)``,
+    # ints, lists) NO debe propagar ``TypeError`` — debe colapsar al contrato
+    # observable ``PrimaryAPIError(status="ERROR")`` del guard.
+    if not isinstance(cfi_code, str) or (
+        cfi_code not in _CFI_LITERAL_VALUES and not _CFI_ISO_RE.match(cfi_code)
+    ):
         raise PrimaryAPIError(
             status="ERROR",
             description=(
-                f"CFI inválido: {cfi_code!r} (no está en CFICode Literal ni matchea ^[A-Z]{{6}}$)"
+                f"CFI inválido: {cfi_code!r} "
+                "(no es str, o no está en CFICode Literal, ni matchea ^[A-Z]{6}$)"
             ),
             message=None,
         )

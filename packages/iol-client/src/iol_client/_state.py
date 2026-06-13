@@ -22,11 +22,19 @@ The ``token_lock`` field is consumed by ``AsyncClient`` only; the sync
 in ``__init__``) so that the lock is bound to whatever event loop is
 running when authentication first happens (research Pitfall #6).
 
-The ``refresh_token`` field is forward-declared for schema consistency
-across packages (RESEARCH.md Per-Package Divergence Matrix). Phase 6
-``Client.__init__`` does NOT accept it as a kwarg (D-13).
-``refresh_token`` is mutated by ``Client.login()`` / ``_refresh()``
-internally.
+The ``refresh_token`` field stores the OAuth refresh token captured at
+login. Phase 6 ``Client.__init__`` does NOT accept it as a kwarg (D-13
+preserved). However, the module-level ``configure()`` helper DOES accept
+``refresh_token=...`` since Phase 6 D-IOL-10 (Pitfall #3 extension to
+the original D-13 contract — see ``client.py::configure`` and
+``aio.py::configure``), enabling tests and legacy callers to inject a
+seed token symmetrically with ``configure(token=X)``.
+
+``refresh_token`` is also mutated by ``Client.login()`` / ``_refresh()``
+internally — server-rotated values overwrite the seeded one only when
+the parser returns a non-None value (CR-01 conditional rotation,
+covered by Phase 9 Plan 09-01 regression tests for the 4 paths
+success-rotates / 401-fallback / preserve-on-omit / rotate-on-provide).
 """
 
 from __future__ import annotations
