@@ -108,7 +108,7 @@ __all__ = [
     # Models — safe-access dataclasses
     "AccountId",
     "AccountReport",
-    # REST stub AsyncClient (Phase 6 Plan 06 — Phase 10 REFAC-04 grows it)
+    # REST AsyncClient (Phase 10 Plan 10-02 — full REST surface; Plan 6 stub grown)
     "AsyncClient",
     "AuthenticationError",
     # Types — Literals

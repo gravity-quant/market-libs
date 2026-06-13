@@ -8,7 +8,7 @@
 #
 AccountId : class : (id: 'str | None' = None) -> None
 AccountReport : class : (accountName: 'str | None' = None, marketMember: 'str | None' = None, marketMemberIdentity: 'str | None' = None, collateral: 'float | None' = None, margin: 'float | None' = None, availableToCollateral: 'float | None' = None, detailedAccountReports: 'dict[str, Any]' = <factory>, portfolio: 'dict[str, Any]' = <factory>, ordersMargin: 'float | None' = None, currentCash: 'float | None' = None, dailyDiff: 'float | None' = None, uncoveredMargin: 'float | None' = None) -> None
-AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
+AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
 AuthenticationError : class : (status: 'str', description: 'str | None' = None, message: 'str | None' = None)
 CFICode : _LiteralGenericAlias :
 Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'

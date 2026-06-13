@@ -357,22 +357,57 @@ def test_async_stub_deepcopy_raises() -> None:
         copy.deepcopy(c)
 
 
-def test_matriz_module_aio_exists_and_exports_async_client_only() -> None:
-    """Open Q #1 + B8: aio.py is a STUB with only AsyncClient exported.
+def test_matriz_module_aio_exposes_full_rest_surface() -> None:
+    """Phase 10 Plan 10-02: aio.py is the FULL REST surface (stub grown).
 
-    No top-level configure/login/get_X shims; no _default_async_client.
-    Phase 10 REFAC-04 grows it.
+    Replaces the Phase 6 ``..._exports_async_client_only`` stub-assertion now that
+    Plan 10-02 lands the full async REST surface (REFAC-04 success criterion 1):
+    22 endpoints + module-level delegators + ``configure`` + ``login`` + ``aclose``
+    + ``_default_async_client`` singleton + PEP 562 shim. B8 lock-in still holds.
     """
     from matriz_client import aio as aio_mod
 
-    assert aio_mod.__all__ == ["AsyncClient"]
     assert hasattr(aio_mod, "AsyncClient")
-    # The stub must NOT expose any REST surface or top-level shims.
-    assert not hasattr(aio_mod, "configure")
-    assert not hasattr(aio_mod, "login")
-    assert not hasattr(aio_mod, "get_segments")
-    assert not hasattr(aio_mod, "get_quote")
-    assert not hasattr(aio_mod, "_default_async_client")
+    # The full surface MUST expose top-level shims and the delegators.
+    assert hasattr(aio_mod, "configure")
+    assert hasattr(aio_mod, "login")
+    assert hasattr(aio_mod, "aclose")
+    assert hasattr(aio_mod, "get_segments")
+    assert hasattr(aio_mod, "new_order")
+    assert hasattr(aio_mod, "cancel_order")
+    assert hasattr(aio_mod, "replace_order")
+    assert hasattr(aio_mod, "get_positions")
+    # ``_default_async_client`` lazy singleton lives in the module (private).
+    # Reading ``_get_default()`` is the public entry; the global itself is
+    # private state, so we only assert the accessor exists.
+    assert hasattr(aio_mod, "_get_default")
+    # All 22 endpoint delegators + login + aclose must be present.
+    expected = [
+        "login",
+        "get_segments",
+        "get_all_instruments",
+        "get_instruments_details",
+        "get_instrument_detail",
+        "get_instruments_by_cfi",
+        "get_instruments_by_segment",
+        "new_order",
+        "replace_order",
+        "cancel_order",
+        "get_order_status",
+        "get_order_history",
+        "get_active_orders",
+        "get_filled_orders",
+        "get_all_orders",
+        "get_order_by_exec_id",
+        "get_market_data",
+        "get_trades",
+        "get_positions",
+        "get_detailed_positions",
+        "get_account_report",
+        "aclose",
+    ]
+    missing = [n for n in expected if not hasattr(aio_mod, n)]
+    assert not missing, f"missing module-level delegators: {missing}"
 
 
 def test_matriz_client_exposes_async_client() -> None:
