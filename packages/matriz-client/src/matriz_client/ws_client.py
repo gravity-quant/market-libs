@@ -120,6 +120,26 @@ def _send(msg: dict[str, Any]) -> None:
     _ws.send(json.dumps(msg))
 
 
+def _acquire_token_for_ws(default: _rest.Client) -> None:
+    """Acquire the REST token for the daemon-thread WebSocket connection.
+
+    Phase 10 Plan 10-03 REFAC-04 — 3-way TokenStore wiring. The daemon
+    thread participates in the cross-context lock by calling
+    ``state.token_store.get_sync()`` directly. The preceding
+    ``default._ensure_token()`` call is what lazy-inits ``state.token_store``
+    if this is the first auth call in the process; the explicit
+    ``get_sync()`` then anchors the daemon thread to the shared TokenStore
+    (1 of 3 callers: sync REST main thread, async REST event loop, this
+    daemon thread). The result is mirrored to ``state.token`` for the
+    back-compat ``X-Auth-Token`` header read at the call site.
+    """
+    default._ensure_token()  # lazy-inits state.token_store if needed
+    assert default._state.token_store is not None
+    snap = default._state.token_store.get_sync()
+    default._state.token = snap.value  # mirror for back-compat header read
+    assert default._state.token is not None
+
+
 # ------------------------------------------------------------------
 # Connection
 # ------------------------------------------------------------------
@@ -143,8 +163,8 @@ def ws_connect(
         return
 
     default = _rest._get_default()
-    default._ensure_token()
-    assert default._state.token is not None
+    _acquire_token_for_ws(default)
+    assert default._state.token is not None  # narrowing for header dict below
 
     _on_message = on_message
     _on_error = on_error
