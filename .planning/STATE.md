@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
 status: executing
-last_updated: "2026-06-13T07:07:28.659Z"
+last_updated: "2026-06-13T07:29:22.262Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 19
-  completed_plans: 15
+  completed_plans: 16
   percent: 33
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 ## Current Position
 
 Phase: 08 (Retries, Backoff, Structured Logging) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-06-13
 
@@ -60,6 +60,7 @@ Last activity: 2026-06-13
 | 11    | TBD   | Not started |
 | Phase 08 P01 | 15 | 2 tasks | 13 files |
 | Phase 08 P02 | 10 | 2 tasks | 12 files |
+| Phase 08 P03 | 20 | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [v1.1 Research Flag]: Phase 10 (matriz `aio.py` + TokenStore) requires phase-level research spike before planning — the 3-way concurrent token store (sync REST + async REST + ws_client daemon thread with `threading.Lock` callable from asyncio context) is the single architectural unknown in v1.1.
 - [Phase ?]: Phase 8 Plan 1: Wave 1 cross-cutting scaffolding landed — tenacity 9.1.4 dep + 6 guard tests (14 RED awaiting Plans 2-5) + ruff LOG + CI grep step (D-15, D-21, D-26, D-27)
 - [Phase ?]: Phase 8 Plan 2 (ámbito canary): RetryTransport + AsyncRetryTransport + RedactingFilter wired; pattern verified for Plan 3 replication
+- [Phase ?]: Phase 8 Plan 3 (iol): RetryTransport+AsyncRetryTransport+RedactingFilter mirrored from ámbito + 401 re-auth-once at shell tier (D-02) + OAuth refresh_token URL+JSON redaction (D-10). Auth-paquete pattern established for Plans 4 (higyrus) and 5 (matriz).
+- [Phase ?]: Plan 8-01 cross-cutting test bug fixed: test_idempotent_get_retries_on_503 expected_count corrected from 2 to 3 — Plan 8-01 author had a notation slip; canonical default is max_retries=2 = 3 attempts per D-15+D-19. Unblocks Plans 4+5 too.
 
 ### Pending Todos
 
@@ -118,7 +121,7 @@ See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit conte
 
 ## Session Continuity
 
-Last session: 2026-06-13T07:07:23.826Z
+Last session: 2026-06-13T07:29:22.256Z
 Stopped at: Phase 8 context gathered
 Resume file: None
 
