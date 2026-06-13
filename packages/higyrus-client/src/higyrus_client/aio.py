@@ -311,9 +311,19 @@ class AsyncClient:
             # WR-02 hardening (async mirror): explicit body-consume before re-auth.
             await resp.aread()
             # D-02 exactly-one re-auth (async mirror).
-            self._state.token = None
-            await self._ensure_token()
+            # WR-01 fix: token-clear + re-auth under a SINGLE token_lock
+            # acquisition. The OLD code cleared self._state.token OUTSIDE the
+            # lock then called self._ensure_token() (which re-acquired the
+            # lock). The double-check inside _ensure_token already prevented
+            # duplicate logins in practice, but the contract was non-atomic and
+            # opened a theoretical race window. The fix wraps clear+ensure
+            # under one `async with token_lock:` block with an inner re-check
+            # against the captured local `token` so a coroutine that arrived
+            # AFTER another coroutine refreshed will skip its own re-auth.
             async with token_lock:
+                if self._state.token is None or self._state.token == token:
+                    self._state.token = None
+                    await self._login_unlocked()
                 new_token = self._state.token
             if new_token is None:
                 raise HigyrusAuthError(

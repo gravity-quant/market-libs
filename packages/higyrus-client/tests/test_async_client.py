@@ -355,3 +355,76 @@ async def test_async_get_request_omits_body_and_content_type(
     req = requests[0]
     assert not req.content
     assert "content-type" not in {k.lower() for k in req.headers}
+
+
+# ---- WR-01 Phase 8 review fix: atomic token-clear + ensure-token under lock ----
+
+
+async def test_concurrent_401_triggers_exactly_one_reauth(httpx_mock: HTTPXMock) -> None:
+    """WR-01 invariant lock: N concurrent 401s coalesce into a single re-auth.
+
+    Mirror of the iol WR-01 regression test. The Phase 8 code review flagged
+    higyrus aio._request as having a token-clear + re-auth race window
+    structurally identical to iol. In practice the OLD code's double-checked
+    locking inside _ensure_token already prevented duplicate logins, but the
+    contract was non-atomic. The fix wraps clear + re-auth under a single
+    token_lock acquisition with an inner re-check against the captured local
+    token, so a coroutine that arrives AFTER another coroutine refreshed
+    skips its own re-auth.
+
+    Test: 3 concurrent get_listado_cuentas coroutines hit 401 on the initial
+    request → exactly 1 POST /api/login wire request fires + all 3 succeed
+    on retry with the fresh token. Distinguishes stale vs fresh via
+    match_headers on the GET endpoint; login mock is registered ONCE so the
+    test FAILS with TimeoutException if a duplicate login is attempted.
+    """
+    import asyncio
+
+    aio.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="STALE",
+        token_expires_at=9_999_999_999.0,
+    )
+
+    # Stale-token GETs always return 401 (reusable: 3 concurrent tasks).
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/listadoCuentas?estado=alta",
+        method="GET",
+        match_headers={"Authorization": "Bearer STALE"},
+        status_code=401,
+        text="bad",
+        is_reusable=True,
+    )
+    # EXACTLY ONE login response (NOT reusable) — race triggers TimeoutException.
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        json={"token": "FRESH"},
+    )
+    # Fresh-token GETs always return 200 (reusable: 3 concurrent retries).
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/listadoCuentas?estado=alta",
+        method="GET",
+        match_headers={"Authorization": "Bearer FRESH"},
+        json=[],
+        is_reusable=True,
+    )
+
+    results = await asyncio.gather(
+        aio.get_listado_cuentas(estado="alta"),
+        aio.get_listado_cuentas(estado="alta"),
+        aio.get_listado_cuentas(estado="alta"),
+    )
+    assert all(r == [] for r in results)
+
+    # Assert exactly ONE login wire request (deduplication via token_lock).
+    login_requests = [
+        r for r in httpx_mock.get_requests() if r.url.path == "/api/login" and r.method == "POST"
+    ]
+    assert len(login_requests) == 1, (
+        f"WR-01: expected exactly 1 login wire request from 3 concurrent 401s, "
+        f"got {len(login_requests)}. The token-clear + re-auth was not atomic."
+    )
