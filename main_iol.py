@@ -188,7 +188,7 @@ def probe_login_sync() -> ProbeResult:
     Cualquier otra excepción propaga como crash inesperado (D-04 lo permite).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     try:
         iol_client.login()
     except IOLAuthError as exc:
@@ -223,7 +223,7 @@ async def probe_login_async() -> ProbeResult:
     no surface-segregated — D-IOL-3 Discretion).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         await aio.login()
     except IOLAuthError as exc:
@@ -262,7 +262,7 @@ def probe_get_quote_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
             ProbeResult("get_quote_sync", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     try:
         quote = iol_client.get_quote(_SAMPLE_SYMBOL)
     except IOLAuthError as exc:
@@ -340,7 +340,7 @@ async def probe_get_quote_async() -> tuple[ProbeResult, dict[str, Any] | None]:
             ProbeResult("get_quote_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         quote = await aio.get_quote(_SAMPLE_SYMBOL)
     except IOLAuthError as exc:
@@ -405,7 +405,7 @@ def probe_get_historical_quotes_sync(
             ),
             None,
         )
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     # D-IOL-19: ~5 días hábiles back desde el último hábil (7 calendario ≈ 5 hábiles).
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
@@ -484,7 +484,7 @@ async def probe_get_historical_quotes_async(
             ),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
     try:
@@ -556,7 +556,7 @@ def probe_get_instruments_sync() -> tuple[ProbeResult, Any]:
             ProbeResult("get_instruments_sync", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     try:
         data = iol_client.get_instruments("argentina")
     except IOLAuthError as exc:
@@ -617,7 +617,7 @@ async def probe_get_instruments_async() -> tuple[ProbeResult, Any]:
             ProbeResult("get_instruments_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         data = await aio.get_instruments("argentina")
     except IOLAuthError as exc:
@@ -692,7 +692,7 @@ def probe_get_instruments_by_type_sync() -> tuple[ProbeResult, list[dict[str, An
             ),
             None,
         )
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     try:
         wrapper_result = iol_client.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
     except IOLAuthError as exc:
@@ -802,7 +802,7 @@ async def probe_get_instruments_by_type_async() -> tuple[ProbeResult, list[dict[
             ),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         wrapper_result = await aio.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
     except IOLAuthError as exc:
@@ -891,7 +891,7 @@ def probe_parity_sync_async(
     """
     if _auth_failed:
         return ProbeResult("parity_sync_async", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     pairs: list[tuple[str, Any, Any]] = [
         ("get_quote", quote_sync, quote_async),
         ("get_historical_quotes", historical_sync, historical_async),
@@ -959,7 +959,7 @@ def probe_field_type_map(
             ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             instruments_by_type_envelope,
         )
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     finding_fids: list[str] = []
     envelope: dict[str, Any] | None = instruments_by_type_envelope
 
@@ -1192,7 +1192,7 @@ def probe_schema_snapshot(
     """
     if _auth_failed:
         return ProbeResult("schema_snapshot", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
     targets: list[tuple[str, Any, dict[str, Any]]] = [
@@ -1267,7 +1267,7 @@ def probe_refresh_token() -> ProbeResult:
     """
     if _auth_failed:
         return ProbeResult("refresh_token", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     refresh_before = iol_client.client._refresh_token
     if refresh_before is None:
         fid = _next_fid()
@@ -1407,7 +1407,7 @@ def probe_auth_401() -> ProbeResult:
     if _auth_failed:
         return ProbeResult("auth_401", "SKIPPED", f"auth failed: {_auth_failure_reason}")
 
-    base_url = iol_client.client._base_url
+    base_url = iol_client.client._get_default()._state.base_url
     # D-IOL-2: lee del env, no del state cacheado del cliente (podría haberse
     # sobreescrito por otro probe).
     original_password = os.getenv("IOL_PASSWORD", "")
