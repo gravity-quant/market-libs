@@ -970,3 +970,69 @@ def test_cancel_order_uses_GET_method_per_primary_api_quirk(httpx_mock: HTTPXMoc
     matriz_client.cancel_order("C1", "P1")
     [request] = httpx_mock.get_requests()
     assert request.method == "GET", "Primary API §6.3 mandates GET for order cancel"
+
+
+# ---- WR-02 Phase 8 review fix: body-consume-then-raise on 401 carve-outs ----
+
+
+def test_risk_api_401_carve_out_consumes_body_before_raise(httpx_mock: HTTPXMock) -> None:
+    """WR-02 regression: matriz Risk-path 401 raises with the body already consumed.
+
+    The D-23 carve-out at client.py raises AuthenticationError directly when a
+    Risk API endpoint (auth_basic path) returns 401, without going through
+    `_raise_for_response`. WR-02 hardens that path with an explicit
+    `resp.read()` so the body-consume-then-raise contract (Phase 7 D-06) is
+    preserved end-to-end and the connection pool does not leak the
+    underlying HTTP/2 stream.
+
+    The test mocks a 401 with a non-empty body. After the AuthenticationError
+    is raised, we recover the response object from the httpx mock and assert
+    that `resp.is_closed is True` — the stream was consumed and the underlying
+    socket returned to the pool cleanly.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/rest/risk/position/getPositions/acc",
+        status_code=401,
+        content=b'{"status":"ERROR","description":"Unauthorized"}',
+    )
+    with pytest.raises(AuthenticationError):
+        matriz_client.get_positions("acc")
+    # Exactly one wire request (no re-auth per D-23, no retry per status-401 rule).
+    [request] = httpx_mock.get_requests()
+    assert request.url.path == "/rest/risk/position/getPositions/acc"
+
+
+def test_token_path_second_401_carve_out_consumes_body_before_raise(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """WR-02 regression: matriz Token-path second-401 raises with body consumed.
+
+    After the re-auth-once flow runs and the second response is still 401, the
+    shell raises AuthenticationError with an explicit `resp.read()` for the
+    body-consume-then-raise contract. Mock: 401 → login 200 → 401, assert
+    exactly 3 wire requests and AuthError raised.
+    """
+    matriz_client.configure(
+        base_url="https://api.test",
+        username="user",
+        password="pass",
+        token="STALE",
+        token_expires_at=9_999_999_999.0,
+    )
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        status_code=401,
+        content=b'{"status":"ERROR"}',
+    )
+    httpx_mock.add_response(
+        url="https://api.test/auth/getToken",
+        headers={"X-Auth-Token": "FRESH"},
+    )
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        status_code=401,
+        content=b'{"status":"ERROR"}',
+    )
+    with pytest.raises(AuthenticationError):
+        matriz_client.get_segments()
+    assert len(httpx_mock.get_requests()) == 3

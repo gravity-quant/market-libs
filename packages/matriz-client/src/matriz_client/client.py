@@ -259,6 +259,12 @@ class Client:
             req.extensions["auth_basic"] = spec.auth_basic
             resp = http.send(req, auth=httpx.BasicAuth(*spec.auth_basic))
             if resp.status_code == 401:
+                # WR-02 fix: consume the body BEFORE raising so the HTTP/2 stream
+                # is closed (Phase 7 D-06 body-consume-then-raise hardening
+                # applied to non-retryable carve-out paths). Without this read,
+                # the unread stream leaks against the connection pool when
+                # http2=True is enabled in the future.
+                resp.read()
                 # D-23: auth_basic 401 = invalid credentials. No re-auth (would
                 # just re-send the same wrong basic header). Surface as typed
                 # AuthError immediately.
@@ -297,6 +303,8 @@ class Client:
         req.headers["X-Auth-Token"] = new_token
         resp = http.send(req)
         if resp.status_code == 401:
+            # WR-02 fix: body-consume-then-raise on the second 401 raise-site too.
+            resp.read()
             # Second 401 — re-auth did not help; surface as typed AuthError.
             # No further retry (Pitfall 1 prevention — re-auth happens exactly once).
             raise AuthenticationError(
