@@ -64,12 +64,18 @@ class RequestSpec:
     sin ``data``/``json_body`` (no body), sin ``url_pre_encoded`` (no
     URL-encoding quirks). Sólo ``method`` + ``path`` requeridos; ``params``
     y ``headers`` opcionales.
+
+    Phase 8 extensions (D-09 / D-13 forward-decl): ``idempotent`` drives the
+    ``RetryTransport`` mutation gate (``request.extensions["idempotent"]``);
+    ``endpoint_name`` flows into structured log records (``extra["endpoint_name"]``).
     """
 
     method: str
     path: str
     params: dict[str, Any] | None = None
     headers: dict[str, str] | None = None
+    idempotent: bool = False
+    endpoint_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +119,8 @@ def build_get_dollar_banco_nacion_request(state: _ClientState, date: dt.date) ->
     return RequestSpec(
         method="GET",
         path=f"/dolarnacion/historico-general/{formatted}/{formatted}",
+        idempotent=True,  # D-03 / RELY-03 — GET endpoints retry-safe.
+        endpoint_name="get_dollar_banco_nacion",
     )
 
 

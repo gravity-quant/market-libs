@@ -23,11 +23,12 @@ por proceso (T-06-13), aceptable para FX-rate polling. PEP 562 shim
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any, Self
 
 import httpx
 
-from ambito_financiero_client import _core
+from ambito_financiero_client import _atransport, _core
 from ambito_financiero_client._state import _ClientState
 
 # D-04 mirror alias — identidad B8 preservada vía shared _core source.
@@ -57,19 +58,26 @@ class AsyncClient:
     = ("_state",)`` — sin ``_client_lock``.
     """
 
-    __slots__ = ("_state",)
+    __slots__ = ("_max_retries", "_state")
 
     def __init__(
         self,
         *,
         base_url: str | None = None,
         user_agent: str | None = None,
+        max_retries: int = 2,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
         if user_agent is not None:
             self._state.user_agent = user_agent
+        # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
+        self._max_retries = max_retries
+        # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
+        if http_client is not None:
+            self._state.http_client = http_client
 
     async def __aenter__(self) -> Self:
         return self
@@ -104,22 +112,33 @@ class AsyncClient:
 
     def _ensure_http_client(self) -> httpx.AsyncClient:
         if self._state.http_client is None:
+            # Phase 8 D-15 / D-19: wrap with AsyncRetryTransport.
             self._state.http_client = httpx.AsyncClient(
                 timeout=_REQUEST_TIMEOUT,
                 headers={"User-Agent": self._state.user_agent},
+                transport=_atransport.AsyncRetryTransport(max_attempts=self._max_retries + 1),
             )
         assert isinstance(self._state.http_client, httpx.AsyncClient)
         return self._state.http_client
 
     async def _request(self, spec: _core.RequestSpec) -> httpx.Response:
-        """Transport shell async — dispatch HTTP only (D-03 mirror)."""
-        client = self._ensure_http_client()
-        return await client.request(
+        """Transport shell async — dispatch HTTP only (D-03 mirror).
+
+        Phase 8 D-30 mirror: per-business-call ``request_id`` + extensions.
+        ámbito has no auth → no 401 re-auth branch.
+        """
+        http = self._ensure_http_client()
+        request_id = uuid.uuid4().hex
+        req = http.build_request(
             spec.method,
             f"{self._state.base_url}{spec.path}",
             params=spec.params,
             headers=spec.headers,
         )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        return await http.send(req)
 
     async def get_dollar_banco_nacion(self, date: dt.date) -> float:
         """Cotización vendedor del dólar Banco Nación para ``date`` (async)."""
@@ -142,11 +161,19 @@ def _get_default() -> AsyncClient:
     return _default_async_client
 
 
-def configure(*, base_url: str | None = None, user_agent: str | None = None) -> None:
+def configure(
+    *,
+    base_url: str | None = None,
+    user_agent: str | None = None,
+    max_retries: int = 2,
+    http_client: httpx.AsyncClient | None = None,
+) -> None:
     """Sobrescribe URL base / User-Agent runtime (carry-forward, D-14).
 
     Reemplaza ``_default_async_client``. Instancias explícitas NO se afectan.
     D-19: NO llama ``load_dotenv()``.
+
+    Phase 8 D-15: ``max_retries`` / ``http_client`` mirror sync ``configure``.
     """
     global _default_async_client
     prior_base_url: str | None = None
@@ -156,7 +183,12 @@ def configure(*, base_url: str | None = None, user_agent: str | None = None) -> 
         prior_user_agent = _default_async_client._state.user_agent
     new_base_url = base_url if base_url is not None else prior_base_url
     new_user_agent = user_agent if user_agent is not None else prior_user_agent
-    _default_async_client = AsyncClient(base_url=new_base_url, user_agent=new_user_agent)
+    _default_async_client = AsyncClient(
+        base_url=new_base_url,
+        user_agent=new_user_agent,
+        max_retries=max_retries,
+        http_client=http_client,
+    )
 
 
 async def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
