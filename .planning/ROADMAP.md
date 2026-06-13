@@ -154,7 +154,27 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
   4. BUG-04 (HIGY multi-account iteration) habilitado vía `Client(account_id=X)` por cuenta O `client.get_X(account_id=Y)` per-call (operator decision en planning); regression test live con ≥2 cuentas verifica iteración correcta.
   5. Todos los tests anteriores (277+ baseline + nuevos regressions) siguen verde; ruff + mypy strict + pytest CI green para Python 3.12 y 3.13.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+**Wave 1** *(parallel-safe — paquetes independientes)*
+
+- [ ] 09-01-PLAN.md — iol BUG-03 refresh_token lifecycle regression tests (sync + async, 8 tests) (BUG-03)
+- [ ] 09-02-PLAN.md — higyrus BUG-02 quick triage + BUG-04 multi-account per-call regression + cross-pkg `_state.account_id` cleanup (higyrus + iol) (BUG-02, BUG-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 09-03-PLAN.md — matriz BUG-01 hybrid Literal+regex CFI guard + cycle_closure FAIL→PASS (BUG-01)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 09-04-PLAN.md — Green gate consolidation: full pytest matrix + ruff + mypy strict + lint-imports + cross-leak sentinel + snapshot zero-diff + operator checkpoint (BUG-01..04)
+
+**Cross-cutting constraints:**
+
+- D-11: 4 planes en 3 waves (Wave 1 paralelo, Wave 2 matriz LAST per-package serial idiom, Wave 3 green gate)
+- D-12: 1 commit atómico por plan (no per-bug — Plan 09-02 cubre 2 bugs + cross-pkg cleanup atomic)
+- D-13: Live re-verification bug-driven (Plan 09-02 main_higyrus.py live, Plan 09-03 main_matriz.py live; full 4-pkg live es Phase 11 LIVE-01)
+- security_enforcement=true: each plan has STRIDE threat_model block; T-9-XX threats addressed per plan
 
 ### Phase 10: matriz `aio.py` Creation + TokenStore
 
@@ -199,7 +219,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
-| 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
+| 9. Deferred Bug Fixes                                              | v1.1      | 0/4            | Planning    | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
 
