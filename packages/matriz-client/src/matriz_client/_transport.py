@@ -157,6 +157,12 @@ class RetryTransport(httpx.HTTPTransport):
         request_id = request.extensions.get("request_id", "")
         endpoint_name = request.extensions.get("endpoint_name", "")
         account_id = request.extensions.get("account_id")
+        # CR-02 fix: propagate the auth_basic tuple from the shell into the log
+        # records' extras so the RedactingFilter's D-22 tuple-splitting code path
+        # is actually exercised. The filter splits the (user, password) tuple
+        # into auth_basic_user (operational) + auth_basic_password=*** (redacted).
+        # The Risk API shell sets request.extensions["auth_basic"] per D-22.
+        auth_basic = request.extensions.get("auth_basic")
         start = time.monotonic()
         attempt_number = 0
 
@@ -192,6 +198,11 @@ class RetryTransport(httpx.HTTPTransport):
                         }
                         if account_id:
                             extra["account_id"] = account_id
+                        # CR-02 fix: include auth_basic tuple so RedactingFilter
+                        # splits it into auth_basic_user + auth_basic_password=***
+                        # before the record reaches downstream handlers (D-22).
+                        if auth_basic is not None:
+                            extra["auth_basic"] = auth_basic
                         self._logger.warning("retry attempt", extra=extra)
                         raise _RetryableStatus(response)
                     return response
@@ -212,6 +223,9 @@ class RetryTransport(httpx.HTTPTransport):
             }
             if account_id:
                 extra["account_id"] = account_id
+            # CR-02 fix: same D-22 split for ERROR records on terminal failures.
+            if auth_basic is not None:
+                extra["auth_basic"] = auth_basic
             self._logger.error(
                 "retry exhausted (transport error)",
                 extra=extra,

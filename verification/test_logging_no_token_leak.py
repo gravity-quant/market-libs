@@ -136,10 +136,26 @@ def test_matriz_auth_basic_password_not_logged(
 ) -> None:
     """D-22: matriz Risk API auth_basic password MUST be redacted from log records.
 
-    The RedactingFilter must detect ``auth_basic`` tuple fields in ``record.__dict__``
-    or ``Authorization: Basic ...`` headers and emit ``auth_basic_user=<user>`` +
-    redacted password (never the password literal). Guard test; RED in HEAD until
-    Plan 5 ships matriz `_logging.py` with the auth_basic redaction pattern.
+    The RedactingFilter must detect ``auth_basic`` tuple fields in
+    ``record.__dict__`` and split them into ``auth_basic_user=<user>``
+    (operational, preserved) + ``auth_basic_password="***"`` (redacted) so the
+    password literal NEVER reaches downstream handlers.
+
+    CR-02 fix (Phase 8 review): the previous version of this test called
+    ``client._matriz_legacy_request(..., auth_basic=...)`` which builds a
+    ``RequestSpec`` with ``idempotent=False`` (default). The transport
+    short-circuits non-idempotent requests so NO WARNING record is ever
+    emitted — the loop ``for r in caplog.records: assert _SECRET not in
+    r.getMessage()`` was vacuously true because there were no matriz records
+    AT ALL. The D-22 tuple-splitting filter was never exercised end-to-end.
+
+    The fix is to (a) exercise the REAL Risk surface (``get_positions``,
+    ``idempotent=True``), (b) mock a 503→200 retry chain so the transport
+    emits at least one WARNING record with the canonical D-09 fields, and (c)
+    assert directly that the WARNING record carries ``auth_basic_user`` (the
+    split operational field) AND ``auth_basic_password="***"`` AND that the
+    secret literal does NOT appear anywhere in the record. Now the filter's
+    ``_redact_auth_basic_tuple`` code path is genuinely exercised.
     """
     import matriz_client
 
@@ -152,26 +168,62 @@ def test_matriz_auth_basic_password_not_logged(
     )
     caplog.set_level(logging.DEBUG, logger="matriz_client")
 
+    # 503 → 200 chain on real Risk endpoint. get_positions builds with
+    # auth_basic + idempotent=True so the transport retries on 503 and emits a
+    # WARNING per attempt with the canonical D-09 fields (incl. auth_basic per
+    # CR-02 transport fix).
     httpx_mock.add_response(
-        url="https://api.test/risk/account/something",
-        json={"status": "OK"},
+        url="https://api.test/rest/risk/position/getPositions/acc",
+        status_code=503,
+    )
+    httpx_mock.add_response(
+        url="https://api.test/rest/risk/position/getPositions/acc",
+        json={"status": "OK", "positions": []},
     )
 
-    client = matriz_client.client._get_default()
-    # If parser fails on the synthetic payload, that's not what this test guards.
+    # If the upstream parser raises on the synthetic payload, that's not what
+    # this test guards — we care only about what the log records look like.
     with contextlib.suppress(matriz_client.MatrizClientError):
-        client._matriz_legacy_request(
-            "GET",
-            "/risk/account/something",
-            auth_basic=("risk-user", _SECRET_LITERAL),
-        )
+        matriz_client.get_positions("acc")
 
-    for record in caplog.records:
-        message = record.getMessage()
+    # The transport MUST have emitted at least one WARNING per the D-22 contract
+    # (503→200 chain = 1 retry → 1 WARNING). Without this assertion, the rest of
+    # the test is vacuous (the bug fix CR-02 closes).
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning_records, (
+        "matriz auth_basic redaction guard: expected at least one WARNING record "
+        "from the 503→200 retry chain on get_positions. Got zero. The transport "
+        "is not emitting WARNINGs OR the RetryTransport is not retrying — either "
+        "way the D-22 auth_basic tuple-splitting filter is not exercised."
+    )
+
+    # D-22: the auth_basic tuple in the WARNING extras MUST have been split by
+    # the RedactingFilter into auth_basic_user (operational, kept) and
+    # auth_basic_password (redacted to "***"). The original `auth_basic` key
+    # MUST have been deleted from record.__dict__ so the (user, password)
+    # tuple form never reaches downstream consumers.
+    record = warning_records[0]
+    assert record.__dict__.get("auth_basic_user") == "risk-user", (
+        f"D-22: expected auth_basic_user='risk-user' in record.__dict__, "
+        f"got {record.__dict__.get('auth_basic_user')!r}. The RedactingFilter's "
+        f"tuple-splitting code path is not running."
+    )
+    assert record.__dict__.get("auth_basic_password") == "***", (
+        f"D-22: expected auth_basic_password='***' in record.__dict__, "
+        f"got {record.__dict__.get('auth_basic_password')!r}. "
+    )
+    assert "auth_basic" not in record.__dict__, (
+        f"D-22: original `auth_basic` tuple key MUST be deleted from "
+        f"record.__dict__ after the split; got {record.__dict__.get('auth_basic')!r}."
+    )
+
+    # Cross-cutting safety: scan ALL records for the literal secret.
+    for r in caplog.records:
+        message = r.getMessage()
         assert _SECRET_LITERAL not in message, (
             f"matriz auth_basic password leaked in record.getMessage(): {message!r}"
         )
-        for key, value in record.__dict__.items():
+        for key, value in r.__dict__.items():
             if isinstance(value, str):
                 assert _SECRET_LITERAL not in value, (
                     f"matriz auth_basic password leaked in record.{key}: {value!r}"
