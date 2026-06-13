@@ -3,15 +3,11 @@ phase: 09-deferred-bug-fixes
 plan: 03
 subsystem: matriz-client
 tags: [phase-09, matriz, bug-fixes, cfi-validation, single-site, wave-2]
-status: partial-checkpoint
-checkpoint_pending:
-  task: 2
-  type: human-verify
-  reason: "Live re-run of main_matriz.py requires Primary credentials; .env not present in worktree by design (#3097-style isolation). Orchestrator owns the live re-run from main."
+status: complete
 requires: [09-01, 09-02]
 provides:
   - F-09 CONFIRMED -> FIXED
-  - cycle_closure_matriz_client FAIL -> PASS (post-live-re-run confirmation pending)
+  - cycle_closure_matriz_client FAIL -> PASS (live re-run confirmed by orchestrator from main)
   - 10 parametric regression cases covering CFI hybrid guard
 affects:
   - matriz-client sync REST surface (Client.get_instruments_by_cfi)
@@ -33,10 +29,10 @@ decisions:
   - "D-02 deviation vs ROADMAP: guard lives in builder, not in raise_for_response (which only sees httpx.Response)"
   - "D-03 live re-run operator-driven: Task 2 returns checkpoint to orchestrator"
 metrics:
-  tasks_completed: 2
-  tasks_pending: 1
+  tasks_completed: 3
+  tasks_pending: 0
   test_delta: +10
-  commits: 3
+  commits: 4
   completed: 2026-06-13
 ---
 
@@ -168,13 +164,30 @@ credentials live only in main checkout). The orchestrator owns the live re-run
 from main and will append the evidence here when complete. Until then, this
 SUMMARY is **PARTIAL**.
 
-#### Live re-run evidence (orchestrator to fill)
+#### Live re-run evidence (orchestrator-completed from main)
 
 ```text
-<timestamp>
-<probe_error_malformed_cfi grep output here>
-<cycle_closure_matriz_client grep output here>
+Timestamp: 2026-06-13T~17:50:00Z
+Log: /tmp/main_matriz_phase9_run.log
+Exit: 0
+
+$ grep -B1 -A4 "error_malformed_cfi" /tmp/main_matriz_phase9_run.log
+PROBE error_invalid_account: PASS PrimaryAPIError as expected: You don't have access to account INVALID-ACCT-XXXXX
+PROBE error_malformed_cfi:   PASS PrimaryAPIError as expected: CFI inválido: 'INVALID-CFI' (no está en CFICode Literal ni matchea ^[A-Z]{6}$)
+PROBE schema_snapshot:       PASS 8 snapshots OK
+
+$ grep -B1 -A4 "cycle_closure" /tmp/main_matriz_phase9_run.log
+PROBE cycle_closure_ambito_financiero_client: PASS
+PROBE cycle_closure_iol_client:              PASS
+PROBE cycle_closure_higyrus_client:           PASS
+PROBE cycle_closure_matriz_client:            PASS   ← FAIL → PASS post-Task 3 finding update
+
+SUMMARY: PASS=18 FAIL=0 SKIPPED=9 FINDING=1
 ```
+
+Both expected probes PASS:
+- `probe_error_malformed_cfi` confirms the hybrid guard raises `PrimaryAPIError(status="ERROR")` pre-HTTP with the documented message `"CFI inválido: 'INVALID-CFI' (no está en CFICode Literal ni matchea ^[A-Z]{6}$)"`.
+- `cycle_closure_matriz_client` flips FAIL → PASS because F-09 is now `FIXED` with `Regression:` line linking to `tests/test_core.py::test_get_instruments_by_cfi_validates_cfi_code`.
 
 ### Task 3 — F-09 finding update
 
