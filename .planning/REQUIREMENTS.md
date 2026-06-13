@@ -191,10 +191,10 @@ compat layer sobre la clase `Client` interna.
 | LOG-01   | Phase 8   | Complete |
 | LOG-02   | Phase 8   | Complete |
 | LOG-03   | Phase 8   | Complete |
-| BUG-01   | Phase 9   | Open   |
-| BUG-02   | Phase 9   | Open   |
-| BUG-03   | Phase 9   | Open   |
-| BUG-04   | Phase 9   | Open   |
+| BUG-01   | Phase 9   | Complete |
+| BUG-02   | Phase 9   | Complete |
+| BUG-03   | Phase 9   | Complete |
+| BUG-04   | Phase 9   | Complete |
 | HARN-07  | Phase 11  | Open   |
 | HARN-08  | Phase 11  | Open   |
 | HARN-09  | Phase 11  | Open   |
