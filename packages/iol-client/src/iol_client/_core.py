@@ -85,6 +85,13 @@ class RequestSpec:
     Per-package shape (D-01 / no shared internals): iol-specific ``data``
     field for OAuth ``POST /token`` form-encoded body
     (``application/x-www-form-urlencoded``, NOT JSON).
+
+    Phase 8 extensions (D-09 / D-13): ``idempotent`` drives the
+    ``RetryTransport`` mutation gate (``request.extensions["idempotent"]``);
+    ``endpoint_name`` flows into structured log records
+    (``extra["endpoint_name"]``). Both default to safe values (``False`` for
+    idempotent — mutation gate prevents retry of unmarked specs; ``""`` for
+    endpoint_name — empty string is a valid identifier in the log extra).
     """
 
     method: str
@@ -93,6 +100,8 @@ class RequestSpec:
     headers: dict[str, str] | None = None
     json_body: dict[str, Any] | None = None
     data: dict[str, Any] | None = None
+    idempotent: bool = False
+    endpoint_name: str = ""
 
 
 # ----------------------------------------------------------------------
@@ -134,6 +143,12 @@ def build_login_request(state: _ClientState) -> RequestSpec:
     """Pure: build the OAuth password-grant login request spec.
 
     Endpoint: ``POST /token`` with ``grant_type=password``.
+
+    Phase 8 D-03 / D-29: ``idempotent=True`` — OAuth password grant is
+    replay-safe (a transient 5xx during login can be retried; a successful
+    re-issue just overwrites the prior access_token in state). Marks the
+    transport mutation gate to allow retry. 401 from the auth endpoint is
+    NEVER retry-eable (D-02 / Pitfall 1).
     """
     if not state.username or not state.password:
         raise IOLAuthError(0, "IOL_USER y IOL_PASSWORD son requeridos")
@@ -146,6 +161,8 @@ def build_login_request(state: _ClientState) -> RequestSpec:
             "grant_type": "password",
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
+        idempotent=True,
+        endpoint_name="login",
     )
 
 
@@ -182,6 +199,10 @@ def build_refresh_request(state: _ClientState) -> RequestSpec:
     """Pure: build the OAuth refresh-token request spec.
 
     Endpoint: ``POST /token`` with ``grant_type=refresh_token``.
+
+    Phase 8 D-03 / D-29: ``idempotent=True`` — refresh grant is replay-safe.
+    Same retry semantics as login (5xx retry-eable, 401 raises immediately
+    so the shell falls back to password grant per ``_ensure_token`` body).
     """
     refresh_token = state.refresh_token
     if not refresh_token:
@@ -191,6 +212,8 @@ def build_refresh_request(state: _ClientState) -> RequestSpec:
         path="/token",
         data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
         headers={"Content-Type": "application/x-www-form-urlencoded"},
+        idempotent=True,
+        endpoint_name="refresh",
     )
 
 
@@ -215,7 +238,10 @@ def build_get_quote_request(
     mercado: str = "bcba",
     plazo: str = "t2",
 ) -> RequestSpec:
-    """Pure: build spec for ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion``."""
+    """Pure: build spec for ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion``.
+
+    Phase 8 D-03 / RELY-03: ``idempotent=True`` — GET endpoints are retry-safe.
+    """
     del state  # state-independent (path interpolated from args)
     return RequestSpec(
         method="GET",
@@ -225,6 +251,8 @@ def build_get_quote_request(
             "model.simbolo": simbolo,
             "model.plazo": plazo,
         },
+        idempotent=True,
+        endpoint_name="get_quote",
     )
 
 
@@ -240,6 +268,8 @@ def build_get_historical_quotes_request(
     """Pure: build spec for the seriehistorica endpoint.
 
     Endpoint: ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/{desde}/{hasta}/{ajustada}``.
+
+    Phase 8 D-03 / RELY-03: ``idempotent=True`` — historical data retrieval is GET.
     """
     del state
     return RequestSpec(
@@ -248,6 +278,8 @@ def build_get_historical_quotes_request(
             f"/api/v2/{mercado}/Titulos/{simbolo}/Cotizacion/seriehistorica/"
             f"{desde:%Y-%m-%d}/{hasta:%Y-%m-%d}/{ajustada}"
         ),
+        idempotent=True,
+        endpoint_name="get_historical_quotes",
     )
 
 
@@ -255,11 +287,16 @@ def build_get_instruments_request(
     state: _ClientState,
     pais: str = "argentina",
 ) -> RequestSpec:
-    """Pure: build spec for ``GET /api/v2/{pais}/Titulos/Cotizacion/Instrumentos``."""
+    """Pure: build spec for ``GET /api/v2/{pais}/Titulos/Cotizacion/Instrumentos``.
+
+    Phase 8 D-03 / RELY-03: ``idempotent=True`` — GET instrument listing.
+    """
     del state
     return RequestSpec(
         method="GET",
         path=f"/api/v2/{pais}/Titulos/Cotizacion/Instrumentos",
+        idempotent=True,
+        endpoint_name="get_instruments",
     )
 
 
@@ -269,11 +306,16 @@ def build_get_instruments_by_type_request(
     *,
     pais: str = "argentina",
 ) -> RequestSpec:
-    """Pure: build spec for ``GET /api/v2/Cotizaciones/{instrument_type}/{pais}/Todos``."""
+    """Pure: build spec for ``GET /api/v2/Cotizaciones/{instrument_type}/{pais}/Todos``.
+
+    Phase 8 D-03 / RELY-03: ``idempotent=True`` — GET instrument-by-type listing.
+    """
     del state
     return RequestSpec(
         method="GET",
         path=f"/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos",
+        idempotent=True,
+        endpoint_name="get_instruments_by_type",
     )
 
 

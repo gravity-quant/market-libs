@@ -157,15 +157,21 @@ def test_idempotent_get_retries_on_503(
 ) -> None:
     """RELY-01: idempotent GET on 503 retries up to max_attempts.
 
-    Expected count after Phase 8 Plans 2-5: 2 requests (default max_attempts=2 per
-    D-06 = 1 initial + 1 retry). In HEAD, this asserts len == 2 and FAILS RED —
-    that is the by-design Wave 1 RED gate. Plans 2-5 turn GREEN.
+    Phase 8 D-15 default ``max_retries=2`` → ``max_attempts = N+1 = 3`` per D-19
+    (anthropic/openai SDK semantics: max_retries counts retries, not total
+    attempts). Expected wire count after Plans 2-5 land: 3 requests (1 initial
+    + 2 retries). In HEAD (no _transport.py), len == 1 and FAILS RED — the by-
+    design Wave 1 RED gate.
+
+    NOTE: D-06's "max_attempts default = 2" reading was a notation slip — the
+    canonical default exposed to callers is ``max_retries=2`` (per D-15). The
+    transport's ``max_attempts`` is internal arithmetic ``max_retries + 1``.
     """
     pkg = importlib.import_module(pkg_name)
     _configure_pkg(pkg, pkg_name)
 
-    # Two 503 responses queued; if retry policy is correctly in place,
-    # both will be consumed and the final raise is RateLimitError or APIError.
+    # Three 503 responses queued — covers max_retries=2 → max_attempts=3.
+    httpx_mock.add_response(status_code=503)
     httpx_mock.add_response(status_code=503)
     httpx_mock.add_response(status_code=503)
 
@@ -174,9 +180,9 @@ def test_idempotent_get_retries_on_503(
         fn(**kwargs)
 
     requests = httpx_mock.get_requests()
-    # Phase 8 D-06 default max_attempts=2 → 1 initial + 1 retry = 2 wire requests.
-    assert len(requests) == 2, (
+    # Phase 8 D-15 default max_retries=2 → max_attempts=3 (1 initial + 2 retries).
+    assert len(requests) == 3, (
         f"{pkg_name}.{fn_name} emitted {len(requests)} wire requests against "
-        f"503 — expected 2 (1 initial + 1 retry per max_attempts=2). "
+        f"503 — expected 3 (1 initial + 2 retries per max_retries=2 / D-15+D-19). "
         f"RED in HEAD until Phase 8 Plans 2-5 land RetryTransport."
     )

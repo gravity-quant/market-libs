@@ -41,11 +41,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import uuid
 from typing import Any, Literal, Self
 
 import httpx
 
-from iol_client import _core
+from iol_client import _atransport, _core
 from iol_client._core import RequestSpec
 
 # B8 (D-04): import the shared, stateless helper from _core (NOT from
@@ -82,7 +83,7 @@ class AsyncClient:
     ``await client.aclose()``.
     """
 
-    __slots__ = ("_client_lock", "_state")
+    __slots__ = ("_client_lock", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -92,6 +93,8 @@ class AsyncClient:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        max_retries: int = 2,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._state = _ClientState()
         if base_url is not None:
@@ -104,6 +107,11 @@ class AsyncClient:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
+        self._max_retries = max_retries
+        # Phase 8 D-16: caller-supplied http_client used AS-IS.
+        if http_client is not None:
+            self._state.http_client = http_client
         # Lazy — created in _ensure_http_client on first async use.
         self._client_lock: asyncio.Lock | None = None
 
@@ -156,6 +164,15 @@ class AsyncClient:
     # ------------------------------------------------------------------
 
     async def _ensure_http_client(self) -> httpx.AsyncClient:
+        """Lazily create the per-instance ``httpx.AsyncClient`` with AsyncRetryTransport.
+
+        Phase 8 D-15 / D-19 / D-32: wraps ``AsyncRetryTransport`` so async
+        requests benefit from bounded retries + native ``asyncio.sleep``
+        backoff (CancelledError-aware). Preserves the Phase 6 double-checked
+        locking pattern (``self._client_lock``) — instantiation runs INSIDE
+        the lock-protected block so concurrent first-callers race a single
+        ``AsyncClient`` allocation.
+        """
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.AsyncClient)
@@ -167,7 +184,10 @@ class AsyncClient:
             if http_client is not None:
                 assert isinstance(http_client, httpx.AsyncClient)
                 return http_client
-            new_client = httpx.AsyncClient(timeout=_REQUEST_TIMEOUT)
+            new_client = httpx.AsyncClient(
+                timeout=_REQUEST_TIMEOUT,
+                transport=_atransport.AsyncRetryTransport(max_attempts=self._max_retries + 1),
+            )
             self._state.http_client = new_client
             return new_client
 
@@ -176,16 +196,33 @@ class AsyncClient:
             self._state.token_lock = asyncio.Lock()
         return self._state.token_lock
 
-    async def _login_unlocked(self) -> str:
-        """Caller MUST hold ``self._state.token_lock``."""
-        spec = _core.build_login_request(self._state)
+    async def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
+        """Send an auth-flow request through the AsyncRetryTransport with extensions.
+
+        Phase 8 D-29 mirror: login + refresh go through the SAME
+        AsyncRetryTransport as endpoint requests; ``request.extensions`` carries
+        ``idempotent`` (True per D-03 for both) + ``request_id`` +
+        ``endpoint_name`` so the transport's structured WARNING/ERROR records
+        carry the canonical D-09 fields. NO ``Authorization`` header — auth-flow
+        itself establishes the token.
+        """
         http = await self._ensure_http_client()
-        resp = await http.request(
+        request_id = uuid.uuid4().hex
+        req = http.build_request(
             spec.method,
             f"{self._state.base_url}{spec.path}",
             data=spec.data,
             headers=spec.headers,
         )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        return await http.send(req)
+
+    async def _login_unlocked(self) -> str:
+        """Caller MUST hold ``self._state.token_lock``."""
+        spec = _core.build_login_request(self._state)
+        resp = await self._send_auth_request(spec)
         token, expires_at, refresh = _core.parse_login_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -199,17 +236,11 @@ class AsyncClient:
 
         Pitfall 6: NO llamar ``self._ensure_token()`` / ``self._login_unlocked()``
         / ``self._request(...)`` adentro — re-adquirirían el lock y causarían
-        deadlock. Solo httpx.request directo. ``_ensure_http_client`` usa un
+        deadlock. Solo httpx send directo. ``_ensure_http_client`` usa un
         lock separado (``self._client_lock``), sin conflicto.
         """
         spec = _core.build_refresh_request(self._state)
-        http = await self._ensure_http_client()
-        resp = await http.request(
-            spec.method,
-            f"{self._state.base_url}{spec.path}",
-            data=spec.data,
-            headers=spec.headers,
-        )
+        resp = await self._send_auth_request(spec)
         token, expires_at, refresh = _core.parse_refresh_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -239,23 +270,51 @@ class AsyncClient:
             await self._login_unlocked()
 
     async def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Dispatch an authenticated async request (Bearer) — D-03 returns Response."""
+        """Dispatch an authenticated async request (Bearer) con 401 re-auth-once.
+
+        Phase 8 D-02 + D-30 + RELY-04 async mirror: per-business-call UUID4
+        ``request_id`` + extensions propagation; on 401 (``IOLAuthError`` from
+        ``_raise_for_response``), the shell clears ``state.token``, calls
+        ``_ensure_token()`` (which re-runs the login/refresh flow via the
+        ``token_lock`` double-checked locking), then retries the request ONCE
+        with the refreshed Authorization header. Second 401 raises directly
+        (Pitfall 1 — no infinite loop). All non-401 error statuses raise their
+        typed exceptions directly without re-auth.
+        """
         await self._ensure_token()
         lock = self._ensure_token_lock()
         async with lock:
             token = self._state.token
         assert token is not None
 
+        request_id = uuid.uuid4().hex
         http = await self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
-        return await http.request(
+        req = http.build_request(
             spec.method,
             url,
             params=spec.params,
             json=spec.json_body,
             headers=headers,
         )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        resp = await http.send(req)
+        try:
+            _raise_for_response(resp)
+        except IOLAuthError:
+            # D-02 exactly-one re-auth (async mirror).
+            self._state.token = None
+            await self._ensure_token()
+            async with lock:
+                new_token = self._state.token
+            assert new_token is not None
+            req.headers["Authorization"] = f"Bearer {new_token}"
+            resp = await http.send(req)
+            _raise_for_response(resp)
+        return resp
 
     # ------------------------------------------------------------------
     # Public endpoint methods (mirror sync Client) — 3-liner shells
@@ -331,12 +390,22 @@ def configure(
     token: str | None = None,
     token_expires_at: float | None = None,
     refresh_token: str | None = None,
+    max_retries: int | None = None,
+    http_client: httpx.AsyncClient | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL en runtime con semántica carry-forward.
 
     Mirror del sync ``client.configure()``. Setting ``password=`` resetea
     token cacheado + refresh_token (v1.0 invariant). Otros kwargs ``None``
     se ignoran (carry-forward).
+
+    Phase 8 D-15 / D-16: ``max_retries`` (default 2; ``0`` disables retries)
+    and ``http_client`` (AsyncClient used AS-IS per D-16). Mutating either
+    closes the prior cached ``httpx.AsyncClient`` so the next request
+    re-creates it with the new transport. NOTE: configure() is synchronous,
+    so the prior client is dropped without ``aclose()`` — callers should
+    call ``await aclose()`` BEFORE reconfiguring the http client to avoid
+    leaking the prior connection pool.
     """
     client = _get_default()
     if base_url is not None:
@@ -354,6 +423,15 @@ def configure(
         client._state.token_expires_at = token_expires_at
     if refresh_token is not None:
         client._state.refresh_token = refresh_token
+    # Phase 8 D-15: drop the cached httpx.AsyncClient when retry policy or the
+    # caller-supplied client changes — next request will rebuild with the new
+    # transport. Pitfall: configure() is sync; we cannot await prior.aclose()
+    # here. Caller is expected to await aclose() before reconfiguring (D-16).
+    if max_retries is not None:
+        client._max_retries = max_retries
+        client._state.http_client = None
+    if http_client is not None:
+        client._state.http_client = http_client
 
 
 async def login() -> str:

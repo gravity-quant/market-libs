@@ -6,14 +6,14 @@
 # above and commit the diff alongside the source change that justifies it.
 # See PATTERNS.md Section 3 for the snapshot file convention.
 #
-AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
-Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None) -> 'None'
+AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
+Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'
 IOLAPIError : class : (status_code: 'int', message: 'str') -> 'None'
 IOLAuthError : class : (status_code: 'int', message: 'str') -> 'None'
 IOLClientError : class :
 IOLRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
 InstrumentType : _LiteralGenericAlias :
-configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None) -> 'None'
+configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None) -> 'None'
 get_historical_quotes : function : (simbolo: 'str', desde: 'dt.date', hasta: 'dt.date', *, mercado: 'str' = 'bcba', ajustada: "Literal['ajustada', 'sinAjustar']" = 'sinAjustar') -> 'list[dict[str, Any]]'
 get_instruments : function : (pais: 'str' = 'argentina') -> 'Any'
 get_instruments_by_type : function : (instrument_type: 'InstrumentType', *, pais: 'str' = 'argentina') -> 'list[dict[str, Any]]'

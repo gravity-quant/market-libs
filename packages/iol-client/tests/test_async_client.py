@@ -20,7 +20,14 @@ async def test_async_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_async_request_propaga_auth_error(httpx_mock: HTTPXMock) -> None:
+    """Phase 8 D-02 async mirror: 401 → re-auth-once → 401 still raises IOLAuthError."""
     httpx_mock.add_response(status_code=401, text="bad")
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        json={"access_token": "FRESH", "expires_in": 900},
+    )
+    httpx_mock.add_response(status_code=401, text="bad again")
     with pytest.raises(IOLAuthError):
         await aio._request("GET", "/api/anything")
 

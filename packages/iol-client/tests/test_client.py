@@ -28,7 +28,20 @@ def test_login_falla_sin_credenciales() -> None:
 
 
 def test_request_propaga_auth_error(httpx_mock: HTTPXMock) -> None:
+    """Phase 8 D-02: 401 → re-auth-once → 401 still raises IOLAuthError.
+
+    The shell ``_request()`` catches IOLAuthError on the initial response, clears
+    the cached token, re-authenticates via ``_ensure_token()`` (login because
+    fixture has no refresh_token), then retries the request once. If the retry
+    also yields 401, IOLAuthError propagates (Pitfall 1: NO infinite loop).
+    """
     httpx_mock.add_response(status_code=401, text="bad")
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        json={"access_token": "FRESH", "expires_in": 900},
+    )
+    httpx_mock.add_response(status_code=401, text="bad again")
     with pytest.raises(IOLAuthError):
         iol_client.client._request("GET", "/api/anything")
 

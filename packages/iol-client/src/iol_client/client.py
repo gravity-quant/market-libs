@@ -45,12 +45,13 @@ cacheado.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any, Literal, Self
 
 import httpx
 from dotenv import load_dotenv
 
-from iol_client import _core
+from iol_client import _core, _transport
 from iol_client._core import RequestSpec
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.exceptions import IOLAuthError
@@ -100,7 +101,7 @@ class Client:
     ``close()`` is idempotent.
     """
 
-    __slots__ = ("_state",)
+    __slots__ = ("_max_retries", "_state")
 
     def __init__(
         self,
@@ -110,6 +111,8 @@ class Client:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        max_retries: int = 2,
+        http_client: httpx.Client | None = None,
     ) -> None:
         self._state = _ClientState()
         if base_url is not None:
@@ -122,6 +125,12 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
+        # max_retries=0 disables retries entirely per D-19 (max_attempts <= 1 bypass).
+        self._max_retries = max_retries
+        # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
+        if http_client is not None:
+            self._state.http_client = http_client
 
     def __enter__(self) -> Self:
         return self
@@ -173,25 +182,53 @@ class Client:
     # ------------------------------------------------------------------
 
     def _ensure_http_client(self) -> httpx.Client:
-        """Lazily create the per-instance ``httpx.Client``."""
+        """Lazily create the per-instance ``httpx.Client``.
+
+        Phase 8 D-15 / D-19: wraps ``RetryTransport`` so all requests (auth and
+        endpoint) benefit from bounded retries + full-jitter backoff. The
+        transport's mutation gate (D-01) honors ``request.extensions["idempotent"]``
+        so non-idempotent specs pass through with no retry loop. ``max_attempts =
+        max_retries + 1`` per the anthropic/openai SDK semantics (D-19).
+        """
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.Client)
             return http_client
-        new_client = httpx.Client(timeout=_REQUEST_TIMEOUT)
+        new_client = httpx.Client(
+            timeout=_REQUEST_TIMEOUT,
+            transport=_transport.RetryTransport(max_attempts=self._max_retries + 1),
+        )
         self._state.http_client = new_client
         return new_client
 
-    def login(self) -> str:
-        """Autentica contra ``POST /token`` (OAuth password grant)."""
-        spec = _core.build_login_request(self._state)
+    def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
+        """Send an auth-flow request through the RetryTransport with extensions.
+
+        Phase 8 D-29: login + refresh go through the SAME RetryTransport as
+        endpoint requests so transient 5xx are retry-eable (D-03 marks the
+        auth-flow builders ``idempotent=True``). The shell propagates
+        ``request_id`` + ``endpoint_name`` via ``request.extensions`` so the
+        transport's structured WARNING/ERROR records carry the canonical D-09
+        fields. NO ``Authorization`` header — auth-flow itself establishes the
+        token.
+        """
         http = self._ensure_http_client()
-        resp = http.request(
+        request_id = uuid.uuid4().hex
+        req = http.build_request(
             spec.method,
             f"{self._state.base_url}{spec.path}",
             data=spec.data,
             headers=spec.headers,
         )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        return http.send(req)
+
+    def login(self) -> str:
+        """Autentica contra ``POST /token`` (OAuth password grant)."""
+        spec = _core.build_login_request(self._state)
+        resp = self._send_auth_request(spec)
         token, expires_at, refresh = _core.parse_login_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -204,13 +241,7 @@ class Client:
     def _refresh(self) -> str:
         """POST /token con ``grant_type=refresh_token`` (mirror de login())."""
         spec = _core.build_refresh_request(self._state)
-        http = self._ensure_http_client()
-        resp = http.request(
-            spec.method,
-            f"{self._state.base_url}{spec.path}",
-            data=spec.data,
-            headers=spec.headers,
-        )
+        resp = self._send_auth_request(spec)
         token, expires_at, refresh = _core.parse_refresh_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -235,20 +266,51 @@ class Client:
         self.login()
 
     def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Ejecuta una request autenticada (Bearer) — D-03 retorna Response."""
+        """Ejecuta una request autenticada (Bearer) con 401 re-auth-once.
+
+        Phase 8 D-02 + D-30 + RELY-04: per-business-call ``request_id`` (UUID4)
+        propagated via ``request.extensions``; on 401 (``IOLAuthError`` raised
+        by ``_raise_for_response``), the shell clears the cached token, calls
+        ``_ensure_token()`` to obtain a fresh Bearer, then retries the request
+        ONCE with the refreshed Authorization header. The transport NEVER sees
+        IOLAuthError (D-07 invariant — only HTTP/transport signals trigger
+        retry); the shell handles the auth-stale case explicitly.
+
+        Second-401 case: if the retry also yields 401, ``_raise_for_response``
+        on the second response re-raises IOLAuthError — NO recursion, NO
+        infinite loop (Pitfall 1 prevention). All non-401 error statuses
+        (429, 5xx, etc.) raise their typed exceptions directly without re-auth.
+        """
         self._ensure_token()
         assert self._state.token is not None
 
+        request_id = uuid.uuid4().hex
         http = self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         headers = {"Authorization": f"Bearer {self._state.token}", **(spec.headers or {})}
-        return http.request(
+        req = http.build_request(
             spec.method,
             url,
             params=spec.params,
             json=spec.json_body,
             headers=headers,
         )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        resp = http.send(req)
+        try:
+            _raise_for_response(resp)
+        except IOLAuthError:
+            # D-02 exactly-one re-auth: clear cached token, re-authenticate, retry once.
+            # IOL has no Risk API → no auth_basic branch to skip (cf. matriz D-23).
+            self._state.token = None
+            self._ensure_token()
+            assert self._state.token is not None
+            req.headers["Authorization"] = f"Bearer {self._state.token}"
+            resp = http.send(req)
+            _raise_for_response(resp)
+        return resp
 
     # ------------------------------------------------------------------
     # Public endpoint methods — 3-liner shells consume _core builders/parsers
@@ -338,6 +400,8 @@ def configure(
     token: str | None = None,
     token_expires_at: float | None = None,
     refresh_token: str | None = None,
+    max_retries: int | None = None,
+    http_client: httpx.Client | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL en runtime con semántica carry-forward.
 
@@ -353,6 +417,13 @@ def configure(
     podría haber usado direct-state write, pero exponer el kwarg da una
     API simétrica (configure(token=X) ↔ configure(refresh_token=X)). El
     surface kwargs completo aterriza en Phase 9 BUG-03 (D-13).
+
+    Phase 8 D-15 / D-16 / D-19: ``max_retries`` (default 2; ``0`` disables
+    retries entirely per D-19) and ``http_client`` (used AS-IS without
+    auto-wrapping with ``RetryTransport`` per D-16) are carry-forward
+    kwargs. Mutating ``max_retries`` or ``http_client`` closes the prior
+    cached ``httpx.Client`` so the next request re-creates it with the
+    new transport.
     """
     client = _get_default()
     if base_url is not None:
@@ -371,6 +442,20 @@ def configure(
         client._state.token_expires_at = token_expires_at
     if refresh_token is not None:
         client._state.refresh_token = refresh_token
+    # Phase 8 D-15: rebuild the cached httpx.Client when retry policy changes
+    # so the new max_attempts takes effect on the next request.
+    if max_retries is not None:
+        client._max_retries = max_retries
+        if client._state.http_client is not None:
+            assert isinstance(client._state.http_client, httpx.Client)
+            client._state.http_client.close()
+            client._state.http_client = None
+    if http_client is not None:
+        if client._state.http_client is not None:
+            assert isinstance(client._state.http_client, httpx.Client)
+            client._state.http_client.close()
+        # D-16: caller-supplied http_client used AS-IS (no auto-wrap).
+        client._state.http_client = http_client
 
 
 def login() -> str:

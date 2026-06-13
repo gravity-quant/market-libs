@@ -20,8 +20,17 @@ Async::
     await aio.aclose()
 """
 
-from iol_client.aio import AsyncClient
-from iol_client.client import (
+# Phase 8 LOG-01: attach NullHandler + RedactingFilter to package logger BEFORE
+# any other imports — library convention per Python Logging HOWTO. NEVER touches
+# logging.root. The ``del`` cleanup prevents ``_logging_attach`` from leaking as a
+# top-level package attribute (snapshot Pitfall 8 prevention).
+from iol_client import _logging as _logging_attach
+
+_logging_attach.attach()
+del _logging_attach
+
+from iol_client.aio import AsyncClient  # noqa: E402
+from iol_client.client import (  # noqa: E402
     Client,
     InstrumentType,
     _get_default,
@@ -32,7 +41,7 @@ from iol_client.client import (
     get_quote,
     login,
 )
-from iol_client.exceptions import (
+from iol_client.exceptions import (  # noqa: E402
     IOLAPIError,
     IOLAuthError,
     IOLClientError,
