@@ -54,6 +54,7 @@ select = [
     "PT",       # flake8-pytest-style
     "RET",      # flake8-return
     "TID",      # flake8-tidy-imports
+    "LOG",      # Phase 8 D-27 — flake8-logging plugin (LOG001..LOG015 — root-logger-call enforcement)
 ]
 ignore = [
     "E501",  # line-too-long (formatter ya se encarga)
