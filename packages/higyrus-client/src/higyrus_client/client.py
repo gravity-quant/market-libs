@@ -580,13 +580,9 @@ def _request(
 
 # Maps legacy module-level name -> _ClientState attribute name. The
 # ``_token_ts`` entry encodes the cross-pkg rename to ``token_expires_at``.
-# ``_base_url`` forwarded to repair Phase 6 migration drift surfaced by
-# Phase 9 Plan 09-02 BUG-02 triage — driver ``main_higyrus.py`` reads
-# ``higyrus_client.client._base_url`` extensively.
 _FORWARDED_TO_STATE: dict[str, str] = {
     "_token": "token",
     "_token_ts": "token_expires_at",
-    "_base_url": "base_url",
 }
 
 _FORWARDED_HTTP_CLIENT = "_client"

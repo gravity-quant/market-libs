@@ -290,7 +290,7 @@ async def _capture_async_query_string(
     client es lazy; ``_ensure_http_client`` se invoca para garantizar que
     ``_client is not None`` antes de modificar los hooks.
     """
-    await aio._ensure_http_client()
+    await aio._get_default()._ensure_http_client()
     assert aio._client is not None
     client = aio._client
     captured: dict[str, str] = {}
@@ -405,7 +405,7 @@ def probe_login_sync() -> ProbeResult:
     aborte la driver antes de las 18 líneas + SUMMARY (review-04 CR-02).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     try:
         higyrus_client.login()
     except HigyrusClientError as exc:
@@ -458,7 +458,7 @@ async def probe_login_async() -> ProbeResult:
     fuera de ``asyncio.run()`` y aborten la driver antes del SUMMARY.
     """
     global _auth_failed, _auth_failure_reason
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         await aio.login()
     except HigyrusClientError as exc:
@@ -517,7 +517,7 @@ def probe_get_health_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
             ProbeResult("get_health_sync", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     try:
         raw = higyrus_client.client._request("GET", "/api/health")
     except HigyrusAuthError as exc:
@@ -590,7 +590,7 @@ async def probe_get_health_async() -> tuple[ProbeResult, dict[str, Any] | None]:
             ProbeResult("get_health_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         raw = await aio._request("GET", "/api/health")
     except HigyrusAuthError as exc:
@@ -684,7 +684,7 @@ def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] 
             ),
             None,
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     try:
         raw = higyrus_client.client._request(
             "GET",
@@ -830,7 +830,7 @@ async def probe_get_listado_cuentas_async() -> tuple[ProbeResult, list[dict[str,
             ),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         raw = await aio._request(
             "GET",
@@ -929,7 +929,7 @@ def probe_get_movimientos_sync(
             ProbeResult("get_movimientos_sync", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     fecha_desde = today - dt.timedelta(days=30)
     fecha_hasta = today
     try:
@@ -1033,7 +1033,7 @@ async def probe_get_movimientos_async(
             ProbeResult("get_movimientos_async", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     fecha_desde = today - dt.timedelta(days=30)
     fecha_hasta = today
     try:
@@ -1147,7 +1147,7 @@ def probe_get_posicion_valuada_sync(
             ProbeResult("get_posicion_valuada_sync", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     try:
         raw = higyrus_client.client._request(
             "GET",
@@ -1261,7 +1261,7 @@ async def probe_get_posicion_valuada_async(
             ProbeResult("get_posicion_valuada_async", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         raw = await aio._request(
             "GET",
@@ -1394,7 +1394,7 @@ def probe_get_posiciones_sync(
             ProbeResult("get_posiciones_sync", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     try:
         raw = higyrus_client.client._request(
             "GET",
@@ -1501,7 +1501,7 @@ async def probe_get_posiciones_async(
             ProbeResult("get_posiciones_async", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         raw = await aio._request(
             "GET",
@@ -1609,7 +1609,7 @@ def probe_parity_sync_async(
         return ProbeResult("parity_sync_async", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     if resolved_cuenta is None:
         return ProbeResult("parity_sync_async", "SKIPPED", "no _resolved_cuenta resuelto")
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     fecha_desde = today - dt.timedelta(days=30)
     fecha_hasta = today
     sync_q = _capture_sync_query_string(resolved_cuenta, fecha_desde, fecha_hasta)
@@ -1656,7 +1656,7 @@ def probe_field_type_map(
     """
     if _auth_failed:
         return ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     targets: list[tuple[str, dict[str, Any] | None, type]] = [
         (
             "cuenta",
@@ -1822,7 +1822,7 @@ def probe_errors_envelope_sync(today: dt.date) -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     try:
         higyrus_client.get_movimientos(_INVALID_CUENTA_LITERAL, today, today)
     except HigyrusAPIError as exc:
@@ -1893,7 +1893,7 @@ async def probe_errors_envelope_async(today: dt.date) -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = aio._base_url
+    base_url = aio._get_default()._state.base_url
     try:
         await aio.get_movimientos(_INVALID_CUENTA_LITERAL, today, today)
     except HigyrusAPIError as exc:
@@ -1979,7 +1979,7 @@ def probe_auth_401() -> ProbeResult:
     if _auth_failed:
         return ProbeResult("auth_401", "SKIPPED", f"auth failed: {_auth_failure_reason}")
 
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     original_password = os.getenv("HIGYRUS_PASSWORD", "")
     bad_password = original_password + "_INVALID"
     try:
@@ -2076,7 +2076,7 @@ def probe_multi_account_iteration() -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     # Source 1: env var override (CSV).
     if _SAMPLE_CUENTAS_CSV.strip():
         cuentas = [c.strip() for c in _SAMPLE_CUENTAS_CSV.split(",") if c.strip()]
@@ -2360,7 +2360,7 @@ def main() -> None:
     )
 
     # (j) Probe 15 (schema_snapshot) — 5 snapshots.
-    base_url = higyrus_client.client._base_url
+    base_url = higyrus_client.client._get_default()._state.base_url
     results["schema_snapshot"] = probe_schema_snapshot(today, _resolved_cuenta, payloads, base_url)
 
     # (k) Probe 16 (errors_envelope_sync) — always-on.

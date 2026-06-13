@@ -600,18 +600,6 @@ async def _request(
     return body
 
 
-async def _ensure_http_client() -> httpx.AsyncClient:
-    """Module-level shim async — delegate to default AsyncClient.
-
-    Phase 6 migration drift repair (surfaced by Phase 9 Plan 09-02 BUG-02
-    triage): ``main_higyrus.py`` invokes ``await aio._ensure_http_client()``
-    to materialize the lazy ``httpx.AsyncClient`` before async probes run.
-    The method now lives on ``AsyncClient``; this shim preserves the
-    legacy module-level entry point.
-    """
-    return await _get_default()._ensure_http_client()
-
-
 # Maps legacy module-level name -> _ClientState attribute name. ``_token_ts``
 # encodes the cross-pkg rename to ``token_expires_at``; ``_token_lock``
 # exposes the lazy state.token_lock.
@@ -619,10 +607,6 @@ _FORWARDED_TO_STATE: dict[str, str] = {
     "_token": "token",
     "_token_ts": "token_expires_at",
     "_token_lock": "token_lock",
-    # ``_base_url`` forwarded to repair Phase 6 migration drift surfaced by
-    # Phase 9 Plan 09-02 BUG-02 triage — driver ``main_higyrus.py`` reads
-    # ``aio._base_url`` extensively.
-    "_base_url": "base_url",
 }
 
 _FORWARDED_HTTP_CLIENT = "_client"
