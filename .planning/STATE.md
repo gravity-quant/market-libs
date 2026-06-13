@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
-status: executing
-last_updated: "2026-06-13T16:17:57.360Z"
+status: ready_to_plan
+last_updated: 2026-06-13T19:12:05.535Z
 last_activity: 2026-06-13 -- Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 23
-  completed_plans: 19
+  completed_plans: 23
   percent: 50
+stopped_at: Phase 09 complete (4/4) — ready to discuss Phase 10
 ---
 
 # Project State
@@ -21,20 +22,20 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.1 layer: saldar la deuda arquitectónica que vino a la luz durante el ciclo de verificación v1.0 — refactor Client class, sync/async dedup, matriz aio.py, retries/backoff, structured logging, deferred fixes, harness hardening.)
 
-**Current focus:** Phase 09 — deferred-bug-fixes
+**Current focus:** Phase 10 — matriz `aio.py` creation + tokenstore
 
 ## Current Position
 
-Phase: 09 (deferred-bug-fixes) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 09
-Last activity: 2026-06-13 -- Phase 09 execution started
+Phase: 10
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-13
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 30 (v1.0)
+- Total plans completed: 34 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 

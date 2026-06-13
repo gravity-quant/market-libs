@@ -71,17 +71,17 @@ compat layer sobre la clase `Client` interna.
 
 ### Deferred bug fixes (BUG)
 
-- [ ] **BUG-01**: F-09 matriz ERROR-MAP — diferido en Phase 5 v1.0; fix en
+- [x] **BUG-01**: F-09 matriz ERROR-MAP — diferido en Phase 5 v1.0; fix en
   `_core.raise_for_response` (cubre sync y async desde 1 site) + regression
   test mockeado; cierra el FAIL de `verify_cycle_closure` DRIFT-02.
-- [ ] **BUG-02**: F-02 higyrus `get_listado_cuentas=0` — investigación y fix en
+- [x] **BUG-02**: F-02 higyrus `get_listado_cuentas=0` — investigación y fix en
   `_core.py` (single-site, cubre sync+async); regression test mockeado +
   re-verificación live (puede quedar FINDING vs FIXED según root cause).
-- [ ] **BUG-03**: IOL refresh_token persistence between invocations — usar
+- [x] **BUG-03**: IOL refresh_token persistence between invocations — usar
   `_ClientState.refresh_token` (in-memory por instancia, deferred a disk
   persistence para v1.2); regression tests para refresh→success y
   refresh→password fallback en el ciclo de vida de una instancia.
-- [ ] **BUG-04**: HIGY multi-account iteration — API soporta múltiples cuentas
+- [x] **BUG-04**: HIGY multi-account iteration — API soporta múltiples cuentas
   asociadas; `Client` instance permite multi-account (`Client(account_id=X)`
   por cuenta, OR `client.get_X(account_id=Y)` per-call — operator decision en
   planning); regression test live con ≥2 cuentas.
