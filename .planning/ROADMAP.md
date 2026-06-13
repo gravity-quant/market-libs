@@ -197,7 +197,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 10-02-PLAN.md — AsyncRetryTransport + AsyncClient full REST surface (22 endpoints + 22 module-level async delegators + PEP 562 shim back-compat); test_atransport.py + test_async_auth/queries/mutations.py (+30 tests); D-25 carve-out closed (REFAC-04)
+- [x] 10-02-PLAN.md — AsyncRetryTransport + AsyncClient full REST surface (22 endpoints + 22 module-level async delegators + PEP 562 shim back-compat); test_atransport.py + test_async_auth/queries/mutations.py (+30 tests); D-25 carve-out closed (REFAC-04)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -249,7 +249,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
-| 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 1/4 | In Progress|  |
+| 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 2/4 | In Progress|  |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
 
 ## Backlog
