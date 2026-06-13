@@ -42,12 +42,13 @@ default-client; reads de ``_user``/``_password``/``_client_id``/
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any, Self
 
 import httpx
 from dotenv import load_dotenv
 
-from higyrus_client import _core
+from higyrus_client import _core, _transport
 from higyrus_client._core import RequestSpec
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
 from higyrus_client.exceptions import HigyrusAuthError
@@ -77,7 +78,7 @@ class Client:
     Phase 7 transport shell. Pickle / deepcopy NO soportados (D-23).
     """
 
-    __slots__ = ("_state",)
+    __slots__ = ("_max_retries", "_state")
 
     def __init__(
         self,
@@ -88,6 +89,8 @@ class Client:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        max_retries: int = 2,
+        http_client: httpx.Client | None = None,
     ) -> None:
         self._state = _ClientState()
         if base_url is not None:
@@ -102,6 +105,12 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
+        # max_retries=0 disables retries entirely per D-19 (max_attempts <= 1 bypass).
+        self._max_retries = max_retries
+        # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
+        if http_client is not None:
+            self._state.http_client = http_client
 
     # ---- Lifecycle ----
 
@@ -150,19 +159,54 @@ class Client:
     # ---- HTTP client + auth ----
 
     def _ensure_http_client(self) -> httpx.Client:
-        """Crea ``httpx.Client`` lazy en el primer uso."""
+        """Crea ``httpx.Client`` lazy en el primer uso.
+
+        Phase 8 D-15 / D-19: wraps ``RetryTransport`` so all requests (auth and
+        endpoint) benefit from bounded retries + full-jitter backoff. The
+        transport's mutation gate (D-01) honors ``request.extensions["idempotent"]``
+        so non-idempotent specs pass through with no retry loop. ``max_attempts =
+        max_retries + 1`` per the anthropic/openai SDK semantics (D-19).
+        """
         client = self._state.http_client
         if isinstance(client, httpx.Client):
             return client
-        new_client = httpx.Client(timeout=_REQUEST_TIMEOUT)
+        new_client = httpx.Client(
+            timeout=_REQUEST_TIMEOUT,
+            transport=_transport.RetryTransport(max_attempts=self._max_retries + 1),
+        )
         self._state.http_client = new_client
         return new_client
+
+    def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
+        """Send an auth-flow request (login) through the RetryTransport with extensions.
+
+        Phase 8 D-29: login goes through the SAME RetryTransport as endpoint
+        requests so transient 5xx are retry-eable (D-03 marks ``build_login_request``
+        ``idempotent=True``). The shell propagates ``request_id`` + ``endpoint_name``
+        via ``request.extensions`` so the transport's structured WARNING/ERROR
+        records carry the canonical D-09 fields. NO ``Authorization`` header —
+        auth-flow itself establishes the token.
+
+        URL-encoding quirk preservation (Phase 7): login uses ``json_body``, not
+        ``params``, so ``url_pre_encoded`` does not apply here.
+        """
+        http = self._ensure_http_client()
+        request_id = uuid.uuid4().hex
+        req = http.build_request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            json=spec.json_body,
+            headers=spec.headers,
+        )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        return http.send(req)
 
     def login(self) -> str:
         """Autentica contra ``POST /api/login`` y cachea el token (TTL 23h)."""
         spec = _core.build_login_request(self._state)
-        http = self._ensure_http_client()
-        resp = http.post(f"{self._state.base_url}{spec.path}", json=spec.json_body)
+        resp = self._send_auth_request(spec)
         token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -174,12 +218,36 @@ class Client:
             self.login()
 
     def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Transport shell — orquesta auth + dispatch HTTP. Quirk vive en ``_core``.
+        """Transport shell — orquesta auth + dispatch HTTP con 401 re-auth-once.
+
+        Phase 8 D-02 + D-30 + D-11 + RELY-04: per-business-call ``request_id``
+        (UUID4) propagated via ``request.extensions``; on 401 (``HigyrusAuthError``
+        raised by ``_core.raise_for_response``), the shell clears the cached token,
+        calls ``_ensure_token()`` to obtain a fresh Bearer, then retries the
+        request ONCE with the refreshed Authorization header. The transport NEVER
+        sees ``HigyrusAuthError`` (D-07 invariant — only HTTP/transport signals
+        trigger retry); the shell handles the auth-stale case explicitly.
+
+        D-11: ``spec.account_id`` (when non-None) is propagated to
+        ``request.extensions["account_id"]`` so structured log records (WARNING/
+        ERROR emitted by the RetryTransport) include it as an extra field. No
+        leak when caller didn't pass id_cuenta.
+
+        Second-401 case: if the retry also yields 401, ``raise_for_response`` on
+        the second response re-raises HigyrusAuthError — NO recursion, NO
+        infinite loop (Pitfall 1 prevention). All non-401 error statuses (429,
+        5xx, etc.) raise their typed exceptions directly without re-auth.
+
+        URL-encoding quirk preservation (Phase 7): when ``spec.url_pre_encoded``
+        is True, the ``path`` already includes the pre-encoded query string with
+        the Higyrus quirk (``/`` literal preserved). We forward it verbatim to
+        ``httpx.Client.build_request(url=..., params=None)`` so httpx does not
+        re-encode.
 
         WR-03 fix Phase 7 review: si ``_ensure_token()`` retorna sin excepción
         pero ``self._state.token`` queda ``None`` (estado inconsistente —
         servidor responde 200 sin token), reemplazamos el ``assert`` por
-        ``HigyrusAuthError`` tipado. Mirror del fix en ``aio._request``.
+        ``HigyrusAuthError`` tipado.
         """
         self._ensure_token()
         token = self._state.token
@@ -188,16 +256,55 @@ class Client:
                 0,
                 [{"title": "auth", "detail": "_ensure_token() returned without populating token"}],
             )
+
+        request_id = uuid.uuid4().hex
         http = self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
-        # WR-02: omitir `json` cuando no hay body para no inyectar `null` en GETs.
-        kwargs: dict[str, Any] = {"headers": headers}
-        if spec.json_body is not None:
-            kwargs["json"] = spec.json_body
-        if not spec.url_pre_encoded and spec.params is not None:
-            kwargs["params"] = spec.params
-        return http.request(spec.method, url, **kwargs)
+
+        # WR-02 preservation + URL-encoding quirk preservation:
+        # - When url_pre_encoded is True: build with params=None, path is verbatim.
+        # - When url_pre_encoded is False: pass params= kwarg so httpx encodes them.
+        build_params: dict[str, Any] | None = None if spec.url_pre_encoded else spec.params
+        # json_body is omitted when None to avoid injecting ``null`` on GETs.
+        req = (
+            http.build_request(
+                spec.method, url, params=build_params, json=spec.json_body, headers=headers
+            )
+            if spec.json_body is not None
+            else http.build_request(spec.method, url, params=build_params, headers=headers)
+        )
+
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        # D-11: only set account_id when non-None (no leak when caller didn't pass id_cuenta).
+        if spec.account_id is not None:
+            req.extensions["account_id"] = spec.account_id
+
+        resp = http.send(req)
+        try:
+            _raise_for_response(resp)
+        except HigyrusAuthError:
+            # D-02 exactly-one re-auth: clear cached token, re-authenticate, retry once.
+            # higyrus has no Risk API → no auth_basic branch to skip (cf. matriz D-23).
+            self._state.token = None
+            self._ensure_token()
+            new_token = self._state.token
+            if new_token is None:
+                raise HigyrusAuthError(
+                    0,
+                    [
+                        {
+                            "title": "auth",
+                            "detail": "_ensure_token() returned without populating token",
+                        }
+                    ],
+                ) from None
+            req.headers["Authorization"] = f"Bearer {new_token}"
+            resp = http.send(req)
+            _raise_for_response(resp)
+        return resp
 
     # ---- Endpoints (Phase 7 3-liner shells) ----
 
@@ -307,14 +414,23 @@ def configure(
     client_id: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
+    max_retries: int | None = None,
+    http_client: httpx.Client | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL del default-client en runtime.
 
     Semántica carry-forward: el default-client se reemplaza por una NUEVA
     instancia copiando los valores actuales para kwargs no pasados.
+
+    Phase 8 D-15 / D-16 / D-19: ``max_retries`` (default 2; ``0`` disables
+    retries entirely per D-19) and ``http_client`` (used AS-IS without
+    auto-wrapping with ``RetryTransport`` per D-16) are carry-forward kwargs.
+    Replacing the default-client closes the prior cached ``httpx.Client``.
     """
     global _default_client
     current = _get_default()
+    # Phase 8: carry forward max_retries from the current client unless explicitly overridden.
+    next_max_retries = max_retries if max_retries is not None else current._max_retries
     new = Client(
         base_url=base_url if base_url is not None else current._state.base_url,
         client_id=client_id if client_id is not None else current._state.client_id,
@@ -322,6 +438,8 @@ def configure(
         password=password if password is not None else current._state.password,
         token=token,
         token_expires_at=token_expires_at,
+        max_retries=next_max_retries,
+        http_client=http_client,
     )
     current.close()
     _default_client = new

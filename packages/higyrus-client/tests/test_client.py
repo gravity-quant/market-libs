@@ -69,6 +69,19 @@ def test_login_falla_si_falta_base_url() -> None:
 
 
 def test_request_propaga_auth_error(httpx_mock: HTTPXMock) -> None:
+    """Phase 8 D-02: 401 → re-auth-once (login) → 401 still raises HigyrusAuthError.
+
+    The shell ``_request()`` catches HigyrusAuthError on the initial response,
+    clears the cached token, re-authenticates via ``_ensure_token()`` (which
+    calls ``login()``), then retries the request once. If the retry also yields
+    401, HigyrusAuthError propagates (Pitfall 1: NO infinite loop).
+    """
+    httpx_mock.add_response(status_code=401, json={})
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        json={"token": "FRESH"},
+    )
     httpx_mock.add_response(status_code=401, json={})
     with pytest.raises(HigyrusAuthError):
         higyrus_client.client._request("GET", "/api/health")
@@ -393,13 +406,19 @@ def test_login_403_levanta_authorization_error(httpx_mock: HTTPXMock) -> None:
 def test_login_429_levanta_rate_limit(httpx_mock: HTTPXMock) -> None:
     """Regression WR-01 (review-04): login() con 429 debe levantar
     ``HigyrusRateLimitError`` (no ``httpx.HTTPStatusError``).
+
+    Phase 8 D-03: ``build_login_request`` is marked ``idempotent=True`` so 429
+    is retry-eable by the RetryTransport. Queue 3 x429 (default
+    ``max_retries=2`` → max_attempts=3) so the final exhaust surfaces as
+    ``HigyrusRateLimitError`` (D-05 last-response semantics).
     """
-    httpx_mock.add_response(
-        url="https://api.test/api/login",
-        method="POST",
-        status_code=429,
-        json={"errors": [{"title": "rate", "detail": "too many"}]},
-    )
+    for _ in range(3):
+        httpx_mock.add_response(
+            url="https://api.test/api/login",
+            method="POST",
+            status_code=429,
+            json={"errors": [{"title": "rate", "detail": "too many"}]},
+        )
     with pytest.raises(HigyrusRateLimitError) as exc_info:
         higyrus_client.login()
     assert exc_info.value.status_code == 429
@@ -409,13 +428,19 @@ def test_login_500_levanta_api_error(httpx_mock: HTTPXMock) -> None:
     """Regression WR-01 (review-04): login() con 500 debe levantar
     ``HigyrusAPIError`` (no ``httpx.HTTPStatusError``); todos los non-2xx
     se canalizan vía ``_raise_for_response``.
+
+    Phase 8 D-03: ``build_login_request`` is marked ``idempotent=True`` so 5xx
+    is retry-eable by the RetryTransport. Queue 3 x500 (default
+    ``max_retries=2`` → max_attempts=3) so the final exhaust surfaces as
+    ``HigyrusAPIError`` (D-05 last-response semantics).
     """
-    httpx_mock.add_response(
-        url="https://api.test/api/login",
-        method="POST",
-        status_code=500,
-        json={"errors": [{"title": "server", "detail": "boom"}]},
-    )
+    for _ in range(3):
+        httpx_mock.add_response(
+            url="https://api.test/api/login",
+            method="POST",
+            status_code=500,
+            json={"errors": [{"title": "server", "detail": "boom"}]},
+        )
     with pytest.raises(HigyrusAPIError) as exc_info:
         higyrus_client.login()
     assert exc_info.value.status_code == 500

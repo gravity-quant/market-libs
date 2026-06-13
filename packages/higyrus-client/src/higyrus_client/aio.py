@@ -39,11 +39,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import uuid
 from typing import Any, Self
 
 import httpx
 
-from higyrus_client import _core
+from higyrus_client import _atransport, _core
 from higyrus_client._core import RequestSpec
 from higyrus_client._core import raise_for_response as _raise_for_response  # D-04 B8 alias
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
@@ -80,7 +81,7 @@ class AsyncClient:
     soportados (D-23).
     """
 
-    __slots__ = ("_client_lock", "_state")
+    __slots__ = ("_client_lock", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -91,6 +92,8 @@ class AsyncClient:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        max_retries: int = 2,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._state = _ClientState()
         if base_url is not None:
@@ -105,6 +108,11 @@ class AsyncClient:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
+        self._max_retries = max_retries
+        # Phase 8 D-16: caller-supplied http_client used AS-IS.
+        if http_client is not None:
+            self._state.http_client = http_client
         # Lazy: bound to the current event loop on first use.
         self._client_lock: asyncio.Lock | None = None
 
@@ -170,7 +178,15 @@ class AsyncClient:
         return self._state.token_lock
 
     async def _ensure_http_client(self) -> httpx.AsyncClient:
-        """Crea ``httpx.AsyncClient`` lazy (necesita loop)."""
+        """Crea ``httpx.AsyncClient`` lazy (necesita loop) con AsyncRetryTransport.
+
+        Phase 8 D-15 / D-19 / D-32: wraps ``AsyncRetryTransport`` so async
+        requests benefit from bounded retries + native ``asyncio.sleep``
+        backoff (CancelledError-aware). Preserves the Phase 6/7 double-checked
+        locking pattern (``self._client_lock``) — instantiation runs INSIDE
+        the lock-protected block so concurrent first-callers race a single
+        ``AsyncClient`` allocation.
+        """
         client = self._state.http_client
         if isinstance(client, httpx.AsyncClient):
             return client
@@ -179,15 +195,39 @@ class AsyncClient:
             client = self._state.http_client
             if isinstance(client, httpx.AsyncClient):
                 return client
-            new_client = httpx.AsyncClient(timeout=_REQUEST_TIMEOUT)
+            new_client = httpx.AsyncClient(
+                timeout=_REQUEST_TIMEOUT,
+                transport=_atransport.AsyncRetryTransport(max_attempts=self._max_retries + 1),
+            )
             self._state.http_client = new_client
             return new_client
+
+    async def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
+        """Send an auth-flow request (login) through the AsyncRetryTransport with extensions.
+
+        Phase 8 D-29 mirror: login goes through the SAME AsyncRetryTransport as
+        endpoint requests; ``request.extensions`` carries ``idempotent`` (True
+        per D-03) + ``request_id`` + ``endpoint_name`` so the transport's
+        structured WARNING/ERROR records carry the canonical D-09 fields. NO
+        ``Authorization`` header — auth-flow itself establishes the token.
+        """
+        http = await self._ensure_http_client()
+        request_id = uuid.uuid4().hex
+        req = http.build_request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            json=spec.json_body,
+            headers=spec.headers,
+        )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        return await http.send(req)
 
     async def _login_unlocked(self) -> str:
         """Login sin tomar el lock (asume que el caller lo tiene)."""
         spec = _core.build_login_request(self._state)
-        http = await self._ensure_http_client()
-        resp = await http.post(f"{self._state.base_url}{spec.path}", json=spec.json_body)
+        resp = await self._send_auth_request(spec)
         token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -210,13 +250,27 @@ class AsyncClient:
             await self._login_unlocked()
 
     async def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Transport shell async — orquesta auth + dispatch HTTP. Quirk vive en ``_core``.
+        """Dispatch an authenticated async request (Bearer) con 401 re-auth-once.
+
+        Phase 8 D-02 + D-30 + D-11 + RELY-04 async mirror: per-business-call UUID4
+        ``request_id`` + extensions propagation (incl. account_id when set per
+        D-11); on 401 (``HigyrusAuthError`` from ``raise_for_response``), the
+        shell clears ``state.token``, calls ``_ensure_token()`` (which re-runs
+        the login flow via the ``token_lock`` double-checked locking), then
+        retries the request ONCE with the refreshed Authorization header. Second
+        401 raises directly (Pitfall 1 — no infinite loop). All non-401 error
+        statuses raise their typed exceptions directly without re-auth.
+
+        URL-encoding quirk preservation (Phase 7): when ``spec.url_pre_encoded``
+        is True, the ``path`` already includes the pre-encoded query string with
+        the Higyrus quirk (``/`` literal preserved). We forward it verbatim to
+        ``httpx.AsyncClient.build_request(url=..., params=None)`` so httpx does
+        not re-encode.
 
         WR-03 fix Phase 7 review: si ``_ensure_token()`` retorna sin excepción
         pero ``self._state.token`` queda ``None`` (estado inconsistente —
         servidor responde 200 sin token), reemplazamos el ``assert`` por
-        ``HigyrusAuthError`` tipado para que el caller pueda capturarlo dentro
-        de la jerarquía del paquete en vez de un ``AssertionError`` genérico.
+        ``HigyrusAuthError`` tipado.
         """
         await self._ensure_token()
         token_lock = self._ensure_token_lock()
@@ -227,16 +281,52 @@ class AsyncClient:
                 0,
                 [{"title": "auth", "detail": "_ensure_token() returned without populating token"}],
             )
+
+        request_id = uuid.uuid4().hex
         http = await self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
-        # WR-02 mirror: omitir `json` cuando no hay body.
-        kwargs: dict[str, Any] = {"headers": headers}
-        if spec.json_body is not None:
-            kwargs["json"] = spec.json_body
-        if not spec.url_pre_encoded and spec.params is not None:
-            kwargs["params"] = spec.params
-        return await http.request(spec.method, url, **kwargs)
+
+        # WR-02 mirror + URL-encoding quirk preservation:
+        build_params: dict[str, Any] | None = None if spec.url_pre_encoded else spec.params
+        req = (
+            http.build_request(
+                spec.method, url, params=build_params, json=spec.json_body, headers=headers
+            )
+            if spec.json_body is not None
+            else http.build_request(spec.method, url, params=build_params, headers=headers)
+        )
+
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        # D-11: only set account_id when non-None (no leak when caller didn't pass id_cuenta).
+        if spec.account_id is not None:
+            req.extensions["account_id"] = spec.account_id
+
+        resp = await http.send(req)
+        try:
+            _raise_for_response(resp)
+        except HigyrusAuthError:
+            # D-02 exactly-one re-auth (async mirror).
+            self._state.token = None
+            await self._ensure_token()
+            async with token_lock:
+                new_token = self._state.token
+            if new_token is None:
+                raise HigyrusAuthError(
+                    0,
+                    [
+                        {
+                            "title": "auth",
+                            "detail": "_ensure_token() returned without populating token",
+                        }
+                    ],
+                ) from None
+            req.headers["Authorization"] = f"Bearer {new_token}"
+            resp = await http.send(req)
+            _raise_for_response(resp)
+        return resp
 
     # ---- Endpoints (Phase 7 3-liner shells) ----
 
@@ -346,10 +436,21 @@ def configure(
     client_id: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
+    max_retries: int | None = None,
+    http_client: httpx.AsyncClient | None = None,
 ) -> None:
-    """Sobrescribe credenciales/URL del default async client (carry-forward semantic)."""
+    """Sobrescribe credenciales/URL del default async client (carry-forward semantic).
+
+    Phase 8 D-15 / D-16 / D-19: ``max_retries`` (default 2; ``0`` disables
+    retries) and ``http_client`` (AsyncClient used AS-IS per D-16) are
+    carry-forward kwargs. NOTE: configure() is synchronous, so the prior client
+    is dropped without ``aclose()`` — callers should call ``await aclose()``
+    BEFORE reconfiguring the http client to avoid leaking the prior connection
+    pool.
+    """
     global _default_async_client
     current = _get_default()
+    next_max_retries = max_retries if max_retries is not None else current._max_retries
     new = AsyncClient(
         base_url=base_url if base_url is not None else current._state.base_url,
         client_id=client_id if client_id is not None else current._state.client_id,
@@ -357,6 +458,8 @@ def configure(
         password=password if password is not None else current._state.password,
         token=token,
         token_expires_at=token_expires_at,
+        max_retries=next_max_retries,
+        http_client=http_client,
     )
     # NOTE: no podemos await current.aclose() acá (configure es sync).
     _default_async_client = new

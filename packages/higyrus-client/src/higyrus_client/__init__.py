@@ -22,8 +22,17 @@ Las credenciales se leen de variables de entorno (``HIGYRUS_BASE_URL``,
 :func:`configure`.
 """
 
-from higyrus_client.aio import AsyncClient
-from higyrus_client.client import (
+# Phase 8 LOG-01: attach NullHandler + RedactingFilter to package logger BEFORE
+# any other imports — library convention per Python Logging HOWTO. NEVER touches
+# logging.root. The ``del`` cleanup prevents ``_logging_attach`` from leaking as a
+# top-level package attribute (snapshot Pitfall 8 prevention).
+from higyrus_client import _logging as _logging_attach
+
+_logging_attach.attach()
+del _logging_attach
+
+from higyrus_client.aio import AsyncClient  # noqa: E402
+from higyrus_client.client import (  # noqa: E402
     Client,
     configure,
     get_health,
@@ -33,17 +42,17 @@ from higyrus_client.client import (
     get_posiciones,
     login,
 )
-from higyrus_client.client import (
+from higyrus_client.client import (  # noqa: E402
     _get_default as _get_default,
 )
-from higyrus_client.exceptions import (
+from higyrus_client.exceptions import (  # noqa: E402
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
     HigyrusClientError,
     HigyrusRateLimitError,
 )
-from higyrus_client.models import (
+from higyrus_client.models import (  # noqa: E402
     Administrador,
     Agente,
     Cuenta,

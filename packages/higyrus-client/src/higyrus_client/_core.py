@@ -103,6 +103,21 @@ class RequestSpec:
     - ``url_pre_encoded is False`` → ``path`` es sólo la ruta; ``params``
       (si no es ``None``) se pasan como kwarg a ``httpx`` que aplica el
       encoding standard.
+
+    Phase 8 D-01/D-09/D-11 extensions (additive, back-compat preserving):
+
+    - ``idempotent: bool = False`` — mutation gate per RELY-03. POST/PATCH
+      stay ``False`` (default); GET builders + ``build_login_request`` flip
+      ``True`` per D-03. The shell ``_request()`` copies this to
+      ``request.extensions["idempotent"]`` so the RetryTransport's gate sees
+      it.
+    - ``endpoint_name: str = ""`` — symbolic name for structured log records.
+      Set by builders (e.g. ``endpoint_name="get_movimientos"``); propagated
+      via ``request.extensions["endpoint_name"]``.
+    - ``account_id: str | None = None`` — higyrus-specific D-11 propagation.
+      Builders that accept ``id_cuenta`` populate this field; the shell
+      ``_request()`` sets ``request.extensions["account_id"]`` only when
+      non-None (no leak when caller doesn't pass id_cuenta).
     """
 
     method: str
@@ -111,6 +126,10 @@ class RequestSpec:
     headers: dict[str, str] | None = None
     json_body: dict[str, Any] | None = None
     url_pre_encoded: bool = False
+    # Phase 8 additions (additive, defaulted for back-compat with Phase 7).
+    idempotent: bool = False
+    endpoint_name: str = ""
+    account_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +213,11 @@ def build_login_request(state: _ClientState) -> RequestSpec:
             "username": state.username,
             "password": state.password,
         },
+        # D-03: login is replay-safe (a fresh Bearer simply replaces the prior);
+        # marked idempotent=True so transient 5xx during auth retries via the
+        # RetryTransport. 401 still NEVER retries — handled by shell re-auth flow.
+        idempotent=True,
+        endpoint_name="login",
     )
 
 
@@ -248,7 +272,12 @@ def _encode_query(base_path: str, params: dict[str, Any]) -> str:
 
 def build_get_health_request(_state: _ClientState) -> RequestSpec:
     """``GET /api/health`` — sin params, sin quirk."""
-    return RequestSpec(method="GET", path="/api/health")
+    return RequestSpec(
+        method="GET",
+        path="/api/health",
+        idempotent=True,
+        endpoint_name="get_health",
+    )
 
 
 def build_get_movimientos_request(
@@ -272,7 +301,14 @@ def build_get_movimientos_request(
         "movimiento": movimiento,
     }
     path = _encode_query(f"/api/cuentas/{id_cuenta}/movimientos", params)
-    return RequestSpec(method="GET", path=path, url_pre_encoded=True)
+    return RequestSpec(
+        method="GET",
+        path=path,
+        url_pre_encoded=True,
+        idempotent=True,
+        endpoint_name="get_movimientos",
+        account_id=id_cuenta,
+    )
 
 
 def build_get_posicion_valuada_request(
@@ -308,7 +344,14 @@ def build_get_posicion_valuada_request(
         "actualizar": format_bool(actualizar),
     }
     path = _encode_query(f"/api/cuentas/{id_cuenta}/posicionValuada", params)
-    return RequestSpec(method="GET", path=path, url_pre_encoded=True)
+    return RequestSpec(
+        method="GET",
+        path=path,
+        url_pre_encoded=True,
+        idempotent=True,
+        endpoint_name="get_posicion_valuada",
+        account_id=id_cuenta,
+    )
 
 
 def build_get_listado_cuentas_request(
@@ -329,7 +372,16 @@ def build_get_listado_cuentas_request(
         "fechaHasta": format_date(fecha_hasta),
     }
     path = _encode_query("/api/cuentas/listadoCuentas", params)
-    return RequestSpec(method="GET", path=path, url_pre_encoded=True)
+    # listadoCuentas does NOT take a single id_cuenta — it can filter by a LIST
+    # of accounts via the ``id_cuenta`` kwarg. We do NOT set account_id (D-11
+    # is single-account-scoped; multi-account log correlation is out of scope).
+    return RequestSpec(
+        method="GET",
+        path=path,
+        url_pre_encoded=True,
+        idempotent=True,
+        endpoint_name="get_listado_cuentas",
+    )
 
 
 def build_get_posiciones_request(
@@ -347,7 +399,14 @@ def build_get_posiciones_request(
         "incluirParking": format_bool(incluir_parking),
     }
     path = _encode_query(f"/api/cuentas/{id_cuenta}/posiciones", params)
-    return RequestSpec(method="GET", path=path, url_pre_encoded=True)
+    return RequestSpec(
+        method="GET",
+        path=path,
+        url_pre_encoded=True,
+        idempotent=True,
+        endpoint_name="get_posiciones",
+        account_id=id_cuenta,
+    )
 
 
 # ---------------------------------------------------------------------------

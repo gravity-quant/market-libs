@@ -30,6 +30,19 @@ async def test_async_login_obtiene_token(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_async_request_propaga_auth_error(httpx_mock: HTTPXMock) -> None:
+    """Phase 8 D-02 async mirror: 401 → re-auth-once (login) → 401 still raises HigyrusAuthError.
+
+    Mirrors the sync test — the async shell catches HigyrusAuthError on the
+    initial response, clears the cached token, re-authenticates, then retries
+    once. If the retry also yields 401, HigyrusAuthError propagates (Pitfall 1:
+    NO infinite loop).
+    """
+    httpx_mock.add_response(status_code=401, json={})
+    httpx_mock.add_response(
+        url="https://api.test/api/login",
+        method="POST",
+        json={"token": "FRESH"},
+    )
     httpx_mock.add_response(status_code=401, json={})
     with pytest.raises(HigyrusAuthError):
         await aio._request("GET", "/api/health")
@@ -312,13 +325,18 @@ async def test_async_login_403_levanta_authorization_error(httpx_mock: HTTPXMock
 async def test_async_login_500_levanta_api_error(httpx_mock: HTTPXMock) -> None:
     """Regression WR-01 mirror (review-04): aio.login() con 500 debe levantar
     ``HigyrusAPIError`` (no ``httpx.HTTPStatusError``).
+
+    Phase 8 D-03: ``build_login_request`` is marked ``idempotent=True`` so 5xx
+    is retry-eable by the AsyncRetryTransport. Queue 3 x 500 so the final
+    exhaust surfaces as ``HigyrusAPIError`` (D-05 last-response semantics).
     """
-    httpx_mock.add_response(
-        url="https://api.test/api/login",
-        method="POST",
-        status_code=500,
-        json={"errors": [{"title": "server", "detail": "boom"}]},
-    )
+    for _ in range(3):
+        httpx_mock.add_response(
+            url="https://api.test/api/login",
+            method="POST",
+            status_code=500,
+            json={"errors": [{"title": "server", "detail": "boom"}]},
+        )
     with pytest.raises(HigyrusAPIError) as exc_info:
         await aio.login()
     assert exc_info.value.status_code == 500
