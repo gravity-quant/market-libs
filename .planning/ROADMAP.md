@@ -189,8 +189,37 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
   4. `ws_client.py` migrado a leer del `TokenStore` (vía `_default().state.token_store` o equivalente); el shim PEP 562 sigue funcionando como red de seguridad para callers que aún lean `_rest._token`.
   5. CI green: 277+ baseline tests + nuevos async tests matriz (≥30 según estimación research) pasan en Python 3.12 y 3.13; pytest-asyncio fixtures siguen el patrón de iol-client conftest.
 
-**Plans**: TBD
-**Research flag**: yes — TokenStore threading design spike requerido antes del planning de la phase (el 3-way concurrent token store es el único architectural unknown de v1.1).
+**Plans**: 4 plans
+
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — TokenStore + RefreshPolicy primitive (4 src + 3 test files, +CONCERNS.md leak entry); spike 001c+003 ports verbatim; standalone testable (REFAC-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 10-02-PLAN.md — AsyncRetryTransport + AsyncClient full REST surface (22 endpoints + 22 module-level async delegators + PEP 562 shim back-compat); test_atransport.py + test_async_auth/queries/mutations.py (+30 tests); D-25 carve-out closed (REFAC-04)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 10-03-PLAN.md — `_state.py` +1 field `token_store` + sync/async/ws_client migration to `state.token_store.{get_sync,get_async}()` + cross-thread regression test (+5 tests); ORP-01 `account_id` preserved (REFAC-04)
+
+**Wave 4** *(blocked on Wave 3 — operator-driven live gate)*
+
+- [ ] 10-04-PLAN.md — Live verification paridad sync↔async via `main_matriz.py` interleaved probes (D-06) + 3 forward-reference skips flipped + cross-leak sentinel matriz async extension + snapshot regen (matriz: +AsyncClient + 22 delegators; otros 3: zero diff) + CI green matrix 3.12+3.13 + operator checkpoint (REFAC-04, LIVE-02)
+
+**Research flag**: closed — TokenStore 3-way design spike completed (Spike 001c + 003); blueprint auto-loaded via `.claude/skills/spike-findings-market-libs/`.
+
+**Cross-cutting constraints:**
+
+- D-01: 4 new src files máxima cohesión (`_token_store.py` + `_refresh.py` + `_refresh_policy.py` + `_refresh_errors.py`)
+- D-03: solo `max_retries` expuesto en public API; otros knobs hardcoded internamente
+- D-04: `ttl_seconds = 23 * 3600` hardcoded en `build_token_store()`
+- D-05: `_async_locks` process-lifetime leak accept-and-document (CONCERNS.md entry, ~80B/dead loop)
+- D-06: live verification = `main_iol.py`-style interleaved sync+async probes (NO `--async` flag)
+- D-08: 1 commit atómico por plan (4 commits total)
+- D-09: live re-verification scope = matriz async paridad only (Phase 11 LIVE-01 cubre full × 4)
+- Carry-forward Phase 6-9: `from __future__ import annotations`, mutation gate (Pitfall 4), single-site `_core.py` fix, RedactingFilter LOG-02, B8 lock-in (`raise_for_response` from `_core`), PEP 562 shim back-compat, NO touch `_state.py:55 account_id` (ORP-01 Phase 11 CR-08), NO re-architect ws_client.py daemon-thread
+- security_enforcement=true: each plan has STRIDE threat_model block; T-10-NN threats addressed per plan
 
 ### Phase 11: Harness Hardening + Code Review Close-out + Live Re-verification
 
