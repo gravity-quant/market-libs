@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
-status: ready_to_plan
-last_updated: 2026-06-13T19:12:05.535Z
-last_activity: 2026-06-13 -- Phase 09 execution started
+status: planning
+last_updated: "2026-06-13T21:16:55.898Z"
+last_activity: "2026-06-13 - Completed quick task 260613-nwb: fix INT-01 main_iol.py _base_url legacy"
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 23
   completed_plans: 23
-  percent: 50
-stopped_at: Phase 09 complete (4/4) — ready to discuss Phase 10
+  percent: 67
 ---
 
 # Project State
@@ -130,9 +129,9 @@ See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit conte
 
 ## Session Continuity
 
-Last session: 2026-06-13T14:48:20.644Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-deferred-bug-fixes/09-CONTEXT.md
+Last session: 2026-06-13T21:16:55.888Z
+Stopped at: Phase 10 context gathered
+Resume file: .planning/phases/10-matriz-aio-py-creation-tokenstore/10-CONTEXT.md
 
 ## Operator Next Steps
 
