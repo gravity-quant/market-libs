@@ -77,18 +77,30 @@ def test_ensure_token_skips_when_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ensure_token_refreshes_when_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 10 Plan 10-03 REFAC-04: when the cached token is stale,
+    ``_ensure_token`` delegates to ``state.token_store.get_sync()`` (NOT
+    ``self.login()`` as in Phase 6). The TokenStore in turn calls the
+    underlying ``MatrizRefresh`` adapter; monkeypatching that adapter
+    proves the refresh path was exercised exactly once.
+    """
+    from matriz_client import _refresh
+
     default = matriz_client._get_default()
+    # Force a fresh TokenStore build so the monkeypatch applies to the
+    # adapter used by this test (the conftest may have pre-warmed a store).
     default._state.token = "old"
     default._state.token_expires_at = time.time() - (24 * 60 * 60)
+    default._state.token_store = None
     called = {"n": 0}
 
-    def fake_login(self: object) -> str:
+    def fake_refresh(self: object, call_id: int) -> str:
         called["n"] += 1
         return "new"
 
-    monkeypatch.setattr(_client.Client, "login", fake_login)
+    monkeypatch.setattr(_refresh.MatrizRefresh, "__call__", fake_refresh)
     default._ensure_token()
     assert called["n"] == 1
+    assert default._state.token == "new"
 
 
 # ------------------------------------------------------------------

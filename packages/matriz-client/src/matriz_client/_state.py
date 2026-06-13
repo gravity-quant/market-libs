@@ -19,9 +19,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import httpx
 from dotenv import load_dotenv
+
+if TYPE_CHECKING:
+    from matriz_client._token_store import TokenStore
 
 load_dotenv()
 
@@ -53,3 +57,9 @@ class _ClientState:
     token_expires_at: float = 0.0
     http_client: httpx.Client | httpx.AsyncClient | None = None
     account_id: str | None = None
+    # Phase 10 Plan 10-03 REFAC-04: 3-way concurrent token primitive shared
+    # between sync ``Client._ensure_token`` (main thread), async
+    # ``AsyncClient._aensure_token`` (event-loop coroutines), and
+    # ``ws_client`` daemon thread. Lazily initialized via ``build_token_store``
+    # on first call to the respective ``_ensure_token`` flavor.
+    token_store: TokenStore | None = None

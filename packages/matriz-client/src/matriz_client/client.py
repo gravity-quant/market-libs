@@ -18,6 +18,7 @@ See :mod:`matriz_client.ws_client` for the WebSocket streaming counterpart.
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Sequence
 from typing import Any, Self
@@ -28,6 +29,7 @@ from dotenv import load_dotenv
 from matriz_client import _core, _transport
 from matriz_client._core import RequestSpec
 from matriz_client._state import _REQUEST_TIMEOUT, _ClientState
+from matriz_client._token_store import build_token_store
 from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
     AccountReport,
@@ -230,9 +232,32 @@ class Client:
         return token
 
     def _ensure_token(self) -> None:
+        """Phase 10 Plan 10-03 REFAC-04 — delegate to ``TokenStore.get_sync()``.
+
+        Replaces the Phase 6 inline ``token_is_fresh`` check + ``self.login()``
+        call with a single TokenStore call. The store handles refresh policy
+        (retry/backoff/fail-cache) and atomicity vs. the ws_client daemon thread
+        + async REST surface.
+
+        Fast path: if the legacy cached token in ``self._state`` is still fresh
+        (per ``_core.token_is_fresh``), skip even the TokenStore lookup. This
+        preserves the ``configure(token=..., token_expires_at=...)`` pre-seed
+        contract that callers (incl. tests) rely on — without the fast path the
+        TokenStore would attempt a real refresh via ``MatrizRefresh`` on every
+        request.
+        """
         if _core.token_is_fresh(self._state):
             return
-        self.login()
+        self._ensure_http_client()  # adapter wires state.http_client
+        if self._state.token_store is None:
+            self._state.token_store = build_token_store(self._state, max_retries=self._max_retries)
+        snap = self._state.token_store.get_sync()
+        # Mirror for back-compat reads (PEP 562 shim, ws_client legacy reads).
+        self._state.token = snap.value
+        # TokenStore.refreshed_at is from time.monotonic(); state.token_expires_at
+        # is compared against time.time() in _core.token_is_fresh. Use time.time()
+        # here for the matriz 23h TTL — so subsequent calls take the fast path.
+        self._state.token_expires_at = time.time() + (23 * 3600)
 
     def _risk_auth(self) -> tuple[str, str]:
         return (self._state.username, self._state.password)
@@ -573,6 +598,10 @@ def configure(
         default._state.username = username
     if password is not None:
         default._state.password = password
+        # Phase 10 Plan 10-03 — credential rotation requires TokenStore reset
+        # (T-10-03-04 mitigation). Without this the existing TokenStore would
+        # keep returning the cached OLD token until its TTL elapsed.
+        default._state.token_store = None
     if token is not None or token_expires_at is not None:
         if token is not None:
             default._state.token = token
@@ -589,6 +618,10 @@ def configure(
             existing.close()
             default._state.http_client = None
         default._max_retries = max_retries
+        # Phase 10 Plan 10-03 — RefreshPolicy is wired with the old max_retries
+        # value at TokenStore construction time; force a rebuild to apply the
+        # new retry budget.
+        default._state.token_store = None
     if http_client is not None:
         # D-16: caller-supplied http_client used AS-IS — close the prior cached
         # client if any.

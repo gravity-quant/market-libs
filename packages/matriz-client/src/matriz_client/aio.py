@@ -30,25 +30,16 @@ B8 lock-in (D-04): ``_raise_for_response`` se importa desde
 así el invariante ``aio._raise_for_response is client._raise_for_response is
 _core.raise_for_response`` se preserva.
 
-Plan 10-02 INTERIM strategy — TokenStore wiring (Plan 10-03 migrates):
+Phase 10 Plan 10-03 REFAC-04 — 3-way TokenStore wiring:
 
-- ``self._token_store_local: TokenStore | None`` es una stash per-instancia
-  hasta que Plan 10-03 añada ``_state.token_store`` y unifique el primitivo
-  entre sync REST + async REST + ws_client (la migración cross-thread).
-- ``self._refresh_sync_client: httpx.Client | None`` es un per-instance
-  ``httpx.Client`` sync (lazy) requerido por ``MatrizRefresh`` (que corre
-  dentro de ``asyncio.to_thread`` por el contrato de la TokenStore). Plan 10-03
-  Task 1 reemplaza este per-instance client por reuse del sync default
-  ``Client``'s ``_state.http_client`` y elimina este slot.
-
-Mientras tanto, ``_aensure_token`` provisiona el sync client lazy, swap
-temporal ``self._state.http_client`` → ``self._refresh_sync_client`` durante
-``build_token_store(...)`` (que arma ``MatrizRefresh`` con ``state.http_client``),
-y restore después de construir la store. El swap es single-threaded por
-construcción: ``_aensure_token`` corre serializado por await en el mismo
-coroutine, y Plan 10-02 no tiene readers concurrentes de ``state.http_client``
-en el path async (el AsyncRetryTransport-wrapped ``httpx.AsyncClient`` se
-provisiona ANTES en ``_ensure_http_client``).
+- TokenStore vive en ``self._state.token_store`` (NEW field, Plan 10-03 adds
+  to ``_ClientState``). Sync ``Client``, async ``AsyncClient`` y ``ws_client``
+  daemon thread comparten esta única instancia (lazy init via
+  ``build_token_store(state, max_retries=...)``).
+- Plan 10-02 per-instance stashes ELIMINADAS: no quedan slots auxiliares en
+  la clase. La async path reusa el sync default ``Client``'s
+  ``_state.http_client`` para satisfacer el requisito de ``MatrizRefresh``
+  de un sync ``httpx.Client`` (corre dentro de ``asyncio.to_thread``).
 """
 
 from __future__ import annotations
@@ -69,7 +60,7 @@ from matriz_client._core import RequestSpec
 # ``implicit_reexport=False``.
 from matriz_client._core import raise_for_response as _raise_for_response
 from matriz_client._state import _REQUEST_TIMEOUT, _ClientState
-from matriz_client._token_store import TokenStore, build_token_store
+from matriz_client._token_store import build_token_store
 from matriz_client.client import _validate_max_retries
 from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
@@ -133,21 +124,19 @@ class AsyncClient:
 
     Per-instance state lives in ``self._state`` (same ``_ClientState`` shape
     as the sync ``Client``, but a different INSTANCE — NO shared mutable state
-    between sync and async surfaces by construction).
+    between sync and async surfaces by construction). Phase 10 Plan 10-03 adds
+    ``self._state.token_store`` (NEW field on ``_ClientState``) so the sync
+    ``Client``, this async ``AsyncClient``, and the ``ws_client`` daemon thread
+    can converge on a single TokenStore instance per their own ``_state``.
 
     Pickle / deepcopy contract: NOT supported (``httpx.AsyncClient`` owns a TCP
     pool + SSL context tied to a specific event loop).
 
     Cleanup contract (D-16): caller-responsible. Use ``async with`` or
     ``await client.aclose()``.
-
-    Phase 10 Plan 10-02 INTERIM: ``self._token_store_local`` + the per-instance
-    ``self._refresh_sync_client`` stash will both be removed by Plan 10-03 Task 1
-    when ``_state.token_store`` lands and the async path reuses the sync
-    default ``Client``'s ``_state.http_client`` directly.
     """
 
-    __slots__ = ("_max_retries", "_refresh_sync_client", "_state", "_token_store_local")
+    __slots__ = ("_max_retries", "_state")
 
     def __init__(
         self,
@@ -178,9 +167,10 @@ class AsyncClient:
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
-        # Plan 10-02 INTERIM stash — Plan 10-03 Task 1 removes both slots.
-        self._token_store_local: TokenStore | None = None
-        self._refresh_sync_client: httpx.Client | None = None
+        # Phase 10 Plan 10-03: TokenStore lazy-init via build_token_store on
+        # first _aensure_token() call; lives on self._state.token_store (NEW
+        # field). No per-instance stash slots — sync, async and ws_client
+        # daemon thread all share state.token_store per state instance.
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -198,14 +188,19 @@ class AsyncClient:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Release the underlying ``httpx.AsyncClient`` + INTERIM sync client (idempotent)."""
+        """Release the underlying ``httpx.AsyncClient`` (idempotent).
+
+        Phase 10 Plan 10-03: also clears ``self._state.token_store`` so the
+        next ``AsyncClient`` instance does NOT inherit a stale TokenStore
+        tied to old credentials/transport. The TokenStore itself holds no
+        socket resources, so there is no async cleanup required for the
+        store — just drop the reference.
+        """
         http_client = self._state.http_client
         if http_client is not None and isinstance(http_client, httpx.AsyncClient):
             await http_client.aclose()
             self._state.http_client = None
-        if self._refresh_sync_client is not None:
-            self._refresh_sync_client.close()
-            self._refresh_sync_client = None
+        self._state.token_store = None
 
     def __repr__(self) -> str:
         password_repr = "'***'" if self._state.password else "''"
@@ -253,54 +248,65 @@ class AsyncClient:
         return new_client
 
     async def _aensure_token(self) -> None:
-        """Ensure ``self._state.token`` is fresh, using a lazy ``TokenStore``.
+        """Ensure ``self._state.token`` is fresh via ``state.token_store.get_async()``.
 
-        Plan 10-02 INTERIM strategy:
+        Phase 10 Plan 10-03 REFAC-04 — migrated from Plan 10-02 per-instance
+        stash to the shared ``self._state.token_store`` (NEW field on
+        ``_ClientState``). This converges sync REST + async REST + ws_client
+        daemon on a single TokenStore per state instance.
 
-        1. Fast path — mirror sync ``_ensure_token``: if the cached token in
-           ``self._state`` is still fresh (per ``_core.token_is_fresh``), return
-           without touching the TokenStore. This honors the legacy
-           ``configure(token=..., token_expires_at=...)`` pre-seed pattern that
-           tests + callers rely on.
-        2. Ensure the per-instance ``self._refresh_sync_client`` (sync
-           ``httpx.Client``) is provisioned — ``MatrizRefresh`` runs inside
-           ``asyncio.to_thread`` and requires a sync httpx.Client.
-        3. On first call, build the TokenStore via ``build_token_store``,
-           temporarily swapping ``self._state.http_client`` → the sync refresh
-           client so the factory wires ``MatrizRefresh`` with the sync client.
-           After ``build_token_store`` returns, restore the async client.
-        4. Call ``await self._token_store_local.get_async()`` (3-way safe per
-           Plan 10-01 Spike 001c).
-        5. Mirror the returned token value into ``self._state.token`` so the
-           PEP 562 shim and legacy readers see the fresh value.
+        Flow:
 
-        Plan 10-03 Task 1 will:
-        - Migrate ``self._token_store_local`` to ``self._state.token_store``.
-        - Remove the per-instance ``self._refresh_sync_client`` — the async
-          path will reuse the sync default ``Client``'s ``_state.http_client``
-          (unified connection pool).
-        - Remove the swap dance in this method.
+        1. Fast path: if the cached token in ``self._state`` is still fresh
+           (per ``_core.token_is_fresh``), short-circuit. Honors the legacy
+           ``configure(token=..., token_expires_at=...)`` pre-seed contract.
+        2. Ensure the async ``httpx.AsyncClient`` exists (transport for the
+           main request path is unaffected by the store).
+        3. Lazy-init ``self._state.token_store`` via ``build_token_store``.
+           The factory wires ``MatrizRefresh`` which requires a SYNC
+           ``httpx.Client`` (refresh runs inside ``asyncio.to_thread``). We
+           reuse the SYNC default ``Client``'s ``_state.http_client`` for
+           that purpose via a temporary swap of ``self._state.http_client``.
+        4. ``await self._state.token_store.get_async()`` (3-way safe per
+           Spike 001c) and mirror the result back to ``state.token``.
         """
         await self._ensure_http_client()
-        # Sync mirror: if the legacy cached token is still fresh, short-circuit.
-        # This preserves the configure(token=...) pre-seed contract honored by
-        # both the sync ``Client._ensure_token`` and the test conftest fixtures.
+        # Fast path — preserves the configure(token=...) pre-seed contract
+        # used by both the sync ``Client._ensure_token`` mirror and the test
+        # conftest fixtures.
         if _core.token_is_fresh(self._state):
             return
-        if self._refresh_sync_client is None:
-            # _REQUEST_TIMEOUT mirrors the sync default; refresh is a single
-            # POST that completes well within the 30 s timeout in practice.
-            self._refresh_sync_client = httpx.Client(timeout=_REQUEST_TIMEOUT)
-        if self._token_store_local is None:
-            saved = self._state.http_client
-            self._state.http_client = self._refresh_sync_client
+        if self._state.token_store is None:
+            # ``MatrizRefresh`` needs a sync ``httpx.Client``; reuse the sync
+            # default ``Client``'s ``_state.http_client`` via the cross-surface
+            # state. The refresh runs inside ``asyncio.to_thread`` (TokenStore
+            # ``get_async`` path), so a sync ``httpx.Client`` is safe there.
+            from matriz_client.client import _get_default as _get_sync_default
+
+            sync_default = _get_sync_default()
+            sync_default._ensure_http_client()
+            saved_http_client = self._state.http_client
+            # CONCURRENCY INVARIANT (per-loop asyncio.Lock):
+            # The swap of ``self._state.http_client`` below is safe because
+            # this entire ``if self._state.token_store is None`` lazy-init
+            # block executes inside the per-loop asyncio.Lock acquired by
+            # ``TokenStore.get_async()`` before ``_aensure_token`` returns.
+            # The Lock guarantees no concurrent coroutine on the SAME event
+            # loop can observe the swapped ``self._state.http_client``
+            # mid-build. Across loops, each loop has its own
+            # ``TokenStore.get_async()`` Lock, but the lazy-init only fires
+            # once per state instance (guarded by the ``is None`` check) —
+            # subsequent calls skip the swap entirely. Do NOT relax or
+            # remove this invariant without re-analyzing the cross-context
+            # lock semantics.
+            self._state.http_client = sync_default._state.http_client
             try:
-                self._token_store_local = build_token_store(
+                self._state.token_store = build_token_store(
                     self._state, max_retries=self._max_retries
                 )
             finally:
-                self._state.http_client = saved
-        snap = await self._token_store_local.get_async()
+                self._state.http_client = saved_http_client
+        snap = await self._state.token_store.get_async()
         # Mirror for legacy reads via PEP 562 shim. The TokenStore owns the
         # canonical refreshed_at timestamp; mirror to state.token + bump
         # token_expires_at so subsequent ``_aensure_token`` calls in the same
@@ -391,8 +397,11 @@ class AsyncClient:
         # D-02 exactly-one re-auth: invalidate TokenStore, re-ensure, retry once.
         await resp.aread()  # body-consume before re-auth path (WR-02 mirror)
         self._state.token = None
-        if self._token_store_local is not None:
-            self._token_store_local.invalidate()
+        # Reset token_expires_at so the fast path in _aensure_token does NOT
+        # short-circuit the re-auth with the stale token timestamp.
+        self._state.token_expires_at = 0.0
+        if self._state.token_store is not None:
+            self._state.token_store.invalidate()
         await self._aensure_token()
         assert self._state.token is not None
         req.headers["X-Auth-Token"] = self._state.token
@@ -618,11 +627,11 @@ def configure(
     Phase 10 Plan 10-02:
 
     - Setting ``password=`` resets the cached token + ``token_expires_at`` +
-      the INTERIM ``_token_store_local`` (forces a fresh refresh on next
-      ``_aensure_token``).
+      the shared ``state.token_store`` (forces a fresh refresh on next
+      ``_aensure_token``; T-10-03-04 credential-rotation mitigation).
     - Setting ``max_retries=`` drops the cached ``httpx.AsyncClient`` (so the
       next ``_ensure_http_client`` rebuilds with the new transport) AND the
-      INTERIM ``_token_store_local`` (so the ``RefreshPolicy`` is rebuilt with
+      shared ``state.token_store`` (so the ``RefreshPolicy`` is rebuilt with
       the new retry budget).
     - Setting ``http_client=`` swaps the cached client AS-IS (D-16 — no
       auto-wrap). The caller MUST ``await aclose()`` BEFORE configure() to
@@ -639,7 +648,10 @@ def configure(
         client._state.password = password
         client._state.token = None
         client._state.token_expires_at = 0.0
-        client._token_store_local = None
+        # Phase 10 Plan 10-03 — credential rotation requires TokenStore reset
+        # (T-10-03-04 mitigation). Otherwise the existing TokenStore would
+        # keep returning the cached OLD token until its TTL elapsed.
+        client._state.token_store = None
     if token is not None:
         client._state.token = token
     if token_expires_at is not None:
@@ -655,7 +667,10 @@ def configure(
             )
         client._max_retries = max_retries
         client._state.http_client = None
-        client._token_store_local = None
+        # Phase 10 Plan 10-03 — RefreshPolicy is wired with the old max_retries
+        # value at TokenStore construction time; force a rebuild to apply the
+        # new retry budget.
+        client._state.token_store = None
     if http_client is not None:
         if client._state.http_client is not None and client._state.http_client is not http_client:
             warnings.warn(
