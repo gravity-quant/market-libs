@@ -337,3 +337,58 @@ def test_parse_get_detailed_positions_response_returns_model() -> None:
     result = _core.parse_get_detailed_positions_response(resp, "ACC1")
     assert result.account == "ACC1"
     assert result.totalDailyDiffPlain == 1.5
+
+
+# ----------------------------------------------------------------------
+# Phase 9 BUG-01: CFI hybrid Literal + ISO 10962 regex guard (F-09)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cfi,expect_raise",
+    [
+        # Literal-known bucket (2 valores del Literal CFICode declarado en
+        # matriz_client.types.CFICode — source of truth para `_CFI_LITERAL_VALUES`).
+        ("ESXXXX", False),
+        ("DBXXXX", False),
+        # Regex forward-compat bucket (6 mayúsculas, NO en Literal):
+        # ISO 10962:2021 puede agregar nuevos códigos sin lib bump.
+        ("ABXXXX", False),
+        ("ZQXXXX", False),
+        # Malformed bucket: bloqueados por el hybrid guard pre-HTTP.
+        ("INVALID-CFI", True),  # hyphen + len 11
+        ("esxxxx", True),  # lowercase
+        ("E2XXXX", True),  # digit
+        ("ABCDE", True),  # len 5
+        ("ABCDEFG", True),  # len 7
+        ("", True),  # empty
+    ],
+)
+def test_get_instruments_by_cfi_validates_cfi_code(cfi: str, expect_raise: bool) -> None:
+    """BUG-01 (F-09): ``build_get_instruments_by_cfi_request`` valida CFI pre-HTTP.
+
+    Hybrid guard: si ``cfi_code`` está en el Literal ``CFICode`` (literal-known)
+    o matchea ``^[A-Z]{6}$`` (ISO 10962:2021 forward-compat), pasa; cualquier
+    otra cosa levanta ``PrimaryAPIError(status="ERROR")`` pre-HTTP.
+
+    Cubre 3 buckets en 10 casos paramétricos:
+    - Literal-known × 2 (``ESXXXX``, ``DBXXXX``) → pass.
+    - Regex forward-compat × 2 (``ABXXXX``, ``ZQXXXX``) → pass (6 mayúsculas
+      no declaradas en el Literal pero válidas por estructura).
+    - Malformed × 6 (hyphen/lowercase/digit/len5/len7/empty) → raise.
+
+    El ``# type: ignore[arg-type]`` es necesario porque los malformed strings
+    no satisfacen ``CFICode`` (Literal), pero mypy NO captura ``cast(CFICode,
+    "INVALID-CFI")`` que un caller real puede hacer — el guard runtime lo
+    bloquea. Deviation D-02: el guard vive en el builder porque
+    ``raise_for_response`` solo ve ``httpx.Response`` y no ve el ``cfi_code``.
+    """
+    state = _ClientState(base_url="https://api.example.com")
+    if expect_raise:
+        with pytest.raises(PrimaryAPIError) as exc_info:
+            _core.build_get_instruments_by_cfi_request(state, cfi)  # type: ignore[arg-type]
+        assert exc_info.value.status == "ERROR"
+        assert "CFI inválido" in (exc_info.value.description or "")
+    else:
+        spec = _core.build_get_instruments_by_cfi_request(state, cfi)  # type: ignore[arg-type]
+        assert spec.params == {"CFICode": cfi}
