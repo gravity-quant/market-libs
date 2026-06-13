@@ -80,7 +80,7 @@ Mirror Phase 7 Plan 6 + Phase 6 Plan 7 — the per-phase green-gate validation p
 
 Task 1 commit: **`0b24829`** — `ci(08-06): green gate consolidation — full pytest + ruff + mypy + snapshot + lint-imports + lint-logging`.
 Task 1 docs commit: **`6e8f1eb`** — `docs(08-06): complete green-gate consolidation plan`.
-Task 2 closure commit: **`<this-commit>`** — `docs(08-06): close operator checkpoint — Phase 8 ready for verify`.
+Task 2 closure commit: **`0d6ffe9`** — `docs(08-06): close operator checkpoint — Phase 8 ready for verify`.
 
 ## Green-Gate Matrix Output (Captured 2026-06-13, Python 3.12.11)
 
