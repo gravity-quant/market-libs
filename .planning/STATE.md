@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
-status: executing
-last_updated: "2026-06-13T08:10:30.719Z"
+status: verifying
+last_updated: "2026-06-13T08:25:04.909Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 19
-  completed_plans: 18
-  percent: 33
+  completed_plans: 19
+  percent: 50
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 Phase: 08 (Retries, Backoff, Structured Logging) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-13
 
 ## Performance Metrics
@@ -63,6 +63,7 @@ Last activity: 2026-06-13
 | Phase 08 P03 | 20 | 2 tasks | 13 files |
 | Phase 08 P04 | 25 | 2 tasks | 12 files |
 | Phase 08 P05 | 30 | 2 tasks | 8 files |
+| Phase 08 P06 | 25 | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan 8-01 cross-cutting test bug fixed: test_idempotent_get_retries_on_503 expected_count corrected from 2 to 3 — Plan 8-01 author had a notation slip; canonical default is max_retries=2 = 3 attempts per D-15+D-19. Unblocks Plans 4+5 too.
 - [Phase ?]: Phase 8 Plan 4 (higyrus)
 - [Phase ?]: Phase 8 Plan 5 (matriz): Wave 5 closure. RetryTransport sync + RedactingFilter D-22 (auth_basic split) + Risk API no-401-reauth (D-23) + status=ERROR no-retry (D-24) + mutation gate on Primary order GETs (Pitfall 4 — duplicate-order prevention). matriz aio.py UNCHANGED (103 LOC stub per D-25 — Phase 10 REFAC-04 territory).
+- [Phase ?]: Phase 8 Plan 6 green-gate consolidation complete; nyquist_compliant=true; 627 pytest pass + 3 skip (D-25); 5 ROADMAP success criteria backward-verified; Pitfall 4 GREEN; D-25 matriz aio.py preserved 103 LOC; CI lint-logging grep refined for docstring false-positive (Rule 1 fix)
 
 ### Pending Todos
 
@@ -125,7 +127,7 @@ See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit conte
 
 ## Session Continuity
 
-Last session: 2026-06-13T08:10:26.345Z
+Last session: 2026-06-13T08:24:52.784Z
 Stopped at: Phase 8 context gathered
 Resume file: None
 

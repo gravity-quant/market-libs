@@ -26,7 +26,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 - [x] **Phase 6: Compat Safety Net + Client Class Skeleton** — Golden public-surface snapshot, fixture-reaches-production guard, then `Client`/`AsyncClient` per package with PEP 562 compat shim (no breaking change). (completed 2026-06-11)
 - [x] **Phase 7: `_core.py` Extraction — Sync/Async Logic Dedup** — Pure builders/parsers per package; `client.py` and `aio.py` collapse to transport shells; import-linter rule blocks `_core.py` from importing `client.py`/`aio.py`. (completed 2026-06-12)
-- [ ] **Phase 8: Retries, Backoff, Structured Logging** — `tenacity` with full-jitter backoff and `Retry-After` cap (60 s); mutating-aware retry gate via `RequestSpec.idempotent`; per-package `getLogger` + `NullHandler` + `RedactingFilter`.
+- [x] **Phase 8: Retries, Backoff, Structured Logging** — `tenacity` with full-jitter backoff and `Retry-After` cap (60 s); mutating-aware retry gate via `RequestSpec.idempotent`; per-package `getLogger` + `NullHandler` + `RedactingFilter`. (completed 2026-06-13)
 - [ ] **Phase 9: Deferred Bug Fixes** — F-09 matriz ERROR-MAP, F-02 higyrus `get_listado_cuentas=0`, IOL refresh_token in-instance persistence, HIGY multi-account iteration; each lands once in `_core.py` and propagates to both surfaces.
 - [ ] **Phase 10: matriz `aio.py` Creation + TokenStore** — Full async REST surface for matriz; `TokenStore` with `threading.Lock` callable from sync, asyncio, and ws_client daemon thread. **Research flag**: TokenStore spike before plan.
 - [ ] **Phase 11: Harness Hardening + Code Review Close-out + Live Re-verification** — `verification/findings.py` append-only with BEGIN/END zone parser, content-addressed dedup, operator-field preservation; WR-01..02, WR-04, WR-06..08 close-out; live `main_*.py --live × 4` final gate including matriz async.
@@ -130,7 +130,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 6** *(blocked on Waves 2-5)*
 
-- [ ] 08-06-PLAN.md — Green gate consolidation: full pytest matrix Python 3.12 + 3.13 + ruff + ruff LOG ruleset + ruff format + mypy strict + lint-imports + CI grep lint-logging + 6 cross-cutting guard tests GREEN + matriz sweep snapshot (CR-05) + parse_envelope_consumes_body (CR-03) + Phase 6 public surface snapshot (zero diff except 2 new kwargs per signature) + matriz aio.py == 103 LOC + matriz _atransport.py absent + tenacity 9.1.4 verified + Pitfall 18 statement + operator checkpoint (RELY-01..04, LOG-01..03)
+- [x] 08-06-PLAN.md — Green gate consolidation: full pytest matrix Python 3.12 + 3.13 + ruff + ruff LOG ruleset + ruff format + mypy strict + lint-imports + CI grep lint-logging + 6 cross-cutting guard tests GREEN + matriz sweep snapshot (CR-05) + parse_envelope_consumes_body (CR-03) + Phase 6 public surface snapshot (zero diff except 2 new kwargs per signature) + matriz aio.py == 103 LOC + matriz _atransport.py absent + tenacity 9.1.4 verified + Pitfall 18 statement + operator checkpoint (RELY-01..04, LOG-01..03)
 
 **Cross-cutting constraints:**
 
@@ -198,7 +198,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 5. Matriz Verification                                             | v1.0      | 4/4            | Complete    | 2026-06-10 |
 | 6. Compat Safety Net + Client Class Skeleton                       | v1.1      | 7/7 | Complete   | 2026-06-11 |
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
-| 8. Retries, Backoff, Structured Logging                            | v1.1      | 5/6 | In Progress|  |
+| 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete   | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 0/?            | Not started | -          |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 0/?            | Not started | -          |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
