@@ -124,10 +124,44 @@ def test_parse_envelope_response_raises_on_status_error() -> None:
 
 
 def test_parse_envelope_response_raises_on_http_error_status() -> None:
-    """HTTP 5xx → ``httpx.HTTPStatusError`` via raise_for_response."""
+    """HTTP 5xx → ``PrimaryAPIError`` via raise_for_response (WR-08 Phase 8 review).
+
+    Previously this returned stdlib ``httpx.HTTPStatusError``; the WR-08 fix
+    maps 4xx/5xx to typed ``PrimaryAPIError`` (mirror iol/higyrus) so callers
+    can ``except MatrizClientError:`` to catch all matriz failures.
+    """
     resp = _make_response(status_code=500, json_body={"status": "ERROR"})
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(PrimaryAPIError) as exc_info:
         _core.parse_envelope_response(resp, "/x")
+    assert "HTTP 500" in (exc_info.value.description or "")
+
+
+def test_raise_for_response_maps_401_to_authentication_error() -> None:
+    """WR-08: 401/403 → ``AuthenticationError`` (PrimaryAPIError subclass)."""
+    resp = _make_response(status_code=401, json_body={})
+    with pytest.raises(AuthenticationError):
+        _core.raise_for_response(resp)
+
+
+def test_raise_for_response_maps_403_to_authentication_error() -> None:
+    """WR-08: 403 → ``AuthenticationError`` (same as 401)."""
+    resp = _make_response(status_code=403, json_body={})
+    with pytest.raises(AuthenticationError):
+        _core.raise_for_response(resp)
+
+
+def test_raise_for_response_maps_500_to_primary_api_error() -> None:
+    """WR-08: 5xx → ``PrimaryAPIError``."""
+    resp = _make_response(status_code=503, json_body={})
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.raise_for_response(resp)
+    assert "HTTP 503" in (exc_info.value.description or "")
+
+
+def test_raise_for_response_noop_on_2xx() -> None:
+    """WR-08: 2xx returns without raising — consistent with iol/higyrus."""
+    resp = _make_response(status_code=200, json_body={"ok": True})
+    _core.raise_for_response(resp)  # no raise
 
 
 # ----------------------------------------------------------------------

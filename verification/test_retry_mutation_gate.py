@@ -89,10 +89,17 @@ _MUTATING_CALLS: list[tuple[str, str, dict[str, Any]]] = [
 def _expected_error_types(pkg: Any, pkg_name: str) -> tuple[type[Exception], ...]:
     """Return the tuple of exception types that may surface from a 503 response.
 
-    Includes the package's top-level error base AND ``httpx.HTTPStatusError``
-    because some paquetes (e.g. matriz) currently call ``resp.raise_for_status()``
-    directly and have not yet wrapped 5xx into typed exceptions. Phase 8 Plans 2-5
-    add the typed wrapping; tests stay tolerant pre/post for the cross-cutting Wave 1.
+    Originally tolerated ``httpx.HTTPStatusError`` for matriz because the
+    matriz ``_core.raise_for_response`` called ``resp.raise_for_status()``
+    directly (Phase 8 baseline). The WR-08 Phase 8 review fix maps matriz
+    4xx/5xx to typed ``PrimaryAPIError`` (or ``AuthenticationError`` on
+    401/403), so callers can now reliably ``except MatrizClientError:``
+    across all matriz failures — mirror of iol/higyrus.
+
+    We keep ``httpx.HTTPStatusError`` in the tolerance tuple for
+    ambito/iol/higyrus as defensive belt-and-suspenders (those paths haven't
+    changed in this review cycle), but matriz now expects MatrizClientError
+    only.
     """
     if pkg_name == "ambito_financiero_client":
         return (pkg.AmbitoFinancieroClientError, httpx.HTTPStatusError)
@@ -101,7 +108,8 @@ def _expected_error_types(pkg: Any, pkg_name: str) -> tuple[type[Exception], ...
     if pkg_name == "higyrus_client":
         return (pkg.HigyrusClientError, httpx.HTTPStatusError)
     if pkg_name == "matriz_client":
-        return (pkg.MatrizClientError, httpx.HTTPStatusError)
+        # WR-08: matriz now consistently raises MatrizClientError on HTTP errors.
+        return (pkg.MatrizClientError,)
     raise AssertionError(f"unhandled pkg: {pkg_name}")  # pragma: no cover
 
 

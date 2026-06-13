@@ -171,13 +171,42 @@ class RequestSpec:
 
 
 def raise_for_response(resp: httpx.Response) -> None:
-    """Map HTTP error status codes to typed exceptions.
+    """Map HTTP error status codes to typed exceptions (WR-08).
+
+    Phase 8 review WR-08: previously this helper called
+    ``resp.raise_for_status()`` which raises stdlib
+    ``httpx.HTTPStatusError`` — callers could NOT rely on
+    ``except MatrizClientError:`` to catch all matriz failures, unlike
+    iol/higyrus which map status codes to typed exceptions.
+
+    Mapping (mirror iol/higyrus):
+    - 401 / 403 → ``AuthenticationError`` (already a ``PrimaryAPIError``
+      subclass; allows callers to differentiate auth failures from other
+      API errors via the type hierarchy)
+    - Any other 4xx / 5xx → ``PrimaryAPIError`` with the status code in
+      the description string
+    - 2xx / 3xx → no-op (consistent with iol/higyrus ``raise_for_response``)
+
+    The 429 RateLimit case is mapped to ``PrimaryAPIError`` (matriz has
+    no dedicated RateLimitError class today; this can be added in a
+    future minor version without breaking the typed exception base).
 
     D-04 alias preservation: ``client._raise_for_response =
     _core.raise_for_response`` mantiene B8 (forward-looking Phase 10
     ``aio._raise_for_response is client._raise_for_response``).
     """
-    resp.raise_for_status()
+    if not resp.is_error:
+        return
+    if resp.status_code in (401, 403):
+        raise AuthenticationError(
+            "ERROR",
+            f"HTTP {resp.status_code} (Unauthorized/Forbidden)",
+        )
+    raise PrimaryAPIError(
+        status="ERROR",
+        description=f"HTTP {resp.status_code}",
+        message=None,
+    )
 
 
 def unwrap(data: dict[str, Any], key: str, endpoint: str) -> Any:
