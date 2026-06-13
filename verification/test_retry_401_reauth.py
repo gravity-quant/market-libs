@@ -252,9 +252,21 @@ def test_matriz_risk_api_401_does_not_reauth(httpx_mock: HTTPXMock) -> None:
     The shell ``_request()`` MUST detect ``spec.auth_basic is not None`` (Risk path)
     and re-raise AuthError on 401 immediately, without calling ``_ensure_token()``.
 
-    This guard fires the lowest-level matriz Risk surface available today and asserts
-    exactly 1 wire request + AuthenticationError raised. RED in HEAD until Plan 5
-    adds the auth_basic-branch carve-out.
+    CR-01 fix (Phase 8 review): the previous version of this test exercised
+    ``client._matriz_legacy_request("GET", "/risk/...", auth_basic=...)`` which
+    builds a ``RequestSpec`` with ``idempotent=False`` (default). The
+    ``RetryTransport`` then short-circuits non-idempotent requests with 1 wire
+    request REGARDLESS of whether the D-23 carve-out exists — so the assertion
+    ``len(requests) == 1`` was vacuously true and the guard passed even if the
+    carve-out branch was deleted.
+
+    The fix is to exercise the REAL Risk surface (``get_positions``) whose
+    builder marks ``idempotent=True`` (Risk GETs are idempotent for the
+    RetryTransport on 5xx; only the 401-no-reauth carve-out is matriz-specific).
+    Now if the shell drops the ``if spec.auth_basic is not None`` branch, the
+    code falls through to the Token path, which on 401 attempts re-auth →
+    multiple wire requests + a different exception type. The assertion
+    ``len(requests) == 1 + AuthenticationError`` is the actual D-23 contract.
     """
     import matriz_client
 
@@ -266,26 +278,21 @@ def test_matriz_risk_api_401_does_not_reauth(httpx_mock: HTTPXMock) -> None:
         token_expires_at=9_999_999_999.0,
     )
 
-    # Risk API endpoints use the legacy `_matriz_legacy_request` path with auth_basic.
-    # We exercise it directly via the Risk-style request — most public Risk surfaces
-    # are in `risk_*` builder modules. For the cross-cutting guard, we assert the
-    # shell branch via a synthesized GET that uses auth_basic.
-    client = matriz_client.client._get_default()
+    # Risk API: get_positions builds with auth_basic + idempotent=True.
+    # The transport never retries 401 (D-23 status-level invariant); the
+    # shell-level carve-out is what decides "no re-auth" for the Risk path.
     httpx_mock.add_response(
-        url="https://api.test/risk/account/something",
+        url="https://api.test/rest/risk/position/getPositions/acc",
         status_code=401,
     )
 
     with pytest.raises(matriz_client.AuthenticationError):
-        # `_matriz_legacy_request` is the documented Risk path (D-23).
-        client._matriz_legacy_request(
-            "GET",
-            "/risk/account/something",
-            auth_basic=("risk-user", "risk-pass"),
-        )
+        matriz_client.get_positions("acc")
 
     requests = httpx_mock.get_requests()
     assert len(requests) == 1, (
         f"matriz Risk: expected exactly 1 wire request on 401 (no re-auth attempted "
-        f"per D-23 — auth_basic has no token to refresh), got {len(requests)}."
+        f"per D-23 — auth_basic has no token to refresh), got {len(requests)}. "
+        f"If this count is >1, the shell is falling through to the Token-path "
+        f"re-auth flow — the D-23 carve-out branch is missing."
     )
