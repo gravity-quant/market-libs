@@ -1,0 +1,218 @@
+"""Unit tests for ``matriz_client._logging.RedactingFilter`` + ``attach()``.
+
+Phase 8 matriz Plan 5. LOG-01/LOG-02/LOG-03 / D-22. Verifies redaction
+patterns (Bearer, X-Auth-Token, X-Password, Authorization Basic, JSON
+password, URL password), attach idempotency, ``record.__dict__`` scan
+coverage, the D-22 ``auth_basic`` tuple splitting, and the always-True filter
+return contract.
+
+matriz-specific tests cover (per PATTERNS.md line 260 + D-22):
+
+- ``X-Auth-Token`` header — Primary API token header.
+- ``X-Password`` header — login credential header.
+- ``Authorization: Basic <base64>`` header — Risk API §9 (D-22).
+- ``auth_basic`` tuple in extras — D-22 tuple splitting.
+- ``X-Username`` — INTENTIONALLY preserved (operational, NOT secret).
+"""
+
+from __future__ import annotations
+
+import logging
+
+from matriz_client._logging import RedactingFilter, attach
+
+
+def _make_record(
+    msg: str, args: object = None, extra: dict[str, object] | None = None
+) -> logging.LogRecord:
+    record = logging.LogRecord(
+        name="matriz_client",
+        level=logging.DEBUG,
+        pathname=__file__,
+        lineno=0,
+        msg=msg,
+        args=args,  # type: ignore[arg-type]
+        exc_info=None,
+    )
+    if extra:
+        for k, v in extra.items():
+            setattr(record, k, v)
+    return record
+
+
+def test_attach_is_idempotent() -> None:
+    """LOG-01: calling attach() multiple times MUST NOT duplicate handler/filter."""
+    attach()
+    attach()
+    attach()
+    logger = logging.getLogger("matriz_client")
+    null_handlers = [h for h in logger.handlers if isinstance(h, logging.NullHandler)]
+    redacting_filters = [f for f in logger.filters if isinstance(f, RedactingFilter)]
+    assert len(null_handlers) == 1
+    assert len(redacting_filters) == 1
+
+
+def test_redact_bearer_token_in_msg() -> None:
+    """LOG-02: Bearer <token> in record.msg → Bearer ***."""
+    f = RedactingFilter()
+    record = _make_record("Authorization: Bearer abc123.tok-xyz_xx")
+    assert f.filter(record) is True
+    assert "abc123" not in record.msg
+    assert "Bearer ***" in record.msg
+
+
+def test_redact_password_urlencoded_in_msg() -> None:
+    """LOG-02: ``password=...`` URL-encoded credentials redacted in record.msg."""
+    f = RedactingFilter()
+    record = _make_record("login form: username=u&password=secret123&grant_type=password")
+    f.filter(record)
+    assert "secret123" not in record.msg
+    assert "password=***" in record.msg
+
+
+def test_filter_always_returns_true() -> None:
+    """LOG-02: filter never drops records — always returns True."""
+    f = RedactingFilter()
+    record = _make_record("nothing to redact here")
+    assert f.filter(record) is True
+
+
+def test_record_dict_scan_redacts_extra_field() -> None:
+    """LOG-02: string values in record.__dict__ (extra={...}) get scrubbed."""
+    f = RedactingFilter()
+    record = _make_record("ok", extra={"weird_field": "Bearer leaky-token-xxx", "safe": "ok"})
+    f.filter(record)
+    assert record.__dict__["weird_field"] == "Bearer ***"
+    assert record.__dict__["safe"] == "ok"
+
+
+def test_redact_bearer_in_tuple_args() -> None:
+    """LOG-02: tuple args with Bearer string scrubbed during interpolation."""
+    f = RedactingFilter()
+    record = _make_record("auth: %s", args=("Bearer xyz.tok",))
+    f.filter(record)
+    assert isinstance(record.args, tuple)
+    assert record.args[0] == "Bearer ***"
+
+
+# ---------------------------------------------------------------------------
+# matriz-specific patterns (D-22 + PATTERNS line 260)
+# ---------------------------------------------------------------------------
+
+
+def test_redact_x_auth_token_header() -> None:
+    """matriz Primary: ``X-Auth-Token: <token>`` MUST be redacted.
+
+    The token is set by ``parse_login_response`` from the ``X-Auth-Token``
+    response header. If a caller enables DEBUG-level logs on the package
+    logger, the header could end up in a request-formatting record before
+    the structured token field is surfaced.
+    """
+    f = RedactingFilter()
+    record = _make_record("X-Auth-Token: abc.def-ghi_123-base64=")
+    f.filter(record)
+    assert "abc.def-ghi_123" not in record.msg
+    assert "X-Auth-Token: ***" in record.msg
+
+
+def test_redact_x_password_header_preserves_x_username() -> None:
+    """D-22: X-Password redacted; X-Username PRESERVED (operational, NOT secret).
+
+    matriz login per ``_core.py:255-262`` sends both ``X-Username`` and
+    ``X-Password`` headers. The D-22 split: only the password is secret.
+    """
+    f = RedactingFilter()
+    record = _make_record("headers: X-Username: admin\nX-Password: super-s3cret\n")
+    f.filter(record)
+    assert "super-s3cret" not in record.msg
+    assert "X-Password: ***" in record.msg
+    # X-Username intentionally preserved.
+    assert "X-Username: admin" in record.msg
+
+
+def test_redact_authorization_basic_header() -> None:
+    """D-22: ``Authorization: Basic <base64>`` MUST be redacted.
+
+    matriz Risk API §9 (per ``_core.py`` ``build_get_positions_request`` /
+    ``build_get_detailed_positions_request`` / ``build_get_account_report_request``)
+    uses HTTP Basic Auth — when ``auth=httpx.BasicAuth(*spec.auth_basic)`` runs,
+    the resulting header lands as ``Authorization: Basic <base64>``. We must
+    not let it leak into log records.
+    """
+    f = RedactingFilter()
+    record = _make_record("Authorization: Basic YWRtaW46c2VjcmV0")
+    f.filter(record)
+    assert "YWRtaW46c2VjcmV0" not in record.msg
+    assert "Authorization: Basic ***" in record.msg
+
+
+def test_redact_auth_basic_tuple_in_extra() -> None:
+    """D-22 CRITICAL: ``auth_basic`` tuple in record.__dict__ MUST be split.
+
+    The shell ``_request()`` propagates ``spec.auth_basic`` as
+    ``request.extensions["auth_basic"]`` and the transport's structured log
+    record might carry it as an extra field. The filter MUST:
+      1. Detect the tuple
+      2. Split into ``auth_basic_user`` (preserved) + ``auth_basic_password='***'``
+      3. Remove the original ``auth_basic`` key so the tuple form NEVER reaches
+         downstream handlers.
+    """
+    f = RedactingFilter()
+    record = _make_record("risk call", extra={"auth_basic": ("operator-1", "super-secret-pw")})
+    f.filter(record)
+    # Original `auth_basic` key removed.
+    assert "auth_basic" not in record.__dict__
+    # Split keys present.
+    assert record.__dict__["auth_basic_user"] == "operator-1"
+    assert record.__dict__["auth_basic_password"] == "***"
+
+
+def test_redact_auth_basic_tuple_malformed_does_not_crash() -> None:
+    """Defensive: malformed ``auth_basic`` value (wrong type/arity) leaves it untouched.
+
+    Better to leave a non-tuple value alone than to crash the log filter. The
+    record.__dict__ generic scan will still redact string credentials by
+    substring match if present.
+    """
+    f = RedactingFilter()
+    record = _make_record("risk call", extra={"auth_basic": "not-a-tuple"})
+    # Should NOT raise; the value is a string but does not contain redaction
+    # markers ("Bearer ", "Authorization: Basic", etc.), so it survives intact.
+    f.filter(record)
+    assert record.__dict__.get("auth_basic") == "not-a-tuple"
+
+    # Tuple of wrong arity — also tolerated; left intact.
+    record2 = _make_record("risk call", extra={"auth_basic": ("only-one-field",)})
+    f.filter(record2)
+    assert record2.__dict__.get("auth_basic") == ("only-one-field",)
+
+
+def test_account_id_not_redacted() -> None:
+    """D-11 sanity: account_id is operational metadata, NOT PII — MUST survive.
+
+    The RedactingFilter scrubs secrets (token/password/auth_basic) but NOT
+    account identifiers. account_id appears in ``extra={...}`` fields as a
+    structured log surface for correlation; redacting it would defeat the
+    purpose of D-09's conditional field set.
+    """
+    f = RedactingFilter()
+    record = _make_record("processing request", extra={"account_id": "ACC-MATZ-1"})
+    f.filter(record)
+    assert record.__dict__["account_id"] == "ACC-MATZ-1"
+
+
+def test_no_higyrus_or_iol_patterns_present() -> None:
+    """Pattern isolation: matriz filter MUST NOT carry higyrus/iol-specific shapes.
+
+    - No ``_TOKEN_JSON_RE`` (higyrus login response shape).
+    - No ``_CUIT_QUERY_RE`` (higyrus URL query PII).
+    - No ``_REFRESH_TOKEN_*`` (iol OAuth refresh).
+
+    Guards against accidental cross-package coupling.
+    """
+    from matriz_client import _logging
+
+    assert not hasattr(_logging, "_TOKEN_JSON_RE")
+    assert not hasattr(_logging, "_CUIT_QUERY_RE")
+    assert not hasattr(_logging, "_REFRESH_TOKEN_URLENC_RE")
+    assert not hasattr(_logging, "_REFRESH_TOKEN_JSON_RE")

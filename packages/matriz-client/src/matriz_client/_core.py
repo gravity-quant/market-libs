@@ -133,6 +133,27 @@ class RequestSpec:
     para los 3 endpoints Risk (§9) que usan HTTP Basic en lugar del
     ``X-Auth-Token`` header. ``headers`` permite extras como el
     ``X-Username``/``X-Password`` del login.
+
+    Phase 8 D-01/D-09/D-11 extensions (additive, back-compat preserving):
+
+    - ``idempotent: bool = False`` — mutation gate per RELY-03. The shell
+      ``_request()`` copies this to ``request.extensions["idempotent"]`` so
+      the RetryTransport's gate sees it. **CRITICAL for matriz**:
+      ``build_new_order_request`` / ``build_cancel_order_request`` /
+      ``build_replace_order_request`` are HTTP GET (Primary API quirk) but
+      MUST keep ``idempotent=False`` (default) to prevent duplicate-order
+      risk on transient 503 (Pitfall 4 / D-24). GET builders that are truly
+      idempotent (segments, instruments, orders read-only, market data, Risk
+      reads) flip to ``True``. ``build_login_request`` is ``True`` per D-03
+      (replay-safe — a fresh ``X-Auth-Token`` simply replaces the prior one).
+    - ``endpoint_name: str = ""`` — symbolic name for structured log records.
+      Set by builders (e.g. ``endpoint_name="get_segments"``); propagated via
+      ``request.extensions["endpoint_name"]``.
+    - ``account_id: str | None = None`` — D-11 propagation for log correlation.
+      Builders that accept an ``account_id`` (Primary §6 active/filled/all
+      orders) or ``account_name`` (Risk §9) populate this field; the shell
+      ``_request()`` sets ``request.extensions["account_id"]`` only when
+      non-None (no leak when caller didn't pass an account identifier).
     """
 
     method: str
@@ -140,6 +161,10 @@ class RequestSpec:
     params: dict[str, Any] | None = None
     headers: dict[str, str] | None = None
     auth_basic: tuple[str, str] | None = None
+    # Phase 8 additions (additive, defaulted for back-compat with Phase 7).
+    idempotent: bool = False
+    endpoint_name: str = ""
+    account_id: str | None = None
 
 
 # --- Stateless helpers (D-04) -------------------------------------------
@@ -259,6 +284,11 @@ def build_login_request(state: _ClientState) -> RequestSpec:
             "X-Username": state.username,
             "X-Password": state.password,
         },
+        # D-03: login is replay-safe (a fresh X-Auth-Token replaces the prior);
+        # marked idempotent=True so transient 5xx during auth retry via the
+        # RetryTransport. 401 still NEVER retries — handled by shell re-auth.
+        idempotent=True,
+        endpoint_name="login",
     )
 
 
@@ -287,7 +317,12 @@ def parse_login_response(resp: httpx.Response) -> tuple[str, float]:
 
 def build_get_segments_request(state: _ClientState) -> RequestSpec:
     """``GET /rest/segment/all`` — listar todos los market segments."""
-    return RequestSpec(method="GET", path="/rest/segment/all")
+    return RequestSpec(
+        method="GET",
+        path="/rest/segment/all",
+        idempotent=True,
+        endpoint_name="get_segments",
+    )
 
 
 def parse_get_segments_response(resp: httpx.Response) -> list[Segment]:
@@ -302,7 +337,12 @@ def parse_get_segments_response(resp: httpx.Response) -> list[Segment]:
 
 def build_get_all_instruments_request(state: _ClientState) -> RequestSpec:
     """``GET /rest/instruments/all`` — listar todos los instrumentos."""
-    return RequestSpec(method="GET", path="/rest/instruments/all")
+    return RequestSpec(
+        method="GET",
+        path="/rest/instruments/all",
+        idempotent=True,
+        endpoint_name="get_all_instruments",
+    )
 
 
 def parse_get_all_instruments_response(resp: httpx.Response) -> list[Instrument]:
@@ -314,7 +354,12 @@ def parse_get_all_instruments_response(resp: httpx.Response) -> list[Instrument]
 
 def build_get_instruments_details_request(state: _ClientState) -> RequestSpec:
     """``GET /rest/instruments/details`` — detalles de todos los instrumentos."""
-    return RequestSpec(method="GET", path="/rest/instruments/details")
+    return RequestSpec(
+        method="GET",
+        path="/rest/instruments/details",
+        idempotent=True,
+        endpoint_name="get_instruments_details",
+    )
 
 
 def parse_get_instruments_details_response(resp: httpx.Response) -> list[InstrumentDetail]:
@@ -334,6 +379,8 @@ def build_get_instrument_detail_request(
         method="GET",
         path="/rest/instruments/detail",
         params={"symbol": symbol, "marketId": market_id},
+        idempotent=True,
+        endpoint_name="get_instrument_detail",
     )
 
 
@@ -353,6 +400,8 @@ def build_get_instruments_by_cfi_request(
         method="GET",
         path="/rest/instruments/byCFICode",
         params={"CFICode": cfi_code},
+        idempotent=True,
+        endpoint_name="get_instruments_by_cfi",
     )
 
 
@@ -373,6 +422,8 @@ def build_get_instruments_by_segment_request(
         method="GET",
         path="/rest/instruments/bySegment",
         params={"MarketSegmentID": segment_id, "MarketID": market_id},
+        idempotent=True,
+        endpoint_name="get_instruments_by_segment",
     )
 
 
@@ -420,7 +471,17 @@ def build_new_order_request(
         params["displayQty"] = display_qty
     if expire_date is not None:
         params["expireDate"] = expire_date
-    return RequestSpec(method="GET", path="/rest/order/newSingleOrder", params=params)
+    # Pitfall 4 / D-01 / D-24 CRITICAL: HTTP GET (Primary API quirk) but
+    # idempotent=False (default — explicitly kept) to prevent duplicate-order
+    # risk on transient 503. The RetryTransport mutation gate honors this.
+    return RequestSpec(
+        method="GET",
+        path="/rest/order/newSingleOrder",
+        params=params,
+        idempotent=False,
+        endpoint_name="new_order",
+        account_id=account,
+    )
 
 
 def parse_new_order_response(resp: httpx.Response) -> NewOrderResponse:
@@ -437,7 +498,11 @@ def build_replace_order_request(
     qty: int,
     price: float,
 ) -> RequestSpec:
-    """``GET /rest/order/replaceById?clOrdId=...&proprietary=...&orderQty=...&price=...``."""
+    """``GET /rest/order/replaceById?clOrdId=...&proprietary=...&orderQty=...&price=...``.
+
+    Pitfall 4 / D-01 / D-24: HTTP GET (Primary quirk) but ``idempotent=False``
+    — replacing an order is a mutation; retry on 503 risks duplicate replaces.
+    """
     return RequestSpec(
         method="GET",
         path="/rest/order/replaceById",
@@ -447,6 +512,8 @@ def build_replace_order_request(
             "orderQty": qty,
             "price": price,
         },
+        idempotent=False,
+        endpoint_name="replace_order",
     )
 
 
@@ -462,11 +529,19 @@ def build_cancel_order_request(
     cl_ord_id: str,
     proprietary: str,
 ) -> RequestSpec:
-    """``GET /rest/order/cancelById?clOrdId=...&proprietary=...``."""
+    """``GET /rest/order/cancelById?clOrdId=...&proprietary=...``.
+
+    Pitfall 4 / D-01 / D-24: HTTP GET (Primary quirk) but ``idempotent=False``
+    — cancel is a mutation; while a retried cancel on an already-cancelled
+    order is harmless, we keep the gate explicit for uniformity with new/replace
+    and resilience against future Primary API semantic changes.
+    """
     return RequestSpec(
         method="GET",
         path="/rest/order/cancelById",
         params={"clOrdId": cl_ord_id, "proprietary": proprietary},
+        idempotent=False,
+        endpoint_name="cancel_order",
     )
 
 
@@ -487,6 +562,8 @@ def build_get_order_status_request(
         method="GET",
         path="/rest/order/id",
         params={"clOrdId": cl_ord_id, "proprietary": proprietary},
+        idempotent=True,
+        endpoint_name="get_order_status",
     )
 
 
@@ -507,6 +584,8 @@ def build_get_order_history_request(
         method="GET",
         path="/rest/order/allById",
         params={"clOrdId": cl_ord_id, "proprietary": proprietary},
+        idempotent=True,
+        endpoint_name="get_order_history",
     )
 
 
@@ -526,6 +605,9 @@ def build_get_active_orders_request(
         method="GET",
         path="/rest/order/actives",
         params={"accountId": account_id},
+        idempotent=True,
+        endpoint_name="get_active_orders",
+        account_id=account_id,
     )
 
 
@@ -545,6 +627,9 @@ def build_get_filled_orders_request(
         method="GET",
         path="/rest/order/filleds",
         params={"accountId": account_id},
+        idempotent=True,
+        endpoint_name="get_filled_orders",
+        account_id=account_id,
     )
 
 
@@ -564,6 +649,9 @@ def build_get_all_orders_request(
         method="GET",
         path="/rest/order/all",
         params={"accountId": account_id},
+        idempotent=True,
+        endpoint_name="get_all_orders",
+        account_id=account_id,
     )
 
 
@@ -583,6 +671,8 @@ def build_get_order_by_exec_id_request(
         method="GET",
         path="/rest/order/byExecId",
         params={"execId": exec_id},
+        idempotent=True,
+        endpoint_name="get_order_by_exec_id",
     )
 
 
@@ -612,7 +702,13 @@ def build_get_market_data_request(
     }
     if depth is not None:
         params["depth"] = depth
-    return RequestSpec(method="GET", path="/rest/marketdata/get", params=params)
+    return RequestSpec(
+        method="GET",
+        path="/rest/marketdata/get",
+        params=params,
+        idempotent=True,
+        endpoint_name="get_market_data",
+    )
 
 
 def parse_get_market_data_response(resp: httpx.Response) -> MarketDataSnapshot:
@@ -645,7 +741,13 @@ def build_get_trades_request(
         params["dateTo"] = date_to
     if environment is not None:
         params["environment"] = environment
-    return RequestSpec(method="GET", path="/rest/data/getTrades", params=params)
+    return RequestSpec(
+        method="GET",
+        path="/rest/data/getTrades",
+        params=params,
+        idempotent=True,
+        endpoint_name="get_trades",
+    )
 
 
 def parse_get_trades_response(resp: httpx.Response) -> list[Trade]:
@@ -672,6 +774,13 @@ def build_get_positions_request(
         method="GET",
         path=f"/rest/risk/position/getPositions/{account_name}",
         auth_basic=(state.username, state.password),
+        # D-23: Risk reads are idempotent GETs → RetryTransport on 5xx YES;
+        # 401 re-auth is handled differently in the shell (no re-auth for
+        # auth_basic path because the basic creds are static — a re-auth would
+        # just re-send the same wrong basic header).
+        idempotent=True,
+        endpoint_name="get_positions",
+        account_id=account_name,
     )
 
 
@@ -694,6 +803,10 @@ def build_get_detailed_positions_request(
         method="GET",
         path=f"/rest/risk/detailedPosition/{account_name}",
         auth_basic=(state.username, state.password),
+        # D-23: same Risk semantics as get_positions.
+        idempotent=True,
+        endpoint_name="get_detailed_positions",
+        account_id=account_name,
     )
 
 
@@ -718,6 +831,10 @@ def build_get_account_report_request(
         method="GET",
         path=f"/rest/risk/accountReport/{account_name}",
         auth_basic=(state.username, state.password),
+        # D-23: same Risk semantics as get_positions.
+        idempotent=True,
+        endpoint_name="get_account_report",
+        account_id=account_name,
     )
 
 

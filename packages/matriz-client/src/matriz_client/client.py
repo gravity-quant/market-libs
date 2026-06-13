@@ -18,15 +18,17 @@ See :mod:`matriz_client.ws_client` for the WebSocket streaming counterpart.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from typing import Any, Self
 
 import httpx
 from dotenv import load_dotenv
 
-from matriz_client import _core
+from matriz_client import _core, _transport
 from matriz_client._core import RequestSpec
 from matriz_client._state import _REQUEST_TIMEOUT, _ClientState
+from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
     AccountReport,
     DetailedPosition,
@@ -97,7 +99,7 @@ class Client:
             segments = c.get_segments()
     """
 
-    __slots__ = ("_state",)
+    __slots__ = ("_max_retries", "_state")
 
     def __init__(
         self,
@@ -107,6 +109,8 @@ class Client:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        max_retries: int = 2,
+        http_client: httpx.Client | None = None,
     ) -> None:
         self._state = _ClientState()
         if base_url is not None:
@@ -119,6 +123,12 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
+        # max_retries=0 disables retries entirely per D-19 (max_attempts <= 1 bypass).
+        self._max_retries = max_retries
+        # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
+        if http_client is not None:
+            self._state.http_client = http_client
 
     # -- Lifecycle ---------------------------------------------------
 
@@ -154,18 +164,43 @@ class Client:
     # -- HTTP / auth -------------------------------------------------
 
     def _ensure_http_client(self) -> httpx.Client:
+        """Crea ``httpx.Client`` lazy wrapping ``RetryTransport`` (Phase 8 D-15 / D-19).
+
+        ``max_attempts = max_retries + 1`` per the anthropic/openai SDK semantics
+        (D-19). The transport's mutation gate (D-01) honors
+        ``request.extensions["idempotent"]`` so mutating builders pass through
+        without retry (Pitfall 4 / D-24 — CRITICAL for matriz new_order).
+        """
         existing = self._state.http_client
         if isinstance(existing, httpx.Client):
             return existing
-        new = httpx.Client(timeout=_REQUEST_TIMEOUT)
+        new = httpx.Client(
+            timeout=_REQUEST_TIMEOUT,
+            transport=_transport.RetryTransport(max_attempts=self._max_retries + 1),
+        )
         self._state.http_client = new
         return new
 
     def login(self) -> str:
-        """Authenticate via ``POST /auth/getToken`` (D-22: token en header)."""
+        """Authenticate via ``POST /auth/getToken`` (D-22: token en header).
+
+        Phase 8 D-29: login goes through the RetryTransport with
+        ``idempotent=True`` per D-03 (replay-safe — a fresh X-Auth-Token
+        replaces the prior). Transient 5xx during auth retry via the transport;
+        401 NEVER retries (handled by shell re-auth flow in ``_request()``).
+        """
         spec = _core.build_login_request(self._state)
         http = self._ensure_http_client()
-        resp = http.post(f"{self._state.base_url}{spec.path}", headers=spec.headers)
+        request_id = uuid.uuid4().hex
+        req = http.build_request(
+            spec.method,
+            f"{self._state.base_url}{spec.path}",
+            headers=spec.headers,
+        )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        resp = http.send(req)
         token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
         self._state.token_expires_at = expires_at
@@ -182,18 +217,93 @@ class Client:
     # -- Transport shell (D-03) --------------------------------------
 
     def _request(self, spec: RequestSpec) -> httpx.Response:
-        """Dispatch HTTP, return raw ``httpx.Response``. Parsing en ``_core``."""
+        """Dispatch HTTP, return raw ``httpx.Response``. Parsing en ``_core``.
+
+        Phase 8 D-02 + D-11 + D-22 + D-23 + D-30 + RELY-04:
+
+        - **Risk API path** (``spec.auth_basic is not None``): construct
+          request with ``httpx.BasicAuth(*spec.auth_basic)``, propagate
+          extensions for the transport (idempotent, request_id, endpoint_name,
+          account_id, auth_basic for D-22 redaction) and SEND. **NO 401 re-auth
+          per D-23** — auth_basic credentials are static; a re-auth would just
+          re-send the same wrong basic header and infinite-loop.
+        - **Token path** (X-Auth-Token): ensure token; build request; on 401
+          (``AuthenticationError`` raised by ``_core.parse_envelope_response``
+          via the per-method parsers), clear cached token, call
+          ``_ensure_token()`` to re-login, retry request ONCE with refreshed
+          ``X-Auth-Token`` header. ``AuthenticationError`` NEVER in
+          ``retry_on=`` (D-07) — the transport sees only HTTP/transport
+          signals.
+
+        ``PrimaryAPIError`` (raised by ``parse_envelope_response`` on a 200-OK
+        with ``status=="ERROR"``) is NOT caught here per D-24 — it propagates
+        out and is NEVER retried by the transport (200-OK is not in the
+        retryable status set; the application-level error is raised AFTER the
+        transport returns).
+        """
         http = self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
+        request_id = uuid.uuid4().hex
+
         if spec.auth_basic is not None:
-            return http.request(
-                spec.method, url, params=spec.params, auth=httpx.BasicAuth(*spec.auth_basic)
-            )
+            # Risk API path — D-23: RetryTransport YES (idempotent=True for
+            # Risk reads → 5xx retry-eable); 401 re-auth NO (static creds).
+            req = http.build_request(spec.method, url, params=spec.params)
+            req.extensions["idempotent"] = spec.idempotent
+            req.extensions["request_id"] = request_id
+            req.extensions["endpoint_name"] = spec.endpoint_name
+            if spec.account_id is not None:
+                req.extensions["account_id"] = spec.account_id
+            # D-22 auth_basic propagation for log redaction (filter scans
+            # extensions via the structured log record's __dict__).
+            req.extensions["auth_basic"] = spec.auth_basic
+            resp = http.send(req, auth=httpx.BasicAuth(*spec.auth_basic))
+            if resp.status_code == 401:
+                # D-23: auth_basic 401 = invalid credentials. No re-auth (would
+                # just re-send the same wrong basic header). Surface as typed
+                # AuthError immediately.
+                raise AuthenticationError(
+                    "ERROR",
+                    f"401 Unauthorized (Risk API, endpoint={spec.endpoint_name or spec.path})",
+                )
+            return resp
+
+        # Token path — D-02 401 re-auth-once.
         self._ensure_token()
         if self._state.token is None:
             raise RuntimeError("matriz_client.client: _ensure_token() did not populate _token")
         headers = {"X-Auth-Token": self._state.token, **(spec.headers or {})}
-        return http.request(spec.method, url, params=spec.params, headers=headers)
+        req = http.build_request(spec.method, url, params=spec.params, headers=headers)
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        if spec.account_id is not None:
+            req.extensions["account_id"] = spec.account_id
+
+        resp = http.send(req)
+        if resp.status_code != 401:
+            return resp
+
+        # D-02 exactly-one re-auth: clear token, re-login, retry once.
+        # D-23: this branch is gated on `spec.auth_basic is None` (Token path
+        # only). Risk API auth_basic 401s are returned above without re-auth.
+        self._state.token = None
+        self._ensure_token()
+        new_token = self._state.token
+        if new_token is None:
+            raise AuthenticationError(
+                "ERROR", "_ensure_token() did not populate token after 401 re-auth"
+            )
+        req.headers["X-Auth-Token"] = new_token
+        resp = http.send(req)
+        if resp.status_code == 401:
+            # Second 401 — re-auth did not help; surface as typed AuthError.
+            # No further retry (Pitfall 1 prevention — re-auth happens exactly once).
+            raise AuthenticationError(
+                "ERROR",
+                f"401 Unauthorized after re-auth (endpoint={spec.endpoint_name or spec.path})",
+            )
+        return resp
 
     def _matriz_legacy_request(
         self,
@@ -411,8 +521,17 @@ def configure(
     password: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
+    max_retries: int | None = None,
+    http_client: httpx.Client | None = None,
 ) -> None:
-    """Sobrescribe credenciales/URL/token en runtime y resetea cache (D-04)."""
+    """Sobrescribe credenciales/URL/token en runtime y resetea cache (D-04).
+
+    Phase 8 D-15 / D-16 / D-19: ``max_retries`` (default 2; ``0`` disables
+    retries entirely per D-19) and ``http_client`` (used AS-IS without
+    auto-wrapping with ``RetryTransport`` per D-16) are runtime overrides on
+    the default singleton. Changing ``max_retries`` triggers a transport
+    rebuild on the next ``_ensure_http_client()`` call.
+    """
     default = _get_default()
     if base_url is not None:
         default._state.base_url = base_url.rstrip("/")
@@ -428,6 +547,21 @@ def configure(
     elif base_url is not None or username is not None or password is not None:
         default._state.token = None
         default._state.token_expires_at = 0.0
+    if max_retries is not None:
+        # Close the cached httpx.Client so the next _ensure_http_client() call
+        # rebuilds the RetryTransport with the new max_attempts (D-15).
+        existing = default._state.http_client
+        if isinstance(existing, httpx.Client):
+            existing.close()
+            default._state.http_client = None
+        default._max_retries = max_retries
+    if http_client is not None:
+        # D-16: caller-supplied http_client used AS-IS — close the prior cached
+        # client if any.
+        existing = default._state.http_client
+        if isinstance(existing, httpx.Client) and existing is not http_client:
+            existing.close()
+        default._state.http_client = http_client
 
 
 def login() -> str:

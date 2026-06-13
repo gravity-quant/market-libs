@@ -15,8 +15,17 @@ no es obligatorio invocarlo.
 See the README and the in-module docstrings for usage details.
 """
 
-from matriz_client.aio import AsyncClient
-from matriz_client.client import (
+# Phase 8 LOG-01: attach NullHandler + RedactingFilter to package logger BEFORE
+# any other imports — library convention per Python Logging HOWTO. NEVER touches
+# logging.root. The ``del`` cleanup prevents ``_logging_attach`` from leaking as
+# a top-level package attribute (snapshot Pitfall 8 prevention).
+from matriz_client import _logging as _logging_attach
+
+_logging_attach.attach()
+del _logging_attach
+
+from matriz_client.aio import AsyncClient  # noqa: E402
+from matriz_client.client import (  # noqa: E402
     Client,
     cancel_order,
     configure,
@@ -41,11 +50,15 @@ from matriz_client.client import (
     new_order,
     replace_order,
 )
-from matriz_client.client import (
+from matriz_client.client import (  # noqa: E402
     _get_default as _get_default,
 )
-from matriz_client.exceptions import AuthenticationError, MatrizClientError, PrimaryAPIError
-from matriz_client.models import (
+from matriz_client.exceptions import (  # noqa: E402
+    AuthenticationError,
+    MatrizClientError,
+    PrimaryAPIError,
+)
+from matriz_client.models import (  # noqa: E402
     AccountId,
     AccountReport,
     DetailedPosition,
@@ -66,7 +79,7 @@ from matriz_client.models import (
     Trade,
     UnknownFrame,
 )
-from matriz_client.types import (
+from matriz_client.types import (  # noqa: E402
     CFICode,
     Currency,
     MarketDataEntry,
@@ -77,7 +90,7 @@ from matriz_client.types import (
     Side,
     TimeInForce,
 )
-from matriz_client.ws_client import (
+from matriz_client.ws_client import (  # noqa: E402
     DEFAULT_MARKET_DATA_ENTRIES,
     MARKET_DATA_ENTRIES,
     ws_cancel_order,
