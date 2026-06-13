@@ -145,6 +145,32 @@
 - Risk: API shape changes from IOL silently produce wrong data rather than raising structured errors.
 - Priority: Medium
 
+## Documented Tradeoffs
+
+### `matriz_client._token_store.TokenStore._async_locks` process-lifetime leak (D-05 accept)
+
+**Source:** Phase 10 Plan 10-01 (`packages/matriz-client/src/matriz_client/_token_store.py`).
+**Date:** 2026-06-13.
+**Status:** Accept-and-document.
+
+`TokenStore._async_locks: dict[int, asyncio.Lock]` is keyed by `id(loop)` and
+is NOT cleared when an event loop is garbage collected. Tradeoff:
+
+| Scenario                                | Leak per dead loop | Total at 1M loops    |
+|-----------------------------------------|--------------------|----------------------|
+| Production (1 long-lived loop)          | 0 bytes            | 0 bytes              |
+| Tests (`asyncio.run()` per test)        | ~80B               | ~63 KB at 785 tests  |
+| Multi-loop app (rare anti-pattern)      | ~80B per loop      | ~80 MB at 1M loops   |
+
+**Rationale for accept:** the Spike 001c blueprint did not specify cleanup;
+implementing `weakref.WeakKeyDictionary` adds asyncio loop weakref edge cases
+without operational benefit given the production deployment shape (single
+long-lived event loop). v1.2 backlog if memory profile shows growth.
+
+**Mitigation if growth emerges:** swap `dict` → `weakref.WeakKeyDictionary`
+(asyncio loops are weakly-referenceable). Single-line change in
+`_token_store.py`.
+
 ---
 
-*Concerns audit: 2026-05-27*
+*Concerns audit: 2026-05-27 (Phase 10 Plan 10-01 addendum 2026-06-13)*
