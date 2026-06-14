@@ -56,7 +56,6 @@ class _ClientState:
     token: str | None = None
     token_expires_at: float = 0.0
     http_client: httpx.Client | httpx.AsyncClient | None = None
-    account_id: str | None = None
     # Phase 10 Plan 10-03 REFAC-04: 3-way concurrent token primitive shared
     # between sync ``Client._ensure_token`` (main thread), async
     # ``AsyncClient._aensure_token`` (event-loop coroutines), and
