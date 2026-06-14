@@ -201,7 +201,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 10-03-PLAN.md — `_state.py` +1 field `token_store` + sync/async/ws_client migration to `state.token_store.{get_sync,get_async}()` + cross-thread regression test (+5 tests); ORP-01 `account_id` preserved (REFAC-04)
+- [x] 10-03-PLAN.md — `_state.py` +1 field `token_store` + sync/async/ws_client migration to `state.token_store.{get_sync,get_async}()` + cross-thread regression test (+5 tests); ORP-01 `account_id` preserved (REFAC-04)
 
 **Wave 4** *(blocked on Wave 3 — operator-driven live gate)*
 
@@ -249,7 +249,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
-| 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 2/4 | In Progress|  |
+| 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 3/4 | In Progress|  |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
 
 ## Backlog
