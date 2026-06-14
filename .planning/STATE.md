@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: planning
-last_updated: "2026-06-14T14:13:09.649Z"
-last_activity: 2026-06-14
+status: completed
+last_updated: "2026-06-14T17:53:04.420Z"
+last_activity: 2026-06-14 — v1.2 roadmap created (Phases 12-17 mapped; 5/5 requirements covered with REFAC-06 conditional on Phase 12 spike outcome)
 progress:
   total_phases: 6
   completed_phases: 0
@@ -157,9 +157,9 @@ Cleaned up inline before milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-14T02:58:27.721Z
-Stopped at: v1.2 roadmap defined (Phases 12-17 mapped; 5/5 requirements covered with REFAC-06 conditional on Phase 12 spike)
-Resume file: .planning/ROADMAP.md (v1.2 Phase Details section, Phases 12-17)
+Last session: 2026-06-14T17:53:04.411Z
+Stopped at: Phase 12 context gathered
+Resume file: .planning/phases/12-codegen-spike/12-CONTEXT.md
 
 ## Operator Next Steps
 
