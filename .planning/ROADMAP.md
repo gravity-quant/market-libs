@@ -238,7 +238,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 1** *(parallel — intra-wave overlap on main_matriz.py serialized by execute-phase per Phase 10 idiom)*
 
-- [ ] 11-01-PLAN.md — Harness hardening (HARN-07/08/09/10): verification/findings.py BEGIN/END zone parser + idempotent_by_title kwarg + 4 baseline migrations + 4 driver adoptions
+- [x] 11-01-PLAN.md — Harness hardening (HARN-07/08/09/10): verification/findings.py BEGIN/END zone parser + idempotent_by_title kwarg + 4 baseline migrations + 4 driver adoptions
 - [ ] 11-02-PLAN.md — Code Review mega-plan (CR-01/02/04/06/07/08) + spike artifacts ruff housekeeping (Phase 8 D-21 per-CR atomic commits, risk-first order D-CR-03)
 
 **Wave 2** *(blocked on Wave 1 completion — operator-driven live gate)*
@@ -269,7 +269,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 4/4 | Complete   | 2026-06-14 |
-| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/3            | Planned     | -          |
+| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 1/3 | In Progress|  |
 
 ## Backlog
 
