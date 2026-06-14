@@ -29,7 +29,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 - [x] **Phase 8: Retries, Backoff, Structured Logging** — `tenacity` with full-jitter backoff and `Retry-After` cap (60 s); mutating-aware retry gate via `RequestSpec.idempotent`; per-package `getLogger` + `NullHandler` + `RedactingFilter`. (completed 2026-06-13)
 - [x] **Phase 9: Deferred Bug Fixes** — F-09 matriz ERROR-MAP, F-02 higyrus `get_listado_cuentas=0`, IOL refresh_token in-instance persistence, HIGY multi-account iteration; each lands once in `_core.py` and propagates to both surfaces. (completed 2026-06-13)
 - [x] **Phase 10: matriz `aio.py` Creation + TokenStore** — Full async REST surface for matriz; `TokenStore` with `threading.Lock` callable from sync, asyncio, and ws_client daemon thread. **Research flag**: TokenStore spike before plan. (completed 2026-06-14)
-- [ ] **Phase 11: Harness Hardening + Code Review Close-out + Live Re-verification** — `verification/findings.py` append-only with BEGIN/END zone parser, content-addressed dedup, operator-field preservation; WR-01..02, WR-04, WR-06..08 close-out; live `main_*.py --live × 4` final gate including matriz async.
+- [x] **Phase 11: Harness Hardening + Code Review Close-out + Live Re-verification** — `verification/findings.py` append-only with BEGIN/END zone parser, content-addressed dedup, operator-field preservation; WR-01..02, WR-04, WR-06..08 close-out; live `main_*.py --live × 4` final gate including matriz async. (completed 2026-06-14)
 
 ## Phase Details
 
@@ -243,7 +243,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 2** *(blocked on Wave 1 completion — operator-driven live gate)*
 
-- [ ] 11-03-PLAN.md — LIVE-01 final gate: main_*.py --live × 4 paquetes vs baseline 4d48e07 + operator-gated dispositions per D-LIVE-01 + 11-VALIDATION.md closure + CI green final cross-matrix (3.12+3.13)
+- [x] 11-03-PLAN.md — LIVE-01 final gate: main_*.py --live × 4 paquetes vs baseline 4d48e07 + operator-gated dispositions per D-LIVE-01 + 11-VALIDATION.md closure + CI green final cross-matrix (3.12+3.13)
 
 **Cross-cutting constraints:**
 
@@ -269,7 +269,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 4/4 | Complete   | 2026-06-14 |
-| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 2/3 | In Progress|  |
+| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 3/3 | Complete   | 2026-06-14 |
 
 ## Backlog
 
