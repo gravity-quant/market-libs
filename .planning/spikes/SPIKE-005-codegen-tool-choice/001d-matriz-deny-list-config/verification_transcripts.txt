@@ -1,0 +1,29 @@
+# Spike 001d — matriz deny-list intactness sha256 transcripts
+# Sandbox: /Users/sebadlf/development/becerra/market-libs/.claude/worktrees/agent-a979230d4af83577e/.planning/spikes/SPIKE-005-codegen-tool-choice/001d-matriz-deny-list-config/matriz_copy/matriz_client/
+# Codegen fpath_list: [aio.py]  (deny-listed files NEVER passed to unasync)
+# Method: shutil.copytree → sha256_before → unasync.unasync_files → sha256_after
+
+_token_store.py:
+  pre:  3df15ef2a6c53c14ef1aba1ca596cca486bfa03b894cdbf9dc35be5d1a5f3696
+  post: 3df15ef2a6c53c14ef1aba1ca596cca486bfa03b894cdbf9dc35be5d1a5f3696
+  intact: PASS
+
+_refresh_policy.py:
+  pre:  b7eb342367fcfda21da7daa4285a3db06bfe51706901fcd886e9245e29d542a2
+  post: b7eb342367fcfda21da7daa4285a3db06bfe51706901fcd886e9245e29d542a2
+  intact: PASS
+
+_refresh.py:
+  pre:  80403c3a8f65448eb850bd66150a76b334635969fd51ff70019365042a7f442f
+  post: 80403c3a8f65448eb850bd66150a76b334635969fd51ff70019365042a7f442f
+  intact: PASS
+
+ws_client.py:
+  pre:  c1338ba99257719add83437c5a9515865f511cced6e9913406515d59269c6d9f
+  post: c1338ba99257719add83437c5a9515865f511cced6e9913406515d59269c6d9f
+  intact: PASS
+
+aio.py:
+  pre:  03e5ea1cf1fcc3ef3f49f94329ee308abf01db867ad65098519daa9a5520ca5b
+  post: 7275e33aff7112d2dd2395290cfb0421f35636d91e5fd265a8e4bc90c56bf896
+  transformed: PASS  (post MUST differ from pre)

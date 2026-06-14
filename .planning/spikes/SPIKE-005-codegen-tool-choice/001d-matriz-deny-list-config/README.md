@@ -4,7 +4,7 @@ sub: 001d
 name: matriz-deny-list-config
 type: standard
 validates: "Given the matriz codegen deny-list (_token_store.py, _refresh_policy.py, ws_client.py), when a per-file Rule(fromdir=aio.py-only) configuration is simulated AND sha256 of deny-listed files is computed before+after, then deny-listed files are byte-identical (zero mutation)"
-verdict: TBD
+verdict: PASS
 related: [001c]
 tags: [codegen, matriz, deny-list, sha256]
 created: 2026-06-14
@@ -35,4 +35,17 @@ The experiment runs in a sandbox (`WORK/matriz_copy/`) — production `packages/
 
 ## Investigation Trail
 
-<!-- Filled in Plan 02 -->
+**Run (2026-06-14):** Single pass — `shutil.copytree` copies all 17 matriz
+files to a sandbox; sha256 computed for `aio.py` + 4 deny-listed files;
+`unasync.unasync_files(fpath_list=[<aio.py>], rules=[...])` invoked with the
+matriz Rule draft from 001c/FINDING.md; sha256 recomputed; sandbox cleaned up.
+
+**All 4 deny-listed files byte-identical pre/post** (intactness = PASS each).
+**`aio.py` transformed pre/post** (sha256 changed: `03e5ea1c…` → `7275e33a…`).
+Verdict PASS. The unasync `fpath_list` scope mechanism is sufficient to honor
+the deny-list — no `exclude=` param needed (and unasync 0.6.0 doesn't expose
+one).
+
+See `FINDING.md` for the full Deny-List Scope + Sha256 Transcript + How the
+Deny-List Is Achieved in unasync 0.6.0 + Anti-Pitfall 6 Compliance +
+Recommended Phase 16 Implementation sections.
