@@ -242,4 +242,4 @@ async def test_pep562_forwards_legacy_attribute_reads() -> None:
 async def test_pep562_unknown_attribute_raises_attribute_error() -> None:
     """PEP 562: unknown attribute access surfaces AttributeError per shim contract."""
     with pytest.raises(AttributeError):
-        _ = aio._does_not_exist  # type: ignore[attr-defined]
+        _ = aio._does_not_exist

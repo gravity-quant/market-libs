@@ -372,9 +372,9 @@ def test_parse_get_detailed_positions_response_returns_model() -> None:
         # X)`` para X non-str debe raise PrimaryAPIError, NO TypeError. El
         # ``# type: ignore[list-item]`` evita que mypy tire el Literal[str]
         # mismatch del propio parametrize.
-        (None, True),  # type: ignore[list-item]
-        (123, True),  # type: ignore[list-item]
-        ([], True),  # type: ignore[list-item]
+        (None, True),
+        (123, True),
+        ([], True),
     ],
 )
 def test_get_instruments_by_cfi_validates_cfi_code(cfi: str, expect_raise: bool) -> None:

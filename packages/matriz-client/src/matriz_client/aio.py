@@ -92,6 +92,7 @@ _ = _raise_for_response
 
 
 __all__ = [
+    "_raise_for_response",
     "AsyncClient",
     "aclose",
     "cancel_order",
