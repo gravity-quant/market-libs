@@ -586,6 +586,9 @@ def probe_antibot(today: dt.date) -> ProbeResult:
             # formateada "[403] ..."), por eso lo eliminamos.
             status_code = exc.status_code
             if status_code == 403:
+                # HARN-08 (Phase 11): idempotent_by_title=True para evitar que
+                # el terminal EXPECTED se duplique cross-run con cada
+                # _next_fid() distinto — content-addressed dedupe by title.
                 fid = _next_fid()
                 append_finding(
                     _PKG,
@@ -598,6 +601,7 @@ def probe_antibot(today: dt.date) -> ProbeResult:
                     actual="403 con UA=python-httpx/...",
                     diff="ninguno; comportamiento esperado de la defensa anti-bot",
                     base_url=base_url,
+                    idempotent_by_title=True,
                 )
                 return ProbeResult("antibot", "FINDING", f"{fid} (EXPECTED)")
             fid = _next_fid()

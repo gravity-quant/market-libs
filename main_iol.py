@@ -1426,6 +1426,9 @@ def probe_auth_401() -> ProbeResult:
             # WR-01: status_code typed directo, NUNCA via fallback a args.
             status_code = exc.status_code
             if status_code == 401:
+                # HARN-08 (Phase 11): idempotent_by_title=True para evitar que
+                # el terminal EXPECTED se duplique cross-run con cada
+                # _next_fid() distinto — content-addressed dedupe by title.
                 fid = _next_fid()
                 append_finding(
                     _PKG,
@@ -1438,6 +1441,7 @@ def probe_auth_401() -> ProbeResult:
                     actual="401",
                     diff="ninguno; comportamiento esperado",
                     base_url=base_url,
+                    idempotent_by_title=True,
                 )
                 return ProbeResult("auth_401", "FINDING", f"{fid} (EXPECTED)")
             fid = _next_fid()

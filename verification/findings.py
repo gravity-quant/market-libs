@@ -461,8 +461,13 @@ def _serialize_findings(
     if prefix:
         # Operator-owned prefix preserva el header + ART block + clases/estados
         # comments + cualquier prosa adicional que el operador haya inyectado
-        # arriba del BEGIN marker. Re-emitimos verbatim.
-        out.extend(prefix)
+        # arriba del BEGIN marker. El ART block se refresca in-place (3 líneas
+        # canónicas — Timestamp, Resolved base URL / env, Market hours note —
+        # via :func:`_replace_art_block`); el resto del prefix se re-emite
+        # verbatim.
+        prefix_text = "\n".join(prefix)
+        prefix_text = _replace_art_block(prefix_text, art)
+        out.extend(prefix_text.split("\n"))
     else:
         out.append(f"# Findings: {pkg}-client")
         out.append("")
@@ -471,10 +476,6 @@ def _serialize_findings(
         out.append(f"- Resolved base URL / env: {base_url}")
         out.append(f"- Market hours note: {market_hours}")
         out.append("")
-    # Clases/estados comments — sólo se emiten si NO había prefix operator-owned
-    # (cuando prefix viene del parsed file, esos comments ya están dentro del
-    # prefix verbatim).
-    if not prefix:
         out.append(f"<!-- Clases (D-09): {classes} -->")
         out.append(f"<!-- Estados (D-08): {lifecycle}. Sin campo de severidad. -->")
         out.append("")

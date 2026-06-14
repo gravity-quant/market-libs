@@ -2093,6 +2093,9 @@ def main() -> None:
     # D-MATZ-27 EXPECTED terminal: prod-vs-remarkets divergence acknowledged.
     # Esta ES la última invocación de append_finding sobre _PKG en main()
     # (Assumption A3 del plan).
+    # HARN-10 (Phase 11): idempotent_by_title=True evita que el terminal se
+    # duplique cross-run con cada _next_fid() distinto — content-addressed
+    # dedupe by title; el title funciona como identidad estable del finding.
     fid = _next_fid()
     append_finding(
         _PKG,
@@ -2111,6 +2114,7 @@ def main() -> None:
         ),
         diff="N/A (acknowledged limitation, not detected drift)",
         base_url=base,
+        idempotent_by_title=True,
     )
 
     # Phase 10 LIVE-02 — D-06 interleaved sync+async paridad.
