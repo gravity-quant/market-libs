@@ -48,6 +48,4 @@ def test_no_bare_except_in_driver(driver: str) -> None:
         if isinstance(node.type, ast.Name) and node.type.id == "Exception":
             # ``except Exception:`` o ``except Exception as exc:``.
             bare_sites.append((node.lineno, "except Exception"))
-    assert not bare_sites, (
-        f"{driver} has {len(bare_sites)} bare-except site(s): {bare_sites}"
-    )
+    assert not bare_sites, f"{driver} has {len(bare_sites)} bare-except site(s): {bare_sites}"

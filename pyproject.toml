@@ -39,6 +39,14 @@ dev = [
 line-length = 100
 target-version = "py312"
 src = ["packages/*/src", "packages/*/tests"]
+# Phase 11 CR-08: spike artifacts (educational source dumps + spike workspaces)
+# son contenido pre-formateado externo; no se le aplica ruff. Sin esta exclusión
+# el job `lint` reporta 108 errores PRE-EXISTENTES que bloquean el CI green
+# final (Phase 11 success criterion #5).
+extend-exclude = [
+    ".claude/skills/spike-findings-market-libs/sources/**",
+    ".planning/spikes/**",
+]
 
 [tool.ruff.lint]
 select = [
