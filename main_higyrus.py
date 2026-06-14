@@ -89,6 +89,7 @@ import datetime as dt
 import json
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -188,6 +189,26 @@ _auth_failure_reason: str = ""
 # dependientes reciben el valor por parámetro explícito).
 _resolved_cuenta: str | None = None
 
+# Phase 11 CR-07: el ``_capture_*_query_string`` helper muta in-place el
+# ``event_hooks`` compartido del ``httpx.Client`` / ``httpx.AsyncClient`` del
+# default-client de ``higyrus_client``. Si dos threads o dos coroutines invocan
+# el helper concurrentemente, la restauración del hook del thread A puede
+# sobreescribir el setup del thread B (race de read-modify-write). Estos locks
+# serializan los críticos. La alternativa "per-request hook injection" (fresh
+# ``httpx.Client(event_hooks=...)`` cada call) se descartó por radio de impacto
+# excesivo (requiere reconstruir transport+auth del default-client) — el lock
+# es mínimo y suficiente para preservar el invariante de no-corrupción.
+_event_hooks_lock_sync = threading.Lock()
+_event_hooks_lock_async: asyncio.Lock | None = None
+
+
+def _get_event_hooks_lock_async() -> asyncio.Lock:
+    """Lazy init del lock async (necesita un event loop corriendo al crear)."""
+    global _event_hooks_lock_async
+    if _event_hooks_lock_async is None:
+        _event_hooks_lock_async = asyncio.Lock()
+    return _event_hooks_lock_async
+
 
 def _next_fid() -> str:
     """Devuelve el siguiente ``F-NN`` (NN zero-padded a 2 dígitos)."""
@@ -241,8 +262,12 @@ def _capture_sync_query_string(
     ``aio._request``.
     """
     captured: dict[str, str] = {}
+    # Phase 11 CR-07: forzar instanciación del http_client lazy ANTES de
+    # capturar ``original_hooks`` para no leer ``None.event_hooks`` cuando el
+    # helper se llama antes que cualquier endpoint.
+    higyrus_client.client._get_default()._ensure_http_client()
     client = higyrus_client.client._client
-    original_hooks = client.event_hooks
+    assert client is not None  # invariante post-_ensure_http_client
 
     def _spy(request: httpx.Request) -> None:
         # WR-NEW-01 (review-04 iter-2): el event_hook se dispara para TODO
@@ -261,25 +286,31 @@ def _capture_sync_query_string(
         else:
             captured["query"] = str(raw_query)
 
-    # Preserva los hooks pre-existentes en caso de que otro componente los
-    # haya registrado (defensivo aunque hoy el client no usa hooks).
-    hooks_with_spy: dict[str, list[Any]] = {
-        "request": [*original_hooks.get("request", []), _spy],
-        "response": list(original_hooks.get("response", [])),
-    }
-    try:
-        client.event_hooks = hooks_with_spy
-        higyrus_client.get_movimientos(cuenta, fecha_desde, fecha_hasta)
-    except Exception:
-        # CR-03 (review-04): broadened de HigyrusAPIError → Exception para
-        # alinear con el contrato del helper async. Si el server rechaza
-        # la cuenta/rango, el hook ya capturó el query string antes de
-        # _raise_for_response. Si la falla es de transporte antes de la
-        # emisión, el dict queda vacío y probe_parity_sync_async reporta
-        # SKIPPED en vez de propagar.
-        pass
-    finally:
-        client.event_hooks = original_hooks
+    # Phase 11 CR-07: el read-modify-write de ``client.event_hooks`` es la
+    # zona de corrupción cross-thread; el lock serializa el ciclo completo
+    # (capture-original / install-spy / call / restore-original).
+    with _event_hooks_lock_sync:
+        original_hooks = client.event_hooks
+        # Preserva los hooks pre-existentes en caso de que otro componente los
+        # haya registrado (defensivo aunque hoy el client no usa hooks).
+        hooks_with_spy: dict[str, list[Any]] = {
+            "request": [*original_hooks.get("request", []), _spy],
+            "response": list(original_hooks.get("response", [])),
+        }
+        try:
+            client.event_hooks = hooks_with_spy
+            higyrus_client.get_movimientos(cuenta, fecha_desde, fecha_hasta)
+        except (httpx.HTTPError, HigyrusAPIError, HigyrusAuthError, HigyrusClientError):
+            # Phase 11 CR-07 + CR-06: narrowed from bare ``Exception`` to the
+            # specific subclasses raised by ``get_movimientos`` (httpx transport
+            # + higyrus domain exception hierarchy). Si el server rechaza la
+            # cuenta/rango, el hook ya capturó el query string antes de
+            # ``_raise_for_response``; si la falla es de transporte antes de la
+            # emisión, el dict queda vacío y ``probe_parity_sync_async`` reporta
+            # SKIPPED en vez de propagar.
+            pass
+        finally:
+            client.event_hooks = original_hooks
     return captured.get("query")
 
 
@@ -297,7 +328,6 @@ async def _capture_async_query_string(
     assert aio._client is not None
     client = aio._client
     captured: dict[str, str] = {}
-    original_hooks = client.event_hooks
 
     async def _spy(request: httpx.Request) -> None:
         # WR-NEW-01 mirror (review-04 iter-2): mismo filtrado que el helper
@@ -312,19 +342,24 @@ async def _capture_async_query_string(
         else:
             captured["query"] = str(raw_query)
 
-    hooks_with_spy: dict[str, list[Any]] = {
-        "request": [*original_hooks.get("request", []), _spy],
-        "response": list(original_hooks.get("response", [])),
-    }
-    try:
-        client.event_hooks = hooks_with_spy
-        await aio.get_movimientos(cuenta, fecha_desde, fecha_hasta)
-    except Exception:
-        # CR-03 mirror (review-04): broadened a Exception para paridad de
-        # contratos sync↔async.
-        pass
-    finally:
-        client.event_hooks = original_hooks
+    # Phase 11 CR-07: asyncio.Lock serializa el read-modify-write de
+    # ``client.event_hooks`` cross-coroutine (asyncio.gather x N invocaciones).
+    async with _get_event_hooks_lock_async():
+        original_hooks = client.event_hooks
+        hooks_with_spy: dict[str, list[Any]] = {
+            "request": [*original_hooks.get("request", []), _spy],
+            "response": list(original_hooks.get("response", [])),
+        }
+        try:
+            client.event_hooks = hooks_with_spy
+            await aio.get_movimientos(cuenta, fecha_desde, fecha_hasta)
+        except (httpx.HTTPError, HigyrusAPIError, HigyrusAuthError, HigyrusClientError):
+            # Phase 11 CR-07 + CR-06: narrowed from bare ``Exception`` to the
+            # specific subclasses raised by ``aio.get_movimientos``. Paridad
+            # sync↔async preservada en el clause.
+            pass
+        finally:
+            client.event_hooks = original_hooks
     return captured.get("query")
 
 

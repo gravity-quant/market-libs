@@ -1,14 +1,14 @@
-"""CR-07 — main_higyrus.py ``_capture_*_query_string`` thread-safety regression.
+"""CR-07 -- main_higyrus.py ``_capture_*_query_string`` thread-safety regression.
 
 Invariante: invocaciones concurrentes cross-thread / cross-event-loop de
 ``_capture_sync_query_string`` y ``_capture_async_query_string`` NO deben
 corromper el estado compartido ``httpx.Client.event_hooks`` /
 ``httpx.AsyncClient.event_hooks``.
 
-Fix path (Phase 11 CR-07): los helpers serializan la mutación in-place del
+Fix path (Phase 11 CR-07): los helpers serializan la mutacion in-place del
 ``event_hooks`` con ``threading.Lock`` (sync) y ``asyncio.Lock`` (async).
 La alternativa "per-request hook injection" via ``http_client=`` kwarg
-requiere reconstruir transport+auth interno del default Client y se descartó
+requiere reconstruir transport+auth interno del default Client y se descarto
 por radio de impacto excesivo (per ``11-PATTERNS.md:277-285``).
 """
 
@@ -19,39 +19,40 @@ import datetime as dt
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+import main_higyrus
 import pytest
 from pytest_httpx import HTTPXMock
 
 import higyrus_client
-import main_higyrus
 from higyrus_client import aio
 
 
 @pytest.fixture
-def _movimientos_mock(httpx_mock: HTTPXMock) -> HTTPXMock:
-    """Pre-mockea login + movimientos con respuestas reusables (is_reusable=True)."""
-    httpx_mock.add_response(
-        url=re.compile(r".*/api/login.*"),
-        method="POST",
-        json={"username": "u", "token": "tok-thread-safety", "expiresIn": 86400},
-        is_reusable=True,
-    )
+def movimientos_mock(httpx_mock: HTTPXMock) -> HTTPXMock:
+    """Pre-mockea movimientos con respuesta reusable. El conftest precarga el
+    token via ``configure(token=...)`` asi que ``_ensure_token`` no dispara login.
+
+    ``is_optional=True`` evita el teardown-assert si por concurrencia uno de los
+    threads termina antes de emitir el GET (la lock serializa pero el shutdown
+    del ThreadPoolExecutor puede aplastar el flush).
+    """
     httpx_mock.add_response(
         url=re.compile(r".*/movimientos.*"),
         method="GET",
         json=[],
         is_reusable=True,
+        is_optional=True,
     )
     return httpx_mock
 
 
 def test_concurrent_sync_capture_does_not_corrupt_event_hooks(
-    _movimientos_mock: HTTPXMock,
+    movimientos_mock: HTTPXMock,
 ) -> None:
-    """ThreadPoolExecutor × 2 invocaciones concurrentes preservan event_hooks."""
+    """ThreadPoolExecutor x 2 invocaciones concurrentes preservan event_hooks."""
     cuenta = "ACC-1"
     fecha = dt.date(2026, 1, 1)
-    # Forzar instanciación del http_client lazy antes de capturar pre_hooks.
+    # Forzar instanciacion del http_client lazy antes de capturar pre_hooks.
     higyrus_client.client._get_default()._ensure_http_client()
     client = higyrus_client.client._client
     assert client is not None
@@ -65,7 +66,7 @@ def test_concurrent_sync_capture_does_not_corrupt_event_hooks(
         ]
         results = [f.result() for f in futs]
 
-    # No corruption — los hooks post-test son byte-identicos a los pre-test.
+    # No corruption -- los hooks post-test son byte-identicos a los pre-test.
     post_hooks_request = list(client.event_hooks.get("request", []))
     post_hooks_response = list(client.event_hooks.get("response", []))
     assert post_hooks_request == pre_hooks_request
@@ -75,12 +76,12 @@ def test_concurrent_sync_capture_does_not_corrupt_event_hooks(
 
 
 async def test_concurrent_async_capture_does_not_corrupt_event_hooks(
-    _movimientos_mock: HTTPXMock,
+    movimientos_mock: HTTPXMock,
 ) -> None:
-    """asyncio.gather × 2 invocaciones concurrentes preservan event_hooks async."""
+    """asyncio.gather x 2 invocaciones concurrentes preservan event_hooks async."""
     cuenta = "ACC-1"
     fecha = dt.date(2026, 1, 1)
-    # Forzar instanciación del cliente async antes de capturar pre_hooks.
+    # Forzar instanciacion del cliente async antes de capturar pre_hooks.
     await aio._get_default()._ensure_http_client()
     assert aio._client is not None
     client = aio._client
@@ -100,9 +101,9 @@ async def test_concurrent_async_capture_does_not_corrupt_event_hooks(
 
 
 def test_event_hooks_restored_after_single_sync_capture(
-    _movimientos_mock: HTTPXMock,
+    movimientos_mock: HTTPXMock,
 ) -> None:
-    """Sanity: incluso una sola invocación restaura el estado pre-test."""
+    """Sanity: incluso una sola invocacion restaura el estado pre-test."""
     cuenta = "ACC-1"
     fecha = dt.date(2026, 1, 1)
     higyrus_client.client._get_default()._ensure_http_client()
