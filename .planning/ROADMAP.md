@@ -234,7 +234,26 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
   4. LIVE-01: `main_*.py --live` × 4 paquetes (iol, higyrus, ambito, matriz) pasa sin regresiones contra baseline `verification-cycle-2026-Q2`; `verify_cycle_closure × 4 pkgs` reporta PASS para los 3 limpios + estado actualizado para matriz post-BUG-01 (F-09 fixed).
   5. CI green final: ruff + mypy strict + pytest para Python 3.12/3.13; los 277 tests baseline + todos los regressions sumados durante v1.1 (Phase 6 fixture-reaches-production + Phase 7 dedup sentinels + Phase 8 retry/logging + Phase 9 bug regressions + Phase 10 matriz async) pasan verde.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1** *(parallel — intra-wave overlap on main_matriz.py serialized by execute-phase per Phase 10 idiom)*
+
+- [ ] 11-01-PLAN.md — Harness hardening (HARN-07/08/09/10): verification/findings.py BEGIN/END zone parser + idempotent_by_title kwarg + 4 baseline migrations + 4 driver adoptions
+- [ ] 11-02-PLAN.md — Code Review mega-plan (CR-01/02/04/06/07/08) + spike artifacts ruff housekeeping (Phase 8 D-21 per-CR atomic commits, risk-first order D-CR-03)
+
+**Wave 2** *(blocked on Wave 1 completion — operator-driven live gate)*
+
+- [ ] 11-03-PLAN.md — LIVE-01 final gate: main_*.py --live × 4 paquetes vs baseline 4d48e07 + operator-gated dispositions per D-LIVE-01 + 11-VALIDATION.md closure + CI green final cross-matrix (3.12+3.13)
+
+**Cross-cutting constraints:**
+
+- D-CR-01: 1 mega-plan for the 6 CRs with atomic commit per CR (Phase 8 D-21 template — 745503c / 625cb55 references)
+- D-CR-02: Test gating proporcional — CR-07/06 RED-first, CR-04/02/01 RED+GREEN single commit, CR-08 ruff-only
+- D-CR-03: Risk-first task order (CR-07 → CR-06 → CR-04 → CR-02 → CR-01 → CR-08)
+- D-HARN-01: Extend existing _parse_findings/_serialize_findings (HÍBRIDO approach; no full rewrite); migrate 4 baseline files one-time
+- D-WAVE-01: 3 plans in 2 waves; Wave 1 intra-wave overlap on main_matriz.py serialized by execute-phase
+- D-LIVE-01: baseline = 4d48e07; operator-gated acceptance; 3 blocking-regression categories block close without operator gate
+- security_enforcement=true: each plan has <threat_model> block; T-11-NN STRIDE threats per plan with ASVS L1 dispositions
 
 ## Progress
 
@@ -250,7 +269,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 4/4 | Complete   | 2026-06-14 |
-| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
+| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/3            | Planned     | -          |
 
 ## Backlog
 
