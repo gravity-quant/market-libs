@@ -18,16 +18,17 @@ result: [pending]
 
 ### 2. Decisión sobre desviaciones LOC (SC3) — operador YA aprobó al cerrar Plan 07-06
 expected: Aprobar las desviaciones documentadas (iol -5.1%, matriz client.py -20%) como path-forward para v1.2 driver migration (esta decisión YA fue tomada vía AskUserQuestion en el checkpoint final del Plan 07-06 Task 2 — registrar la confirmación).
-result: [pending — operador ya respondió "approved — partial accepted; v1.2 driver migration cierra el gap" en sesión previa; falta cerrar el ticket aquí]
+result: [accepted — operador aprobó "approved — partial accepted; v1.2 driver migration cierra el gap" 2026-06-14 (signoff capturado en 07-VERIFICATION.md frontmatter `operator_signoff.test_2_loc_drop_disposition`)]
 
 ## Summary
 
 total: 2
-passed: 0
+passed: 1
 issues: 0
-pending: 2
+pending: 1
 skipped: 0
 blocked: 0
+deferred: 1   # test 1 (CI 3.13 confirmation remota) deferred to v1.1 close-out — human-only, requires push + observe GitHub Actions
 
 ## Gaps
 

@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
-status: milestone_complete
-last_updated: 2026-06-14T12:21:22.015Z
-last_activity: 2026-06-14 -- Phase 11 execution started
+status: Awaiting next milestone
+last_updated: "2026-06-14T13:15:15.584Z"
+last_activity: 2026-06-14 — Milestone v1.1 completed and archived
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 30
   completed_plans: 30
-  percent: 83
-stopped_at: Milestone complete (Phase 11 was final phase)
+  percent: 100
 ---
 
 # Project State
@@ -26,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-14 - Completed quick task 260614-de5: fix DOC-01..04 before completing milestone
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-14 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -49,22 +48,21 @@ Last activity: 2026-06-14 - Completed quick task 260614-de5: fix DOC-01..04 befo
 | 04    | 4     | Complete | Higyrus (largest surface; 24+ regressions) |
 | 05    | 4     | Complete | Matriz (sync only; 19 regressions; DRIFT-02 closure) |
 
-**v1.1 (upcoming):**
+**By Phase (v1.1 shipped 2026-06-14):**
 
-| Phase | Plans | Status      |
-|-------|-------|-------------|
-| 06    | TBD   | Not started |
-| 07    | TBD   | Not started |
-| 08    | TBD   | Not started |
-| 09    | TBD   | Not started |
-| 10    | TBD   | Not started |
-| 11    | TBD   | Not started |
-| Phase 08 P01 | 15 | 2 tasks | 13 files |
-| Phase 08 P02 | 10 | 2 tasks | 12 files |
-| Phase 08 P03 | 20 | 2 tasks | 13 files |
-| Phase 08 P04 | 25 | 2 tasks | 12 files |
-| Phase 08 P05 | 30 | 2 tasks | 8 files |
-| Phase 08 P06 | 25 | 1 tasks | 4 files |
+| Phase | Plans | Status   | Notes |
+|-------|-------|----------|-------|
+| 06    | 7     | Complete | Compat safety net + Client/AsyncClient classes + PEP 562 shim (REFAC-01/02) |
+| 07    | 6     | Complete | `_core.py` extraction + import-linter contracts (REFAC-03 + CR-03/05; LOC drop partial, v1.2 carry-forward) |
+| 08    | 6     | Complete | `tenacity` retries + full-jitter backoff + mutation gate + `RedactingFilter` (RELY-01..04 + LOG-01..03) |
+| 09    | 4     | Complete | 4 deferred bug fixes (BUG-01..04, 2 operator overrides) |
+| 10    | 4     | Complete | matriz `aio.py` 852 LOC + TokenStore 3-way + `_atransport.py` (REFAC-04 + LIVE-02) |
+| 11    | 3     | Complete | findings.py append-only + 6 CR fixes + LIVE-01 final gate × 4 packages (HARN-07..10 + CR-01/02/04/06/07/08 + LIVE-01) |
+
+- v1.1 duration: 2026-06-11 → 2026-06-14 (~3.5 days, 6 phases, 30 plans, 52 tasks)
+- v1.1 git stats: 179 commits, 307 files changed, +76,286 / −3,538 LOC
+- Test suite: 277 (v1.0 close) → 907/908 (v1.1 close) on Python 3.12 local
+- Quick tasks: 3 (260611-u0v, 260613-nwb, 260614-de5)
 
 ## Accumulated Context
 
@@ -129,6 +127,24 @@ Items acknowledged and carried forward from v1.0 milestone close on 2026-06-10:
 
 See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit context.
 
+### Acknowledged at v1.1 close on 2026-06-14
+
+Items surfaced by `gsd-sdk query audit-open` and acknowledged by operator at milestone close (per v1.1-MILESTONE-AUDIT.md `human_verification_pending:` block):
+
+| Category | Item | Status | Carry-forward |
+|----------|------|--------|---------------|
+| uat_gap | 07-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation); test 2 accepted 2026-06-14 (SC#3 LOC drop disposition signed off) | Human-only — requires push + observe GitHub Actions matrix |
+| uat_gap | 08-HUMAN-UAT.md | partial — 4 pending: live retry smoke under real transients, log legibility subjective UX, CI 3.13 matrix, deferred review-item tracking | Human-only; deferred-review-tracking actually closed by Phase 11 (HARN scope), other 3 remain operator-confirm |
+| uat_gap | 09-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation) | Human-only — same as Phase 07 test 1 |
+| quick_task | 260611-u0v-fix-ci-failures-on-phase-06-compat-safet | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 3 commits in git history | False-positive (SDK parser heuristic) |
+| quick_task | 260613-nwb-fix-int-01-main-iol-py-crashea-con-attri | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 1 commit in git history | False-positive (SDK parser heuristic) |
+| quick_task | 260614-de5-fix-doc-01-04-before-completing-mileston | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 2 commits in git history | False-positive (SDK parser heuristic) |
+
+Cleaned up inline before milestone close:
+
+- Pending todo `matriz-driver-findings-file-handling.md` moved to `.planning/todos/completed/` (resolved by Phase 11 HARN-07/08/10).
+- Phase 07 UAT test 2 (SC#3 LOC drop disposition) flipped from `[pending]` to `[accepted]` (operator signoff captured in 07-VERIFICATION.md frontmatter on 2026-06-14).
+
 ## Session Continuity
 
 Last session: 2026-06-14T02:58:27.721Z
@@ -137,6 +153,4 @@ Resume file: .planning/phases/11-harness-hardening-code-review-close-out-live-re
 
 ## Operator Next Steps
 
-1. Review the v1.1 roadmap in `.planning/ROADMAP.md` and the traceability table in `.planning/REQUIREMENTS.md`.
-2. (Recommended) Before `/gsd-plan-phase 10`, run the research spike on the 3-way TokenStore design (sync + asyncio + threading) — flagged in Phase 10's research flag.
-3. Start Phase 6 planning with `/gsd-plan-phase 6`.
+- Start the next milestone with /gsd-new-milestone

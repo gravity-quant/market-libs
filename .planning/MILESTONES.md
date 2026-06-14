@@ -1,5 +1,42 @@
 # Milestones
 
+## v1.1 Tech Debt Cleanup (Shipped: 2026-06-14)
+
+**Phases completed:** 6 phases, 30 plans, 52 tasks
+
+**Key accomplishments:**
+
+- Public-surface snapshot test (`inspect.signature` over `__all__`) sweeping ambito/iol/higyrus/matriz with W3-pinned text golden files, deterministic regen script, and Phase 6 entry-baseline (281 tests / 95% coverage / git_sha-anchored) committed BEFORE any per-package Client class refactor lands.
+- Per-package guard tests proving that a sentinel monkeypatched onto each module-level `_token` reaches the wire-level `Authorization` (iol/higyrus) / `X-Auth-Token` (matriz) header — and that `configure(base_url=...)` reaches the wire URL for the no-auth ambito case — with 7 passing + 1 matriz-async permanent skip.
+- First per-package skeleton landed: `ambito_financiero_client.Client` (sync) + `AsyncClient` (async) with per-instance `_ClientState`, PEP 562 read-only `__getattr__` shim, carry-forward `configure()` semantics, redacted `__repr__`, pickle/deepcopy bans, and snapshot regeneration — all 4 ambito test suites + the cross-package public-surface guard + the Plan 06-02 fixture-reaches-production guard pass against the refactored client.
+- Phase 6 CI matrix proven green end-to-end on Python 3.12 AND 3.13 (389 passed, 1 skipped on each) — mutation_gate audit PASSED unchanged.
+- Instalación + configuración de `import-linter` v2.11 con 4 forbidden contracts declarativos + 4 `_core.py` placeholders + runtime cross-leak guard parametrizado — las dos CI gates de Phase 7 (REFAC-03) quedan operativas antes del primer refactor.
+- Extracción mecánica del patrón `_core.py + transport shell` aplicado a `ambito_financiero_client` como canary del refactor Phase 7 — validó el patrón completo (RequestSpec + builders + parsers + raise_for_response moved + D-04 alias + B8 identity + 3-liner endpoint shells) con drop agregado de 31.2% LOC en client+aio y zero regresión.
+- iol `_core.py` extracts OAuth password-grant + refresh-token auth-flow as pure builders/parsers (with CR-01 conditional rotation preserved structurally) plus 4 endpoint builder/parser pairs; transport shells (client.py + aio.py) collapse to 3-liner endpoint methods, D-04 alias preserves B8 identity.
+- Wave-3 consolidation plan that gathers evidence the 5 Phase 7 ROADMAP success
+
+criteria are satisfied across the full gate matrix and produces a single
+`07-VALIDATION.md` with `nyquist_compliant: partial` (honest 4/5 PASS + 1
+PARTIAL signal; the LOC-drop deviation in criterion #3 is documented in
+Plans 07-03 and 07-05 SUMMARYs; operator decides at the Task 2 human-verify
+checkpoint whether 'partial' is acceptable for phase close-out).
+
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- 8 mocked regression tests (4 sync + 4 async) lockean los 4 paths del `_state.refresh_token` lifecycle en `iol-client` — CR-01 conditional rotation guard + D-IOL-10 refresh→password fallback + D-IOL-09 async double-checked locking quedan fijados sin tocar `_core.py` / `client.py` / `aio.py` / `_state.py`.
+- Per-call `id_cuenta` regression test (mocked 2-cuentas) + driver probe with CSV override + cross-package `_state.account_id` cleanup + BUG-02 quick-triage closure (bucket a NO-FIX) + Phase 6 migration drift repair (shim hardening).
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+
+---
+
 ## v1.0 Verification cycle (Shipped: 2026-06-10)
 
 **Phases completed:** 5 phases, 18 plans, 27 tasks
