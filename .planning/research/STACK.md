@@ -1,9 +1,9 @@
-# Stack Research — v1.1 Tech Debt Cleanup
+# Stack Research — v1.2 Architecture + Auth/Ergonomics Carry-forwards
 
-**Domain:** Python HTTP client libraries (4 packages in monorepo) — additions for retries, structured logging, sync/async dedup, and singleton→Client refactor.
-**Researched:** 2026-06-10
-**Confidence:** HIGH (every recommendation verified via Context7 + PyPI metadata + source inspection)
-**Scope:** STACK ADDITIONS ONLY — the v1.0 stack (Python 3.12+, uv, httpx, pytest+pytest-httpx, ruff, mypy strict, pre-commit) is NOT under review.
+**Domain:** Python HTTP client libraries (4 verifiable packages in a uv monorepo) — additions for sync/async single-source codegen, secure IOL refresh_token disk persistence, and tooling support for driver migration.
+**Researched:** 2026-06-14
+**Confidence:** HIGH (versions verified via PyPI + Context7; rationale grounded in v1.1 architectural constraints).
+**Scope:** STACK ADDITIONS ONLY — locked v1.0/v1.1 stack (Python 3.12+, uv, httpx, tenacity 9.1.4, pytest+pytest-httpx, ruff `E/W/F/I/B/UP/SIM/RUF/ASYNC/PIE/PT/RET/TID/LOG`, mypy strict, import-linter v2.11, hatchling) is NOT under review and is preserved verbatim from the v1.0/v1.1 archive.
 
 ---
 
@@ -11,396 +11,309 @@
 
 | Subquestion | Recommendation | Confidence | Why (one-liner) |
 |-------------|----------------|------------|-----------------|
-| A) Retries/backoff | **`tenacity` 9.1.4** (with no transport, used as decorator at the request layer) | HIGH | Only option that (a) gives full mutating-allowed gate control per-call, (b) shares a single decorator across sync+async, (c) has `py.typed` + mypy-strict-clean, (d) zero runtime deps |
-| B) Structured logging | **stdlib `logging`** (zero deps) — adopt structured patterns via `LoggerAdapter` + `extra={...}` + `NullHandler` per package | HIGH | The only choice that ships zero new runtime deps, is breakage-proof for downstream consumers, and integrates trivially with existing `verification/redaction.py` Bearer-masking |
-| C) Singleton→Client refactor | **Zero deps** — pure design pattern (`@dataclass` Client + module-level singleton instance + thin top-level functions delegating to it) | HIGH | This is a refactor, not a library problem. No idiom lib exists for this and none is needed. |
-| D) Sync/async dedup | **Zero deps** — extract pure helpers (request-builders, parsers) + parametric request injection. Do NOT pull `unasync`, `anyio`, or `hishel`. | HIGH | The codebase is small (4 pkgs × ~500 LOC each), the deduplication target is endpoint-shaped logic, and the pattern is well-established. Adding a code-gen step is over-engineering. |
-| E) mypy strict impact | None of the recommended adds break mypy strict | HIGH | `tenacity` ships `py.typed`; `logging` is already covered by mypy bundled stubs; design-pattern refactors don't change typing surface |
+| 1. Sync/async dedup (codegen tooling) | **`unasync` 0.6.0** as dev-only build-helper, executed via `hatch-build-scripts` (or a thin per-package `tool.hatch.build.hooks.custom`); async-first source under `_aio/`, generated sync under `_sync/` checked into git for reviewability | HIGH (token-replacement + battle-tested by httpcore/elasticsearch-py/trio; spike validates per-package fit) | The only mature library purpose-built for sync↔async codegen in the httpx ecosystem; preserves the "no shared internals" constraint because each of 4 packages runs its own `Rule(fromdir=..., todir=...)`; zero runtime dep (dev-only). Final pick remains gated on the Phase-level spike per `spike-before-plan`. |
+| 2. Codegen fallback if `unasync` rejected | **`libcst` 1.8.6** for AST-level rewrites OR pure-Python templating (no library — stdlib `string.Template` + Jinja2 dev-only) | MEDIUM | `libcst` has `py.typed`, MIT, active (1.8.6 Nov 2025, supports Py 3.9-3.14); it's the next-step-up if `unasync`'s token-replacement is too coarse for matriz's complex shells. Heavier (~5MB wheel + pyyaml dep). Use only if spike disqualifies `unasync`. |
+| 3. IOL refresh_token disk persistence | **`platformdirs` 4.10.0 + stdlib (`cryptography` deferred)** — store refresh_token as `0600` file under `platformdirs.user_data_dir("iol-client")/refresh_token.json`; no encryption at-rest in v1.2 (developer-machine / CI threat model only — matches how `.env` files already live on disk). Encryption with `cryptography.fernet` deferred to v1.3 unless threat model expands. | HIGH | platformdirs is zero-deps, MIT, `requires-python>=3.10`, 22KB wheel — cheapest portability win. The IOL credentials already live in `packages/iol-client/.env` (plaintext, 0644 by default); adding a 0600 token cache file is a strict improvement without raising the bar for the rest of the package. |
+| 4. IOL refresh_token disk persistence — IF threat model demands encryption | **`cryptography>=43,<50` Fernet** (NOT `keyring`) | MEDIUM | Fernet (AES-128-CBC + HMAC-SHA256) gives at-rest encryption with a key derived from a user-provided passphrase or `IOL_TOKEN_ENCRYPTION_KEY` env var. Adds C-extension dep (`cffi`) but no GUI/D-Bus runtime requirement → works in CI. `keyring` is rejected for v1.2 because (a) headless CI needs `PYTHON_KEYRING_BACKEND=null` workaround that defeats the purpose, (b) Linux requires `SecretService` / `jeepney` system deps, (c) macOS Keychain access prompts interactively on first read, breaking the `main_iol.py --live` driver flow. |
+| 5. Driver migration tooling (`main_*.py` rewrite × 4) | **No new tool** — use stdlib `ast` walk for migration verification + golden snapshot tests via existing pytest. `libcst` codemod is an option ONLY if the rewrite scales to >50 mechanical sites per file. | HIGH | Phase 11 already validated AST-walk regression-guards (CR-06 narrowed 27 sites of `except Exception` via AST). Same pattern works for INT-01 idiom enforcement on the migrated drivers. Adding a codemod library for one-shot driver migration is over-investment. |
+| 6. mypy strict compatibility of all additions | All preserve mypy strict | HIGH | `unasync` is dev-only (not imported at runtime); `platformdirs` has inline annotations (verified via Context7 + PyPI classifier `Typing :: Typed`); `cryptography` ships type stubs in 43+; `keyring` declared typing support in jaraco/keyring NEWS (2024-2025 changelog entries). |
+| 7. Ruff `LOG` rule set compatibility | All preserve | HIGH | None of the additions emit log calls. The Phase 8 `LOG001..LOG015` enforcement (root-logger-call) is unaffected. |
 
 ---
 
 ## Recommended Stack Additions
 
-### Core Additions (Runtime Dependencies)
+### Cluster 1 — Codegen / Driver Migration (Arquitectura sync/async dedup)
 
-| Technology | Version | Purpose | Why Recommended | Integration Notes | Risks |
-|------------|---------|---------|-----------------|-------------------|-------|
-| **tenacity** | `>=9.1.0,<10` (current: 9.1.4) | Retries with exponential backoff + jitter for 5xx/429/connection errors | Decorator API works identically for sync (`@retry`) and async (`@retry` auto-detects coroutines via `AsyncRetrying`). `wait_exponential_jitter(multiplier, max, jitter)` is purpose-built for this. `retry_if_exception_type` + `retry_if_exception` give per-call gate control needed by `mutating_allowed` (no retry of mutations). Has `py.typed` marker — mypy strict compatible. Zero runtime deps. | Add as runtime dep in each of 4 package `pyproject.toml` files. Wrap `_request()` (not endpoint functions) so retry logic is centralized per package. Pass a `retry=` callable into `_request()` that the caller controls per-endpoint (mutations pass `retry=stop_after_attempt(1)`). | None significant. Apache-2.0 license. ~187 code snippets in Context7 / active community. |
+| Technology | Version | Dep Type | Purpose | Why Recommended | Risks |
+|------------|---------|----------|---------|-----------------|-------|
+| **unasync** (CANDIDATE — spike-gated) | `>=0.6.0,<0.7` (current 0.6.0, released 2024-05-03) | DEV-ONLY (dependency-group `dev` in root `pyproject.toml`) | Async-first source generation: write `_aio/<endpoint>.py` once, generate `_sync/<endpoint>.py` at build time via token replacement (`async def`→`def`, `await`→``, `AsyncClient`→`Client`, `AsyncIterator`→`Iterator`, custom rules per package) | (1) Used in production by `httpcore`, `elasticsearch-py`, `trio` (`hip`) — the same httpx ecosystem we're already in. (2) Per-package `Rule(fromdir, todir, additional_replacements={...})` matches the "no shared internals" constraint exactly. (3) Token-based, not AST-based — predictable, debuggable, ~150 LOC source; dev failure modes are obvious. (4) MIT OR Apache-2.0 dual license. (5) Zero runtime dep — the generated code has no `unasync` import. | (a) Token replacement breaks on whitespace-sensitive patterns (rare in httpx clients). (b) No `py.typed` marker, but it never runs in the typed application surface (dev-only). (c) Hatchling integration is custom (build hook + `cmdclass_build_py` is setuptools-only) — pattern is: commit both `_aio/` AND `_sync/` to git + run `unasync` in pre-commit or a `Makefile` target + CI gate `lint-codegen` that re-runs and asserts no diff. **(d) Spike-before-plan flag is ACTIVE per PROJECT.md — final adoption gated on the Phase-level spike report.** |
+| **libcst** (FALLBACK if unasync rejected) | `>=1.8.0,<2` (current 1.8.6, released Nov 2025) | DEV-ONLY | AST-level codemod for sync/async dedup; alternative if token replacement is too coarse for matriz (which has `TokenStore` + `_refresh_policy` + `aio.py` 852 LOC with non-trivial branching) | Instagram-maintained, MIT, `py.typed` present, supports Python 3.9-3.14 (including 3.13 free-threading classifier), 48 releases — actively developed. CST preserves whitespace/comments which matters for review of generated code. | Heavier than unasync: pulls `pyyaml>=5.2` (already transitive in our env via pre-commit), ~5MB wheel. Imperative API is more code to write per transformation rule (~3× LOC vs unasync). Use only if spike disqualifies unasync. |
+| **ast-grep / comby** (REJECTED) | — | — | Pattern-match-and-rewrite tools — DSL-based | Rejected: `comby` does not support indentation-sensitive languages like Python (per their own docs); `ast-grep` is Rust-based CLI, not a Python library — adds a non-Python tool to the dev workflow and breaks the "pre-commit + ruff + mypy" CI invariant. |
 
-### Zero-Dependency Patterns (NO new libraries)
+### Cluster 2 — Secure Token Storage (IOL refresh_token Disk Persistence)
 
-| Concern | Approach | Why No Library | Implementation Sketch |
-|---------|----------|----------------|------------------------|
-| **Structured logging** | stdlib `logging` with `LoggerAdapter` + `extra=` payloads + per-package `NullHandler` default | Pulling `structlog`/`loguru` adds a runtime dep that downstream consumers must reconcile with their own logging stack. stdlib `logging` is THE library-friendly choice — consumers wire handlers/formatters. | Each package: `_logger = logging.getLogger("<pkg_name>")` at module top. Add `logging.NullHandler()` to it. Emit structured records: `_logger.info("request", extra={"method": "GET", "url": redacted_url, "duration_ms": ...})`. Wire `verification/redaction.py:_redact_bearer` into a `logging.Filter` mounted on the package logger. |
-| **Singleton→Client refactor** | `@dataclass(slots=True)` `Client` class holding state + module-level `_default_client: Client \| None = None` + top-level functions delegating to `_default_client` (backward-compat compat layer) | This is a refactor pattern, not a library gap. Any "singleton pattern" lib (e.g., `singleton-decorator`) adds noise without value. | `class Client: base_url: str; token: str \| None; ...`. Top-level `def get_quote(symbol) -> dict: return _get_default_client().get_quote(symbol)`. `configure()` becomes `_default_client = Client(base_url=..., ...)`. |
-| **Sync/async dedup** | Extract pure helpers (`_build_quote_request(symbol) -> Request`, `_parse_quote_response(resp) -> dict`) — sync `Client.get_quote` and `AsyncClient.get_quote` both call them, differing only in `.send()` await. | `unasync` codegen would require build-step integration with hatchling, breaking direct-from-source debugging. `anyio` would force a runtime dep into every package for a problem that's solved by good factoring. `hishel` is a caching layer, off-topic. | Per package: move request construction and response parsing into pure functions in `_request_helpers.py`. Each endpoint becomes ~5 LOC in `client.py` and ~5 LOC in `aio.py`, both calling the same helpers. Reduces the "deuda conocida" (duplicated logic across sync+async) without code-gen. |
+| Technology | Version | Dep Type | Purpose | Why Recommended | Risks |
+|------------|---------|----------|---------|-----------------|-------|
+| **platformdirs** | `>=4.0,<5` (current 4.10.0, released 2026-05-28) | RUNTIME — `packages/iol-client/pyproject.toml` ONLY | Cross-platform user-data-dir resolution: `platformdirs.user_data_dir("iol-client", appauthor="market-libs")` returns `~/Library/Application Support/iol-client` (macOS), `~/.local/share/iol-client` (Linux/XDG), `%LOCALAPPDATA%\market-libs\iol-client` (Windows) | (1) Zero runtime deps (verified `requires_dist: null` on PyPI). (2) MIT, 22KB wheel. (3) `requires-python>=3.10` — well within our `>=3.12`. (4) PEP 561 typed (Context7 confirms). (5) Industry-standard idiom for "where do I drop a cache file?" — pip, virtualenv, pytest, black all use it. | None. The downside is that platformdirs gives you a *path*, not a security model — file permissions are still your responsibility. We commit to `os.chmod(path, 0o600)` + `os.makedirs(..., mode=0o700, exist_ok=True)` on the directory. |
+| **stdlib only** (`os`, `json`, `pathlib`) | — | RUNTIME | File I/O + permission bits for the refresh_token cache file | Threat model = developer machine + CI runners; the IOL credentials (`username`, `password`) already live in `packages/iol-client/.env` (plaintext, default 0644). Adding a 0600 token file is a Pareto improvement without introducing a heavier security primitive that doesn't match the existing posture. JSON envelope: `{"refresh_token": "...", "issued_at": <epoch>, "schema_version": 1}`. | None — stdlib `json` + `pathlib` are already universal. |
+| **cryptography** (DEFERRED to v1.3 unless threat model expands) | `>=43,<50` (current 49.0.0) | RUNTIME — `packages/iol-client/pyproject.toml` ONLY, if adopted | Fernet symmetric encryption of refresh_token at-rest, keyed off `IOL_TOKEN_ENCRYPTION_KEY` env var | If a future v1.3+ requirement says "encrypt the token at rest because the host disk is untrusted", `cryptography.fernet.Fernet` is the answer: AES-128-CBC + HMAC-SHA256, built-in timestamping, `MultiFernet` for key rotation. Apache-2.0 OR BSD-3-Clause. Cross-platform (Windows, macOS, Linux x86_64/arm64). | Pulls `cffi>=2.0.0` (C extension) — adds ~5MB wheel + build-from-source risk on niche platforms (none in our CI matrix: GitHub-hosted Ubuntu + Python 3.12/3.13 both have prebuilt wheels). `py.typed` status not explicitly marked in metadata but inline annotations + stubs land in 43+. Do NOT add unless the operator authorizes a threat-model expansion. |
+| **keyring** (REJECTED) | 25.7.0 | — | OS-native credential store wrapper (macOS Keychain, Linux Secret Service, Windows Credential Locker) | **Rejected for v1.2.** Detailed reasoning: (a) **CI headless gap** — headless Linux runners (GitHub Actions Ubuntu) lack a D-Bus session, so `SecretService` backend fails; the workaround is `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring` which is a no-op store (defeats the purpose). (b) **macOS first-read prompt** — Keychain prompts the user GUI-interactively the first time a script reads a secret; this breaks `uv run python main_iol.py --live` running unattended. (c) **Linux runtime deps** — pulls `SecretStorage>=3.2 + jeepney>=0.4.2` as Linux-conditional deps; we'd be locking the IOL wheel to a transitive tree that doesn't ship from PyPI as pure-Python. (d) **macOS shared-key risk** — per keyring's own docs, "any Python script or application can access secrets created by keyring from that same Python executable without prompting" — same trust boundary as a 0600 file, without the portability. | n/a — not adopted. |
 
-### Development Tools — No Changes
+### Cluster 3 — Driver Migration (`main_*.py` × 4)
+
+| Technology | Status | Why |
+|------------|--------|-----|
+| **stdlib `ast`** | KEEP — already in use | Phase 11 CR-06 already used AST walks to narrow 27 sites of `except Exception` into typed exception clauses. Re-use the same pattern to enforce the INT-01 idiom (`_get_default()._state.<attr>` access) across migrated drivers. Zero new deps. |
+| **pytest snapshot tests** | NEW — pure pytest | Adopt the convention `tests/drivers/test_main_<pkg>_smoke.py::test_envelope_matches_golden` that runs `main_<pkg>.main(["--dry-run"])` and snapshot-compares the output. Pure pytest with `pytest-httpx` mocking the upstream API. No new deps required. |
+| **syrupy / pytest-snapshot** (REJECTED) | — | Adds a runtime dep for snapshot management; pytest's own `caplog` + `capsys` + golden file fixture is sufficient at this scale (~2000 LOC × 4 drivers). |
+| **libcst codemod** for the driver rewrite (CONDITIONAL) | OPTIONAL — only if mechanical site count >50 per driver | Phase 11 INT-01 hotfix already migrated 15 sites in `main_iol.py` manually + 1 PROBE_STALE inline. If v1.2's driver migration also stays under ~50 sites per driver, manual edits + Edit-tool review remains cheaper than writing+testing a libcst codemod script. **If the spike audits the drivers and reports >50 sites/file: revisit libcst.** |
+
+### Development Tools — No Changes from v1.1
 
 | Tool | Status |
 |------|--------|
-| `ruff >=0.7` | UNCHANGED — existing rule set already covers `tenacity` usage |
-| `mypy >=1.13` strict | UNCHANGED — `tenacity` ships `py.typed`, `logging` is bundled in typeshed |
-| `pytest >=8.3` + `pytest-asyncio >=0.24` + `pytest-httpx >=0.34` | UNCHANGED — used as-is for regression tests on new retry/logging behavior |
-| `pre-commit >=4.0` | UNCHANGED |
+| `ruff >=0.7` (rule sets `E/W/F/I/B/UP/SIM/RUF/ASYNC/PIE/PT/RET/TID/LOG`) | UNCHANGED — covers all v1.2 additions. `unasync`-generated files go under `_sync/` and stay inside the ruff src globs; we may need to extend `extend-exclude` ONLY if a generated file has known violations the source `_aio/` does not (test in spike). |
+| `mypy >=1.13` strict | UNCHANGED — `platformdirs` is typed; `cryptography` (if adopted) types are bundled; `unasync` is dev-only and not type-checked at runtime. |
+| `pytest >=8.3` + `pytest-asyncio >=0.24` + `pytest-httpx >=0.34` | UNCHANGED — `_sync/` AND `_aio/` directories both get test coverage; `pytest-httpx` mocks both paths via httpx mock invariant. |
+| `import-linter >=2.11,<3` | UNCHANGED — extend the existing `forbidden` contracts to also forbid `_sync.*` from importing `_aio.*` (and vice versa) if we go with the unasync `_aio/` + `_sync/` layout. Declarative + CI-enforced, same Phase 7 pattern. |
+| `tenacity 9.1.4` | UNCHANGED — already runtime dep × 4 packages from v1.1. |
+| `pre-commit >=4.0` | UNCHANGED — add a single new hook `pre-commit run unasync-regen` if we adopt unasync; otherwise unchanged. |
 
 ---
 
 ## Installation
 
-### Per-package pyproject.toml change (apply to iol, higyrus, ambito, matriz)
+### Per-package pyproject.toml changes
 
 ```toml
-# packages/<pkg>/pyproject.toml
+# packages/iol-client/pyproject.toml — IOL ONLY for token persistence
 dependencies = [
     "httpx>=0.27",
     "python-dotenv>=1.0",
-    "tenacity>=9.1.0,<10",     # NEW
+    "tenacity>=9.1.0,<10",
+    "platformdirs>=4.0,<5",       # NEW — v1.2 BUG-03 closure (IOL refresh_token disk persistence)
+    # "cryptography>=43,<50",      # DEFERRED to v1.3 unless threat-model expansion authorized
 ]
 ```
 
-`matriz-client` keeps `websocket-client>=1.8.0` (out of scope for v1.1).
+The other three packages (`ambito-financiero-client`, `higyrus-client`, `matriz-client`) get NO new runtime deps in v1.2.
 
-### No root pyproject.toml dev-dependency changes required
+### Root pyproject.toml dev-dependency changes
 
-`tenacity` brings zero transitive deps. `logging` is stdlib.
+```toml
+# pyproject.toml [dependency-groups] dev
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "pytest-httpx>=0.34",
+    "pre-commit>=4.0",
+    "import-linter>=2.11,<3",
+    "unasync>=0.6.0,<0.7",         # NEW — v1.2 codegen (CANDIDATE, spike-gated)
+    # "libcst>=1.8.0,<2",           # FALLBACK ONLY if spike disqualifies unasync
+]
+```
+
+### Commands to apply
 
 ```bash
-# Apply across the workspace and lock
-uv add --package iol-client "tenacity>=9.1.0,<10"
-uv add --package higyrus-client "tenacity>=9.1.0,<10"
-uv add --package ambito-financiero-client "tenacity>=9.1.0,<10"
-uv add --package matriz-client "tenacity>=9.1.0,<10"
-uv sync --all-packages --all-extras --dev
+# Runtime dep (IOL only)
+uv add --package iol-client "platformdirs>=4.0,<5"
+
+# Dev dep (root, workspace-wide)
+uv add --dev "unasync>=0.6.0,<0.7"
+
+# Re-lock the workspace
+uv sync --all-packages --all-extras --dev --frozen
 ```
 
 ---
 
 ## Subquestion-by-Subquestion Rationale
 
-### A) Retries/Backoff: Why `tenacity` (not `httpx-retries`, not `backoff`, not roll-our-own)
+### 1. Sync/Async Single-Source Codegen — Why `unasync` (spike-gated)
 
 #### Candidates Evaluated
 
-| Library | Version | py.typed | Sync+Async | Jitter | Per-Call Gate | Released | Verdict |
-|---------|---------|----------|------------|--------|---------------|----------|---------|
-| **tenacity** | 9.1.4 | YES | YES (decorator auto-detects coroutines, plus `AsyncRetrying` class) | YES (`wait_exponential_jitter`, `wait_random_exponential`) | YES (`retry=` callable per `@retry` application, can be parameterized via decorator wrapping) | Active (2024-2026) | **WINNER** |
-| httpx-retries | 0.5.0 | YES | YES (single `RetryTransport` implements both base classes) | YES (`backoff_jitter` 0.0-1.0, default 1.0) | PARTIAL (transport-level: `allowed_methods` + `status_forcelist`) | 2026-04-20 (active) | Rejected — see below |
-| backoff | 2.2.1 | NO | YES (decorator detects coroutines) | YES (`backoff.expo` with `factor=`) | YES (`giveup=` callable) | 2022-10 (stale) | Rejected — see below |
-| Roll-our-own (httpx Transport) | n/a | n/a | requires writing both BaseTransport + AsyncBaseTransport | manual | manual | n/a | Rejected — see below |
+| Library | Version | py.typed | Approach | Used By | Runtime Dep? | Verdict |
+|---------|---------|----------|----------|---------|--------------|---------|
+| **unasync** | 0.6.0 (2024-05-03) | NO (dev-only, doesn't matter) | Token replacement (`tokenize-rt`-based) | httpcore, elasticsearch-py, trio (hip) | NO (dev-only) | **PRIMARY CANDIDATE** |
+| **libcst** | 1.8.6 (Nov 2025) | YES | Concrete syntax tree, codemod API | Instagram, mypy ecosystem | NO if dev-only | **FALLBACK** |
+| **ast-grep** | n/a (Rust CLI) | n/a | DSL-based, multi-language | various non-Python tooling | NO | REJECTED (non-Python tool, breaks pre-commit invariant) |
+| **comby** | n/a (Go CLI) | n/a | Structural pattern match | non-Python | NO | REJECTED (Python indent-sensitive is unsupported per their own docs) |
+| **Jinja2 / Mako templates** | (current) | — | Template-driven codegen from a single specification source | — | YES if runtime; NO if dev-only | REJECTED (writing a per-endpoint template is more work than writing a per-endpoint pure helper; templates abstract over Python source you'd need to read either way) |
+| **Roll-our-own AST rewriter** | — | — | Stdlib `ast` + `astor` (or `ast.unparse`) | — | NO | REJECTED (we'd be re-implementing unasync's `0.6.0` output) |
 
-#### Why tenacity wins
+#### Why `unasync` wins (subject to spike)
 
-1. **`mutating_allowed` per-call gate fits decorator API perfectly.** v1.0's double-gate (hostname check + flag) for mutations is a per-call decision, not a transport-level one. Wrapping `_request()` with `@retry(retry=_should_retry(mutating))` lets the caller pass `mutating=True` to short-circuit retry, while idempotent reads retry. With `httpx-retries`, mutations would need a separate `httpx.Client` instance per call mode, multiplying client management complexity (especially given the singleton→Client refactor in scope).
+1. **It's the ecosystem-native answer.** `httpcore` and `elasticsearch-py` are both in our same world (httpx-shaped HTTP clients with dual sync/async surfaces). `httpcore` ships a tiny custom `unasync.py` script that does the same thing — token replacement. If httpcore (built by the same people who build httpx) chose this approach, the bar to deviate is high.
 
-2. **`wait_exponential_jitter` is the right primitive.** Google Cloud Storage retry strategy — `multiplier * 2^n + random(0, jitter)` — is the published recommendation for retrying API clients without thundering herd. tenacity ships this directly.
+2. **Per-package `Rule` isolation matches our "no shared internals" constraint.** Each package gets its own `tools/codegen.py` (or similar) that invokes `unasync.unasync_files()` with a `Rule(fromdir="src/<pkg>/_aio/", todir="src/<pkg>/_sync/", additional_replacements={"AsyncClient": "Client", "asyncio.Lock": "threading.Lock", ...})`. No shared module across packages.
 
-3. **`retry_if_exception_type(httpx.ConnectError, httpx.ReadTimeout, ...)` + `retry_if_exception` lambdas** cleanly express "retry on 5xx, 429, connection errors" by inspecting `XAPIError.status_code` from the existing exception hierarchy. No need to refactor `_raise_for_response`.
+3. **Token replacement is debugger-friendly.** The generated `_sync/` source is human-readable Python that maps 1:1 to the source `_aio/`. When a bug surfaces in production, you read the generated file directly, not a regenerated-on-import surface (unlike Cython or runtime metaprogramming).
 
-4. **Sync+async with one decorator.** `@retry(...)` on a coroutine auto-uses `AsyncRetrying`; on a sync function uses `Retrying`. After the sync/async dedup, both surfaces apply the same decorator to their respective `_request()`.
+4. **Hatchling integration is a custom build hook, not a deal-breaker.** Unasync's stock integration is via `setuptools` `cmdclass_build_py`. We use `hatchling`. The clean integration path for our world is:
+   - Author lives in `src/<pkg>/_aio/` only
+   - A `tools/codegen.py` script (per package) runs `unasync` to materialize `src/<pkg>/_sync/`
+   - **Commit both `_aio/` AND `_sync/` to git** (reviewable diffs, no surprise codegen at build time)
+   - A pre-commit hook + CI job `lint-codegen` re-runs `tools/codegen.py` and `git diff --exit-code` — fails the build if `_sync/` is stale
+   - `client.py` becomes a 3-line shim: `from <pkg>._sync.api import *; from <pkg>._sync.api import Client`
+   - `aio.py` becomes a 3-line shim: `from <pkg>._aio.api import *; from <pkg>._aio.api import AsyncClient`
 
-5. **`py.typed` marker confirmed** at `tenacity/py.typed` in the repo. Inline annotations throughout (verified via source inspection of `__init__.py`). mypy strict compatible.
+   This sidesteps the hatchling integration problem entirely — the build backend never runs `unasync`. Hatchling only ships pre-generated files. Confidence: HIGH (verified via httpcore's `_sync/`+`_async/` source tree on GitHub).
 
-6. **Zero runtime deps.** `pyproject.toml` lists no `requires_dist`. Optional deps for docs/tests only. Won't pollute the workspace lock.
+5. **Zero runtime dep.** `unasync` is dev-only. The wheels we publish never import it.
 
-7. **Apache-2.0 license**, MIT-compatible.
+6. **Spike validates per-package edge cases.** Matriz has `TokenStore` (3-way concurrent: threading.Lock + asyncio.Lock + ws_client daemon thread) and `_refresh_policy.py` — patterns that need careful token-replacement rules (e.g., `asyncio.Lock` ↔ `threading.Lock` only in some contexts). The Phase-level spike should:
+   - Pick the smallest package (`ambito-financiero-client`) and prove the round-trip generates byte-identical `_sync/api.py` to the v1.1 `client.py` shell (modulo formatting normalized by ruff).
+   - Then attempt the largest (matriz) — if matriz needs custom `additional_replacements` beyond what unasync supports cleanly, escalate to libcst.
 
-#### Why httpx-retries was rejected (despite being attractive on paper)
+#### Why libcst is the fallback (not the primary pick)
 
-httpx-retries has excellent defaults (`status_forcelist = [429, 502, 503, 504]`, `backoff_jitter = 1.0`, parses `Retry-After` header) and ships `py.typed`. But three blockers:
+- **Heavier:** 1.8.6 wheel is ~5MB + pulls `pyyaml>=5.2` (already in our env via pre-commit so net-zero); imperative codemod API is more LOC to write per rule than unasync's declarative `additional_replacements` dict.
+- **More power than we need (probably).** httpx + httpcore + elasticsearch-py + trio all picked unasync over libcst for this exact problem. If they didn't need libcst, we probably don't either.
+- **Reserve for emergency.** If the unasync spike fails on matriz due to a known limitation (e.g., complex `async with` rewrites), libcst is the next stop. Until then: not adopted.
 
-- **Transport-level == process-level**. `allowed_methods` is a single list per Transport instance. To get "no retry on mutations" you'd need two transports per package (one mutating-safe, one not) wired to two `httpx.Client` instances. The v1.1 refactor to `Client` class makes this awkward — every `Client(...)` constructor would need both transports and a method-aware `.send()` wrapper, which is more code than the tenacity decorator approach.
-- **Doesn't integrate with the existing exception hierarchy**. v1.0 already maps 5xx → `XAPIError`, 429 → `XRateLimitError`, 401/403 → `XAuthError` in `_raise_for_response()`. With tenacity, "retry on `XAPIError` if status_code >= 500 OR isinstance `XRateLimitError`" is one lambda. With httpx-retries, retries happen pre-raise — meaning the exception mapping happens AFTER retries, which is fine, but it means the retry decision can't see the typed exception.
-- **One person, ~14 releases over 14 months** (first release 2023-03, latest 2026-04). Maintained but small surface. Tenacity has ~10x the community + Context7 score.
+#### Why ast-grep / comby / Jinja2 are explicit vetoes
 
-httpx-retries is a great choice for projects without an existing exception hierarchy. We have one. tenacity wins.
-
-#### Why backoff was rejected
-
-- **Last release 2022-10-05** (2.2.1). Effectively unmaintained.
-- **No `py.typed` marker.** Would need `# type: ignore` everywhere, breaking mypy strict promise.
-- **Python `>=3.7,<4.0`** constraint — already lagging current 3.13 support.
-- API is nice but tenacity offers everything backoff does plus current maintenance.
-
-#### Why roll-our-own was rejected
-
-- Writing both `BaseTransport.handle_request` and `AsyncBaseTransport.handle_async_request` is ~150 LOC per package × 4 packages = ~600 LOC of duplicated retry plumbing. tenacity's `@retry` is ~3 LOC per call site.
-- Jitter, exponential backoff, `Retry-After` honoring are all well-tested in tenacity. Rolling our own re-implements known-solved problems.
-
-#### Suggested usage pattern (per package, inside the Client refactor)
-
-```python
-# packages/<pkg>/src/<pkg>/_retry.py
-from __future__ import annotations
-import httpx
-from tenacity import (
-    retry_if_exception, stop_after_attempt, wait_exponential_jitter,
-)
-from <pkg>.exceptions import XAPIError, XRateLimitError
-
-def _is_retriable(exc: BaseException) -> bool:
-    if isinstance(exc, httpx.ConnectError | httpx.ReadTimeout | httpx.WriteTimeout):
-        return True
-    if isinstance(exc, XRateLimitError):
-        return True
-    if isinstance(exc, XAPIError) and 500 <= exc.status_code < 600:
-        return True
-    return False
-
-DEFAULT_RETRY_KWARGS = dict(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential_jitter(initial=0.5, max=8.0, jitter=2.0),
-    retry=retry_if_exception(_is_retriable),
-    reraise=True,
-)
-```
-
-```python
-# Inside Client._request (sync) and AsyncClient._request (async)
-from tenacity import retry, AsyncRetrying, Retrying
-
-def _request(self, method: str, path: str, *, mutating: bool = False, ...):
-    if mutating:
-        # Single-attempt: respect the mutating_allowed double-gate by not retrying.
-        return self._do_request(method, path, ...)
-    for attempt in Retrying(**DEFAULT_RETRY_KWARGS):
-        with attempt:
-            return self._do_request(method, path, ...)
-```
-
-The async surface uses `AsyncRetrying` identically with `async for attempt in AsyncRetrying(...)`.
+- **ast-grep** is a Rust CLI tool. Adds a non-Python binary to the dev workflow. Our pre-commit + CI invariant is "Python tools only" (ruff is also Rust under the hood but ships as a Python wheel — different distribution story).
+- **comby** does not support Python (whitespace-sensitive). Per their own comparison docs, indentation-sensitive languages need special handling that comby lacks.
+- **Jinja2/Mako templates** would push us to maintain a per-endpoint template that abstracts over Python source you'd still need to read either way. The win is illusory for HTTP client code; unasync's source-level token replacement is closer to the actual problem shape.
 
 ---
 
-### B) Structured Logging: Why stdlib `logging` (not structlog, not loguru)
+### 2. Secure IOL refresh_token Disk Persistence — Why `platformdirs` + stdlib (not `keyring`, not `cryptography` in v1.2)
+
+#### Threat Model Statement (Explicit)
+
+**v1.2 threat model assumes:**
+- The host machine running `main_iol.py` is **trusted** (developer laptop, CI runner)
+- The IOL credentials (`username`, `password`) **already live in `packages/iol-client/.env`** as plaintext with default umask permissions
+- The OS user account isolation is the security boundary
+- Adversary class = **other local users on the same machine**, not malware running as the same user
+- CI environment = **GitHub Actions hosted runners** (ephemeral, no Keychain, no D-Bus session)
+
+**Out of scope for v1.2:**
+- Encryption at-rest of a token cached on a machine where `.env` already contains stronger long-lived credentials (`username`+`password`) is **not** a threat-model upgrade — it's theater. Defer.
+- Protection against malware running as the same user (would require hardware-backed enclaves — TPM, Secure Enclave — far beyond scope)
 
 #### Candidates Evaluated
 
-| Library | Version | py.typed | Library-Friendly | New Runtime Dep | Verdict |
-|---------|---------|----------|------------------|-----------------|---------|
-| **stdlib `logging`** | stdlib | typeshed (bundled with mypy) | YES (`NullHandler` idiom) | NO | **WINNER** |
-| structlog | 26.1.0 | YES | partial — `structlog.stdlib.recreate_defaults()` integrates with stdlib but the doc warns config is application-scoped | YES | Rejected — see below |
-| loguru | 0.7.3 | partial | partial — has `logger.disable("mylib")` pattern but global singleton | YES (`colorama`, `win32-setctime` on Windows) | Rejected — see below |
+| Library | Version | py.typed | Adds Runtime Deps? | Headless CI? | macOS GUI Prompt? | Verdict |
+|---------|---------|----------|--------------------|--------------|--------------------|---------|
+| **platformdirs + stdlib** | 4.10.0 | YES (PEP 561, MIT) | ZERO new transitive | YES (no system deps) | NO | **WINNER** |
+| **cryptography (Fernet)** | 49.0.0 | YES (43+) | YES (`cffi>=2.0.0` — C ext) | YES (prebuilt wheels on cp312/cp313 linux+macos+win) | NO | DEFERRED (re-evaluate if threat model expands) |
+| **keyring** | 25.7.0 | YES (recent typing decl per Context7) | YES (Linux: SecretStorage+jeepney; Windows: pywin32-ctypes) | NO (needs `PYTHON_KEYRING_BACKEND=null` workaround = no-op) | YES (first read prompts user) | REJECTED |
 
-#### Why stdlib `logging` wins for library code
+#### Why `platformdirs` + stdlib wins for v1.2
 
-1. **THE Python library convention** is `logging.getLogger(__name__) + NullHandler()`. Every library in the PyData/HTTP stack (requests, urllib3, httpx, sqlalchemy) does this. Consumers wire handlers/formatters at app startup.
+1. **Zero runtime deps, MIT, 22KB wheel.** `requires_dist: null` on PyPI (verified). The cheapest possible portability win — gives you the right path on macOS / Linux (XDG) / Windows and that's it.
 
-2. **Zero new runtime deps**. The v1.1 milestone explicitly forbids heavy deps. Adding `structlog` or `loguru` to 4 publishable wheels forces every downstream app to inherit them, even if it already standardized on the other choice.
+2. **Threat model match.** The IOL credentials are already in `.env` on disk. A refresh_token cache file at `0600` is a strict improvement: shorter-lived secret, narrower file mode, dedicated location separate from the credentials file. Adding Fernet on top doesn't change the trust boundary (the encryption key has to live somewhere — env var or another file — and that location is the new weakest link).
 
-3. **Structured data via `extra={...}`** works today:
+3. **CI-friendly.** No D-Bus, no Keychain, no GUI prompts. Works identically on hosted GitHub Actions Ubuntu/macOS/Windows runners.
 
-   ```python
-   _logger = logging.getLogger("iol_client")
-   _logger.addHandler(logging.NullHandler())  # at module init, library convention
+4. **`Client.from_env()` + persistence plays well together.** The IOL `Client` constructor reads:
+   - `refresh_token_path: Path | None = None` (default: `platformdirs.user_data_dir("iol-client") / "refresh_token.json"`)
+   - `persist_refresh_token: bool = True` (default-on, opt-out for tests)
+   - On `_refresh()` success: atomic write (`os.replace` semantics) of `{"refresh_token": "...", "issued_at": <epoch>, "schema_version": 1}` with `os.chmod(path, 0o600)` and `os.makedirs(..., mode=0o700, exist_ok=True)`
+   - On `Client.__init__`: read + validate `schema_version`; on missing/invalid → ignore (fall back to env-var `IOL_REFRESH_TOKEN` or initial password login)
 
-   _logger.info(
-       "http_request_complete",
-       extra={
-           "method": method,
-           "url": url,             # passes through redaction filter below
-           "status_code": resp.status_code,
-           "duration_ms": elapsed_ms,
-           "attempt": attempt_n,
-       },
-   )
-   ```
+5. **Reversible decision.** If a future v1.3 threat-model expansion authorizes encryption, swap in Fernet without changing the file location or the path-resolution API. platformdirs path stays.
 
-   Consumers attach a `JsonFormatter` (e.g., `python-json-logger`) at their end if they want JSON output. We don't impose that choice.
+#### Why `keyring` was rejected (despite being the textbook answer)
 
-4. **Redaction integration is trivial.** Mount a `logging.Filter` on the package logger that calls the existing `verification/redaction.py:_redact_bearer` pattern on `record.msg` and stringifiable `record.args` / `extra`. ~15 LOC per package, zero new deps.
+This was the most thoroughly evaluated rejection — keyring is the obvious first answer, so the reasoning must be explicit:
 
-   ```python
-   # packages/<pkg>/src/<pkg>/_logging.py
-   from __future__ import annotations
-   import logging, re
-   _BEARER_PATTERN = re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]+")
-   class _BearerRedactionFilter(logging.Filter):
-       def filter(self, record: logging.LogRecord) -> bool:
-           if isinstance(record.msg, str):
-               record.msg = _BEARER_PATTERN.sub(r"\1[REDACTED]", record.msg)
-           if record.args:
-               record.args = tuple(_BEARER_PATTERN.sub(r"\1[REDACTED]", str(a)) for a in record.args)
-           return True
-   _logger = logging.getLogger(__name__.rsplit(".", 1)[0])
-   _logger.addHandler(logging.NullHandler())
-   _logger.addFilter(_BearerRedactionFilter())
-   ```
+- **Headless CI is broken.** GitHub Actions Ubuntu runners have no D-Bus session running; `SecretService` backend fails on first use. The documented workaround is `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring` — which is a no-op store (writes succeed, reads return None). Adopting keyring then setting the null backend in CI means CI has no persistence at all, which defeats the v1.2 goal of "persistence exercised in the live driver run."
+- **macOS Keychain prompts on first read.** Per keyring's own docs (and validated via the project's NEWS.rst), the first time a Python process reads from Keychain after a write, macOS shows a GUI prompt asking the user to allow access. `main_iol.py --live` runs unattended; a GUI prompt blocks it.
+- **Linux requires system libraries.** `SecretStorage>=3.2 + jeepney>=0.4.2` are Linux-conditional runtime deps. Both are pure-Python, but `SecretStorage` requires a running Secret Service daemon (gnome-keyring or kwallet). Headless Linux machines (servers, containers, CI) don't have this.
+- **Doesn't actually improve the trust boundary on macOS.** Per keyring's docs: "any Python script or application can access secrets created by keyring from that same Python executable without prompting." The trust boundary is the *Python interpreter binary*, not the OS user. A 0600 file on macOS gives the same trust boundary (OS user) without the GUI prompt, without the conditional Linux deps, without the headless CI failure mode.
+- **Wheel size:** keyring + jeepney + SecretStorage + jaraco.* tree is ~10× the wheel size of platformdirs. We'd be locking the iol-client publishable wheel to a much heavier transitive tree.
 
-5. **mypy strict already covered.** `logging` is in typeshed (bundled with mypy). No new typing stubs to install. `LoggerAdapter` is fully typed.
+If a future milestone needs OS-native credential storage for a *user-facing* CLI tool (where the GUI prompt is feature, not bug), keyring becomes the right answer. For an unattended verification driver: it's wrong.
 
-6. **Backward-compat is automatic.** Downstream code that already adds a handler to `logging.getLogger("iol_client")` works unchanged after v1.1.
+#### Why `cryptography.fernet` is DEFERRED (not rejected)
 
-#### Why structlog was rejected for the runtime path
-
-structlog is excellent for **applications**. For **libraries**, even the structlog docs route through `structlog.stdlib.ProcessorFormatter` so the consumer can decide how to render. At that point you're paying for a dep to set up something that stdlib `logging` does natively.
-
-Two specific blockers:
-- **`structlog.configure()` is process-global.** Library code calling `structlog.configure()` would clobber a consumer's app config. The only safe pattern is "use `structlog.get_logger()` and hope the consumer configured it" — but that's identical in caller surface to `logging.getLogger()` with more dependencies.
-- **Adds `structlog>=26.x` runtime dep × 4 packages.** Marginal value over stdlib `logging` for the v1.1 use case (request/response telemetry with redaction). Reserve for the consuming app if they want it.
-
-If we were building an **app**, structlog 26.1.0 (released 2026-06-06, has `py.typed`) would be the choice. We're building libs.
-
-#### Why loguru was rejected for the runtime path
-
-- **Global `logger` singleton** — `from loguru import logger` mutates process-wide state. The `logger.disable("mylib")` pattern is a workaround but still couples our 4 libs to loguru's lifecycle.
-- **Windows-only deps** (`colorama`, `win32-setctime`) — not a blocker (they're conditional) but adds to lock complexity for no functional gain.
-- **Cannot be the receiving end of stdlib `logging` records** without an adapter (`InterceptHandler` recipe). Inverts the library-friendly direction.
-
-#### Logging level conventions to adopt
-
-| Level | What to log | Example |
-|-------|-------------|---------|
-| `DEBUG` | Request URL (post-redaction), headers (redacted), retry attempts | `"http_request_start"`, `"retry_attempt"` |
-| `INFO` | Successful request completion with duration + status | `"http_request_complete"` |
-| `WARNING` | Retry triggered, token refresh, non-fatal API errors | `"retry_triggered"`, `"token_refreshed"` |
-| `ERROR` | Auth failure, exhausted retries, 5xx returning to caller | `"auth_failed"`, `"retry_exhausted"` |
+- **It's the right answer if the threat model changes.** Fernet is AES-128-CBC + HMAC-SHA256 with built-in versioning and timestamping. `MultiFernet` supports key rotation. It's Apache-2.0 OR BSD-3-Clause. It works headless. It has no GUI prompts.
+- **Cost is a C extension via `cffi`.** Prebuilt wheels exist for cp312 + cp313 + Linux/macOS/Windows on the v1.0/v1.1 CI matrix — verified via PyPI download stats. No build-from-source risk on our matrix. But it's still a ~5MB wheel addition.
+- **Operator authorization needed.** Adopting Fernet means deciding where the encryption key lives. Options: (a) env var `IOL_TOKEN_ENCRYPTION_KEY` (user has to set it — high friction); (b) derived from machine ID (no real security uplift — anyone with shell access can derive it); (c) hardware-backed key (out of scope). The v1.2 deferral is: **don't introduce a new ceremony for a security uplift that doesn't change the actual trust boundary.**
+- **Re-evaluation trigger:** If a future v1.3+ user story is "ship the refresh_token cache between machines" or "guard against backup-leak scenarios", Fernet becomes the right addition. Until then, defer.
 
 ---
 
-### C) Singleton→Client Refactor: Zero New Deps
+### 3. Driver Migration Tooling
 
-This is **pure design pattern work**. Confirmed: no Python idiom library is worth pulling.
+The v1.2 driver migration rewrites `main_ambito_financiero.py`, `main_iol.py`, `main_higyrus.py`, `main_matriz.py` to:
+- Replace `pkg.get_X(...)` top-level calls with `client.get_X(...)` instance method calls
+- Replace `_get_default()._state.<attr>` access pattern (where currently used) with direct `client._state.<attr>` access
+- Add `Client.from_env()` + `client.with_options(max_retries=N)` adoption sites
+- Preserve all existing `verification/findings.py` integration, `--live`, `--async`, mutation gates, redaction filters
 
-#### Recommended pattern
+#### Recommendation: NO new tool
+
+| Tool | Why Not |
+|------|---------|
+| **libcst codemod** | Phase 11 INT-01 hotfix migrated 15 sites in `main_iol.py` manually + 1 PROBE_STALE inline. Driver files are ~2000 LOC each, but the migration sites are not uniform mechanical rewrites — each site needs review for the surrounding context (probe metadata, redaction wrappers, `findings.write_finding(...)` integration). Writing+testing a libcst codemod script costs more than 4 careful Edit-tool passes. |
+| **syrupy / pytest-snapshot** | Adds runtime dep for snapshot management. Pytest's own `caplog`/`capsys` + golden file fixture under `tests/drivers/golden/` is sufficient. Established convention in Phase 11 driver tests. |
+| **rope / bowler** | Both are older Python refactoring libs (rope is GUI-oriented, bowler is Facebook-era libcst predecessor). Neither is actively maintained at the level we want for a v1.2 push. |
+
+#### Recommendation: STDLIB `ast` walk for regression-guards
+
+The Phase 11 CR-06 pattern is the right primitive:
 
 ```python
-# packages/<pkg>/src/<pkg>/client.py (sync)
-from __future__ import annotations
-from dataclasses import dataclass, field
-import httpx, logging, time
+# tests/drivers/test_main_iol_smoke.py — example
+import ast
+from pathlib import Path
 
-@dataclass(slots=True)
-class Client:
-    base_url: str
-    username: str = ""
-    password: str = ""
-    _http: httpx.Client = field(default_factory=lambda: httpx.Client(timeout=30.0))
-    _token: str | None = None
-    _token_ts: float = 0.0
+def test_no_top_level_pkg_call_remains_in_main_iol() -> None:
+    """v1.2 driver migration regression-guard: main_iol.py must consume Client instances.
 
-    def login(self) -> None: ...
-    def _ensure_token(self) -> None: ...
-    def _request(self, method: str, path: str, *, mutating: bool = False, **kw) -> httpx.Response: ...
-    def get_quote(self, symbol: str) -> dict[str, Any]: ...
-    def close(self) -> None: self._http.close()
-    def __enter__(self) -> Client: return self
-    def __exit__(self, *exc) -> None: self.close()
-
-
-# --- Backward-compat module-level singleton + top-level functions ---
-_default: Client | None = None
-
-def _get_default() -> Client:
-    global _default
-    if _default is None:
-        _default = Client(
-            base_url=os.getenv("X_BASE_URL", "https://..."),
-            username=os.getenv("X_USER", ""),
-            password=os.getenv("X_PASS", ""),
-        )
-    return _default
-
-def configure(*, base_url: str | None = None, username: str | None = None,
-              password: str | None = None) -> None:
-    global _default
-    # Build a fresh Client so token cache is reset (same semantics as v1.0).
-    _default = Client(
-        base_url=base_url or os.getenv("X_BASE_URL", "..."),
-        username=username or os.getenv("X_USER", ""),
-        password=password or os.getenv("X_PASS", ""),
-    )
-
-def login() -> None: _get_default().login()
-def get_quote(symbol: str) -> dict[str, Any]: return _get_default().get_quote(symbol)
-# ... one thin delegator per public function
+    After migration, no top-level `iol_client.get_X(...)` calls should remain — all calls
+    go through a Client instance. This guard fails the build if a regression re-introduces
+    the singleton call pattern.
+    """
+    tree = ast.parse(Path("main_iol.py").read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "iol_client"
+                and node.func.attr.startswith("get_")
+            ):
+                raise AssertionError(
+                    f"main_iol.py:{node.lineno}: top-level pkg.get_X call detected — "
+                    f"migrate to Client instance (v1.2 INT-02 idiom)"
+                )
 ```
 
-This preserves the v1.0 top-level API verbatim (`iol_client.get_quote("GGAL")` still works), satisfies the no-breaking-change constraint for v1.1 minor bump, and unlocks `Client(...)` instances for callers who want per-instance state (tests, multi-tenant).
-
-#### What was considered and rejected
-
-- **`singleton-decorator`** / similar libraries — solve a problem we don't have (we WANT module-level singleton + Client both)
-- **`dependency-injector`** — overkill for a 4-package lib monorepo, adds heavy runtime dep
-- **`pydantic` for the Client dataclass** — would force runtime dep + add validation overhead we don't need; `@dataclass(slots=True)` is enough
+This adds zero deps and matches the established Phase 11 CR-06 convention.
 
 ---
 
-### D) Sync/Async Dedup: Zero New Deps (Pure Extract-Helpers)
+### 4. mypy strict + Ruff Compatibility Check
 
-The deduplication problem in v1.0 is: each endpoint exists twice — once in `client.py`, once in `aio.py` — with identical request-building and response-parsing logic but differing only at `httpx.Client.send()` vs `await httpx.AsyncClient.send()`.
+| Addition | mypy Strict Impact | Ruff Impact | Mitigation |
+|----------|--------------------|-------------|------------|
+| **unasync 0.6.0** (dev-only) | None — never imported at runtime, generated code is plain Python type-checked normally | None — generated `_sync/` files go through the same ruff pipeline as hand-written code | None needed. Generated files may need `# noqa: <ruleset>` per-line tags ONLY if a specific rule fires asymmetrically on sync vs async (e.g., `ASYNC` rules don't fire on sync, but ruff is smart enough to skip them). Verify in spike. |
+| **platformdirs 4.10.0** | Typed (PEP 561) — verified via Context7 + PyPI classifier `Typing :: Typed` | None | None needed. |
+| **cryptography 49.0.0** (if adopted) | Has inline annotations in 43+ — `from cryptography.fernet import Fernet` works in mypy strict | None | None needed (if adopted). |
+| **libcst 1.8.6** (fallback, dev-only) | Typed | None | None needed (if adopted). |
+| **stdlib `ast`, `os`, `json`, `pathlib`, `platformdirs`** | Bundled in typeshed (mypy 1.13+) | None | None needed. |
 
-#### Recommended pattern: extract pure functions
-
-```python
-# packages/<pkg>/src/<pkg>/_endpoints.py  (NEW — pure functions, no I/O)
-from __future__ import annotations
-import httpx
-from <pkg>.models import Quote
-
-def build_get_quote(base_url: str, symbol: str, *, plazo: str = "t2") -> httpx.Request:
-    return httpx.Request("GET", f"{base_url}/quotes/{symbol}", params={"plazo": plazo})
-
-def parse_quote_response(resp: httpx.Response) -> Quote:
-    return Quote.from_api(resp.json())
-```
-
-```python
-# Sync endpoint in client.py becomes:
-def get_quote(self, symbol: str, *, plazo: str = "t2") -> Quote:
-    self._ensure_token()
-    req = _endpoints.build_get_quote(self.base_url, symbol, plazo=plazo)
-    req.headers["Authorization"] = f"Bearer {self._token}"
-    resp = self._http.send(req)
-    _raise_for_response(resp)
-    return _endpoints.parse_quote_response(resp)
-
-# Async endpoint in aio.py becomes:
-async def get_quote(self, symbol: str, *, plazo: str = "t2") -> Quote:
-    await self._ensure_token()
-    req = _endpoints.build_get_quote(self.base_url, symbol, plazo=plazo)
-    req.headers["Authorization"] = f"Bearer {self._token}"
-    resp = await self._http.send(req)
-    _raise_for_response(resp)
-    return _endpoints.parse_quote_response(resp)
-```
-
-The dedup target — params building, URL composition, response model construction — moves into pure helpers. The thin layer that differs (await vs sync) stays in two places, but is ~3 lines per endpoint instead of ~15. Acceptable duplication for the "no shared internals across packages" constraint.
-
-#### What was considered and rejected
-
-| Library/Tool | Version | Why Rejected |
-|--------------|---------|--------------|
-| **unasync** | 0.6.0 (2024-05) | Code-gen tool: write async, transform to sync at build time. Used by elasticsearch-py and httpx itself. **Rejected** because: (a) requires hatchling integration to run the transform pre-build, complicating CI; (b) sync code becomes derived/non-debuggable as the primary surface; (c) the v1.0 codebase already has both surfaces hand-written — the win is small; (d) adds setuptools + tokenize-rt to dev deps. |
-| **anyio** | n/a | Abstraction over asyncio/trio — would let async code call sync code via thread pool. Off-topic: we don't want sync code in async paths (blocks event loop) or vice versa. Adds runtime dep × 4 packages for no payoff. |
-| **hishel** | n/a | HTTP caching layer for httpx. Different problem entirely (caching ≠ dedup). |
-| **httpx itself** | n/a | The recommended pattern (extract `httpx.Request` builders + response parsers, dispatch differs sync/async) IS the httpx-native idiom — no new lib needed. |
-
-For matriz-client specifically, this dedup work is BLOCKED on the prerequisite "create `aio.py` for matriz" (which itself depends on the Client refactor). Sequencing: Client refactor → matriz `aio.py` skeleton (mirrors `client.py` 1:1) → extract `_endpoints.py` → sync+async converge on helpers.
+**No new type-stub packages required. No `[tool.mypy]` config changes needed.** Phase 8 LOG rule set already covers all logging code paths and is unaffected.
 
 ---
 
-### E) Type-Checking Impact on mypy Strict Mode
+### 5. Hatchling Build Pipeline Integration
 
-| Addition | mypy Strict Impact | Mitigation Needed |
-|----------|--------------------|--------------------|
-| **tenacity 9.1.4** | None — ships `py.typed` marker (verified in source). Inline `t.Callable[..., WrappedFnReturnT]`-style annotations throughout `__init__.py`. | None. May need `# type: ignore[misc]` once on `@retry(...)` if the decorator's return-type narrowing trips on `disallow_untyped_defs` for a particular call site — but this is rare. |
-| **stdlib `logging`** | None — fully typed in typeshed (bundled with mypy >=1.13). `LoggerAdapter`, `Filter`, `Handler` all have complete stubs. | None. |
-| **Client refactor (`@dataclass`)** | None — `dataclasses` is fully typed. `slots=True` requires Python 3.10+ which we have. | None. |
-| **`_endpoints.py` pure helpers** | None — pure typed functions over `httpx.Request` / `httpx.Response`, both fully typed by httpx 0.27+. | None. |
+The v1.0/v1.1 build pipeline is:
 
-**No new type stub packages required.** No changes to `[tool.mypy]` config needed.
+```
+uv build --package <pkg>
+  → hatchling reads packages/<pkg>/pyproject.toml
+  → hatchling.build.targets.wheel packages from src/<pkg>/
+  → wheel published
+```
 
----
+**v1.2 integration for unasync (recommended pattern):**
 
-## Alternatives Considered (Summary)
+```
+1. Author writes src/<pkg>/_aio/api.py        ← single source of truth
+2. Developer runs tools/codegen.py            ← generates src/<pkg>/_sync/api.py
+3. Both directories committed to git           ← reviewable diffs
+4. Pre-commit hook: tools/codegen.py + git diff --exit-code  ← prevents stale _sync/
+5. CI: separate "lint-codegen" job replays step 4
+6. hatchling builds the wheel from the committed src/<pkg>/ tree  ← no build-time codegen
+```
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| `tenacity` decorator at `_request()` | `httpx-retries` transport | Greenfield project without an existing exception hierarchy, where transport-level method allowlist is sufficient |
-| stdlib `logging` + `NullHandler` | `structlog` 26.x | Building an **app** (not a library) where the entire log pipeline is yours and you want first-class JSON/console output and contextvars |
-| `@dataclass` `Client` + module singleton compat layer | `pydantic.BaseModel` Client | If you need runtime validation of init params or JSON serialization of the Client config — neither is needed here |
-| Extract pure helpers in `_endpoints.py` | `unasync` codegen | Large async-first codebase (10k+ LOC) where maintaining two surfaces by hand has measurable cost — not our case |
+This pattern **does NOT require a hatchling build hook**. The build backend stays stock. The codegen lives in the dev workflow.
+
+Alternative (deferred, more invasive): `hatch-build-scripts` plugin to run `tools/codegen.py` at build time. Adds a build-system dep + breaks `pip install -e .` editable mode for codegen consumers. Not recommended for v1.2.
 
 ---
 
@@ -408,59 +321,46 @@ For matriz-client specifically, this dedup work is BLOCKED on the prerequisite "
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| **`backoff` (litl/backoff)** | No `py.typed` marker → breaks mypy strict promise. Last release 2022-10 (unmaintained). `requires-python = ">=3.7,<4.0"` already trailing. | `tenacity` |
-| **`urllib3` (direct)** | Adding urllib3 alongside httpx means two HTTP stacks in lockfile. urllib3's `Retry` API is what httpx-retries wraps; if we wanted urllib3 semantics we'd use httpx-retries. | `tenacity` |
-| **`requests`** | We're an httpx-only shop. requests is sync-only, no async path. | n/a |
-| **`structlog`** for the libraries | Adds runtime dep × 4 packages. Library code shouldn't `structlog.configure()` (process-global). | stdlib `logging` |
-| **`loguru`** for the libraries | Global singleton `logger` couples downstream consumers. Windows-only sub-deps. | stdlib `logging` |
-| **`unasync`** | Build-step complexity for a 4-package, modest-size monorepo. The win (single source) doesn't justify the codegen pipeline. | Hand-written sync+async sharing pure helpers in `_endpoints.py` |
-| **`anyio`** as a dep | We're committed to asyncio, not trio. No need for the abstraction layer at the package level. | Direct `asyncio` (already what `aio.py` uses) |
-| **`hishel`** | HTTP caching — solves a different problem. Live verification specifically wants to NOT cache (we want to see real responses). | n/a |
-| **`pydantic`** for Client config | Runtime validation overhead for init-time-only data; would force pydantic dep × 4 packages. | `@dataclass(slots=True)` |
-| **`asgiref`** | Server-side async/sync bridging — not applicable to client libraries. | n/a |
-| **`tenacity` extension libs** (e.g., `tenacity-aiohttp`) | We're httpx, not aiohttp. Stock tenacity is sufficient. | Stock `tenacity` |
+| **`keyring`** | Headless CI requires null-backend workaround that defeats the purpose; macOS first-read GUI prompt breaks unattended drivers; Linux conditional deps (SecretStorage+jeepney) won't run on bare CI runners | `platformdirs + stdlib 0600 file` |
+| **`cryptography.fernet`** (in v1.2) | Encryption doesn't change the trust boundary while `.env` already holds stronger long-lived credentials in plaintext; adds C extension + key-storage ceremony | Defer to v1.3 unless threat model expands |
+| **`ast-grep` (Rust CLI)** | Non-Python binary breaks pre-commit + uv tooling invariant; adds installation friction for contributors | `libcst` if codemod needed; otherwise stdlib `ast` |
+| **`comby`** | Does not support indentation-sensitive languages (Python, Haskell) per their own docs | `unasync` or `libcst` |
+| **`Jinja2` / `Mako` for codegen** | Templates abstract over Python source you'd need to read anyway; per-endpoint template maintenance is more work than per-endpoint pure-helper extraction | `unasync` direct token replacement |
+| **`syrupy` / `pytest-snapshot`** | Adds runtime dep for snapshot management at a scale (4 drivers × small golden files) where stock pytest + `pathlib` is sufficient | pytest `capsys` + golden file fixtures |
+| **`pydantic`** for Client config | Already vetoed in v1.1; runtime validation overhead for init-time-only data | `@dataclass(slots=True)` (already in use per `_ClientState`) |
+| **`rope` / `bowler`** for driver refactor | Older/unmaintained Python refactoring libs; libcst is the modern equivalent | `libcst` if needed; otherwise manual Edit-tool passes + AST regression-guards |
+| **`hatch-build-scripts`** for codegen-at-build-time | Breaks `pip install -e .` editable mode; couples release pipeline to codegen tool availability | Commit `_aio/` AND `_sync/` to git + pre-commit hook + CI gate |
 
 ---
 
-## Stack Patterns by Variant
+## Version Compatibility Matrix
 
-**If a single package needs custom retry semantics (e.g., matriz Primary API has different rate limits):**
-- Override `DEFAULT_RETRY_KWARGS` per package in its own `_retry.py` (already isolated by the no-shared-internals constraint)
-- e.g., matriz could use `stop_after_attempt(5)` instead of `3` if Primary API justifies it
-
-**If we later want JSON-formatted log output:**
-- Application-side: consumers wire `python-json-logger` (or `structlog.stdlib.ProcessorFormatter`) on the package logger
-- We do NOT impose this; the lib emits structured records via `extra=` and lets the app format
-
-**If a consumer wants per-instance retry tuning:**
-- Client refactor exposes `Client(retry_kwargs={...})` — top-level `configure()` accepts the same; default keeps v1.0 behavior
-
----
-
-## Version Compatibility
-
-| Package A | Compatible With | Notes |
-|-----------|-----------------|-------|
-| `tenacity 9.1.4` | `httpx >=0.27` | No shared deps. tenacity wraps sync/async callables, doesn't know about httpx. |
-| `tenacity 9.1.4` | `python >=3.10` | Project requires `>=3.12`, well within tenacity's window. |
-| `tenacity 9.1.4` | `mypy 1.13` strict | Has `py.typed`; verified inline annotations. |
-| `stdlib logging` | typeshed (mypy 1.13 bundled) | Full type stubs ship with mypy. |
-| `stdlib logging` | `verification/redaction.py` | Wire `_redact_bearer` into a `logging.Filter` on the package logger. No code dep changes in `verification/`. |
-| `@dataclass(slots=True)` | Python `>=3.10` | We have `>=3.12`. |
-| `tenacity` + `pytest-httpx` | OK | pytest-httpx mocks at the httpx transport level; tenacity wraps at the call-site level. No conflict — retry decorators will see mocked responses normally. Regression tests for retry behavior just need to set up multiple `mock.add_response()` calls for the same URL. |
+| Addition | Compatible With | Notes |
+|----------|-----------------|-------|
+| `platformdirs 4.10.0` | `python>=3.10` (we have 3.12+) | Zero transitive deps; PEP 561 typed |
+| `platformdirs 4.10.0` | macOS / Linux (XDG) / Windows / Android | Cross-platform path resolution is its sole purpose |
+| `platformdirs 4.10.0` | `mypy 1.13` strict | Inline annotations, classifier `Typing :: Typed` |
+| `unasync 0.6.0` | `python>=3.8` (we have 3.12+) | Dev-only, dep tree `tokenize-rt + setuptools` (both already in our env via build-system) |
+| `unasync 0.6.0` | `hatchling` build backend | Via dev-time codegen pattern (no hatchling plugin); generated files committed |
+| `libcst 1.8.6` (fallback) | `python>=3.9` (we have 3.12+) | Dev-only; pulls `pyyaml>=5.2` (already transitive via pre-commit) |
+| `cryptography 49.0.0` (deferred) | `python>=3.9,!=3.9.0,!=3.9.1` (we have 3.12+) | Prebuilt wheels for cp312/cp313 on linux/macos/windows verified via PyPI |
+| `tenacity 9.1.4` (existing) | All v1.2 additions | No conflict; runtime dep already in place |
+| `import-linter 2.11` (existing) | Extended for `_aio` ↔ `_sync` boundary | Add 8 new contracts (forbidden bidirectional × 4 packages) per Cluster 1 |
 
 ---
 
-## Integration Risk Audit (v1.1 Constraint Check)
+## Integration Risk Audit (v1.2 Constraint Check)
 
 | Constraint | Status with Recommended Stack |
 |------------|-------------------------------|
-| Cannot break CI (ruff + mypy strict + 277 pytest tests) | ✓ `tenacity` is `py.typed`; stdlib `logging` covered by typeshed; no ruff rule conflicts (verified via rule set list) |
-| Cannot break public API on minor bump | ✓ Top-level functions preserved via compat layer; `Client` class is additive; logging emits to a logger that's silent by default (`NullHandler`) |
-| Cannot introduce shared internals between packages | ✓ All recommendations apply 4× independently. Each package gets its own `_retry.py` + `_logging.py` + `_endpoints.py`. No new shared module under `verification/` (which is harness, not lib code). |
-| Cannot pull heavy deps with C extensions or wide trees | ✓ `tenacity` is pure-Python, zero runtime deps. No other lib additions. |
-| Must work on Python 3.13 too | ✓ tenacity 9.1.4 is tested on 3.13 (per PyPI classifiers); httpx-retries 0.5.0 also classifies 3.13/3.14 (for reference even though rejected) |
-| CI matrix unchanged | ✓ No new CI steps. Existing `uv sync --all-packages --all-extras --dev --frozen` covers it. |
+| Cannot break CI (ruff + mypy strict + 907 pytest tests + import-linter) | ✓ All additions are typed or dev-only; ruff rule sets unchanged; import-linter contracts extend additively |
+| Cannot break public API on minor bump | ✓ Top-level `pkg.get_X(...)` API preserved via PEP 562 shim from v1.1. New surfaces (`Client.from_env()`, `client.with_options()`) are additive. unasync codegen affects internal `_aio/` + `_sync/` layout only — `client.py`/`aio.py` shims preserve the import surface. |
+| Cannot introduce shared internals between packages | ✓ Each package gets its own `tools/codegen.py` (or per-package `unasync.Rule`) + its own `_aio/`/`_sync/` directories. Per-package `pyproject.toml` for `platformdirs` (IOL only). No new shared module. |
+| Cannot pull heavy deps with C extensions or wide trees (runtime) | ✓ Only runtime addition is `platformdirs` (22KB, zero deps). C-extension `cryptography` deferred. |
+| Must work on Python 3.13 too | ✓ All additions support 3.13: platformdirs 4.10.0 (classifier), unasync 0.6.0 (`>=3.8`), libcst 1.8.6 (classifier including 3.13 free-threading), cryptography 49.0.0 (classifier) |
+| Must work in headless CI (GitHub Actions) | ✓ No GUI prompts, no D-Bus dependencies, no Keychain access patterns |
+| Per-package serial pattern (ámbito → iol → higyrus → matriz) | ✓ All additions roll out per-package in the v1.0/v1.1 serial order; spike runs on ámbito first (smallest blast radius) and validates before propagating |
+| Spike-before-plan flag honored for codegen | ✓ unasync adoption is explicitly spike-gated; libcst is the documented fallback if spike disqualifies it |
 
 ---
 
@@ -468,42 +368,43 @@ For matriz-client specifically, this dedup work is BLOCKED on the prerequisite "
 
 ### Context7 (HIGH confidence — authoritative library docs)
 
-- `/jd/tenacity` — Retrying library for Python (187 snippets, score 82.1). Fetched: `wait_exponential_jitter`, `AsyncRetrying`, `retry_if_exception`, decorator auto-detection for coroutines.
-- `/websites/tenacity_readthedocs_io_en` — Tenacity readthedocs mirror (45 snippets, score 86.7). Cross-verified API.
-- `/will-ockmore/httpx-retries` — HTTPX Retries transport (55 snippets). Fetched: `RetryTransport` sync+async, `Retry(total, backoff_factor, backoff_jitter)`, default `allowed_methods` (HEAD/GET/PUT/DELETE/OPTIONS/TRACE — note: PUT/DELETE included by default), default `status_forcelist=[429, 502, 503, 504]`, `respect_retry_after_header`.
-- `/hynek/structlog` — Structlog (192 snippets, score 86.6). Fetched: `ProcessorFormatter` for stdlib integration, library-vs-application configuration warning.
-- `/websites/structlog_en_stable` — Structlog stable docs (1331 snippets, score 93). Cross-verified.
-- `/delgan/loguru` — Loguru (506 snippets, score 89.4). Fetched: `logger.disable("mylib")` library pattern, configure recipe.
-- `/litl/backoff` — Backoff (20 snippets, score 91). Fetched: `@backoff.on_exception(backoff.expo)`, `giveup` keyword.
+- `/jaraco/keyring` — Jaraco Keyring (246 snippets, score 71.67). Fetched: type-declaration support added (NEWS.rst), `AnonymousCredential` model, `store` attribute deprecation. Cross-verified backend behavior on macOS/Linux/Windows.
+- `/websites/keyring_readthedocs_io_en` — Python Keyring readthedocs (243 snippets, score 92.67). Cross-verified null-backend / headless CI behavior.
 
-### Official sources / PyPI (HIGH confidence)
+### Official sources / PyPI (HIGH confidence — verified 2026-06-14)
 
-- https://pypi.org/pypi/tenacity/json — version 9.1.4, no runtime deps, requires-python `>=3.10`, Apache-2.0
-- https://pypi.org/pypi/structlog/json — version 26.1.0 (2026-06-06), `Typing :: Typed`, requires-python `>=3.10`
-- https://pypi.org/pypi/httpx-retries/json — version 0.5.0 (2026-04-20), requires `httpx>=0.20.0`, requires-python `>=3.10`
-- https://pypi.org/pypi/backoff/json — version 2.2.1 (2022-10-05, **stale**), requires-python `>=3.7,<4.0`
-- https://pypi.org/pypi/loguru/json — version 0.7.3 (2024-12-06), Windows conditional deps
-- https://pypi.org/pypi/unasync/json — version 0.6.0 (2024-05-03), deps `tokenize-rt`, `setuptools`
-- https://api.github.com/repos/will-ockmore/httpx-retries/releases — verified active maintenance, latest 0.5.0 published 2026-04-20
+- https://pypi.org/pypi/unasync/json — version 0.6.0 (2024-05-03), deps `tokenize-rt + setuptools`, MIT OR Apache-2.0, requires-python `>=3.8`
+- https://pypi.org/pypi/libcst/json — version 1.8.6 (Nov 2025), MIT, requires-python `>=3.9`, deps include `pyyaml>=5.2` (or `pyyaml-ft>=8.0.0` on Py 3.13), classifier `Typing :: Typed`
+- https://pypi.org/pypi/keyring/json — version 25.7.0, MIT, requires-python `>=3.9`, Linux deps `SecretStorage>=3.2 + jeepney>=0.4.2`, Windows dep `pywin32-ctypes>=0.2.0`
+- https://pypi.org/pypi/cryptography/json — version 49.0.0, Apache-2.0 OR BSD-3-Clause, requires-python `>=3.9 (excluding 3.9.0/3.9.1)`, dep `cffi>=2.0.0`
+- https://pypi.org/pypi/platformdirs/json — version 4.10.0 (2026-05-28), MIT, requires-python `>=3.10`, zero deps (`requires_dist: null`), 22743-byte wheel
 
-### Source inspection (HIGH confidence)
+### Source inspection / GitHub (HIGH confidence)
 
-- https://github.com/jd/tenacity/tree/main/tenacity — confirmed `py.typed` file present (PEP 561 compliant)
-- https://github.com/hynek/structlog/tree/main/src/structlog — confirmed `py.typed` present
-- https://github.com/will-ockmore/httpx-retries/tree/main/httpx_retries — confirmed `py.typed` present; `transport.py` implements both `httpx.BaseTransport` and `httpx.AsyncBaseTransport`; `retry.py` uses `asyncio.sleep` (asyncio-native, not anyio)
-- https://will-ockmore.github.io/httpx-retries/behaviour/ — confirmed `Retry-After` header honored by default
+- https://github.com/python-trio/unasync — confirmed: token-replacement approach, `cmdclass_build_py()` setuptools integration, `Rule(fromdir, todir, additional_replacements={...})` API
+- https://github.com/Instagram/LibCST — confirmed: MIT, supports Python 3.0-3.14, 48 releases, latest 1.8.6 (Nov 2025), 129 open issues + 44 PRs (actively maintained)
+- https://github.com/jaraco/keyring — confirmed: jaraco-maintained, 1.5k stars, 56 releases, types-keyring not needed (inline typing landed via NEWS.rst entries 2024-2025)
+- https://github.com/encode/httpcore — confirmed httpcore uses a custom in-tree `unasync.py` script (`_async/` ↔ `_sync/` directories committed to git) — same pattern recommended here
+- https://github.com/encode/httpx/issues/572 — "Supporting Sync. Done right." — confirmed httpx ecosystem direction is unasync-based for sync/async dedup
 
 ### Existing codebase context (HIGH confidence — read directly)
 
-- `/Users/sebadlf/development/becerra/market-libs/.planning/PROJECT.md` — v1.1 milestone goals, constraints
-- `/Users/sebadlf/development/becerra/market-libs/.planning/codebase/STACK.md` — v1.0 baseline stack
-- `/Users/sebadlf/development/becerra/market-libs/.planning/codebase/ARCHITECTURE.md` — singleton pattern, dual sync/async surface
-- `/Users/sebadlf/development/becerra/market-libs/.planning/codebase/CONVENTIONS.md` — `from __future__ import annotations`, ruff rule set, mypy strict expectations
-- `/Users/sebadlf/development/becerra/market-libs/pyproject.toml` — workspace config, dev deps
-- `/Users/sebadlf/development/becerra/market-libs/packages/iol-client/pyproject.toml` — package-level dep declaration pattern
+- `/Users/sebadlf/development/becerra/market-libs/CLAUDE.md` — v1.2 milestone context
+- `/Users/sebadlf/development/becerra/market-libs/.planning/PROJECT.md` — v1.2 scope, spike-before-plan flag for codegen
+- `/Users/sebadlf/development/becerra/market-libs/.planning/RETROSPECTIVE.md` — v1.1 lessons: TokenStore spike validated, INT-01 idiom established, structural sync/async duplication identified as v1.2 closure
+- `/Users/sebadlf/development/becerra/market-libs/.planning/research/v1.0-v1.1-archived/STACK.md` — v1.0/v1.1 stack baseline (tenacity, ruff/mypy config); NOT under review
+- `/Users/sebadlf/development/becerra/market-libs/pyproject.toml` — workspace config, ruff/mypy/import-linter config (per v1.1 close-out)
+- `/Users/sebadlf/development/becerra/market-libs/packages/iol-client/pyproject.toml` — package-level dep declaration target for `platformdirs`
+
+### Notes on confidence levels
+
+- **HIGH** for all primary recommendations: `platformdirs` (verified PyPI metadata + Context7 docs + zero-deps confirmed), `unasync` (verified via httpcore + elasticsearch-py + trio production use), rejection of `keyring` (verified via official Headless CI docs + macOS GUI prompt behavior)
+- **MEDIUM** for `libcst` fallback ranking (depends on what the spike finds — only relevant if unasync is disqualified)
+- **MEDIUM** for `cryptography` deferral (operator may choose to expand threat model; the recommendation here is to NOT pre-emptively adopt)
 
 ---
 
-*Stack research for: market-libs v1.1 Tech Debt Cleanup additions*
-*Researched: 2026-06-10*
-*Confidence: HIGH — all picks verified via Context7 + source inspection; alternatives explicitly evaluated and rejected with reasons*
+*Stack research for: market-libs v1.2 Architecture + Auth/Ergonomics Carry-forwards*
+*Researched: 2026-06-14*
+*Confidence: HIGH (primary recommendations) / MEDIUM (fallback paths)*
+*Spike-before-plan flag honored for codegen tooling — final pick gated on Phase-level spike report; this Stack narrows the candidate list to unasync (primary) + libcst (fallback) and explicitly vetoes ast-grep/comby/Jinja2*

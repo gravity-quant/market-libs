@@ -1,202 +1,157 @@
-# Project Research Summary
+# Research Summary — v1.2 Architecture + Auth/Ergonomics Carry-forwards
 
-**Project:** market-libs — v1.1 Tech Debt Cleanup
-**Domain:** Python HTTP client library monorepo refactor (4 packages: iol, higyrus, ambito, matriz)
-**Researched:** 2026-06-10
-**Confidence:** HIGH
+**Project:** market-libs — Verificación en vivo de clientes
+**Synthesized:** 2026-06-14
+**Confidence:** HIGH (stack, features, pitfalls) | MEDIUM (codegen integration — spike-gated)
+**Source reports:** STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md
+
+---
 
 ## Executive Summary
 
-The v1.1 milestone is a structured architectural cleanup of four verified financial API clients. All five refactor axes (Client class per instance, sync/async logic dedup, retries with backoff/jitter, structured logging, and driver harness hardening) have well-established, high-confidence patterns in the Python SDK ecosystem. The canonical reference is the openai/anthropic SDK shape: a `Client` dataclass holding instance state, a lazy module-level default backing backward-compatible top-level functions, and a mirrored `AsyncClient` in `aio.py` with independent state. This pattern preserves the existing `pkg.get_quote(...)` call style while unlocking per-instance state needed by the HIGY multi-account and IOL refresh_token fixes.
+v1.2 closes two clusters of residual debt from v1.1: (1) structural sync/async duplication — migrating the four `main_*.py` drivers from the PEP 562 shim to direct `Client()`/`AsyncClient()` instantiation, and optionally eliminating the dual `client.py`/`aio.py` maintenance burden via unasync codegen; (2) auth/ergonomics carry-forwards — IOL OAuth refresh_token disk persistence (extending v1.1 BUG-03 from in-process to cross-process), plus `Client.from_env()` and `client.with_options(max_retries=N)` across all four packages. The four parallel researchers converged on a clear stack (unasync 0.6.0 spike-gated, platformdirs for IOL disk cache, no keyring, no cryptography in v1.2), clear feature categorization (driver migration + with_options + IOL persistence are table stakes; from_env is optional alias; codegen needs spike-before-plan; LIVE re-verification is table stake), and a 5-phase build order derived from the dependency DAG.
 
-The dominant execution risk is not technical uncertainty — every recommendation is verified against official sources — it is the mechanical complexity of applying each change across four independent packages while maintaining 277 mocked tests. The single most dangerous trap is the `monkeypatch.setattr(pkg.client, "_token", ..., raising=False)` fixture pattern: after the refactor, these writes silently land on a dead address unless a PEP 562 `__getattr__` shim (or conftest migration to `configure(token=...)`) is in place before the first package ships. A golden public-surface snapshot test must be written and passing before any package is touched.
+The single largest architectural unknown is codegen: whether unasync's token-replacement approach handles all four packages cleanly — especially matriz's 852-LOC `aio.py` with its 3-way `TokenStore` concurrency primitive — or whether the overhead exceeds the LOC-dedup payoff at this repo's 4-package scale. The PROJECT.md spike-before-plan flag is active and must be honored before Phase 3 planning commits. All other v1.2 features have high-confidence patterns validated against anthropic/openai SDK source, msal-extensions, and the v1.1 codebase. The 4 HIGHEST-RISK pitfalls do not fail CI unless specific regression tests are written in the same phase that introduces the feature.
 
-The phase order is fully determined by dependency: Client class skeleton first (unlocks everything), then `_core.py` dedup (unlocks both the retry `RequestSpec.idempotent` field and the safe creation of matriz `aio.py`), then retries/logging/matriz-aio in parallel (independent after dedup), then bug fixes (cheapest post-dedup because each fix lands once in `_core.py` instead of twice), then driver harness, then live re-verification. Each deferred bug fix is strictly easier after the dedup refactor — applying them before `_core.py` exists would require touching both `client.py` and `aio.py` per package.
+---
 
-## Key Findings
+## Stack Additions for v1.2
 
-### Recommended Stack
+| Library | Version | Dep Type | Scope | Role | Rationale |
+|---------|---------|----------|-------|------|-----------|
+| **unasync** | `>=0.6.0,<0.7` | dev-only | All 4 packages | Token-replacement codegen: generate `client.py` from `aio.py` | Used by httpcore/elasticsearch-py/urllib3; per-package `Rule(fromdir, todir)` matches no-shared-internals; spike-gated |
+| **platformdirs** | `>=4.0,<5` | runtime — iol-client ONLY | iol-client | Cross-platform user-data-dir for IOL refresh_token disk cache | Zero deps, MIT, 22KB wheel, PEP 561 typed |
+| **stdlib** (`os`, `json`, `pathlib`, `fcntl`) | — | built-in | iol-client | File I/O, 0600 chmod, fcntl inter-process locking | No new dep |
+| **libcst** | `>=1.8.0,<2` | dev-only (FALLBACK ONLY) | — | AST codemod fallback if unasync spike fails on matriz | 1.8.6 Nov 2025, MIT, py.typed |
 
-The v1.0 stack (Python 3.12+, uv, httpx, pytest+pytest-httpx, ruff, mypy strict) is unchanged. The only runtime addition is `tenacity>=9.1.0,<10` added to each of the four packages' `pyproject.toml`. Tenacity wins over httpx-retries and hand-rolled transport because it (a) works identically as a decorator on both sync and async callables, (b) ships `py.typed` for mypy strict, (c) has zero runtime dependencies, and (d) gives per-call `idempotent` gate control that a transport-level approach cannot express cleanly given the existing exception hierarchy.
+**Explicit rejects:**
 
-Structured logging uses stdlib `logging` only — no structlog, no loguru. Library code must never call `logging.basicConfig()` or add handlers beyond `NullHandler`. All credential redaction logic is duplicated per-package in `_logging.py` (the `verification/redaction.py` module is harness-only and not importable from published packages). The Client class, sync/async dedup, and all bug fixes require zero new dependencies — they are pure design pattern work.
+| Rejected | One-line reason |
+|----------|----------------|
+| keyring | Headless CI requires null-backend (no-op); macOS first-read GUI prompt blocks unattended drivers; Linux needs SecretStorage+jeepney |
+| cryptography (Fernet) | Adds C-extension dep without changing trust boundary while `.env` already holds stronger credentials in plaintext; defer to v1.3 |
+| ast-grep | Rust CLI binary — breaks Python-tools-only CI invariant |
+| comby | Does not support indentation-sensitive languages per their own docs |
+| Jinja2/Mako | Template maintenance > per-endpoint source; unasync token-replacement is closer to the problem |
+| syrupy/pytest-snapshot | Dep overhead for 4-driver × small golden files; pytest capsys + pathlib suffices |
 
-**Core technologies (additions only):**
-- `tenacity>=9.1.0,<10`: retry decorator for 5xx/429/connection errors — only option with per-call mutating gate, `py.typed`, and zero deps
-- `stdlib logging` with `NullHandler`: structured library logging — zero deps, follows Python HOWTO mandate for library code
-- `@dataclass(slots=True) Client`: instance state pattern — zero deps, preserves v1.0 module-level convenience API via compat layer
-- `_core.py` pure helpers per package: sync/async dedup target — zero deps, transport-agnostic builders and parsers
+---
 
-### Expected Features
+## Feature Landscape
 
-The five axes decompose into a clear P1/P2 stack. Everything in P1 must land in v1.1; P2 items are ergonomic additions that do not block the milestone.
+| # | Feature | Category | Complexity | v1.2 dependency | Reference |
+|---|---------|----------|------------|-----------------|-----------|
+| 1 | Driver migration × 4 (`main_*.py` → `Client()`) | Table stake | M per pkg | None; precedes codegen | Anthropic examples never use module-level helpers |
+| 2 | unasync/codegen single-source | Differentiator (spike-gated — may defer v1.3) | L | Phase 0 spike; runs AFTER driver migration | psycopg3; unasync (urllib3/httpcore); unasyncd (libcst) |
+| 3 | Final live re-verification × 4 (LIVE-01-equivalent) | Table stake | S | Features 1 + 2 complete | v1.1 LIVE-01 Phase 11 |
+| 4 | IOL refresh_token disk persistence | Table stake for OAuth flows | M-L | v1.1 BUG-03 + TokenStore lock pattern | msal-extensions PersistedTokenCache; google-auth fcntl |
+| 5 | `Client.from_env()` × 4 | Optional alias — OPERATOR DECISION | S | No-op on v1.1 `_ClientState` env defaults | NOT industry standard; 7-SDK survey: all use implicit env fallback in constructor |
+| 6 | `client.with_options(max_retries=N)` × 4 | Table stake | M | Requires RetryTransport per-request extension refactor | anthropic `copy()`/`with_options()`; openai `with_options()` |
 
-**Must have (P1 — table stakes):**
-- `Client` class per package with `close()`/`aclose()`, sync and async context managers, instance-scoped state (base_url, credentials, token, http client) — unblocks multi-account and refresh_token persistence
-- Lazy module-level default client backing existing top-level functions verbatim — non-breaking is non-negotiable for a minor version bump
-- `_core.py` per package: transport-agnostic builders/parsers for every endpoint; `raise_for_response`, `unwrap_envelope`, auth-flow helpers — the dedup target that eliminates the "logic duplicated" known debt
-- `aio.py` for `matriz-client` mirroring the REST surface with independent async state — parity with the other three packages
-- Retry on 408/409/429/5xx plus connection errors; default max 2 retries; full-jitter exponential backoff; `Retry-After` header honored (capped at 60s); GET-only by default (POST/PATCH never retried without explicit `idempotent=True`)
-- `mutation_gate` check before any POST/PATCH retry — mandated by PROJECT.md; prevents duplicate orders on matriz
-- Per-package `logging.getLogger("<pkg>")` with `NullHandler` in `__init__.py`; DEBUG/INFO/WARNING/ERROR level map; redacted `extra={}` structured fields
-- `verification/findings.py` append-only with BEGIN/END zone parser; content-addressed dedup by finding ID; operator fields (Classification/Rationale/Regression/Resolution) preserved verbatim across re-runs
-- Four deferred bug fixes: F-09 matriz ERROR-MAP (single `_core.raise_for_response` fix, both surfaces free), F-02 higyrus `get_listado_cuentas=0`, IOL refresh_token persistence, HIGY multi-account iteration
-- WR-01..WR-08 code review concern close-out (8 driver/harness items from Phase 5 review)
+**Feature 5 note:** The industry survey (anthropic, openai, stripe, mistral, groq, cohere, google-genai) found ZERO SDKs shipping a separate `from_env()` classmethod. All use implicit env fallback in the constructor — which v1.1 already implements. Ship `from_env()` as a 5-line documented alias ONLY if the operator wants the IDE autocomplete discoverability win.
 
-**Should have (P2 — differentiators):**
-- `client.with_options(max_retries=N)` per-call override (anthropic/openai pattern)
-- Pluggable `http_client=` kwarg for test injection without monkeypatching
-- `Client.from_env()` classmethod for explicit env-reading
-- `request_id` UUID per `_request()` invocation threaded through retry log records
-- Account-id in logging `extra` for higyrus/matriz multi-account disambiguation
-- `max_elapsed_seconds` retry budget cap as belt-and-suspenders
+---
 
-**Defer to v1.2+:**
-- Generated-code parity tooling (one source, two emit paths via unasync/codegen)
-- Automatic Idempotency-Key for retried POSTs
-- `findings.toml` machine-readable side-file
-- prod-vs-remarkets verification (D-MATZ-27 REQUIRED handoff)
-- WebSocket live verification for `matriz_client.ws_client`
+## Architecture Integration — 5 Most Consequential Decisions
 
-### Architecture Approach
+1. **PEP 562 shim + top-level delegators stay forever.** Driver migration eliminates the driver's dependency on the shim but zero library-side symbols can be removed (harness `mutation_gate.py:55` + `test_async_configure_resource_warning.py:66-71` still use them). LOC drop comes from codegen, not from removing back-compat surface.
 
-Each package gets five new private modules (`_state.py`, `_core.py`, `_transport.py`, `_atransport.py`, `_logging.py`) that are replicated four times independently — the no-shared-internals constraint is preserved. `client.py` and `aio.py` become thin transport shells (~30-50 LOC per endpoint) that call shared pure helpers in `_core.py`, differing only at the `httpx.Client.send()` vs `await httpx.AsyncClient.send()` boundary. The critical backward-compat mechanism is a PEP 562 `__getattr__` shim at module level that routes `pkg.client._token` reads to `_DEFAULT._state.token`, preserving existing `monkeypatch.setattr` semantics via a conftest migration to `configure(token=...)`.
+2. **B8 identity invariant must survive codegen.** `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` (at `iol_client/client.py:78`) must be emitted as a literal alias `_raise_for_response = _core.raise_for_response` — never a thunk. Tests files are NEVER codegen targets.
 
-**Major components:**
-1. `Client` / `AsyncClient` (per package in `client.py` / `aio.py`) — instance-scoped state, transport lifecycle, context manager, compat delegators
-2. `_core.py` (per package) — pure `RequestSpec` builders and response parsers, `raise_for_response`, `unwrap_envelope`, token freshness check; no I/O, no side effects
-3. `_transport.py` / `_atransport.py` (per package) — `RetryTransport(httpx.HTTPTransport)` subclass; status-based and connection-error retry with full-jitter backoff; mutation-aware via `request.extensions["idempotent"]`
-4. `_state.py` (per package) — `@dataclass _ClientState` holding base_url, credentials, token, expiry, refresh_token
-5. `_logging.py` (per package) — `logging.getLogger("<pkg>")` + `NullHandler` + `RedactingFilter` with inline Bearer/header redaction logic
-6. `verification/findings.py` (harness, one instance) — append-only BEGIN/END zone writer with content-addressed dedup and operator-field preservation
+3. **ONE Client per `main()` run — never per probe.** Constructing a new `Client()` per probe triggers N OAuth handshakes (IOL rate-limit risk), bypasses the shared TokenStore 3-way concurrency primitive (matriz corruption risk), and breaks finding correlation. Shape: `client = Client.from_env(max_retries=2)` at top of `main()`, passed to each probe as positional arg.
 
-### Critical Pitfalls
+4. **matriz `_token_store.py` is OFF-LIMITS to codegen.** The 3-way concurrency primitive (`threading.Lock` callable from sync REST, asyncio context via `asyncio.to_thread`, and ws_client daemon thread) has structurally different sync/async paths no token-replacement codegen can synthesize. Must be in the codegen deny-list with a pre-commit hook.
 
-1. **`monkeypatch.setattr(..., raising=False)` silently breaks 277 tests after Client refactor** — write the "fixture reaches production" guard test (assert fixture-set token appears in wire Authorization header) BEFORE the first package ships; implement the PEP 562 `__getattr__` shim or migrate conftest to `configure(token=...)` in Phase 0.
+5. **`with_options()` requires `_transport.RetryTransport` per-request `max_attempts` extension.** The cached `httpx.Client` has `max_attempts` baked into its Transport at construction. A `with_options(max_retries=N)` view must thread the new cap via `request.extensions["max_attempts"]` (mirror of the v1.1 `idempotent` extension pattern, ~15 LOC per package in `_transport.py` + `_atransport.py`).
 
-2. **Retry decorator blindly retries POST mutations, causing duplicate orders** — apply `idempotent: bool = False` kwarg to every `_request` call; GET endpoints tag `idempotent=True` explicitly; add regression test asserting exactly ONE outgoing request for any mutating POST against a mocked 503.
+---
 
-3. **`_core.py` accidentally re-imports from `client.py` or `aio.py`, re-coupling sync/async state** — add a CI grep or import-linter rule that bans `_core.py` from importing either surface; use distinct sentinel tokens for sync/async fixtures to surface cross-leak as a test failure.
+## Watch Out For — 4 HIGHEST-RISK Pitfalls
 
-4. **matriz `aio.py` created by copy-paste before `_core.py` exists, enshrining the tech debt the milestone aims to eliminate** — hard prerequisite: `_core.py` extraction must complete for at least one package before `aio.py` is written; PR checklist must confirm no duplicate `_unwrap` or `_raise_for_response` in both files.
+**Pitfall 4 — Codegen breaks B8 identity** (phase: codegen spike + per-package)
+If codegen emits a thunk `def _raise_for_response(resp): return _core.raise_for_response(resp)` instead of the alias `_raise_for_response = _core.raise_for_response`, the `is` check becomes False. The B8 identity test must run FIRST in CI. Regression test: parametrized over all 4 packages, asserts identity across `aio`, `client`, `_core`.
 
-5. **Library calls `logging.basicConfig()` or adds handlers to root logger, hijacking downstream apps' log config** — add a CI grep rule banning `logging.basicConfig` and `logging.root` from `packages/*/src/`; add a regression test asserting `logging.root.handlers` is unchanged after importing any package.
+**Pitfall 5 — Codegen overwrites by-hand edits** (phase: codegen spike)
+Pre-commit hook runs codegen with `aio.py` as source of truth → operator's parallel hand-edit to `client.py` is silently overwritten. Prevention: generated-file marker `# @generated by unasync from aio.py — DO NOT EDIT` at top of file; CI job `make codegen && git diff --exit-code` as a separate job; pre-commit hook rejects `client.py` edits when marker is present and `aio.py` is not in the same commit.
 
-6. **401 retry storm: expired token causes N retries with the same stale header** — handle 401 explicitly in `_request()` with exactly one re-auth attempt (clear token, call `_ensure_token()`, retry once); never include `AuthError` in the retry decorator's `retry_on=` tuple.
+**Pitfall 7 — Token leak via new disk log sites** (phase: IOL disk persistence)
+`iol_client/_token_cache.py` introduces new log sites. If the logger is outside the `iol_client.*` namespace, the v1.1 `RedactingFilter` does NOT apply. Prevention: logger MUST use `logging.getLogger(__name__)` from inside `packages/iol-client/src/iol_client/`; never log `exc` on write failure — only `type(exc).__name__`; regression test asserts sentinel substring absent from all caplog records across sync + async disk lifecycle paths.
 
-## Implications for Roadmap
+**Pitfall 14 — `with_options(max_retries=N)` bypasses mutation gate** (phase: with_options × 4 packages)
+`client.with_options(max_retries=10).new_order(...)` could allow 10 retry attempts on a non-idempotent matriz call, voiding the v1.1 Pitfall 4 duplicate-order prevention. This is money-on-the-line. Prevention: `RetryTransport.handle_request` checks `request.extensions.get("idempotent", False)` FIRST and enforces exactly-1-attempt for non-idempotent calls regardless of `max_attempts`. CRITICAL regression test: asserts exactly 1 outgoing request for `client.with_options(max_retries=10).new_order(...)` on a 503 response.
 
-Based on research, the dependency DAG fully determines phase order. Six phases are suggested.
+---
 
-### Phase 0: Compat Safety Net and Golden Tests
-**Rationale:** Without a public-surface snapshot and a "fixture reaches production" guard test, there is no trustworthy way to verify that subsequent phases don't break callers or the 277-test suite. This is the prerequisite for all refactor work.
-**Delivers:** `verification/test_public_surface.py` snapshotting every module attribute and function signature; "fixture reaches production" guard test per package; conftest migration plan for `configure(token=...)` documented; monkeypatch sentinel differentiation (SYNC-sentinel vs ASYNC-sentinel) in place.
-**Addresses:** Pitfall 1 (silent monkeypatch breakage), Pitfall 18 (weakened tests during refactor)
-**Avoids:** Any refactor landing without a verifiable non-breaking baseline
-**Research flag:** Standard patterns — no phase research needed.
+## Suggested Phase Decomposition
 
-### Phase 1: Client Class Skeleton + Back-Compat Layer (4 packages)
-**Rationale:** Every other axis depends on the Client class existing. The HIGY multi-account fix and IOL refresh_token fix both require instance-scoped state. Process: iol first (canonical, has refresh_token), then higyrus, ambito, matriz.
-**Delivers:** `Client` and `AsyncClient` per package with `_state.py`, `close()`/`aclose()`, context managers; `configure()` extended to accept `token`/`token_expires_at` for test fixtures; PEP 562 `__getattr__` shim routing `_token` reads to default instance; all 277 tests green.
-**Addresses:** Axis A (Client class), Pitfall 2 (configure scope), Pitfall 11 (pickle), Pitfall 12 (atexit async)
-**Research flag:** Standard patterns (openai/anthropic SDK reference). No phase research needed.
+**5 phases total** (reduces to 4 if codegen spike → defer-to-v1.3):
 
-### Phase 2: `_core.py` Extraction — Sync/Async Logic Dedup (4 packages)
-**Rationale:** `_core.py` is the prerequisite for both the retry `RequestSpec.idempotent` field (Phase 3) and the safe creation of `matriz_client.aio` (Phase 4). Eliminates the root cause of the higyrus envelope-unwrap class of bugs.
-**Delivers:** `_core.py` per package with pure builders, parsers, `raise_for_response`, `unwrap_envelope`; `client.py` and `aio.py` become thin shells; CI import-linter rule banning `_core.py` → `client.py`/`aio.py` imports.
-**Addresses:** Axis B (sync/async dedup), Pitfall 3 (re-coupling), Pitfall 8 (copy-paste matriz precondition)
-**Research flag:** Standard patterns. No phase research needed.
+### Phase 0: Spike — Codegen Tool Selection
+PROJECT.md spike-before-plan flag is active. Prove unasync round-trip on ambito first (smallest, no auth), then attempt matriz. Outputs: go/no-go decision; per-package `Rule` config; B8 preservation proof; ruff format-stability proof; mypy strict pass on generated file; codegen deny-list for `_token_store.py`. **Research flag: YES — this IS the research phase for Feature 2.**
 
-### Phase 3: Retries, Backoff, and Structured Logging (4 packages, parallelizable)
-**Rationale:** Both land after Phase 2 and are independent of each other. Grouped because each retry attempt emits a WARNING log record — one pass avoids touching the same files twice.
-**Delivers:** `RetryTransport` / `AsyncRetryTransport` with full-jitter exponential backoff, `Retry-After` honoring (capped 60s), `idempotent` extension gate; `_logging.py` with `NullHandler`, `RedactingFilter`, structured `extra={}`; regression tests for no-token-in-caplog and no-retry-on-POST.
-**Addresses:** Axis C (retries), Axis D (logging), Pitfalls 4, 5, 6, 7, 13, 14, 15, 16, 17, 29
-**Research flag:** Standard patterns. No phase research needed.
+### Phase 1: Cross-Package Ergonomics (`from_env()` + `with_options()`)
+Serial order: ambito → higyrus → matriz → iol (iol last because it interacts with disk cache in Phase 2a). Delivers `from_env()` + `with_options(max_retries=N)` + `Client._is_view` flag + `RetryTransport` per-request `max_attempts` extension × 4 packages. Must land mutation gate invariant test before Phase 1 merge. **Research flag: NO.**
 
-### Phase 4: Deferred Bug Fixes (leveraging `_core.py`)
-**Rationale:** Each fix becomes a single-location change in `_core.py` that propagates to both surfaces for free. Doing them before Phase 2 would require dual-file changes per package.
-**Delivers:** F-09 matriz ERROR-MAP fix; F-02 higyrus `get_listado_cuentas=0`; IOL refresh_token persistence; HIGY multi-account iteration. One regression test per fix.
-**Addresses:** 4 deferred findings from v1.0 verification cycle
-**Research flag:** Mostly standard. If IOL refresh_token includes disk persistence (vs in-memory only), phase-level research on secure token storage warranted.
+### Phase 2a (parallel with 2b): IOL Disk Persistence
+IOL-only. Delivers `iol_client/_token_cache.py`; opt-in `Client(token_cache_path=...)` kwarg; lazy disk read in `_ensure_token()`; atomic write on `login()`/`_refresh()` rotation; `fcntl.flock`; chmod 0600; CI detection guard; 8+ regression tests (4 v1.1 BUG-03 lifecycle paths × disk). Adds `platformdirs>=4.0,<5` to iol-client runtime deps. **Research flag: NO.**
 
-### Phase 5: matriz `aio.py` Creation
-**Rationale:** Depends on Phase 2 (`_core.py` for matriz) and Phase 3 (retry/logging infrastructure). Hardest sub-task is the three-way token store shared among sync Client, AsyncClient, and ws_client daemon thread.
-**Delivers:** Full `AsyncClient` in `matriz_client/aio.py`; `TokenStore` class with `threading.Lock` usable from all three contexts; `main_matriz.py` extended with async probes; pytest-asyncio fixtures following iol-client conftest pattern.
-**Addresses:** Axis B completion (matriz parity), Pitfalls 8, 9, 19, 25
-**Research flag:** NEEDS phase-level research. The three-way concurrent token store (asyncio event loop + sync thread + ws daemon thread with threading.Lock) is the single most complex piece of v1.1 and should be spiked before planning.
+### Phase 2b (parallel with 2a): Driver Migration × 4
+Serial order: ambito → iol → higyrus → matriz. Probe names UNCHANGED (finding-title stability). AST regression-guard `test_main_<pkg>_uses_single_client_instance` per driver. Per-package LIVE smoke at end of each sub-package migration. Closes LOC-drop residual (iol -5.1%, matriz -20%). **Research flag: NO for ambito/iol/higyrus; CONDITIONAL for matriz (TokenStore interaction needs per-phase scoping audit).**
 
-### Phase 6: Driver Harness Hardening and Live Re-verification
-**Rationale:** Harness changes don't depend on package refactors but benefit from the test stability that structural work provides. Live re-verification is the final gate.
-**Delivers:** `verification/findings.py` append-only with BEGIN/END zone parser and content-addressed dedup; D-MATZ-27 fixed; WR-01..WR-08 each closed with regression test where applicable; all `main_*.py` driver re-runs idempotent; live smoke passes for all four packages including new matriz async surface.
-**Addresses:** Axis E (findings append-only), Pitfalls 10, 20, 21, 22, 23, 24, 26, 30
-**Research flag:** Standard patterns. Per-WR triage at planning time (some items are docs, some are code).
+### Phase 3: Codegen Single-Source (conditional on Phase 0 go/no-go)
+Targets `client.py`/`aio.py` transport shells ONLY. Serial order: ambito → iol → higyrus → matriz. Generated-file `@generated` marker; CI `lint-codegen` verify-clean job; B8 identity test as FIRST CI test; `_token_store.py` in deny-list. If Phase 0 → defer-to-v1.3, this phase is DROPPED. **Research flag: NO — reads Phase 0 spike report.**
+
+### Phase 4: Final Live Re-verification × 4 (LIVE-01-equivalent gate)
+Operator dispositions; no new findings outside in-cycle classified set; schema snapshot comparison; cycle closure markers; milestone audit. Mirrors v1.1 Phase 11 exactly. **Research flag: NO.**
 
 ### Phase Ordering Rationale
 
-- Phase 0 is a hard prerequisite for all refactor work: no trustworthy non-breaking signal without golden surface snapshot.
-- Phase 1 before Phase 2: `_core.py` extraction is cleanest when the Client shell already exists to receive the wired-in pure calls.
-- Phase 2 before Phase 3: `RequestSpec.idempotent` field required by `RetryTransport`; endpoint metadata must be centralized first.
-- Phase 2 before Phase 5: `_core.py` for matriz must exist before `aio.py` is created or copy-paste antipattern (Pitfall 8) is inevitable.
-- Phase 3 and Phase 4 can run in parallel after Phase 2; neither blocks the other.
-- Phase 5 requires both Phase 2 and Phase 3 (retry/logging infrastructure needed for the new module).
-- Phase 6 is last: driver harness fixes and live re-verification are the integration gate after all structural work.
+- Spike first: codegen approach is the single architectural unknown; planning Phase 3 without it is gamble-planning.
+- Ergonomics before driver migration: `from_env()` simplifies Phase 2b driver migrations from `require_env(...)` + `Client()` dance to a single validated call.
+- IOL disk persistence parallel with driver migration: independent files, zero overlap.
+- Driver migration before codegen: migrated drivers validate the public method surface; API gaps surface locally before codegen masks them.
+- LIVE gate last: single cost, validates all features simultaneously.
+- Per-package serial within each phase (ambito → iol → higyrus → matriz): v1.0/v1.1 validated pattern.
 
-### Research Flags
+---
 
-Phases needing deeper research during planning:
-- **Phase 5 (matriz `aio.py`):** The three-way token store (sync/async/daemon-thread) with `threading.Lock` callable from asyncio context needs a spike before planning. This is the single architectural unknown in v1.1.
+## Open Questions / Spike Candidates
 
-Phases with standard patterns (no phase research needed):
-- **Phase 0:** Test scaffolding — well-established.
-- **Phase 1:** Client class + compat layer — fully documented in openai/anthropic SDK reference.
-- **Phase 2:** `_core.py` pure helper extraction — httpx-native pattern; no unknowns.
-- **Phase 3:** tenacity + stdlib logging — both verified via Context7 + PyPI; all configuration patterns documented.
-- **Phase 4:** Bug fixes in `_core.py` — straightforward post-dedup application.
-- **Phase 6:** Driver harness — WR items are well-scoped from Phase 5 code review.
+1. **unasync vs libcst go/no-go for matriz:** can token-replacement handle `asyncio.Lock` → `threading.Lock`, `async with`, `async def __aenter__`, `_get_async_lock()`? Or does matriz's 852-LOC `aio.py` require libcst AST-level rewrites?
+2. **Codegen marker syntax:** does `# @generated by unasync...` at line 1 conflict with ruff's `from __future__ import annotations` requirement?
+3. **ruff extend-exclude for generated files:** do generated `_sync/` files trigger `ASYNC1xx` rule violations?
+4. **`from_env()` ship-or-skip:** operator decision; low-cost either way.
+5. **IOL disk cache path:** `user_data_dir` (platformdirs persistent) vs `user_cache_dir` (XDG: regenerable). ARCHITECTURE recommendation: `user_data_dir`.
+6. **CI Python 3.13 baseline confirmation:** v1.1 RETROSPECTIVE flagged this deferred 3× phases. Must confirm v1.1 baseline (`71bf201`) is green on 3.13 BEFORE Phase 1 lands (Pitfall 17).
+
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | tenacity 9.1.4 verified via Context7 + PyPI + source (py.typed confirmed); stdlib logging from official Python HOWTO; all alternatives explicitly evaluated and rejected with reasons |
-| Features | HIGH | Cross-confirmed against anthropic, openai, stripe SDK shapes; retry status codes from RFC 9110 + MDN; idempotency gate from PROJECT.md constraint |
-| Architecture | HIGH | Built on validated v1.0 architecture (277 tests + live verification); PEP 562 `__getattr__` stable since Python 3.7; all pattern decisions have concrete code sketches |
-| Pitfalls | HIGH | Rooted in existing codebase (CONCERNS.md, TESTING.md, Phase 5 WR-01..WR-08 review); each pitfall has a concrete prevention mechanism and regression test pattern |
+| Stack | HIGH | Versions verified via PyPI + Context7; keyring/cryptography rejection grounded in official headless CI docs |
+| Features | HIGH | 7-SDK survey unambiguous on `from_env()`; `with_options()` confirmed via anthropic source inspection; IOL disk persistence pattern confirmed via msal-extensions + requests-oauthlib |
+| Architecture | HIGH (codegen: MEDIUM) | v1.1 architecture fully validated (907 tests + LIVE-01 × 4); codegen invariants clearly defined; tool choice TBD via spike |
+| Pitfalls | HIGH | All 17 pitfalls rooted in shipped v1.1 code with exact file:line citations; 4 HIGHEST-RISK have concrete regression test patterns |
 
-**Overall confidence:** HIGH
+**Overall: HIGH for Cluster 2 (ergonomics + IOL disk); MEDIUM for Cluster 1 (codegen)**
 
 ### Gaps to Address
 
-- **Exact redaction regex set for `_logging.py`:** Phase 3 plan must enumerate patterns from `verification/redaction.py` and confirm they cover Bearer, X-Auth-Token, `password=`, IOL refresh_token, and Higyrus JSON `password` field before per-package duplication.
-- **TokenStore threading design (Phase 5):** The exact `ThreadingLock`-callable-from-asyncio pattern needs a spike before Phase 5 planning. Simpler alternative (independent token caches per surface, no sharing with ws_client) should be evaluated against the race condition risk.
-- **IOL refresh_token disk-persistence scope:** Operator decision at Phase 4 planning — in-memory only (`_ClientState.refresh_token`) is low-risk; disk persistence adds complexity and security surface.
-- **WR-01..WR-08 per-item content:** Full concern text lives in `.planning/milestones/v1.0-phases/05-matriz-verification/05-REVIEW.md`. Phase 6 plan must load each WR item and classify as code-fix+test or docs-only.
-- **`configure()` return type:** PITFALLS.md recommends returning `Client` (the new default) to clarify scope. Confirm no existing caller `None`-checks the return value before adding.
-
-## Sources
-
-### Primary (HIGH confidence — Context7 + official docs + source inspection)
-- `/jd/tenacity` (Context7, 187 snippets, score 82.1) — `wait_exponential_jitter`, `AsyncRetrying`, `retry_if_exception`, coroutine auto-detection
-- `/websites/tenacity_readthedocs_io_en` (Context7, 45 snippets, score 86.7) — cross-verified API
-- `/will-ockmore/httpx-retries` (Context7, 55 snippets) — evaluated and rejected; transport-level gate limitation documented
-- `/hynek/structlog` + `/delgan/loguru` (Context7) — evaluated and rejected; library-as-runtime-dep concern
-- Python Logging HOWTO (official) — `NullHandler` mandate, level conventions, don't-log-to-root rule
-- AWS Architecture Blog — Exponential Backoff and Jitter — full jitter as recommended default
-- RFC 9110 — idempotent methods (GET/HEAD/OPTIONS/PUT/DELETE); POST/PATCH not idempotent
-- MDN — Retry-After header (RFC 7231 §7.1.3) — delta-seconds and HTTP-date formats
-- Anthropic SDK DeepWiki — retry shape (408/409/429/>=500), 2-attempt default, per-request timeout semantics
-- OpenAI SDK DeepWiki — same retry shape; lazy `_ModuleClient` backing top-level helpers
-- https://pypi.org/pypi/tenacity/json — version 9.1.4, zero runtime deps, Apache-2.0, requires-python>=3.10
-- https://github.com/jd/tenacity — `py.typed` confirmed present
-
-### Secondary (HIGH confidence — existing codebase + validated v1.0 artifacts)
-- `.planning/codebase/ARCHITECTURE.md` — v1.0 singleton pattern, monkeypatch fixtures, ws_client token sharing
-- `.planning/codebase/TESTING.md` — autouse conftest `monkeypatch.setattr(..., raising=False)` per package
-- `.planning/codebase/CONCERNS.md` — module-level singleton issues, no retries/logging
-- `.planning/milestones/v1.0-phases/05-matriz-verification/05-REVIEW.md` — WR-01..WR-08 detailed analysis
-- `.planning/todos/pending/matriz-driver-findings-file-handling.md` — D-MATZ-27 dedupe requirements
-- `.planning/PROJECT.md` — v1.1 milestone scope, constraints, out-of-scope items
+- **Codegen tool choice:** Phase 0 spike is the gate. Roadmapper should treat Phase 3 as conditional.
+- **CI Python 3.13 baseline confirmation:** must be confirmed pre-Phase-1 as `human_verification_pending` item.
+- **`with_options()` `_transport` refactor scope:** ~15 LOC per package in `_transport.py` + `_atransport.py`; Phase 1 plan must scope it explicitly.
+- **IOL disk cache path (`user_data_dir` vs `user_cache_dir`):** operator decision at Phase 2a plan time.
+- **`from_env()` ship-or-skip:** operator decision before Phase 1 plan.
 
 ---
-*Research completed: 2026-06-10*
-*Ready for roadmap: yes*
+
+### Roadmap Implications Summary
+
+- **Estimated phase count:** 5 (Spike + 3 work phases + LIVE gate); reduces to 4 if codegen deferred.
+- **Per-package serial pattern carries forward:** ambito → iol → higyrus → matriz within each phase.
+- **Spike flag placement:** Phase 0 (mandatory, hard go/no-go output for Phase 3).
+- **Live gate placement:** Phase 4 (milestone close); per-package LIVE smoke at end of each Phase 2b sub-package.
+- **In-cycle bug pattern carries forward:** findings from Phase 2b migrations or Phase 4 are classified and closed with regression tests in the same phase.
+- **Parallelization opportunity:** Phase 2a (IOL disk) and Phase 2b (driver migration) can run as concurrent waves.

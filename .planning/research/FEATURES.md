@@ -1,406 +1,440 @@
-# Feature Research — v1.1 Tech Debt Cleanup
+# Feature Research — v1.2 Architecture + Auth/Ergonomics Carry-forwards
 
-**Domain:** Python HTTP client libraries (financial APIs) — refactor + retries + logging + driver-harness fixes
-**Researched:** 2026-06-10
-**Confidence:** HIGH (cross-referenced httpx official docs, anthropic SDK, openai SDK, stripe SDK, Python stdlib logging HOWTO, RFC 9110, AWS Architecture Blog on jitter)
-**Scope note:** This document covers ONLY the v1.1 NEW features. v1.0 already-built capabilities (auth, exception hierarchy, SafeModel, `configure()`, dual sync/async, verification harness) are out of scope and not re-researched.
+**Domain:** Python HTTP client libraries (financial APIs) — driver migration to class instances, sync/async dedup via codegen, OAuth refresh-token disk persistence, cross-package `from_env()` + `with_options()` ergonomics
+**Researched:** 2026-06-14
+**Confidence:** HIGH (cross-referenced anthropic SDK source + openai SDK docs + unasync/unasyncd + psycopg3 codegen + msal/google-auth/authlib/requests-oauthlib + AzureAD msal-extensions + Python keyring)
+**Scope note:** This document covers ONLY v1.2 NEW features. v1.0 + v1.1 already-built capabilities (verification harness, `Client`/`AsyncClient` classes with `_ClientState`, PEP 562 shim, `_core.py` builders/parsers, `RetryTransport`, `RedactingFilter`, append-only findings, matriz `aio.py`, IOL refresh_token in-instance lifecycle) are out of scope — see `.planning/research/v1.0-v1.1-archived/FEATURES.md` for the historical record.
 
 ---
 
 ## Executive Summary — What This Research Establishes
 
-The five v1.1 refactor axes (A. Client class, B. sync/async parity, C. retries+backoff, D. structured logging, E. findings append-only) all have well-established convention sets in the modern Python HTTP-client ecosystem. The findings below cite **anthropic-sdk-python**, **openai-python**, **stripe-python**, **httpx** (the underlying transport already used), and stdlib Python `logging` as reference behaviors. The recommendations in each table are not speculation — they're the table stakes that callers of every modern Python SDK expect.
+The six v1.2 target features split cleanly into two clusters:
 
-The single most important shape: **a `Client` class per package whose public methods mirror today's top-level functions, plus a lazy `DEFAULT_CLIENT` instance backing thin top-level convenience functions that call `DEFAULT_CLIENT.<method>(...)`**. This is the pattern OpenAI shipped in v1.0 and Anthropic mirrors; it's the canonical "instance API + module-level convenience" answer.
+**Cluster 1 (Arquitectura sync/async dedup, 3 features):**
+1. Driver migration × 4 packages — table-stake correction of v1.1 architectural debt; pattern is well-known (side-by-side run + golden snapshot diff).
+2. unasync/codegen single-source — **table stake for the SDK ecosystem at this layer of maturity** (psycopg3, httpcore, elastic-py, urllib3 all use it), but **a differentiator for this repo specifically** given the "no shared internals between packages" constraint and the already-shipped `_core.py` decoupling. Recommended **spike-before-plan** as PROJECT.md flags; spike outcome may demote this to anti-feature for v1.2 if the maintenance overhead exceeds the dedup payoff at 4-package scale.
+3. Final live re-verification — table stake (LIVE-01-equivalent gate, already validated in v1.1 Phase 11).
 
-The single most important pitfall to bake in: **never auto-retry POST/mutation without an idempotency signal**. In v1.1 this means honoring the existing v1.0 `mutating_allowed` double-gate as a non-retryable axis by default, and only retrying methods that are idempotent per RFC 9110 (GET/HEAD/PUT/DELETE) or that carry an explicit Idempotency-Key.
+**Cluster 2 (Auth/Token persistence + Client ergonomics, 3 features):**
+4. IOL refresh_token disk persistence — table stake for OAuth refresh_token flows; well-established pattern (msal SerializableTokenCache + msal-extensions PersistedTokenCache, requests-oauthlib `token_updater` callback, authlib `update_token`). Cross-platform recommendation: encrypted via OS keychain (keyring) with JSON file fallback (0600 + advisory lock).
+5. `Client.from_env()` × 4 packages — **NOT** the dominant industry convention. Anthropic, OpenAI, Mistral, Groq all do **implicit env-fallback in the constructor** (`Anthropic()` reads `ANTHROPIC_API_KEY` when no kwarg provided). A separate `from_env()` classmethod exists in some Java/Go SDKs but is rare in Python. **Decision required:** ship explicit `from_env()` classmethod as documented sugar OR follow the dominant `Client()` implicit env-fallback that v1.0/v1.1 already implement via `load_dotenv()`. Recommended path: **expose `from_env()` as an explicit alias for discoverability**, internally just calls `cls()` since `_ClientState.__init__` already reads env-via-dotenv (today's behavior, preserved).
+6. `client.with_options(max_retries=N)` × 4 packages — **table stake** for modern Python SDKs (anthropic ships `copy()`/`with_options()` as alias; openai ships the same). Pattern is shallow-copy of the Client, share underlying `httpx.Client` + token cache + `_ClientState` references, override only the changed kwargs.
 
----
+The single most important finding: **`with_options()` and `from_env()` should NOT mutate or recreate the underlying httpx.Client.** v1.1's existing `Client(http_client=...)` injection + `_state.http_client` lazy-create pattern is the right substrate. The new `with_options()` should produce a new `Client` instance that **shares** the same `httpx.Client` and `_ClientState` references (anthropic SDK explicitly: `http_client = http_client or self._client`; token cache shared unless credentials changed).
 
-## Axis A — Client Class API Surface
-
-**Question:** What methods does a well-designed Client class expose? What state lives in the instance vs. module-level? What's the convention for "default global instance" used by top-level convenience functions?
-
-### A.1 Table Stakes
-
-| Feature | Why Expected | Complexity | Notes / Reference |
-|---------|--------------|------------|-------------------|
-| `Client(*, base_url=None, username=None, password=None, timeout=..., max_retries=...)` constructor | Every modern SDK exposes a class with kwargs for credentials + transport tuning (anthropic `Anthropic(api_key=..., max_retries=...)`, openai `OpenAI(api_key=..., timeout=..., max_retries=...)`, stripe `StripeClient(api_key, max_network_retries=...)`) | S | All kwargs keyword-only; instance owns its own `httpx.Client`. Dependency: v1.0 `configure()` signature already establishes the kwarg names — reuse them verbatim for non-breaking parity. |
-| `client.close()` (sync) / `await client.aclose()` (async) | httpx requires explicit close to release the connection pool; every wrapper SDK exposes the same name (anthropic `close()`, openai `close()`, httpx `aclose()`). | S | Idempotent — second call is a no-op. Closes the underlying `httpx.Client`, clears the cached `_token`. |
-| Sync context manager: `with Client(...) as c:` (`__enter__` / `__exit__`) | Standard Python resource-management protocol; httpx documents it as the recommended use ("recommended way to use a Client is as a context manager"). | S | `__enter__` returns `self`; `__exit__` calls `close()`. Calling code uses `with Client() as c: c.get_quote(...)`. |
-| Async context manager: `async with Client(...) as c:` (`__aenter__` / `__aexit__`) | Same as above for the async surface; mandatory for safe pool cleanup across event loops (today's v1.0 bug class — `aio.py` state pinned to one loop). | S | `__aenter__` returns `self`; `__aexit__` calls `aclose()`. |
-| Instance-scoped state (no module globals leak in) | The whole point of the refactor; each `Client` instance owns its own `_base_url`, `_token`, `_token_ts`, `_http`. Two instances must not share state. | M | Anthropic SDK pattern: `self._client = httpx.Client(...)`. Multi-account use case (HIGY-multi-account fix) literally requires this. |
-| Top-level convenience functions remain importable (non-breaking compat layer) | Existing callers do `import iol_client; iol_client.get_quote("GGAL")`. v1.1 must not break that. | M | Mirrors openai-python v1.0 migration: `openai.chat.completions.create(...)` lazily instantiates a module-private `_ModuleClient` from env on first use. Same pattern here: `iol_client.get_quote(...)` → `_get_default_client().get_quote(...)`. |
-| Lazy default-client backing convenience funcs | OpenAI's pattern: top-level helpers create the default client on first use, reading env vars at that moment. Avoids import-time side effects beyond `load_dotenv()`. | S | Module-level `_default_client: Client \| None = None`; helper `_get_default_client()` instantiates on demand and caches. `configure(...)` mutates the lazy default (back-compat). |
-| `configure(...)` continues to work and resets the default-client's token | v1.0 callers and tests rely on it. Preserve signature: `configure(*, base_url=None, username=None, password=None)`. | S | Implementation: `configure()` recreates the default `Client` instance (or mutates it) and clears its token. Test fixtures (every package's `conftest.py`) keep working unchanged. |
-| Method names == today's function names | Zero cognitive shift for callers. `get_quote` stays `client.get_quote`. Anthropic ships `client.messages.create`; openai ships `client.chat.completions.create`; we ship `client.get_quote`. | S | No naming opportunity-cost: don't rename existing endpoints "while we're refactoring" — that's a separate change with separate review cost. |
-
-### A.2 Differentiators
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| `client.with_options(...)` per-request overrides | Anthropic and OpenAI ship this: `client.with_options(max_retries=5).messages.create(...)`. Lets callers tweak timeout/retries for one call without mutating the long-lived client. | M | Returns a shallow-copy `Client` sharing the same `httpx.Client` / token but with overridden options. Useful for matriz one-off mutating calls that want `max_retries=0`. Marker: P2 — value-add but not table stakes. |
-| `Client.from_env()` classmethod | Explicit, discoverable alternative to "magic" env-reading constructor. anthropic-sdk-python and many SDKs expose this. | S | Calling `Client.from_env()` reads `IOL_USER`/`IOL_PASSWORD`/`IOL_BASE_URL`. The plain `Client()` constructor would also fall back to env, so `from_env()` is mainly documentation. |
-| Pluggable `http_client` injection | `Client(http_client=httpx.Client(transport=mock))` lets tests inject a mock or proxy without monkeypatching. openai/anthropic both accept this. | M | Already partially possible today (the harness uses `pytest-httpx`); a formal kwarg makes the injection point explicit and removes the need for monkeypatching `_client`. |
-
-### A.3 Anti-Features
-
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Inheritance hierarchy `BaseClient` shared across packages | "DRY across the 4 packages" | Project's existing architectural constraint (CLAUDE.md: "Sin código compartido entre paquetes (por diseño)"); each package is a standalone wheel. Inter-package coupling would break the publish-each-package-independently invariant. | Duplicate the `Client` skeleton per package. Lift truly identical helpers into a private `_base.py` **within each package** only. |
-| Class methods that mutate global module state | Mixed instance+module state = the worst of both worlds; bugs like HIGY multi-account come from exactly this. | Defeats the purpose of the refactor. | Instance owns its state. Module-level convenience funcs delegate to `_default_client`. |
-| Renaming existing methods "to follow newer conventions" | Refactor scope creep. | Breaking change for callers; unrelated to tech-debt cleanup. | Keep names. Renames are a separate dedicated proposal. |
-| `client.async_get_quote(...)` (async methods on the same class) | Looks compact ("one client for everything"). | Confuses sync/async semantics, breaks mypy, and contradicts the established `pkg.aio.Client` mirror pattern (anthropic ships `AsyncAnthropic`; openai ships `AsyncOpenAI`). | Separate `Client` (sync) in `client.py` and `AsyncClient` in `aio.py`. Same method names on both. |
-| Auto-`__del__` cleanup | "User forgot to close, do it for them" | `__del__` ordering at interpreter shutdown is famously unreliable; httpx itself recommends explicit `close()` / context manager. | Document context-manager pattern; ship `close()`/`aclose()`. |
-
-**Dependencies on v1.0:** `configure()` signature (Architecture L160-172), env-var names (INTEGRATIONS), `_token`/`_token_ts` semantics (Architecture L152-156). The compat layer **must** preserve all three exactly.
+The single most important pitfall to bake in: **disk-persisted refresh_token across processes is a concurrent-write hazard.** Two parallel processes (driver + REPL, or two driver runs against the same `.env`) both refresh on token expiry, only one of the new refresh_tokens lands on disk, the other process's in-memory refresh becomes immediately invalid. msal-extensions solves this with a file lock + auto-reload-on-modification. v1.2 should adopt the same recipe; the v1.1 `TokenStore` 3-way concurrency primitive in matriz is the in-process precedent.
 
 ---
 
-## Axis B — Sync/Async Parity
+## Feature 1 — Driver Migration × 4 packages (`main_*.py` → `Client`/`AsyncClient` instances)
 
-**Question:** When a lib offers both sync and async, what's the expected API symmetry? What's the user expectation about being able to use both from the same process? About independent state vs shared cache?
+**Goal:** Rewrite `main_ambito.py`, `main_iol.py`, `main_higyrus.py`, `main_matriz.py` to construct and consume `Client(...)` / `AsyncClient(...)` instances directly instead of calling the top-level `pkg.get_X(...)` shim functions. Closes v1.1 SC#3 LOC-drop residual (iol -5.1%, matriz client.py -20%).
 
-### B.1 Table Stakes
+### 1.1 Table Stakes
 
-| Feature | Why Expected | Complexity | Notes / Reference |
-|---------|--------------|------------|-------------------|
-| Identical method names sync vs. async | Anthropic ships `Anthropic` and `AsyncAnthropic` with exact-mirror method names. OpenAI ships `OpenAI` and `AsyncOpenAI` likewise. Today's v1.0 already does this (function names match). Carry forward. | S | `client.get_quote("GGAL")` (sync) ↔ `await aclient.get_quote("GGAL")` (async). No `async_` or `a_` prefix. |
-| Identical kwargs and return types | Mypy and IDE expectations: a typed user writing async code shouldn't have to look up a different signature. | S | Same dataclasses, same Literals, same exception types. Today's v1.0 honors this; v1.1 keeps honoring it post-dedup. |
-| Independent state per surface (sync `_default_client` and async `_default_client` don't share) | Sync and async clients use different httpx instances (`httpx.Client` vs `httpx.AsyncClient`) — these are not interchangeable. | S | Already true in v1.0 (separate `client.py` and `aio.py` modules). Carry forward; don't merge state. |
-| Both surfaces work from same process | Many callers will use the sync surface in REPL/scripts and async in production. They must coexist. | S | Today: works because they're independent modules. Carry forward. |
-| Logic dedup: shared internal helpers, NOT shared external state | The deduplication target. Per-package internal `_core.py` (or `_internal.py`) that holds the URL-building, header-construction, response-parsing, error-mapping — both `client.py` and `aio.py` call those helpers. State and the actual `httpx.*` instance stay separate. | M | Reference: this is exactly the pattern OpenAI/Anthropic use internally — generated code shares logic, sync/async stubs differ only in await placement. |
-| `aio.py` for matriz-client (parity with iol/higyrus/ambito/wallets) | Today matriz has no `aio.py`; v1.0 even documents the "no async support in matriz" anti-pattern. v1.1 closes the gap for the REST surface. | L | Must mirror the sync REST API exactly. WebSocket (`ws_client.py`) stays out of scope per PROJECT.md (defer v1.2). |
-| Independent token cache per surface (sync token ≠ async token) | Today's behavior. A sync `login()` and an async `await aio.login()` produce separate cached tokens. Don't try to share — they're bound to different httpx clients anyway. | S | Tests already rely on this (`conftest.py` fixtures separate). |
+| Sub-feature | Why Expected | Complexity | Reference impl |
+|---|---|---|---|
+| Drivers instantiate `Client(...)` / `AsyncClient(...)` once at top of `main()` | Today's drivers call module-level `iol_client.get_X(...)` which delegates through PEP 562 shim to `_get_default()` — an extra indirection that exists ONLY to preserve back-compat for external consumers. The driver itself has zero reason to use the shim. | M (per package) | Internal pattern; aligns with anthropic example apps which never use module-level helpers, always explicit `Anthropic()`. |
+| Driver explicitly closes / uses context manager | v1.1 already exposes `with Client() as c: ...` and `async with AsyncClient() as c: ...`. Drivers should follow the documented lifecycle. | S | Same as v1.1 Client class (Phase 6). |
+| Single shared instance per surface (sync/async) per driver | The v1.0/v1.1 model is "one logical session per driver run with cached token". A new `Client()` per probe would defeat token caching and explode auth load. | S | Reuse the same `client` across all 15-25 probes (matches today's behavior since the singleton was shared). |
+| INT-01 idiom replaced with direct instance access | After migration, `iol_client.client._get_default()._state.base_url` becomes `client._state.base_url` directly. The 15+ INT-01 sites in `main_iol.py` collapse to instance reads. | S | Pattern documented in v1.1 quick-task 260613-nwb. |
+| Driver retains `--live` gate, redaction, mutation_gate semantics | These are v1.0 invariants, package-instance change must not regress them. | S | No-op; harness `verification/*` is independent. |
+| Side-by-side run before cutover (driver-vs-driver diff) | Standard CLI-migration pattern (golden master / snapshot). Run old driver, capture findings.md + schemas + summary; run new driver against same env, diff. Zero-diff = green. | S | Industry-standard golden snapshot pattern: capture output, persist, diff on rewrite. v1.0/v1.1 already use schema snapshots for the API itself; this extends the pattern to driver output. |
+| Per-package serial migration order | v1.0/v1.1 pattern: ámbito (smallest) → iol → higyrus → matriz (largest). Each package isolated, errors don't cascade. | S | PROJECT.md decision row "Per-package serial pattern". |
 
-### B.2 Differentiators
+### 1.2 Differentiators
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Generated-code parity guarantee (one source, two emit paths) | Anthropic/OpenAI use Stainless to generate both surfaces from one OpenAPI spec; impossible parity drift. | XL | OUT OF SCOPE for v1.1. Achieving this for hand-written market-libs would require building a code generator. Document as v2 consideration; don't attempt now. |
-| Async `Client` accepts shared `httpx.AsyncClient` | When the caller's app already has a global AsyncClient (FastAPI lifespan pattern), letting them inject it avoids double pool. | M | Same hook as Axis A.2 ("Pluggable http_client injection"). Worth doing once, applies to both surfaces. |
+| Sub-feature | Value | Complexity | Notes |
+|---|---|---|---|
+| Keep bare `main_*.py` smoke-test variant + class-based comprehensive driver | Some operators want a "literally just `Client().login()`" 5-line smoke-test for ops/health-check; others want the 25-probe comprehensive driver. Two files per package (e.g., `main_iol_smoke.py` + `main_iol.py`) covers both. | M | NOT recommended for v1.2 — adds 8 files to the repo. Defer; the `main_*.py` smoke variant was the v1.0 starting point and there's no operator requirement to bring it back. |
+| Run sync + async in a single `main()` with interleaved probes (LIVE-02 matriz pattern) | v1.1 Phase 10 LIVE-02 paired 19 probes sync/async in one `asyncio.run()`. Same pattern applies to the other 3 drivers. | M | Already done in `main_matriz.py`; remaining 3 drivers may or may not follow. Not table stake — current driver shape works fine. |
 
-### B.3 Anti-Features
+### 1.3 Anti-Features
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| `nest_asyncio` to call async from sync | "Convenience" | Hides event-loop bugs, breaks in production, performance trap. The CLAUDE.md anti-pattern "Importing aio module in sync context" already documents this. | Sync callers use sync `Client`. If they need async, use `asyncio.run(...)`. |
-| `asyncio.to_thread(sync_func)` wrappers in `aio.py` | "Cheap way to add matriz aio.py" | Doesn't get any async benefit; ties up threadpool slots; mocks behave differently. | Write a real native-async `aio.py` for matriz with `httpx.AsyncClient`. This is the L-complexity item. |
-| Shared `httpx` instance across sync and async | "Save resources" | `httpx.Client` and `httpx.AsyncClient` have different APIs and lifecycle constraints. | Two separate instances; that's the point. |
-| Reusing `aio` `_client` across event loops | Already documented as v1.0 anti-pattern (Architecture L213-217). v1.1 refactor must not silently lift this constraint. | Causes "AsyncClient bound to different loop" errors. | Per-instance `Client` means callers create one per loop; `aclose()` in teardown remains required. |
+| Anti-feature | Why rejected for v1.2 | Alternative |
+|---|---|---|
+| Rewriting driver as pytest test suite | Driver is operator-driven manual cycle, not CI-test. v1.0/v1.1 ratified `main_*.py` as the operator entry point with classified findings + schema snapshots. Rewriting as pytest would lose the operator-readable summary output, the classification taxonomy, and the cycle baseline. | Keep driver shape as `main_*.py` with the v1.1 `verification/findings.py` append-only API. |
+| Breaking the top-level `pkg.get_X(...)` shim during migration | Driver migration is internal; the PEP 562 shim exists for **external** consumers. Removing the shim would be a major version break. PROJECT.md "Non-breaking constraint" explicit. | Driver migrates to instance API; shim stays. External callers unaffected. |
+| Single mega-driver `main.py` calling all 4 packages | Cross-package coupling violates the "no shared internals" constraint and breaks per-package serial. | Keep 4 separate `main_*.py` files. |
+| Parametrized driver via CLI flags (`--probe-set basic|comprehensive`) | Adds CLI surface that nobody asked for; complicates operator workflow. | Drivers stay as fixed probe sets; operator overrides via env vars (already supported: `VERIFY_IOL_BAD_CREDS=1` etc.). |
 
-**Dependencies on v1.0:** `aio.py` event-loop binding semantics (Architecture L213-217), test fixture pattern (`aclose()` in teardown), shared types pattern (`iol_client.aio` importing `InstrumentType` from `iol_client.client` — Architecture L195).
+**Dependencies:** v1.1 `Client`/`AsyncClient` classes (Phase 6), `_ClientState` (Phase 6), PEP 562 shim (Phase 6), `verification/findings.py` append-only (Phase 11). Mocked vs live: migration uses live (LIVE-01-equivalent gate at end of milestone).
 
----
-
-## Axis C — Retries / Backoff Behavior
-
-**Question:** Which status codes? Retry vs raise? Idempotency for POST? Jitter type? Retry-After?
-
-### C.1 Table Stakes
-
-| Feature | Why Expected | Complexity | Notes / Reference |
-|---------|--------------|------------|-------------------|
-| Retry on 429 + 5xx (specifically 408, 409, 425, 429, 500, 502, 503, 504) | Anthropic SDK default: 408, 409, 429, ≥500 (2 retries). OpenAI SDK same: 408, 409, 429, ≥500. Stripe same family. This is the consensus list. | S | The user's question mentioned 429/502/503/504; the modern list is broader. Confirmed. |
-| Retry on connection errors (`httpx.ConnectError`, `httpx.ConnectTimeout`, `httpx.ReadError` at request-start) | Anthropic/OpenAI both retry connection-level transient failures. httpx's built-in `HTTPTransport(retries=N)` only handles `ConnectError`/`ConnectTimeout` — broader coverage requires a wrapper. | S | The package's retry layer wraps `_request()`, not the httpx transport. |
-| Default max attempts = 2 retries (i.e. 3 total attempts) | Anthropic default. OpenAI default. Stripe default `max_network_retries=0` (must opt-in), but 2 retries is the de-facto consensus among AI SDKs. | S | Configurable via `Client(max_retries=2)` and `client.with_options(max_retries=...)`. |
-| **Honor `Retry-After` header on 429** | MDN: "Always check for Retry-After first when handling a 429. It's the most reliable signal from the server." All major SDKs (anthropic, openai, stripe) honor it. | S | Accept both formats per RFC: integer seconds OR HTTP-date (IMF-fixdate). Cap honored Retry-After at a sane max (e.g. 60s) to prevent server-induced deadlocks — see Anthropic SDK issue cited where `Retry-After: 120` caused agent deadlocks. |
-| **Idempotency by method** (default) — only retry idempotent methods | Per RFC 9110: GET, HEAD, OPTIONS, PUT, DELETE are idempotent. POST and PATCH are NOT. urllib3 default `allowed_methods` follows this exact list. | S | Critical for matriz-client (`newSingleOrder`, `cancelById`, `replaceById` are POSTs that mutate). Default: do not retry POST/PATCH unless idempotency-keyed. |
-| **Honor v1.0 `mutating_allowed` double-gate as non-retryable axis** | Existing harness contract: any operation gated by `mutating_allowed` is a financial-state mutation. PROJECT.md explicitly says: "retries/backoff transparente con jitter ... respeta el `mutating_allowed` double-gate (no retry de mutaciones)". | S | Implementation: the retry decision considers (method, mutating_allowed). If method is POST/PATCH OR mutating_allowed is true, retry attempts = 0 unless explicit Idempotency-Key kwarg is passed. |
-| Exponential backoff with **full jitter** | AWS Architecture Blog: "For most services, full jitter is the right default. It is the simplest to reason about and gives the best server-side behaviour." Anthropic SDK uses exponential backoff with jitter. OpenAI same. | S | Formula: `sleep = random.uniform(0, min(cap, base * 2 ** attempt))`. Base ~0.5s, cap ~60s. |
-| Per-request timeout, separate from total retry budget | httpx timeout is per attempt. The OpenAI SDK explicitly documents: "Remember that timeout is per-request attempt; a request with 2 retries could take up to 3 * timeout plus backoff time." | S | Already true since httpx is the transport. Just document it. |
-| Surface terminal failure as the same typed exception today | A retried-then-final 429 raises `RateLimitError` (existing type). 5xx-then-final raises `APIError`. Connection error final raises a transport error. | S | Reuses existing v1.0 exception hierarchy without expansion. |
-| Configurable per-Client and per-call | `Client(max_retries=N)` for the long-lived config; `client.with_options(max_retries=M)` for one call. Standard SDK shape (anthropic, openai both expose this). | M | Per-call override = Axis A.2 differentiator. |
-
-### C.2 Differentiators
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Caller-supplied `Idempotency-Key` header for explicit POST retry opt-in | Stripe Python's pattern: "Idempotency keys are automatically generated and added to requests, when not given, to guarantee that retries are safe." | M | For market-libs the financial-mutation use case is too rare and the gate is operator-driven (`mutating_allowed`); auto-generating Idempotency-Keys here would conflict with the existing harness gate. P3 — defer. |
-| Logging at WARN on each retry attempt with attempt/elapsed/status | OpenAI feature request explicitly asks for this. Anthropic SDK ships it. | S | Naturally lives in Axis D (logging). Cross-cut: each retry emits `WARN` log with `{attempt, status_code, retry_after, sleep_seconds}`. |
-| Total elapsed-time cap (in addition to max attempts) | Belt-and-suspenders against a long Retry-After chain. Not standard in anthropic/openai but useful when called from CI. | M | Optional kwarg `max_elapsed_seconds`. P2. |
-| Decorrelated jitter | Per Thom Wright critique: full jitter can collapse to near-zero waits under sustained throttling; decorrelated is more conservative. | M | AWS Blog: "decorrelated jitter is worth picking when you care more about latency variance than peak server load." Live-API verification cycle prefers stability → could argue for it. **Recommend**: ship full jitter as v1.1 default (simplest, AWS-recommended), document decorrelated as future option. |
-
-### C.3 Anti-Features
-
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Auto-retry POST/PATCH by default | "Just make the network resilient" | Causes duplicate orders on matriz (`newSingleOrder`), duplicate operations on higyrus. The exact failure mode RFC 9110 warns about. PROJECT.md explicitly forbids it. | Default: no retry on non-idempotent methods. Operator opts in per-call. |
-| Retry on 400/401/403/404 | "More resilience" | These are caller errors. Retrying re-sends a bad request. Anthropic SDK explicitly does NOT retry these. | Map to typed exception immediately (existing `_raise_for_response` behavior). |
-| Infinite retry loop ("until success") | Looks robust | Cascading failure; agents deadlock under sustained 429 (see hermes-agent issue cited). | Hard cap on attempts (default 2) AND hard cap on elapsed time. |
-| Retry inside `_ensure_token()` token refresh | "Resilient auth" | Doubles up with the request-level retry; can cause 4x the load on the auth endpoint. | Token refresh has its own single-shot path; the request-level retry handles 401-after-refresh by allowing one re-login per request, not by retrying the request itself. |
-| Per-package custom retry library (tenacity, backoff, stamina) | "Best-of-breed" | Adds a runtime dep to every package; the constraint is each package is a standalone wheel. The retry logic is ~50 LOC; write it inline. | Hand-rolled in `_retry.py` per package (same dedup pattern as `_params.py`). Zero new deps. |
-| Honoring an unbounded `Retry-After` value (e.g. 86400) | "Trust the server" | Locks up the calling process. The Anthropic hermes-agent issue is precisely this footgun. | Cap honored Retry-After at the configured backoff cap (e.g. 60s default). |
-
-**Dependencies on v1.0:** existing exception types (`<Pkg>RateLimitError`, `<Pkg>APIError`), `_raise_for_response` mapping (CONVENTIONS L84-93), `verification/mutation_gate.py` (the `mutating_allowed` flag). The retry layer **must** check the mutation_gate state before retrying any POST/PATCH against `*.primary.com.ar` or any other mutation-capable host.
+**Reference behavior:** anthropic-sdk-python `examples/` directory always uses explicit `Anthropic()` instantiation, never module-level helpers. Same target shape.
 
 ---
 
-## Axis D — Structured Logging
+## Feature 2 — unasync/codegen Single-Source Sync/Async
 
-**Question:** What's the expected default? What events at which level? Structured fields? Credential redaction?
+**Goal:** Eliminate the structural dual-maintenance of `client.py` + `aio.py` per package — generate one from the other at build time (or via pre-commit hook). v1.1 Phase 7 collapsed both surfaces to transport shells calling `_core.py`, but each package still has TWO shells.
 
-### D.1 Table Stakes
+### 2.1 Table Stakes (in the broader ecosystem)
 
-| Feature | Why Expected | Complexity | Notes / Reference |
-|---------|--------------|------------|-------------------|
-| Per-package logger named `logging.getLogger("<pkg>")` | Python stdlib HOWTO: "create a module level logger with `getLogger(__name__)`". Hierarchical naming so callers can configure `iol_client.*` independently. | S | Each `client.py` and `aio.py`: `logger = logging.getLogger(__name__)`. Each `__init__.py` adds NullHandler. |
-| **NullHandler attached in `__init__.py`** | Python stdlib HOWTO: "strongly advised that you do not add any handlers other than NullHandler to your library's loggers". Prevents stderr noise when callers haven't configured logging. | S | One line in each `<pkg>/__init__.py`: `logging.getLogger("<pkg>").addHandler(logging.NullHandler())`. |
-| Library does NOT call `logging.basicConfig()` or set any handler/level | Python stdlib HOWTO explicit: "It is strongly advised that you do not log to the root logger in your library." Doing so steals control from the application. | S | Hard rule. CI lint or code-review concern. |
-| Log levels follow stdlib convention | DEBUG/INFO/WARNING/ERROR levels with standard semantics. The question proposes a level map that matches stdlib: DEBUG=request/response, INFO=auth events, WARNING=retries, ERROR=terminal failures. Adopt as-is. | S | Confirmed correct by Python HOWTO level table. |
-| **Credentials redacted in every log line** | Project security constraint: "nunca commitear .env ni exponer credenciales en logs, reportes o tests" (CLAUDE.md). The v1.0 harness already has `verification/redaction.py` (Bearer + patterns). | M | The library logger must redact at format time. Implementation: a `RedactingFormatter` mixin OR (preferred for libraries) call the existing `verification/redaction.py` redact() before passing the message — but `verification/` is harness, not publishable. **Recommendation:** copy the regex set into each package's `_logging.py` (same dedup pattern). Match the `verification/redaction.py` patterns: `Authorization: Bearer ***`, `X-Auth-Token: ***`, `password=***`, etc. |
-| Body logging is OPT-IN (default OFF) | Bodies may contain PII or credentials (matriz order responses include account numbers). Anthropic/OpenAI default to NOT logging bodies; debug-level body logging requires explicit env or kwarg. | S | Document `<PKG>_LOG_BODY=1` env or `Client(log_bodies=True)` kwarg. |
-| Structured field convention via `extra={}` | Python stdlib mechanism. Conventional field names: `package`, `method`, `url`, `status_code`, `attempt`, `duration_ms`, `account_id?`, `request_id?`. | S | Example: `logger.debug("HTTP request", extra={"method": "GET", "url": redact(url), "attempt": 1})`. JSON formatter (caller-configured) renders structured. |
-| Don't break callers who haven't configured logging | NullHandler ensures zero output. Mandatory regression test: `import iol_client; iol_client.configure(...)` produces no stderr output. | S | Direct consequence of NullHandler discipline. |
+| Sub-feature | Why Expected | Complexity | Reference impl |
+|---|---|---|---|
+| Async-first single source, sync generated from async | psycopg3 documented pattern (AST-based codegen tool maintained in-tree). httpcore + urllib3 + elasticsearch-py use unasync (async source → sync emit) at build time. | M-L | [psycopg3 async-to-sync article](https://www.psycopg.org/articles/2024/09/23/async-to-sync/) — AST-based, "uses it to maintain the Psycopg 3 codebase". |
+| Build-time generation, generated file checked into git | Standard practice — keeps `pip install` simple, allows reviewers to read both surfaces. unasync `setup.py cmdclass`; unasyncd `pre-commit` hook. | S-M | unasync default workflow (`build_py` hook). |
+| Token-based OR AST/libcst-based transform | unasync = token-based, simple but limited. unasyncd = libcst-based, handles `AsyncExitStack → ExitStack`, per-function exclusions. | M-L for unasyncd | [unasyncd 0.10.0 (Jan 2026)](https://pypi.org/project/unasyncd/) supports per-file exclusions, docstring transforms, fully-qualified name disambiguation. |
+| Per-block/per-function exclusion mechanism | Sync-only or async-only blocks need a way to opt out (e.g., `_token_store.py` 3-way concurrency primitive cannot be auto-generated). | M | unasyncd: `# unasyncd: skip` comments. unasync: no native support; requires file-level separation. |
 
-### D.1 Level Map (Recommended Default)
+### 2.2 Differentiator (for THIS repo at THIS scale)
 
-| Level | What Gets Logged | Fields |
-|-------|------------------|--------|
-| DEBUG | Outgoing request line, incoming response status + duration, retry sleep computation | `method`, `url` (redacted), `status_code`, `duration_ms`, `attempt`, `sleep_seconds` |
-| INFO | Auth events: token acquired, token refreshed, token invalidated by configure() | `event` (one of `auth.acquired`/`auth.refreshed`/`auth.cleared`), `ttl_seconds`, account-id if multi-account |
-| WARNING | Retry triggered (attempt N/M); rate-limit detected; transient transport error caught | `attempt`, `status_code` or `error_type`, `retry_after`, `next_sleep` |
-| ERROR | Terminal failure after all retries; auth failure (401/403 final); unexpected transport error not eligible for retry | `status_code`, `final_attempt`, `exception_type`, `endpoint` |
+| Sub-feature | Value | Complexity | Notes |
+|---|---|---|---|
+| Adopt **unasyncd** as build tool for the 4 packages | Eliminates the "fix in client.py and aio.py" dual-edit burden that caused v1.0/v1.1 bugs (envelope keys, %2F encoding, refresh_token path). | L (per-package wiring + test infrastructure changes) | **Spike required.** v1.1's `_core.py` extraction already moved 80% of duplication out; the remaining shells are ~30-50 LOC per endpoint. Net savings: ~150-300 LOC across 4 packages. Cost: a generator + per-package config + CI integration + reviewer cognitive load + "regenerate vs hand-edit" debug confusion. |
+| Adopt **unasync** (simpler, token-based) | Less infrastructure overhead; matches httpcore/elastic-py pattern | M | Cannot handle matriz `TokenStore` 3-way concurrency primitive cleanly (threading vs asyncio differ structurally). Likely requires hybrid: unasync for "thin shells", hand-maintained for `_token_store.py` / `_refresh_policy.py`. |
 
-### D.2 Differentiators
+### 2.3 Anti-Features (likely outcomes of the spike)
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| `LogRecord` extra includes a `request_id` UUID per `_request()` invocation | Traces a single logical call across DEBUG (start), WARNING (retries), ERROR/DEBUG (final). | S | Generate `uuid4().hex[:8]` per `_request()`; thread through retries; include in every related log entry. P2. |
-| Account-id field in multi-account contexts (higyrus, matriz) | Disambiguates concurrent calls against different accounts. Directly serves the HIGY multi-account fix. | S | When the public function takes `id_cuenta`/`accountId`, include it in `extra`. P2. |
-| Body redaction patterns merge with verification/redaction.py | Single source of truth for redaction regex. | M | Today verification/ is the harness; v1.1 could lift a stable redaction-pattern dataset into each package (duplicate but versioned). P2. |
-| Log shape compatible with structlog/json-loggers if caller configures them | `extra={}` already works with any stdlib-compatible formatter; mention in docs. | S | Zero implementation work beyond following stdlib `extra` pattern. |
+| Anti-feature | Why may be rejected for v1.2 | Alternative |
+|---|---|---|
+| Sync-first source, async generated | Async semantics (await placement, async context managers, async iterators) cannot be **introduced** by codegen — you can only **remove** them. Industry consensus: async is the source of truth. | If adopted at all, async-first. |
+| Mixing codegen with hand-maintained per-package | Splits maintenance into "what's gen'd vs what's hand-edited" — reviewers can't tell at a glance which file is which. Error-prone. | All-or-nothing per package; OR mark generated files with a `# DO NOT EDIT — generated from ...` header at the top. |
+| Adopting unasync/unasyncd in v1.2 without a spike | PROJECT.md explicitly flagged spike-before-plan. v1.1 RETROSPECTIVE confirmed spike-before-plan worked (TokenStore Phase 10). Skipping the spike risks delivering 4× the work for marginal LOC dedup. | Run a focused 1-2 day spike on iol-client (single package): generate aio.py from client.py (or vice versa); measure LOC delta, CI-time delta, reviewer-effort delta. Decide go/no-go for the other 3 packages. |
+| Replacing `_core.py` builders/parsers with codegen | `_core.py` is already pure, already shared between client.py + aio.py, already protected by import-linter contracts. It's not the duplication target. | Codegen targets the transport shells (`client.py` ↔ `aio.py`), not `_core.py`. |
+| Auto-generating `_token_store.py` (matriz) | The 3-way concurrency primitive has structurally different sync/async paths (threading.Lock callable from asyncio context). Generator cannot synthesize the `asyncio.to_thread` offload. | Hand-maintained, with `# unasyncd: skip` or file-level exclusion. |
 
-### D.3 Anti-Features
+**Recommendation:** **DIFFERENTIATOR with mandatory spike.** Do not commit to v1.2 codegen adoption without a spike on iol-client showing measurable LOC reduction + sustainable maintenance overhead. PROJECT.md spike-before-plan flag is already activated; honor it. Likely v1.2 outcome: spike validates feasibility but operator decides codegen-overhead > dedup-payoff at 4-package scale, and feature is deferred to v1.3 or rejected.
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Library configures its own format/handler | "Looks nice out of the box" | Steals control from the application; Python HOWTO explicitly forbids. | NullHandler only. Document the JSON-formatter example in README for callers who want structured output. |
-| Logging request/response bodies by default | "Easier debugging" | Leaks PII, credentials, financial data into application logs. Direct CLAUDE.md violation. | Bodies opt-in via env or kwarg; redaction-on by default even when opted in. |
-| Adopting structlog/loguru as a runtime dep | "Better logging" | Adds a runtime dep to every publishable package; the v1.0 constraint (zero shared deps, hatchling wheel each) makes this expensive. | Stdlib `logging` with `extra={}`. Caller is free to install structlog and configure it themselves. |
-| Synchronous `print()` in any code path | "Quick debug" | Already absent in v1.0 (zero print calls). v1.1 must not introduce. | Use the package logger. |
-| Capturing/logging Authorization header values "for debugging" | "Diagnose auth issues" | Direct security violation. | Log only `auth.<event>` semantic markers (acquired/refreshed/cleared); never the token value. |
+**Dependencies:** v1.1 `_core.py` per package (Phase 7), v1.1 `_transport.py`/`_atransport.py` (Phase 8 + 10), v1.1 matriz `aio.py` (Phase 10). Mocked vs live: codegen verified by mocked test parity (sync + async tests must produce identical results); LIVE-01-equivalent re-verification at milestone end.
 
-**Dependencies on v1.0:** existing `verification/redaction.py` regex set, security constraint from CLAUDE.md, no-current-logging baseline (CONVENTIONS L110-111 confirms zero-log status today). Logging in the library MUST coexist with the verification driver harness (which has its own `safe_print` / `redact`); they're independent layers and should not couple.
+**Reference behavior:** [psycopg3 generator script (AST-based)](https://www.psycopg.org/articles/2024/09/23/async-to-sync/); [unasync (token-based, urllib3/httpcore/elastic-py)](https://github.com/python-trio/unasync); [unasyncd (libcst-based, more powerful)](https://pypi.org/project/unasyncd/).
 
 ---
 
-## Axis E — Findings File Append-Only / Dedupe
+## Feature 3 — Final Live Re-Verification × 4 packages (LIVE-01-equivalent gate)
 
-**Question:** What's the expected behavior for an "append-only" findings file with idempotent finding entries? How is operator-added rationale preserved across re-runs?
+**Goal:** Run all 4 migrated drivers against live APIs at milestone close; operator dispositions; no new findings outside the in-cycle classified set.
 
-### E.1 Table Stakes
+### 3.1 Table Stakes
 
-| Feature | Why Expected | Complexity | Notes / Reference |
-|---------|--------------|------------|-------------------|
-| **Stable finding-IDs (deterministic from finding payload)** | Idempotency requires the driver to recognize "I already wrote this one." Stable ID = hash of `(package, probe_name, error_class, normalized_message)` or operator-assigned `F-NN` slug. | S | The v1.0 convention already uses `F-09`-style IDs in matriz findings; carry forward as the dedup key. New finding without explicit ID → driver synthesizes from probe context. |
-| **Append-only writes** — never delete, never reorder | The findings file is the audit trail of the cycle. Reordering breaks the forensic-localizable property (PROJECT.md) that the v1.0 baseline relies on. | S | Implementation: driver re-runs scan existing file, build set of IDs present, only append entries whose ID is absent. |
-| **Operator-added sections preserved verbatim** | Operator classifies (CONFIRMED/FIXED/EXPECTED/NO-FIX), writes `Rationale:`, writes `Regression:` paths. Re-running the driver MUST NOT clobber those. | M | Implementation: driver only writes the auto-generated body. Operator-edited fields (`Classification:`, `Rationale:`, `Regression:`, `Resolution:`) live in a stable position; driver code reads them, never overwrites them. Markdown structure must support unambiguous parsing — recommend YAML frontmatter per finding OR clearly-delimited operator-section per finding (`<!-- operator-section-start -->` / `end`). |
-| **Dedup is content-addressed, not line-number addressed** | A finding's location in the file should not affect whether it's a duplicate. | S | Hash/ID compares finding identity, not position. |
-| **D-MATZ-27 fix specifically** | Today's matriz driver appends duplicates of the same finding across re-runs. v1.1 must resolve. | M | Direct implementation of the above. Same logic applies to all four drivers. |
-| Driver writes `Cycle: <id>` field on first occurrence | v1.0 ratified the convention (PROJECT.md L88): every finding is tagged with the cycle that first observed it. Append-only means subsequent cycles don't overwrite the original cycle tag. | S | First write: `Cycle: verification-cycle-2026-Q3`. Re-run in same cycle: skip. Re-run in next cycle: still skip (the finding already exists); driver may instead append `Reobserved-in: <cycle-id>` to a separate operator-readable log. |
-| Validation that re-running the driver is idempotent (no-op when nothing changed) | The success criterion: `git status` after a driver re-run with no new findings = clean. | S | Pytest regression: run driver twice in succession against a captured mock; second run produces zero diff. |
+| Sub-feature | Why Expected | Complexity | Reference impl |
+|---|---|---|---|
+| Run `main_*.py` × 4 in `--live` mode | Closes the loop on driver migration: behavior observed live = behavior before migration. | S | v1.1 Phase 11 LIVE-01 already ran this gate; v1.2 repeats post-driver-migration. |
+| Operator disposition CONFIRMED/FIXED/EXPECTED/NO-FIX per finding | v1.0 taxonomy carried forward through v1.1. | S | `verification/findings.py` API. |
+| Schema snapshots compared to baseline (no drift) | DRIFT-01 mirror pattern. v1.0/v1.1 cycles. | S | `.planning/verification/schemas/<pkg>/*.json`. |
+| Cycle closure marker (no new findings = no_new_findings disposition) | v1.1 Phase 11 ratified this disposition. | S | Operator records in PHASE-VERIFICATION.md / VALIDATION.md frontmatter. |
 
-### E.2 Differentiators
+### 3.2 Differentiators
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| `Re-observed: <cycle-id>` append to existing finding when seen again | Tracks finding lifecycle across cycles without losing the original timestamp. | M | Operator-readable, machine-parseable. P2 — useful for v1.2+ cycles but not required for v1.1 fix scope. |
-| Programmatic `findings.add(...)` API in `verification/findings.py` | Centralizes the dedup logic — drivers don't reinvent it. | S | The PROJECT.md already cites `verification/findings.py append-only` as a v1.1 deliverable. Implementation likely already in the harness's mind; this just formalizes the API shape. |
-| Auto-generated `findings.toml` machine-readable side-file | Markdown is operator-friendly; TOML enables tooling (cycle-report aggregation, dashboard). | M | P3. v1.1 keeps markdown as source of truth. |
+| Sub-feature | Value | Complexity | Notes |
+|---|---|---|---|
+| Quantitative driver-output diff: old vs new run (golden master) | Side-by-side comparison demonstrates the migration didn't drift the observable behavior. | M | Capture findings.md hash, schema hashes, summary line counts on pre-migration baseline; compare to post-migration. Best-practice "golden snapshot test on the CLI tool". |
 
-### E.3 Anti-Features
+### 3.3 Anti-Features
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Driver rewrites the entire findings file on each run | "Easier than parsing the existing file" | Destroys operator rationale; loses cycle-of-first-observation tag; breaks forensic-localizability. | Append-only with content-addressed dedup. |
-| Truncating findings older than N cycles | "Keep the file small" | Loses audit trail; breaks the "DRIFT-02 baseline" property where the cycle-report aggregates historical state. | Don't truncate. If size becomes a real concern (it won't at current scale), archive older cycles to a separate file. |
-| Auto-classifying findings (CONFIRMED/EXPECTED/NO-FIX) without operator | "Save operator work" | Classification is judgment based on context the driver can't see (is the API contract documented to behave this way?). v1.0 explicitly operator-drives it. | Driver writes only the raw observation; classification stays operator's call. |
-| Mutating a finding's operator-edited fields when re-observed | "Update with latest info" | Operator wrote `Rationale: Expected per Primary API §6.3 docstring` for a reason. Re-run shouldn't second-guess. | Driver reads, never writes, operator fields. |
-| Reordering findings by ID/date "for cleanliness" | "More readable" | Breaks line-based git diff history; breaks `git blame`-based forensics. | Append-only literally means append at end. |
+| Anti-feature | Why rejected | Alternative |
+|---|---|---|
+| Promoting driver runs to CI (live every commit) | Live APIs have rate limits, business-hours dependencies, credentials in CI = risk. v1.0 ratified `@pytest.mark.live` + `--live` opt-in for exactly this reason. | Operator-driven gate at milestone close; mocked tests in CI. |
+| Auto-classifying findings without operator | v1.0/v1.1 explicitly operator-driven; v1.1 BUG-02 (NO-FIX bucket (a) after live N=3 triage) is the canonical example of why human judgment is required. | Operator classifies; driver only writes raw observation. |
 
-**Dependencies on v1.0:** existing `verification/findings.py` (PROJECT.md cites as deliverable), existing F-NN ID convention, existing operator-section conventions (`Classification:`, `Rationale:`, `Regression:`), forward-looking ratified convention from Phase 5 Op A (`Regression: <path>::<test>` field). The append-only rewrite **must** read and preserve all four operator-edited field names verbatim.
+**Dependencies:** Feature 1 (drivers migrated), v1.1 `verification/findings.py` (Phase 11), v1.1 schema snapshot baseline (DRIFT-01).
+
+---
+
+## Feature 4 — IOL refresh_token Disk Persistence
+
+**Goal:** Persist the IOL OAuth `refresh_token` to disk so that across-process restarts (driver re-runs, CLI exits, REPL session ends) the next login can use the refresh path instead of re-prompting password grant. v1.1 BUG-03 closed the in-instance lifecycle; this closes the cross-process leg.
+
+### 4.1 Table Stakes
+
+| Sub-feature | Why Expected | Complexity | Reference impl |
+|---|---|---|---|
+| Token cache abstraction (interface, not concrete class) | Industry pattern: msal `TokenCache` base + `SerializableTokenCache` + msal-extensions `PersistedTokenCache`. Pluggable backends. | M | [msal.token_cache.SerializableTokenCache](https://learn.microsoft.com/en-us/python/api/msal/msal.token_cache.serializabletokencache). |
+| OS keychain integration (preferred backend) | Most secure cross-platform: macOS Keychain, Windows Credential Manager, Linux Secret Service. v1.1 spike-findings memory cites "secure token storage" as the goal. | M | [Python `keyring` package](https://keyring.readthedocs.io/) — system-credential-store via stable cross-platform API. Used by google-cloud-sdk, AzureCLI (via msal-extensions), GitHub CLI, others. |
+| JSON file fallback (when keyring unavailable) | Headless servers, CI, Docker without keyring daemon. Standard fallback pattern. | M | Encrypted via msal-extensions `PersistedTokenCache` (Windows DPAPI / macOS Keychain / Linux LibSecret). For market-libs simpler fallback: plain JSON with 0600 + advisory lock. |
+| File locking on read/write | **Critical:** two processes refreshing the same refresh_token race the disk write; whichever lands last "wins" and the other process's in-memory refresh_token becomes invalid. msal-extensions uses portalocker. requests-oauthlib `token_updater` callback recommends file lock. | M | msal-extensions: "Concurrent data access will be coordinated by a file lock mechanism". |
+| Auto-reload on file mtime change | Process A refreshes → writes new refresh_token. Process B should detect the file change and reload before its next refresh, instead of using the stale in-memory copy. | M | msal-extensions `PersistedTokenCache` "includes a file lock, and auto-reload behavior under the hood". |
+| 0600 file permissions on POSIX | Standard secret-storage discipline. | S | All OAuth SDKs and SSH `id_rsa` ratify the convention. |
+| Configurable cache path with sane default | Default to `~/.cache/iol-client/token.json` (XDG cache spec) OR `$XDG_DATA_HOME/iol-client/token.json` for persisted secrets. Allow override via env or kwarg. | S | google-cloud-sdk uses `~/.config/gcloud/`; msal-extensions uses `~/.cache/{appname}` on Linux. |
+| Refresh_token rotation on success preserved (v1.1 D-IOL-10 conditional-rotation) | IOL server MAY rotate the refresh_token on each `/token` POST. v1.1 BUG-03 CR-01 preserves the cached refresh_token when the server omits a new one. This invariant carries to disk: write new refresh_token only if the server returned a non-None value. | S | v1.1 `_core.parse_refresh_response` already returns `Optional[str]`. |
+| Tests cover the 4 lifecycle paths from v1.1 BUG-03 | (a) refresh success → token + refresh_token persisted; (b) refresh 401 → fallback to password grant + new refresh_token persisted; (c) server returns no new refresh_token → preserve cached; (d) server rotates → write rotated. | M | v1.1 added 8 regression tests (4 sync + 4 async) for the in-instance lifecycle; v1.2 mirrors the same 4 paths on disk persistence. |
+| Disk persistence is opt-in (env var or kwarg) | Default behavior unchanged for callers who don't want disk-touch. **Tests** especially must not accidentally create disk caches. | S | `Client(token_cache=DiskTokenCache(...))` explicit; or env var `IOL_TOKEN_CACHE_PATH`. |
+
+### 4.2 Differentiators
+
+| Sub-feature | Value | Complexity | Notes |
+|---|---|---|---|
+| Pluggable `TokenCache` interface (abstract base) | Lets advanced users substitute Redis, database, custom storage. | M | msal pattern. P2 — useful but not required for v1.2 since IOL is the only refresh_token-bearing package. |
+| Encrypted-at-rest fallback for the JSON file (when keyring unavailable) | Defense-in-depth on shared filesystems. | L | msal-extensions provides this. v1.2: rely on keyring as primary (encrypted by OS) + 0600 JSON as fallback (unencrypted but file-locked). |
+| Multi-user / multi-tenant key namespace | If a host has multiple IOL accounts (one per OS user), keyring entries scoped by username already. JSON file path should include username when `~/.cache/iol-client/{user}.json`. | S | Convention: cache key = `(service="iol-client", username=IOL_USER)` for keyring; for JSON, filename derived from username hash. |
+| Token expiration metadata persisted alongside refresh_token | Avoid wasteful "try refresh, get 401, fall back to password" on a known-expired token. Persist `token_expires_at` + cached `access_token`. | S | All major SDKs do this; msal `SerializableTokenCache` schema includes expiry. |
+
+### 4.3 Anti-Features
+
+| Anti-feature | Why rejected | Alternative |
+|---|---|---|
+| Plaintext refresh_token in `.env` file | CLAUDE.md security constraint: "nunca commitear .env ni exponer credenciales en logs, reportes o tests". Operator may write the long-lived refresh_token to `.env` thinking it's the same as password, but `.env` is committed-adjacent and shows up in shell history. | Disk cache lives **outside** the repo (in `~/.cache/iol-client/` or keyring). Never read refresh_token from `.env`. |
+| Refresh_token logged on acquisition / refresh / failure | v1.1 `RedactingFilter` already redacts; disk persistence must not bypass. Disk write is OK; log lines about disk write must not include the secret value. | Logger emits `auth.refreshed event=disk_write` with no token value; redact in formatter as belt-and-suspenders. |
+| Persisting access_token on disk | Short-lived (15 min IOL TTL); risk/benefit poor — disk-cached access_token may already be expired by the time the next process loads it. | Persist refresh_token only (+ optionally `token_expires_at` for the access_token, which lets the new process know whether the cached access_token is fresh enough to skip auth). |
+| Disk persistence ON by default | Surprises tests and users who don't expect file-system side effects. v1.0/v1.1 default = ephemeral in-process. | Opt-in via kwarg `Client(token_cache=...)` or env `IOL_TOKEN_CACHE_PATH=...`. |
+| Inter-process IPC token broker daemon | Way over-engineered for a 1-user OAuth client. msal-extensions file lock + auto-reload is the right granularity. | File lock + auto-reload. |
+| Cross-package shared cache (one cache for all 4 packages) | iol, higyrus, matriz, ámbito use different auth flows. Sharing a cache across them violates the "no shared internals" architectural constraint. | Per-package cache file. Only `iol-client` gets the disk-persistence feature in v1.2 because only IOL has OAuth refresh_token. Other packages: deferred. |
+
+**Dependencies:** v1.1 `_ClientState.refresh_token` (Phase 6), v1.1 `_core.parse_refresh_response` (Phase 7), v1.1 BUG-03 in-instance lifecycle tests (Phase 9), v1.1 `RedactingFilter` (Phase 8 LOG-01), v1.1 `_TokenStore` 3-way concurrency primitive (Phase 10 — pattern reusable for the disk lock). New runtime dep: **`keyring` (Apache-2.0, py.typed)** — adds 1 dep to iol-client only. Mocked vs live: lifecycle paths (a)-(d) tested mocked + 1 live end-to-end pass.
+
+**Reference behaviors:**
+- [msal.token_cache.SerializableTokenCache](https://learn.microsoft.com/en-us/python/api/msal/msal.token_cache.serializabletokencache) — base serialization interface; **does NOT persist on its own** (callers wire serialize/deserialize).
+- [msal-extensions PersistedTokenCache](https://github.com/AzureAD/microsoft-authentication-extensions-for-python) — disk persistence + file lock + auto-reload + OS-specific encryption (DPAPI/Keychain/LibSecret).
+- [requests-oauthlib `token_updater` callback](https://requests-oauthlib.readthedocs.io/en/latest/examples/real_world_example_with_refresh.html) — callback fires on auto-refresh; caller writes to disk.
+- [google.oauth2.credentials.Credentials](https://googleapis.dev/python/google-auth/1.7.2/reference/google.oauth2.credentials.html) — refresh_token + token_uri + client_id + client_secret required; persistence is caller responsibility.
+- [Python `keyring`](https://keyring.readthedocs.io/) — system-keyring abstraction.
+
+---
+
+## Feature 5 — `Client.from_env()` Classmethod × 4 packages
+
+**Goal:** Explicit, discoverable factory that reads credentials + base_url from environment. Today's behavior: `Client()` already reads env via `load_dotenv()` + `_ClientState` defaults. The proposal asks whether a separate `from_env()` is needed.
+
+### 5.1 What the Ecosystem Actually Does (FINDING)
+
+| SDK | Constructor reads env? | `from_env()` classmethod? | Env var convention |
+|---|---|---|---|
+| anthropic-sdk-python | YES (implicit when no kwarg) | NO | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, …(6+ env vars enumerated in source) |
+| openai-python | YES (implicit) | NO | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_ORG_ID` |
+| stripe-python | YES (`stripe.api_key = os.environ.get(...)` module-level) | NO | `STRIPE_API_KEY` |
+| mistralai | YES (`api_key=os.getenv("MISTRAL_API_KEY", "")`) | NO | `MISTRAL_API_KEY` |
+| groq-python | YES (`api_key=os.environ.get("GROQ_API_KEY")`) | NO | `GROQ_API_KEY` |
+| cohere | YES (implicit) | NO | `CO_API_KEY` |
+| google-genai | YES (implicit, via ADC) | NO | `GOOGLE_API_KEY`, ADC path |
+
+**Conclusion:** `from_env()` classmethod is **NOT** the dominant Python SDK convention. The dominant convention is **implicit env fallback in the constructor**. The market-libs v1.0/v1.1 implementation already does this (via `load_dotenv()` + `_ClientState` defaults).
+
+### 5.2 Table Stakes (implicit env fallback — already implemented in v1.1)
+
+| Sub-feature | Status in v1.1 | Notes |
+|---|---|---|
+| `Client()` (no kwargs) reads env vars and constructs default state | ✓ implemented (Phase 6) | `_ClientState` `__post_init__` calls `os.getenv(...)` for `IOL_USER`/`IOL_PASSWORD`/`IOL_BASE_URL` (and equivalents per package). |
+| `load_dotenv()` called at module import time | ✓ implemented (v1.0, preserved) | Every package's `client.py` calls `load_dotenv()` at module level. |
+| Explicit kwargs override env | ✓ implemented (Phase 6) | `Client(base_url=...)` wins over env. |
+| `configure(base_url=...)` mutates the default-client state without rebuild | ✓ implemented (v1.0 preserved through Phase 6) | Pattern stable; tests rely on it. |
+| Missing required env vars raise typed `<Pkg>AuthError` on first auth call | ✓ implemented (lazy — error at login(), not at Client() construction) | Convention matches anthropic/openai (constructor doesn't raise; first call does). |
+
+### 5.3 Differentiator (v1.2 proposal: explicit `from_env()` as documented sugar)
+
+| Sub-feature | Value | Complexity | Notes |
+|---|---|---|---|
+| `Client.from_env()` classmethod that returns `cls()` (just an alias) | Discoverability — appears in IDE autocomplete; signals intent in code review (`Client.from_env()` is clearly env-based, `Client()` is ambiguous). | S | Implementation: 5 lines per package. `@classmethod def from_env(cls) -> Self: return cls()`. Documented in docstring as "explicit alias for the implicit env-fallback constructor". |
+| `Client.from_env(prefix="IOL")` with explicit prefix | Some apps want `IOL_PROD_USER` / `IOL_STAGING_USER` discriminated by prefix. | M | NOT recommended for v1.2 — env vars are hardcoded per package; multi-env separation belongs to the caller (use multiple `.env` files + `dotenv_path=`). |
+| `Client.from_env(env_file="...")` | Some apps want to point at a specific `.env` file. | M | NOT recommended for v1.2 — `python-dotenv` already supports this via `load_dotenv(dotenv_path=...)` which the caller can invoke before `Client.from_env()`. |
+| `Settings`/`BaseSettings` pydantic-style validation | Type-safe env var loading with validation. | L | NOT recommended for v1.2 — adds pydantic to runtime deps of 4 publishable wheels, violates "no shared deps" constraint and "zero-dep additions" preference (v1.1 added only tenacity, which is zero-deps). |
+| `Client.from_env()` raises if required env vars missing (vs deferring to first call) | Anthropic explicitly defers ("constructor doesn't raise"); openai same. Fail-fast variant is non-standard. | S | NOT recommended for v1.2 — diverges from ecosystem convention; v1.0 behavior (deferred AuthError on `login()`) is correct. |
+| Keyring fallback for credentials in `from_env()` | If `IOL_USER`/`IOL_PASSWORD` not in env, try `keyring.get_password("iol-client", "credentials")`. | M | NOT recommended for v1.2 — keyring scope is the refresh_token disk persistence (Feature 4); extending to primary password adds complexity for marginal gain. Defer to v1.3. |
+
+### 5.4 Anti-Features
+
+| Anti-feature | Why rejected | Alternative |
+|---|---|---|
+| Removing the implicit env fallback in the bare `Client()` constructor | Backwards-incompatible. v1.1 PEP 562 shim relies on `_get_default()` constructing from env. | Keep implicit fallback; add `from_env()` as alias only. |
+| `from_env(strict=True)` raising on missing env (default fail-fast) | Diverges from ecosystem convention; surprises callers; breaks lazy-auth pattern of v1.0/v1.1. | Keep lazy (raises on first `login()`); doc the behavior. |
+| Per-package different `from_env()` signatures | Ergonomic mismatch across the 4 packages. | All 4 packages expose identical `Client.from_env() -> Self`. |
+| `from_env()` reading credentials from outside `.env` (e.g., `~/.config/iol-client.toml`) | Out of scope for v1.2; conflates Feature 4 (token disk persistence) with credential discovery. | v1.2: `from_env()` reads env vars only (which dotenv populates). Future: separate `from_config_file()` if needed. |
+
+**Conclusion:** `from_env()` is **NOT table stakes** (ecosystem convention is implicit env fallback in constructor, which v1.1 already does). Recommend ship it as a **documented alias** for discoverability — low-cost addition that doesn't break anything but doesn't enable anything new either. Operator decision required: do we want to ship the alias, or just document that `Client()` reads env (status quo)?
+
+**Dependencies:** v1.1 `Client` constructor with optional kwargs (Phase 6), v1.1 `_ClientState` defaults from env (Phase 6), `load_dotenv()` module-level (v1.0). Mocked vs live: tests verify `from_env()` returns equivalent instance to `Client()` with matching env vars set.
+
+**Reference behavior:** anthropic-sdk-python `Anthropic()` constructor (NO `from_env()`); openai-python `OpenAI()` constructor (NO `from_env()`).
+
+---
+
+## Feature 6 — `client.with_options(max_retries=N)` per-call Override × 4 packages
+
+**Goal:** Operator can override `max_retries` (or other client options) for a single call without mutating the long-lived `Client` or instantiating a new one with full credential re-pass.
+
+### 6.1 Table Stakes
+
+| Sub-feature | Why Expected | Complexity | Reference impl |
+|---|---|---|---|
+| `with_options()` returns a new `Client` instance | Anthropic + OpenAI both. Method signature: `with_options(**kwargs) -> Self`. Implementation: clone state, override kwargs, return new instance. NOT a mutating method. | M | [anthropic-sdk-python `copy()`/`with_options()`](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/_client.py). |
+| `copy()` is an alias for `with_options()` | Anthropic explicit. OpenAI ships `with_options()`. | S | `with_options = copy` (anthropic). v1.2 recommendation: ship both names. |
+| New instance **shares** the underlying `httpx.Client` (when not overridden) | Anthropic: `http_client = http_client or self._client`. Avoids tearing down + rebuilding the connection pool for an option-flip. | M | Anthropic explicit; same recipe. |
+| New instance **shares** the token cache / `_ClientState` (when credentials unchanged) | Anthropic: token cache passed via `_extra_kwargs` when `credentials is NotGiven`. Avoids re-auth for a `max_retries` flip. | M | Anthropic explicit. For market-libs: share `_state` reference when credential kwargs not changed. |
+| New instance gets a fresh `_state` (with fresh token cache) when credentials change | Anthropic: skips the `_token_cache` reuse when `credentials=` is explicitly passed. | M | Same. v1.2: if `with_options(username=...)` or `password=` provided, build fresh `_ClientState`. |
+| Overridable kwargs at least: `max_retries`, `timeout`, `base_url`, `http_client` | These are the per-call-tunable surface. | M | Anthropic supports all four + headers + query + middleware. |
+| Per-call usage pattern: `client.with_options(max_retries=5).get_quote("GGAL")` | Fluent. Anthropic ships this exact shape. | S | Operator recipe documented. |
+| `with_options(max_retries=N)` does NOT re-trigger token fetch | Critical: shared token cache means no auth round-trip for an options flip. | S | Inherits from shared `_state` reference. |
+| Validation of `max_retries` int + non-negative | v1.1 WR-06 already enforces this on the constructor; `with_options()` inherits the same `_validate_max_retries()` helper. | S | Reuse v1.1 helper. |
+
+### 6.2 Differentiators
+
+| Sub-feature | Value | Complexity | Notes |
+|---|---|---|---|
+| Per-call timeout via `with_options(timeout=30.0)` | Useful for one-off batch calls (e.g., bulk historical_quotes). | S | Cheap; same code path as max_retries override. v1.2 recommendation: ship together. |
+| Per-call headers via `with_options(default_headers={...})` | Custom user-agent, trace-ID per probe. | M | NOT recommended for v1.2 — `default_headers` substrate doesn't exist in `_ClientState` today; adding it is a separate change. Defer. |
+| Per-call `http_client=` override | Already supported on constructor; with_options should propagate. | S | Inherits trivially from clone semantics. |
+| `client.with_options(max_retries=0).new_order(...)` for matriz mutating calls | Operator-controllable "no retry" for mutating ops, complementing the v1.1 mutation gate. | S | Cross-cuts Feature 6 + v1.1 retry layer (which already disables retry for `idempotent=False`). Marginal utility since `idempotent=False` already prevents retry. |
+| Weak references in clones (anthropic SDK does this) | Avoid memory leaks when many short-lived clones are created. | M | NOT recommended for v1.2 — typical use case is 1-2 clones per driver run, not thousands. Premature optimization. Document as future consideration if usage patterns demand it. |
+
+### 6.3 Anti-Features
+
+| Anti-feature | Why rejected | Alternative |
+|---|---|---|
+| `with_options()` mutates `self` in place | Would surprise callers; violates the ecosystem convention. | Returns new instance. |
+| `with_options()` creates a fresh `httpx.Client` per call | Wasteful: tearing down a connection pool to flip `max_retries` is absurd. | Share underlying `httpx.Client`; new `_max_retries` field on the clone. |
+| `with_options()` resets the token cache | Forces re-auth on every option flip; defeats purpose. | Share token cache when credentials unchanged. |
+| `with_options()` accepting arbitrary `**kwargs` | Silent typos (`with_options(max_retires=5)` no-ops) | Explicit signature: `with_options(*, max_retries: int | None = None, timeout: ... = None, base_url: ... = None, http_client: ... = None) -> Self`. |
+| `with_options()` chained mutation across multiple endpoints in same call site | Confusing semantics; what if intermediate calls produce side effects? | One clone per logical scope; if multi-endpoint, bind to a local: `c = client.with_options(max_retries=5); c.get_quote(...); c.get_instruments(...)`. |
+| Per-call retry that ignores the mutation gate | Would let operator override the v1.1 "no retry on mutating ops" invariant via `with_options(max_retries=5).new_order(...)`. | v1.1 mutation gate is enforced at the **transport** (`request.extensions["idempotent"]`), NOT at the client. `with_options(max_retries=N)` increases attempts only for requests where the transport decides retry-eligibility. Mutating ops with `idempotent=False` still see 0 retries regardless of `max_retries=99`. **This invariant must be preserved and documented.** |
+| Per-call override of `idempotent` flag | Same as above — only path to override mutation gate is the existing `mutating_allowed` double-gate in `verification/`, not the client. | No. |
+
+**Dependencies:** v1.1 `Client.__init__` with `max_retries` + `http_client` kwargs (Phase 8 RELY-01..04), v1.1 `_ClientState` (Phase 6), v1.1 `_validate_max_retries` helper (Phase 8 WR-06), v1.1 `RetryTransport`/`AsyncRetryTransport` with idempotent gate (Phase 8 + 10). Mocked vs live: `with_options(max_retries=0)` mocked test (no retry on transient 5xx), `with_options(max_retries=5)` mocked test (5 retries observed), per-call clone identity test (`client is not client.with_options(max_retries=5)`).
+
+**Reference behavior:**
+- [anthropic-sdk-python `copy()`/`with_options()`](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/_client.py) — shallow clone, shared http_client + token cache, override kwargs.
+- [openai-python `client.with_options(max_retries=5, timeout=30.0)`](https://github.com/openai/openai-python/discussions/795) — same pattern.
+
+---
+
+## Feature Categorization Summary (one-line per feature)
+
+| # | Feature | Category | Complexity | Reference impl |
+|---|---|---|---|---|
+| 1 | Driver migration × 4 → `Client`/`AsyncClient` instances | **Table stake** | M per package | Internal pattern; anthropic examples never use module-level helpers |
+| 2 | unasync/codegen single-source sync/async | **Differentiator** (mandatory spike) | L | psycopg3 codegen; unasync (urllib3/httpcore/elastic-py); unasyncd (libcst) |
+| 3 | Final live re-verification × 4 | **Table stake** | S | v1.1 LIVE-01 (Phase 11) |
+| 4 | IOL refresh_token disk persistence | **Table stake** for OAuth refresh-token flow | M-L | msal-extensions PersistedTokenCache; keyring; requests-oauthlib token_updater |
+| 5 | `Client.from_env()` × 4 | **Optional alias** (NOT industry table stake) | S | NO ecosystem convention; anthropic/openai/mistral/groq use implicit env fallback in constructor — v1.1 already does this |
+| 6 | `client.with_options(max_retries=N)` × 4 | **Table stake** for modern Python SDKs | M | anthropic `copy()`/`with_options()`; openai `with_options()` |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Axis A: Client class]
-    └──enables──> [Axis B: sync/async parity refactor]
-                       └──enables──> [matriz aio.py creation]
+[Feature 1: Driver migration]
+    └──prerequisite──> [Feature 3: Final live re-verification]
+                              (drivers must be migrated before final gate)
 
-[Axis A: Client class]
-    └──prerequisite for──> [HIGY multi-account fix]
-                                  (multi-account needs instance-scoped state)
+[Feature 1: Driver migration]
+    └──independent of──> [Feature 2: unasync/codegen]
+                              (driver-level migration vs library-internal codegen)
 
-[Axis A: Client class]
-    └──prerequisite for──> [IOL refresh_token persistence]
-                                  (instance-scoped _refresh_token attribute)
+[Feature 2: unasync/codegen]
+    └──spike-before-plan──> [decision: adopt v1.2 / defer v1.3 / reject]
+                              (PROJECT.md flag active)
 
-[Axis C: Retries/backoff]
-    └──requires──> [verification/mutation_gate.py]
-                          (existing v1.0 — retry layer reads it to gate POST/PATCH)
+[Feature 4: IOL disk persistence]
+    └──builds on──> [v1.1 BUG-03 in-instance lifecycle]
+                              (Phase 9 closed in-process; v1.2 closes cross-process)
+    └──reuses pattern──> [v1.1 _TokenStore Phase 10]
+                              (file lock + concurrent access)
 
-[Axis C: Retries/backoff]
-    └──enhances──> [Axis D: structured logging]
-                          (retries WARN-log per attempt; trivially structured)
+[Feature 5: from_env() alias]
+    └──no-op on top of──> [v1.1 _ClientState env defaults]
+                              (purely documentation)
 
-[Axis D: structured logging]
-    └──requires──> [redaction patterns]
-                          (copy from verification/redaction.py into per-package _logging.py)
+[Feature 6: with_options()]
+    └──builds on──> [v1.1 Client.__init__ kwargs (Phase 8)]
+                              (max_retries + http_client constructor kwargs already exist)
 
-[Axis E: findings append-only]
-    └──standalone, no v1.1 cross-deps──> [4 drivers consume it]
-
-[Axis A] ──coexists-with──> [v1.0 module-level convenience funcs]
-                                   (compat layer; must remain non-breaking)
+[Feature 6: with_options()]
+    └──must preserve──> [v1.1 mutation gate (Phase 8 RELY-01..04)]
+                              (per-call max_retries cannot override idempotent=False)
 ```
-
-### Dependency Notes
-
-- **Axis A is a prerequisite for B**: deduplicating sync/async logic into `_core.py` helpers is much cleaner once the `Client` class exists, because the helpers can be `Client`-aware (operating on `self._http`, `self._token`, etc.) instead of operating on module globals.
-- **Axis A unlocks the HIGY multi-account fix**: today's singleton can't represent "logged in as two accounts simultaneously" because there's one `_token`. With `Client` instances, two clients = two tokens. The fix becomes natural rather than a workaround.
-- **Axis A unlocks IOL refresh_token persistence**: storing `_refresh_token` and `_access_token_expires_at` on `self` is cleaner than two new module globals per surface.
-- **Axis C requires the mutation_gate**: the retry layer must NOT retry POSTs against `*.primary.com.ar` unless the v1.0 `mutating_allowed` flag is true AND an Idempotency-Key is present. The mutation_gate already exists in `verification/`.
-- **Axis C enhances Axis D**: each retry attempt emits a WARNING log line with structured fields — same axis can be implemented in one pass.
-- **Axis D requires redaction patterns**: NOT a direct module import (verification/ is harness, not publishable from packages); instead, duplicate the regex set into each package's `_logging.py`. Same "no shared deps" constraint that applies to auth and exceptions.
-- **Axis E is the most standalone**: it lives in `verification/findings.py` (the harness), not in the packages themselves. Drivers use it. No coupling to A/B/C/D.
 
 ---
 
-## MVP Definition (v1.1 = the MVP for this milestone)
+## MVP Definition (v1.2 = this milestone)
 
-### Must Land In v1.1
+### Must Land In v1.2
 
-- [x] **Axis A** — `Client` class per package + lazy default-client backing top-level convenience funcs + sync `close()`/context-manager + async `aclose()`/async-context-manager. Compat layer non-breaking. (Complexity: M per package × 4 packages.)
-- [x] **Axis B** — Per-package `_core.py` (or equivalent) with deduped logic; `client.py` and `aio.py` become thin sync/async stubs over the shared helpers. PLUS matriz-client gets a brand-new `aio.py` mirroring REST surface. (Complexity: M for dedup × 4 + L for matriz aio creation.)
-- [x] **Axis C** — Retry layer with: 408/409/429/5xx + connection errors, max_retries=2 default, full jitter exponential backoff, Retry-After honored (capped at 60s), idempotency-by-method (no POST/PATCH retry without explicit opt-in), mutation_gate check before retry, per-Client and per-call config. (Complexity: M, one implementation × 4 packages.)
-- [x] **Axis D** — Stdlib `logging` per package: `getLogger(__name__)`, NullHandler attached in `__init__.py`, DEBUG/INFO/WARNING/ERROR level map, structured `extra={}`, redaction in formatter, body-logging opt-in. (Complexity: S-M per package × 4.)
-- [x] **Axis E** — `verification/findings.py` append-only API; D-MATZ-27 dedupe; operator fields (Classification/Rationale/Regression/Resolution) preserved verbatim across re-runs; idempotent re-run = git-clean. (Complexity: M, one implementation.)
-- [x] **4 deferred fixes** as standalone work items: F-09 matriz ERROR-MAP, higyrus F-02 (`get_listado_cuentas=0`), IOL refresh_token persistence, HIGY multi-account. (Complexity: S-M each.)
-- [x] **WR-01..WR-08** — code review concerns from Phase 5. (Complexity: assumed S-M each per v1.0 review tradition; needs phase-level research per concern.)
+- [ ] **Feature 1** (table stake): Driver migration × 4 packages. Per-package serial ámbito → iol → higyrus → matriz. Each migration closes with a side-by-side run (old driver vs new driver) producing zero observable-behavior diff (mocked + smoke-live). Closes v1.1 SC#3 LOC-drop residual.
+- [ ] **Feature 3** (table stake): Final live re-verification × 4 packages at milestone close (LIVE-01-equivalent). Operator disposition; no new findings outside in-cycle classified set.
+- [ ] **Feature 4** (table stake): IOL refresh_token disk persistence with keyring backend + JSON file fallback + file lock + auto-reload + 0600 + opt-in. 8+ regression tests covering the 4 lifecycle paths from v1.1 BUG-03 mirrored on disk.
+- [ ] **Feature 6** (table stake): `client.with_options(max_retries=N, timeout=..., base_url=..., http_client=...)` × 4 packages. Shallow clone, shared `_state` + `http_client` when not overridden. Returns new instance. `copy()` alias. Per-call retries preserve mutation gate invariant.
 
-### Defer To v1.2 (already documented in PROJECT.md)
+### Spike-Before-Plan (decision pending)
+
+- [ ] **Feature 2** (differentiator with mandatory spike): unasync/codegen single-source sync/async. Spike on iol-client only; measure LOC delta, CI-time delta, reviewer-effort delta. Operator go/no-go before v1.2 phase planning commits.
+
+### Optional / Documentation Sugar
+
+- [ ] **Feature 5** (optional alias): `Client.from_env()` classmethod that calls `cls()`. Pure discoverability; no functional change. Ship if operator wants the discoverability win; skip if operator considers it noise (v1.1 implicit env fallback is already industry standard).
+
+### Defer To v1.3+ (already documented in PROJECT.md)
 
 - [ ] prod-vs-remarkets verification (D-MATZ-27 REQUIRED handoff)
 - [ ] `matriz_client.ws_client` live verification (WebSocket layer)
 - [ ] `wallets-client` scope extension
-- [ ] New endpoints / new live surfaces
+- [ ] Retry observability polish (Idempotency-Key, request_id UUID, max_elapsed_seconds, findings.toml)
+- [ ] ERR-01/ERR-02 mocked error mapping
+- [ ] Disk persistence for higyrus/matriz/ambito auth tokens (only IOL has refresh_token in v1.2)
+- [ ] Pluggable `TokenCache` interface beyond keyring + JSON (Redis, DB)
+- [ ] Pydantic `BaseSettings` integration for env var loading
 
-### Future Consideration (v2+)
+### Future / Reject
 
-- [ ] Generated-code parity tooling (Axis B.2 — one source, two emit paths)
-- [ ] Automatic Idempotency-Key generation for retried POSTs (Axis C.2 — would conflict with current operator gate)
-- [ ] `findings.toml` machine-readable side-file (Axis E.2)
-- [ ] Decorrelated jitter as alternative backoff (Axis C.2)
-
----
-
-## Feature Prioritization Matrix
-
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| `Client` class with `close()`/context manager (A.1) | HIGH (unblocks multi-account, persistent refresh, dedup) | M | P1 |
-| Lazy default-client convenience-func compat layer (A.1) | HIGH (non-breaking is non-negotiable) | S | P1 |
-| `_core.py` sync/async dedup (B.1) | HIGH (kills the duplication tech debt root cause) | M | P1 |
-| matriz `aio.py` creation (B.1) | HIGH (parity with all other packages) | L | P1 |
-| Retry on 408/409/429/5xx + connection (C.1) | HIGH (transient resilience without breaking POST) | M | P1 |
-| Full-jitter exponential backoff (C.1) | HIGH (AWS-recommended default) | S | P1 |
-| Honor `Retry-After` with cap (C.1) | HIGH (table stake, prevents deadlock) | S | P1 |
-| Idempotency-by-method default (C.1) | HIGH (prevents matriz duplicate orders) | S | P1 |
-| Read `mutation_gate` before any POST/PATCH retry (C.1) | HIGH (project-specific requirement, PROJECT.md mandates) | S | P1 |
-| `getLogger(__name__)` + NullHandler (D.1) | HIGH (no-noise default, callers can opt-in) | S | P1 |
-| Level map (DEBUG req/INFO auth/WARN retry/ERROR terminal) (D.1) | HIGH (matches stdlib + ecosystem conventions) | S | P1 |
-| Redaction in log formatter (D.1) | HIGH (security non-negotiable) | M | P1 |
-| Findings append-only + content-addressed dedup (E.1) | HIGH (D-MATZ-27 directly) | M | P1 |
-| Operator-fields preserved across re-runs (E.1) | HIGH (preserves operator rationale; PROJECT.md mandates) | M | P1 |
-| `client.with_options(...)` per-call config (A.2) | MEDIUM (ergonomic but not required) | M | P2 |
-| Pluggable `http_client` injection (A.2) | MEDIUM (testing ergonomic) | M | P2 |
-| `Client.from_env()` classmethod (A.2) | LOW (discoverability) | S | P2 |
-| WARN log per retry with `extra` fields (C.2 / D.1 cross-cut) | HIGH (debuggability) | S | P1 (free in C+D combined pass) |
-| `max_elapsed_seconds` retry budget cap (C.2) | MEDIUM (belt-and-suspenders) | M | P2 |
-| `request_id` per `_request()` invocation (D.2) | MEDIUM (traces across retries) | S | P2 |
-| Account-id field in `extra` for higyrus/matriz (D.2) | MEDIUM (multi-account debug) | S | P2 |
-| `Re-observed: <cycle-id>` finding lifecycle marker (E.2) | LOW (nice for v1.2 cycle reports) | M | P3 |
-| Idempotency-Key auto-generation (C.2) | LOW (conflicts with mutation_gate) | M | P3 |
-| Decorrelated jitter alternative (C.2) | LOW (full jitter sufficient) | M | P3 |
-| Generated-code parity tooling (B.2) | LOW (huge cost) | XL | P3 / out of scope |
-
----
-
-## Competitor Reference Behaviors
-
-| Behavior | Anthropic SDK | OpenAI SDK | Stripe SDK | httpx (transport) | market-libs v1.1 plan |
-|----------|---------------|------------|------------|-------------------|------------------------|
-| Sync class | `Anthropic(...)` | `OpenAI(...)` | `StripeClient(...)` | `httpx.Client()` | `Client(...)` per package |
-| Async class | `AsyncAnthropic(...)` | `AsyncOpenAI(...)` | (none — uses asyncio bridge) | `httpx.AsyncClient()` | `AsyncClient(...)` per package in `aio.py` |
-| Module-level convenience | (none — explicit) | `openai.chat.completions.create(...)` (lazy default) | (none — explicit) | (none) | KEEP existing `pkg.get_quote(...)` (lazy default-client) |
-| `close()` / `aclose()` | yes | yes | (managed) | yes | yes (table stake) |
-| Context manager | yes | yes | yes | yes | yes (table stake) |
-| `with_options(...)` per-call | yes | yes | (per-request `idempotency_key` kwarg) | (no) | P2 differentiator |
-| Default retries | 2 attempts | 2 attempts | 0 (opt-in) | 0 (must wrap) | 2 attempts |
-| Retried status codes | 408, 409, 429, ≥500 | 408, 409, 429, ≥500 | connection + 409 | (transport only: connect errors) | 408, 409, 425, 429, 500, 502, 503, 504 + connection |
-| Honor `Retry-After` | yes (caused deadlock when unbounded → bug filed) | yes | yes | (no — caller responsibility) | yes, capped at 60s default |
-| Idempotency for POST | (POST is mostly safe in their API surface) | (POST is mostly safe in their API surface) | Idempotency-Key auto-generated | (caller responsibility) | NO auto-retry on POST/PATCH by default; mutation_gate check |
-| Jitter type | exponential + jitter (full-style) | exponential + jitter | exponential + jitter | (transport doesn't jitter) | full jitter (AWS-recommended) |
-| Logger naming | `logging.getLogger("anthropic")` | `logging.getLogger("openai")` | `logging.getLogger("stripe")` | `logging.getLogger("httpx")` | `logging.getLogger("<pkg>")` per package |
-| NullHandler | yes | yes | yes | yes | yes (stdlib HOWTO mandate) |
-| Default body logging | OFF | OFF | OFF | OFF | OFF (opt-in) |
+- [ ] Single mega-driver `main.py` cross-package (anti-feature — violates "no shared internals")
+- [ ] Driver promoted to CI live tests (anti-feature — rate-limit hazard, business-hours dependency)
+- [ ] Sync-first codegen (anti-feature — async semantics can only be removed, not added)
+- [ ] Plaintext refresh_token in `.env` (anti-feature — security violation)
+- [ ] `with_options()` mutating `self` in place (anti-feature — violates ecosystem convention)
+- [ ] `from_env(strict=True)` fail-fast variant (anti-feature — diverges from ecosystem; constructor convention is lazy auth)
 
 ---
 
 ## Confidence Assessment
 
-| Axis | Confidence | Reason |
-|------|------------|--------|
-| A. Client class API | HIGH | Cross-confirmed in anthropic, openai, stripe, httpx official docs. Module-level lazy default is the openai v1.0 pattern explicitly. |
-| B. Sync/async parity | HIGH | All three reference SDKs ship the mirror pattern with identical method names. CONVENTIONS.md already enforces this. |
-| C. Retries/backoff | HIGH | Cross-confirmed status code list (anthropic, openai), idempotency default (urllib3, RFC 9110), jitter recommendation (AWS Architecture Blog), Retry-After honoring (MDN + concrete Anthropic deadlock bug as warning). |
-| D. Structured logging | HIGH | Python stdlib HOWTO is unambiguous on NullHandler + don't-configure-handlers; level conventions are stdlib-native; `extra={}` is the documented structured-field mechanism. |
-| E. Findings append-only | MEDIUM | Pattern is project-internal (not an industry convention to cite); recommendations derive from v1.0's existing operator-driven workflow as documented in PROJECT.md Phase 5 ratification. Operator should validate the proposed YAML-frontmatter-or-delimited-section structure before implementation. |
+| Feature | Confidence | Reason |
+|---|---|---|
+| 1. Driver migration | HIGH | Internal pattern; v1.1 quick-task 260613-nwb already demonstrated INT-01 idiom; LIVE-01 gate (Phase 11) validated the live-rerun cycle |
+| 2. unasync/codegen | MEDIUM | Tooling exists and is well-documented (unasync, unasyncd, psycopg3 codegen); fit-for-purpose at THIS repo's 4-package scale is uncertain — hence spike-before-plan flag is correct |
+| 3. Live re-verification | HIGH | v1.1 Phase 11 LIVE-01 directly precedented; just repeats the gate post-migration |
+| 4. IOL disk persistence | HIGH | Pattern well-established (msal-extensions, requests-oauthlib, google-auth + keyring); v1.1 BUG-03 in-instance lifecycle + v1.1 TokenStore Phase 10 concurrency primitive already validated; only new dep is `keyring` (mature, used by AzureCLI/gcloud-sdk) |
+| 5. `from_env()` | HIGH | Industry survey unambiguous: NOT the convention (anthropic, openai, mistral, groq, cohere, stripe all use implicit env fallback). v1.1 already implements implicit fallback. Recommendation is shipping the alias for discoverability only |
+| 6. `with_options()` | HIGH | Anthropic source code inspected; openai docs confirmed; pattern is shallow-clone-share-underlying-http_client. Implementation maps cleanly to v1.1 `_ClientState` + `_max_retries` substrate |
 
 ---
 
-## Gaps / Open Questions for Phase-Level Research
+## Open Questions for Phase-Level Research
 
-These are items that should be revisited when planning the specific phases:
+These should be revisited when planning the specific phases:
 
-1. **D — exact redaction regex set** to lift from `verification/redaction.py` into per-package `_logging.py`. Phase-level work needs to enumerate the current patterns and confirm they cover Bearer, X-Auth-Token, `password=`, IOL refresh_token, and Higyrus JSON `password` field.
-2. **E — exact markdown/frontmatter structure** of the findings file (operator preference: YAML frontmatter per finding vs. delimited operator-section). Operator decision required before implementation.
-3. **C — exact value of `max_elapsed_seconds` cap** if adopted as P2 (not required for v1.1, but if a phase picks it up, needs a number).
-4. **WR-01..WR-08** code-review concerns are listed by ID in PROJECT.md but the concern content itself isn't in the research scope — each will need a 1-line research note at phase-planning time.
-5. **A — multi-account API shape for HIGY fix**: does the caller pass a list of accounts to one `Client`, or instantiate one `Client` per account? Operator decision; recommend the latter (one `Client` per account = simplest model that uses the refactor naturally).
-6. **C — Idempotency-Key opt-in API** if any v1.1 phase wants to enable explicit POST retry: kwarg on `_request()` vs. on the public method. Defer to phase-level.
+1. **Feature 2 spike outcome** — go/no-go decision and which tool (unasync token-based vs unasyncd libcst-based vs custom psycopg-style). Spike scope: iol-client only; measure LOC + CI + reviewer-effort. Operator decision required before phase commits.
+2. **Feature 4 keyring fallback policy** — when keyring backend unavailable (e.g., headless Linux without secret-service daemon), should the JSON fallback be silent (transparent degrade) or require explicit opt-in (`Client(token_cache=DiskTokenCache(path=..., backend="json"))`)? Recommend explicit opt-in — silent disk write of secrets surprises ops.
+3. **Feature 4 cache path default** — `~/.cache/iol-client/token.json` (XDG cache) vs `~/.local/share/iol-client/token.json` (XDG data). XDG cache is "regenerable" semantically; refresh_token is "regenerable via password grant" → cache wins. Operator decision needed.
+4. **Feature 5 ship-or-skip** — does the operator want the `from_env()` alias for discoverability, or is "Client() reads env" documented well enough already? Low-cost either way.
+5. **Feature 6 overridable kwarg surface** — minimum: `max_retries`. Beyond that: `timeout`, `base_url`, `http_client`. Anthropic ships all 4 + headers + query + middleware. v1.2 scope decision: ship the minimum 4 (matching anthropic core), or trim to just `max_retries` (PROJECT.md title)?
+6. **Feature 4 vs Feature 6 interaction** — does `client.with_options(token_cache=DiskTokenCache(...))` make sense? Semantically: swapping token cache on an existing instance is weird (when does the swap take effect? on next refresh? immediately?). Recommend: token cache is a constructor-only kwarg (not in `with_options()` signature).
+7. **Feature 1 driver-output golden snapshot tool** — does v1.2 ship a generic diff harness, or is operator-eye comparison sufficient? v1.1 used operator-eye. Recommend same: capture findings.md hash + summary line counts in PHASE-VERIFICATION.md, no separate tooling.
 
 ---
 
 ## Sources
 
-- [HTTPX Async Support](https://www.python-httpx.org/async/) — context manager recommendation, pool reuse
-- [HTTPX Clients](https://www.python-httpx.org/advanced/clients/) — single global client pattern
-- [HTTPX Transports](https://www.python-httpx.org/advanced/transports/) — built-in `httpx.HTTPTransport(retries=N)` handles only connect errors
-- [Anthropic Python SDK retries — DeepWiki](https://deepwiki.com/anthropics/anthropic-sdk-python/4.4-request-lifecycle-and-retry-logic) — 2 retries default, 408/409/429/≥500, exponential backoff with jitter
-- [Anthropic SDK source (_client.py)](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/_client.py) — class shape reference
-- [Anthropic SDK Retry-After 120s deadlock issue](https://github.com/NousResearch/hermes-agent/issues/26293) — concrete evidence to cap Retry-After
-- [OpenAI Python — Error Handling and Retry Logic — DeepWiki](https://deepwiki.com/openai/openai-python/3.4-error-handling-and-retry-logic) — same retry shape as anthropic, per-request `timeout` = per-attempt
-- [OpenAI Python — Module-Level API pattern — DeepWiki](https://deepwiki.com/openai/openai-python/2.3-module-level-api-usage) — lazy module-private `_ModuleClient` backing top-level helpers (referenced; not directly fetched)
-- [OpenAI Python source (_base_client.py)](https://github.com/openai/openai-python/blob/main/src/openai/_base_client.py) — base client architecture
-- [Stripe Idempotent Requests](https://docs.stripe.com/api/idempotent_requests) — automatic Idempotency-Key generation pattern (cited as differentiator, not adopted)
-- [Stripe — Idempotency and Retry Logic (stripe-node DeepWiki)](https://deepwiki.com/stripe/stripe-node/3.5-idempotency-and-retry-logic) — opt-in `max_network_retries`, connection + 409 retried
-- [Stripe Advanced Error Handling](https://docs.stripe.com/error-low-level) — auto-generated keys for retries
-- [Python Logging HOWTO — official](https://docs.python.org/3/howto/logging.html) — library NullHandler mandate, level conventions, don't-log-to-root
-- [Python logging.handlers (NullHandler)](https://docs.python.org/3/library/logging.handlers.html) — NullHandler reference
-- [AWS Architecture Blog — Exponential Backoff and Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/) — full jitter recommended default
-- [AWS Builders' Library — Timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) — operational analysis
-- [Thom Wright — The problem with decorrelated jitter](https://thomwright.co.uk/2024/04/24/decorrelated-jitter/) — counterpoint analysis (cited; not adopted for v1.1)
-- [MDN — Retry-After header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After) — RFC format (delta-seconds or HTTP-date), client honoring guidance
-- [MDN — 429 Too Many Requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/429) — Retry-After is the reliable signal
-- [RFC 9110 — HTTP Semantics — Idempotent methods](https://www.rfc-editor.org/rfc/rfc9110) — GET/HEAD/OPTIONS/PUT/DELETE idempotent; POST/PATCH not
-- [Stamina — Hynek Schlawack](https://github.com/hynek/stamina) — opinionated retry wrapper (cited as comparison; not adopted; standalone-wheel constraint)
-- [Python Structlog — Standard Library Logging](https://www.structlog.org/en/stable/standard-library.html) — `extra` field convention background
+- [Anthropic Python SDK `_client.py` (main)](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/_client.py) — constructor env fallback, `copy()`/`with_options()` implementation, env var enumeration
+- [Anthropic Python SDK Client Architecture — DeepWiki](https://deepwiki.com/anthropics/anthropic-sdk-python/4-client-architecture) — `copy()` aliased as `with_options()` semantics
+- [Anthropic Python SDK docs — Claude API Docs](https://platform.claude.com/docs/en/api/sdks/python) — ANTHROPIC_API_KEY default behavior
+- [OpenAI Python SDK — discussions on with_options + timeouts](https://github.com/openai/openai-python/discussions/795) — per-request `max_retries` + `timeout` override pattern
+- [OpenAI Python SDK PyPI](https://pypi.org/project/openai/) — `client.with_options(max_retries=5).chat.completions.create(...)` documented
+- [OpenAI Python SDK feature request — Add Logging Between Retries for with_options](https://community.openai.com/t/add-logging-between-retries-for-with-options-max-retries-in-openai-python-client/1271021) — confirms `with_options(max_retries=...)` API surface
+- [Stripe Python — StripeClient migration guide v8](https://github.com/stripe/stripe-python/wiki/Migration-guide-for-v8-(StripeClient)) — `max_network_retries` constructor + `options={"idempotency_key": ...}` per-call
+- [Stripe Idempotency Keys](https://docs.stripe.com/api/idempotent_requests) — auto-generated for retries
+- [unasync (python-trio)](https://github.com/python-trio/unasync/) — token-based async→sync transform, build-time, used by urllib3/httpcore/elasticsearch-py
+- [unasyncd 0.10.0](https://pypi.org/project/unasyncd/) — libcst-based, per-file exclusions, AsyncExitStack→ExitStack, docstring transforms
+- [psycopg3 Automatic async-to-sync code conversion](https://www.psycopg.org/articles/2024/09/23/async-to-sync/) — AST-based in-tree generator
+- [Seth Larson — Designing Libraries for Async and Sync I/O](https://sethmlarson.dev/designing-libraries-for-async-and-sync-io) — async-first source of truth recommendation
+- [Combining sync and async Python code — DRY package](https://spwoodcock.dev/blog/2025-02-python-dry-async/) — unasync `_async`/`_sync` folder layout
+- [DEP Draft: Unasyncify Codegen — Django Forum](https://forum.djangoproject.com/t/dep-draft-request-for-shepherd-unasyncify-codegen/36038) — wider ecosystem context
+- [MSAL Python `SerializableTokenCache`](https://learn.microsoft.com/en-us/python/api/msal/msal.token_cache.serializabletokencache) — base interface, "does not actually persist the cache on disk"
+- [msal-extensions PersistedTokenCache](https://github.com/AzureAD/microsoft-authentication-extensions-for-python) — file-lock + auto-reload + cross-platform encryption (DPAPI/Keychain/LibSecret)
+- [A Python MSAL Token Cache for Confidential Clients — DEV](https://dev.to/425show/a-python-msal-token-cache-for-confidential-clients-29c9) — implementation walkthrough
+- [requests-oauthlib `token_updater` callback](https://requests-oauthlib.readthedocs.io/en/latest/examples/real_world_example_with_refresh.html) — auto-refresh + callback persistence pattern
+- [requests-oauthlib developer interface](https://requests-oauthlib.readthedocs.io/en/latest/api.html) — `OAuth2Session(auto_refresh_url=..., auto_refresh_kwargs=..., token_updater=...)`
+- [google.oauth2.credentials.Credentials](https://googleapis.dev/python/google-auth/1.7.2/reference/google.oauth2.credentials.html) — refresh_token + token_uri + client_id + client_secret required
+- [Authlib OAuth Clients docs](https://docs.authlib.org/en/v1.1.0/client/) — Refresh & Auto Update Token signals
+- [Python `keyring`](https://keyring.readthedocs.io/) — cross-platform credential store
+- [keyring — Securely Storing Credentials in Python (Medium)](https://medium.com/@forsytheryan/securely-storing-credentials-in-python-with-keyring-d8972c3bd25f) — keyring usage walkthrough
+- [Python Keyring Backends 2025](https://johal.in/python-keyring-backends-secretservice-windows-credential-manager-support-2025/) — current backend support
+- [Anthropic Python SDK source on PyPI](https://pypi.org/project/anthropic/) — API reference and version baseline
+- [groq-python](https://github.com/groq/groq-python) — implicit env fallback pattern reference
+- [mistralai 1.0.x on PyPI](https://pypi.org/project/mistralai/1.0.3) — implicit env fallback pattern reference
+- [httpx Environment Variables](https://github.com/encode/httpx/blob/master/docs/environment_variables.md) — confirms httpx itself does NOT read `base_url` from env (caller responsibility)
+- [httpx Clients](https://www.python-httpx.org/advanced/clients/) — `httpx.Client(base_url=..., transport=...)` substrate that v1.1 already uses
 
 ---
 
-*Feature research for: market-libs v1.1 Tech Debt Cleanup*
-*Researched: 2026-06-10*
+*Feature research for: market-libs v1.2 Architecture + Auth/Ergonomics Carry-forwards*
+*Researched: 2026-06-14*
