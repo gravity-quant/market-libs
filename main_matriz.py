@@ -102,6 +102,22 @@ _PKG = "matriz-client"
 _REPO_ROOT = Path(__file__).resolve().parent
 _SCHEMA_DIR = _REPO_ROOT / ".planning" / "verification" / "schemas" / _PKG
 
+# Phase 11 CR-06: tuple de excepciones residuales para los catch-all post-mapeo
+# en los probe boundaries. Los probes capturan primero ``PrimaryAPIError`` y/o
+# ``httpx.HTTPStatusError`` para los casos esperados; este catch-all atrapa
+# cualquier residual de red, parsing o ataque de typing inesperado (e.g.
+# payload shape inesperado que rompe un .get() o un .values()), y los reporta
+# via ``append_finding(..., class_="ERROR-MAP", ...)``. EXCLUYE
+# ``KeyboardInterrupt`` y ``SystemExit`` (no son ``Exception`` subclasses).
+_RESIDUAL_PROBE_EXCEPTIONS = (
+    httpx.HTTPError,
+    OSError,
+    AttributeError,
+    TypeError,
+    ValueError,
+    KeyError,
+)
+
 # D-21 envelope: mapping cada probe func_name a su archivo de schema snapshot.
 _SCHEMA_FILES: dict[str, Path] = {
     "get_segments": _SCHEMA_DIR / "get-segments.json",
@@ -409,7 +425,7 @@ def probe_login_sync() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_sync", "FAIL", f"{fid} (OPEN): AuthenticationError")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"{type(exc).__name__}: {exc}"
         fid = _next_fid()
@@ -1089,7 +1105,7 @@ def probe_error_bogus_symbol() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1169,7 +1185,7 @@ def probe_error_invalid_account() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1248,7 +1264,7 @@ def probe_error_malformed_cfi() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("error_malformed_cfi", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1391,7 +1407,7 @@ async def probe_login_async() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_async", "FAIL", f"{fid} (OPEN): AuthenticationError")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"async {type(exc).__name__}: {exc}"
         fid = _next_fid()
@@ -1444,7 +1460,7 @@ async def _ainvoke(
             base_url=base_url,
         )
         return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1517,7 +1533,7 @@ async def probe_get_instruments_by_cfi_sanity_async() -> ProbeResult:
         except PrimaryAPIError as exc:
             failures.append(f"{cfi}:PrimaryAPIError({exc})")
             continue
-        except Exception as exc:
+        except _RESIDUAL_PROBE_EXCEPTIONS as exc:
             failures.append(f"{cfi}:{type(exc).__name__}({exc})")
             continue
         counts[cfi] = len(items)
@@ -1720,7 +1736,7 @@ async def probe_error_bogus_symbol_async() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1796,7 +1812,7 @@ async def probe_error_invalid_account_async() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1872,7 +1888,7 @@ async def probe_error_malformed_cfi_async() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("error_malformed_cfi_async", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
