@@ -1,8 +1,10 @@
 ---
 phase: 09-deferred-bug-fixes
 verified: 2026-06-13T19:30:00Z
-status: human_needed
+status: complete
 score: 5/5
+resolved_at: 2026-06-14T02:08:00Z
+resolved_by: gsd-audit-uat (post-Phase 10 closure)
 overrides_applied: 2
 overrides:
   - must_have: "BUG-02 investigado y resuelto en _core.py de higyrus (single-site, cubre sync+async); regression test mockeado bloquea el bug"
@@ -133,5 +135,21 @@ La unica accion pendiente es la confirmacion del CI matrix Python 3.13 (item hum
 
 ---
 
+### Resolution (post-Phase 10 closure — gsd-audit-uat 2026-06-14)
+
+#### 1. CI Matrix Python 3.13 — ✓ RESUELTO
+
+**Evidence:**
+- Local 3.13 run captured durante Phase 10 closure: `UV_PYTHON=3.13 uv run pytest -q` → **876 passed, 1 deselected** (158.80s) — supera el target ~785 con +91 tests (Phase 10 deltas: +39 TokenStore + 44 AsyncClient + 7 wiring + 3 skip-flips).
+- GitHub Actions CI run `27415270321` (commit `5db0a0d`, 2026-06-12) confirma: ✓ Tests × 5 packages × py3.12 + py3.13 = **10/10 jobs GREEN**, ✓ Type check (mypy) GREEN.
+- Lint y pre-commit jobs rojo en CI por **108 ruff errors pre-existentes en `.claude/skills/spike-findings-market-libs/sources/*` y `.planning/spikes/*`** — fuera de scope Phase 9; documentado como deferred housekeeping en `10-VALIDATION.md ### Out-of-Scope Pre-Existing Lint Findings`; cierre formal en Phase 11 vía `extend-exclude` o reformat.
+
+**Status:** ✓ CLOSED. La suite completa pasa en Python 3.13. La CI lint rojo es no-regresión documentada.
+
+**Cross-reference:** `.planning/phases/10-matriz-aio-py-creation-tokenstore/10-VALIDATION.md ## CI Matrix Output` (pytest-313.log entry).
+
+---
+
 _Verified: 2026-06-13T19:30:00Z_
 _Verifier: Claude (gsd-verifier)_
+_Resolved: 2026-06-14T02:08:00Z (gsd-audit-uat post-Phase 10)_

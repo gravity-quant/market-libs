@@ -1,8 +1,14 @@
 ---
 phase: 07-core-py-extraction-sync-async-logic-dedup
 verified: 2026-06-12T20:00:00Z
-status: human_needed
-score: 4/5 must-haves verified (SC#3 partial — documented deviation, operator decision required)
+status: complete
+resolved_at: 2026-06-14T02:10:00Z
+resolved_by: gsd-audit-uat (post-Phase 10) + operator signoff (LOC drop accepted)
+operator_signoff:
+  test_2_loc_drop_disposition: "accepted — v1.2 driver migration tracks the residual drop"
+  signoff_date: 2026-06-14
+  signoff_by: sebadlf
+score: 5/5 must-haves verified (SC#3 deviation accepted by operator as v1.2 carry-forward)
 overrides_applied: 0
 human_verification:
   - test: "Confirmar que CI matrix Python 3.12 + 3.13 está verde en el PR de Phase 7 en GitHub"
@@ -162,5 +168,28 @@ Los 4 ROADMAP Success Criteria restantes (SC1, SC2, SC4, SC5) están VERIFIED co
 
 ---
 
+### Resolution (post-Phase 10 closure — gsd-audit-uat 2026-06-14)
+
+#### 1. CI Matrix Python 3.12 + 3.13 — ✓ RESUELTO
+
+**Evidence:**
+- Local 3.12 + 3.13 capturado durante Phase 10 closure: ambas versiones → 876 passed, 1 deselected (logs `/tmp/phase10-gate/pytest-3{12,13}.log`).
+- GitHub Actions CI run `27415270321` (commit `5db0a0d`, 2026-06-12): ✓ Tests × 5 packages × py3.12 + py3.13 = **10/10 jobs GREEN**, ✓ Type check (mypy) GREEN.
+- Lint y pre-commit jobs rojo por **108 ruff errors pre-existentes en `.claude/skills/spike-findings-market-libs/sources/*` y `.planning/spikes/*`** (commit 2026-06-13 — spike sources committed for documentation). Confirmado como excepción aceptable por el verifier original ("job lint puede ser rojo por pre-existing spike artifacts ... fuera de scope Phase 7"). Cierre formal en Phase 11 vía `extend-exclude`.
+
+**Status:** ✓ CLOSED. Veredicto sigue siendo PASS — los jobs in-scope (tests + typecheck) son green; lint rojo es no-regresión documentada.
+
+#### 2. Decisión sobre desviaciones LOC (SC3 partial) — ✓ RESUELTO (operator accepted 2026-06-14)
+
+**Operator signoff:** `accepted — v1.2 driver migration tracks the residual drop`
+**Signoff by:** sebadlf
+**Signoff date:** 2026-06-14
+**Context:** Las desviaciones técnicas iol -5.1% y matriz client.py -20% están bien documentadas en `07-03-SUMMARY.md ## Acknowledged Deviation` y `07-05-SUMMARY.md ## LOC drop target` — son consecuencia de la abstracción Client class + transport shells que el refactor introduce (no se puede romper el invariante sin cambio de scope). v1.2 driver migration (separar la lógica de driver de la del shell de transporte) será el ciclo donde el LOC residual cierra de forma orgánica.
+
+**Status:** ✓ CLOSED. SC#3 partial-PASS → SC#3 accepted-PASS con disposition formal.
+
+---
+
 _Verified: 2026-06-12T20:00:00Z_
 _Verifier: Claude (gsd-verifier)_
+_Resolved: 2026-06-14T02:10:00Z (gsd-audit-uat post-Phase 10; test 1 closed via CI evidence; test 2 closed via operator signoff — LOC drop accepted as v1.2 carry-forward)_
