@@ -34,6 +34,16 @@ Decisiones que emergieron del spiking y son **non-negotiables** para el real bui
 | 001c | tokenstore-double-checked-locking | comparison | DCL: `threading.Lock` (state) + per-loop `asyncio.Lock` (coord) | ✓ **WINNER** | dcl, matriz-pattern, winner |
 | 002 | tokenstore-3way-integration-stress | standard | 100+100+5 callers × 2 phases (cold + TTL expiry) usando 001c | ✓ VALIDATED | stress, integration, phase-10-ready |
 | 003 | tokenstore-refresh-policy | standard | RefreshPolicy decorator (retry + exp backoff + fail-cache + transient/permanent classification) composed with 001c | ✓ VALIDATED | refresh-policy, retry, backoff, dos-prevention |
+| 005 | codegen-tool-choice | standard | unasync 0.6.0 round-trip + B8 identity + matriz construct audit + deny-list intact | TBD | codegen, unasync, phase-12 |
+
+## SPIKE-005 sub-experiments
+
+| Sub | Name | Type | Plan | Validates |
+|-----|------|------|------|-----------|
+| 001a | ambito-round-trip | comparison | 12-01 | Byte-identical round-trip (modulo `ruff format`) + B8 identity preserved on the ámbito canary. |
+| 001b | ambito-marker-future-compat | standard | 12-02 | `@generated` marker comment compatible with `from __future__ import annotations` (ruff check + ruff format --check + mypy --strict + ast.parse all exit 0). |
+| 001c | matriz-construct-audit | enumeration | 12-02 | Every async-only construct in matriz aio.py 852 LOC classified — zero TBD/REVIEW/DENY-LIST-VIOLATION rows (D-SCOPE-02 merge gate). |
+| 001d | matriz-deny-list-config | standard | 12-02 | Per-file `Rule(fpath_list=aio.py-only)` honors deny-list — sha256 of `_token_store.py`, `_refresh_policy.py`, `ws_client.py` identical pre/post unasync run. |
 
 ## Head-to-Head Comparison
 
