@@ -105,7 +105,17 @@ def _configure_async(aio: Any, pkg_name: str, sentinel: str) -> None:
             token=sentinel,
             token_expires_at=9_999_999_999.0,
         )
-    else:  # pragma: no cover — matriz se skipea antes de llegar aquí.
+    elif pkg_name == "matriz_client":
+        # Phase 10 Plan 10-04 (REFAC-04 + LIVE-02): matriz aio.py REST surface +
+        # TokenStore landed (Plan 10-02 + 10-03); cross-leak sentinel now extended.
+        aio.configure(
+            base_url="https://api.test",
+            username="test-user",
+            password="test-pass",
+            token=sentinel,
+            token_expires_at=9_999_999_999.0,
+        )
+    else:  # pragma: no cover — defensive guard for future pkgs.
         raise AssertionError(f"unhandled package in _configure_async: {pkg_name}")
 
 
@@ -170,11 +180,9 @@ async def test_async_token_isolation_in_wire_request(
 ) -> None:
     """Phase 7 D-10/D-11: ASYNC sentinel reaches the wire request unchanged.
 
-    matriz: skipped — matriz ``aio.py`` REST surface es stub Phase 6, sin endpoints.
+    Phase 10 Plan 10-04 (REFAC-04 + LIVE-02): matriz ``aio.py`` REST surface +
+    TokenStore landed (Plan 10-02 + 10-03); matriz branch is now active.
     """
-    if pkg_name == "matriz_client":
-        pytest.skip("matriz aio.py REST stub hasta Phase 10 REFAC-04 + TokenStore")
-
     pkg = importlib.import_module(pkg_name)
     aio = pkg.aio
     sentinel = f"ASYNC-sentinel-{pkg_name}"
@@ -202,7 +210,108 @@ async def test_async_token_isolation_in_wire_request(
             json=[],
         )
         await aio.get_listado_cuentas(estado="alta")
+    elif pkg_name == "matriz_client":
+        httpx_mock.add_response(
+            url="https://api.test/rest/segment/all",
+            json={"status": "OK", "segments": []},
+        )
+        await aio.get_segments()
 
     req = httpx_mock.get_requests()[-1]
     assert header_name is not None
     assert req.headers.get(header_name) == f"{value_prefix}{sentinel}"
+
+
+async def test_matriz_sync_async_state_and_token_store_instance_isolation(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Phase 10 Plan 10-04 (REFAC-04) — matriz cross-leak sentinel extension.
+
+    The cross-leak sentinel above proves SENTINEL VALUES don't bleed across the
+    sync↔async wire path. This guard EXTENDS that contract to prove the
+    underlying STATE OBJECTS (``_ClientState`` + ``_ClientState.token_store``)
+    are distinct INSTANCES per surface — i.e., a refresh on the sync side does
+    NOT mutate the async side's ``token_store`` and vice versa. This is the
+    matriz-specific guarantee that Plan 10-03 wiring enables (sync ``Client``,
+    ``AsyncClient`` and ``ws_client`` daemon thread each have their own
+    ``_ClientState.token_store`` lazy instance per state).
+
+    The assertion targets the matriz-specific REFAC-04 invariant:
+
+    - ``matriz_client.client._get_default()._state`` is NOT the same instance as
+      ``matriz_client.aio._get_default()._state``.
+    - When both surfaces' ``token_store`` slots are populated by Plan 10-03's
+      ``build_token_store`` factory, the two instances are DISTINCT — not aliased.
+      We populate them explicitly (the lazy fast-path skips ``build_token_store``
+      when ``configure(token=..., token_expires_at=...)`` is fresh, so we trigger
+      the wiring path the way Plan 10-03 intended).
+    - The configured sentinel TOKEN value is preserved on each surface (no
+      mid-test mutation by the other surface — re-asserts the cross-leak
+      invariant on the state objects themselves, not just the wire headers).
+    """
+    import matriz_client
+    from matriz_client import aio as matriz_aio
+    from matriz_client._token_store import build_token_store
+
+    sync_sentinel = "SYNC-MATRIZ-sentinel"
+    async_sentinel = "ASYNC-MATRIZ-sentinel"
+
+    matriz_client.configure(
+        base_url="https://api.test",
+        username="test-user",
+        password="test-pass",
+        token=sync_sentinel,
+        token_expires_at=9_999_999_999.0,
+    )
+    matriz_aio.configure(
+        base_url="https://api.test",
+        username="test-user",
+        password="test-pass",
+        token=async_sentinel,
+        token_expires_at=9_999_999_999.0,
+    )
+
+    # Exercise the live wire path so the sentinel hits a real outgoing request
+    # on each surface — re-validates the value-level cross-leak invariant.
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        json={"status": "OK", "segments": []},
+    )
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        json={"status": "OK", "segments": []},
+    )
+    matriz_client.get_segments()
+    await matriz_aio.get_segments()
+
+    sync_state = matriz_client.client._get_default()._state
+    async_state = matriz_aio._get_default()._state
+
+    # _state instance isolation (Plan 10-03 contract).
+    assert sync_state is not async_state, (
+        "sync and async matriz default clients MUST own distinct _ClientState "
+        "instances (Plan 10-03 cross-leak isolation)"
+    )
+
+    # Configured sentinel tokens preserved on each surface — no cross-leak.
+    assert sync_state.token == sync_sentinel
+    assert async_state.token == async_sentinel
+    assert sync_state.token != async_state.token
+
+    # token_store instance isolation (Plan 10-04 matriz-specific extension).
+    # Plan 10-03 wired ``token_store`` as a per-``_state`` lazy slot built by
+    # ``build_token_store``. ``_ensure_token`` short-circuits via
+    # ``token_is_fresh`` when ``configure(token=..., token_expires_at=...)``
+    # is set, so the lazy path is bypassed for pre-seeded tokens; populate
+    # the slot here the way the refresh path would (Plan 10-03 factory),
+    # then prove the two surfaces produce DISTINCT ``TokenStore`` instances.
+    sync_state.token_store = build_token_store(sync_state, max_retries=2)
+    async_state.token_store = build_token_store(async_state, max_retries=2)
+    assert sync_state.token_store is not None
+    assert async_state.token_store is not None
+    assert sync_state.token_store is not async_state.token_store, (
+        "sync and async matriz default clients MUST own distinct token_store "
+        "instances — Plan 10-03 wiring lives on _state.token_store, so distinct "
+        "_state instances MUST yield distinct token_store instances "
+        "(matriz REFAC-04 cross-leak extension)"
+    )

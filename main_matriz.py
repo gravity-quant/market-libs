@@ -4,7 +4,7 @@ Driver de verificación en vivo contra el sandbox de remarkets
 (``https://api.remarkets.primary.com.ar``). Ejercita ~25 probes nombrados en
 orden D-MATZ-29 cubriendo:
 
-- ``MATZ-01`` — login sync vs. servicio real (no async — matriz no tiene aio.py).
+- ``MATZ-01`` — login sync vs. servicio real.
 - ``MATZ-02`` — happy-path sweep de los 18 endpoints REST públicos.
 - ``MATZ-03`` — bidirectional SafeModel<->wire diff sobre los 11 modelos
   ``_SafeModel`` matriz vía ``diff_safemodel_bidirectional`` promovido en Phase 5.
@@ -14,9 +14,16 @@ orden D-MATZ-29 cubriendo:
 - ``DRIFT-01`` mirror — schema snapshots envelope D-21 + D-25 no-overwrite-on-drift.
 - ``DRIFT-02`` — ``verify_cycle_closure`` x 4 paquetes verificados (Phase 2-5).
 
-**Sync-only por diseño** (D-MATZ-30): matriz no tiene ``aio.py``, el driver no
-ejecuta event loops ni rutinas async, y no tiene la función ``_async`` que
-existe en los drivers de los otros paquetes.
+**Phase 10 LIVE-02 extension (REFAC-04):** ``matriz_client.aio`` async REST
+surface landed in Plan 10-02 + 10-03. This driver now runs paired sync↔async
+probes (D-06 interleaved pattern, mirror ``main_iol.py``) covering the
+**REST-only subset** of the matriz surface. The async paridad scope per
+CONTEXT D-09 excludes (a) WebSocket-mediated order entry (``ws_*``) and
+(b) Risk API ``auth_basic`` endpoints (``get_positions``,
+``get_detailed_positions``, ``get_account_report``) — those are Phase 11
+CR-08 scope. A single ``asyncio.run(_async_main(...))`` orchestrates all
+async probes (D-IOL-6 mirror) and the final paridad reporter compares the
+PASS/FINDING/SKIPPED outcome sets between sync and async.
 
 **Security gates aplicados al inicio de ``main()``** (D-MATZ-33):
 
@@ -46,6 +53,8 @@ Variables de entorno (ver ``packages/matriz-client/.env.example``):
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import datetime as dt
 import json
 import os
@@ -68,7 +77,7 @@ from verification import (
 from verification.cycle_report import verify_cycle_closure
 
 import matriz_client as primary
-from matriz_client import PrimaryAPIError
+from matriz_client import PrimaryAPIError, aio
 from matriz_client.client import _request as _matriz_request
 from matriz_client.client import _risk_auth
 from matriz_client.exceptions import AuthenticationError
@@ -1336,6 +1345,614 @@ def probe_schema_snapshot(payloads: dict[str, Any], base_url: str) -> ProbeResul
 
 
 # ---------------------------------------------------------------------------
+# Async probes (Phase 10 LIVE-02 — D-06 interleaved sync+async pattern).
+#
+# Each ``probe_X_async`` mirrors its ``probe_X_sync`` counterpart at the
+# behaviour level: same surface, same SKIPPED triggers, same shape of
+# PASS / FINDING / SKIPPED detail string. The async-failure surface is
+# ``surface="async"`` in append_finding (vs ``"sync"`` above).
+#
+# Scope per CONTEXT D-09: REST-only subset. Risk API ``auth_basic`` probes
+# (positions / detailed_positions / account_report) emit a single SKIPPED
+# async stub each — they are Phase 11 CR-08 territory. CFI sanity sweep
+# (8-loop variant) is mirrored as a single async probe. The 3 error probes
+# (bogus symbol / invalid account / malformed CFI) have async mirrors that
+# exercise the same error-mapping invariants through ``aio``.
+#
+# Auth state: ``probe_login_async`` reuses the shared ``_auth_failed`` /
+# ``_auth_failure_reason`` cascade (D-IOL-3 idiom). If sync login already
+# failed, async login still runs (independent state instance per Phase 7
+# cross-leak isolation), so the cascade is set DURING the sync run, then
+# async probes inherit it iff async login also fails.
+# ---------------------------------------------------------------------------
+
+
+async def probe_login_async() -> ProbeResult:
+    """Async login probe (D-06 pair of ``probe_login_sync``)."""
+    global _auth_failed, _auth_failure_reason
+    base_url = aio._get_default()._state.base_url
+    t0 = time.monotonic()
+    try:
+        await aio.login()
+    except AuthenticationError as exc:
+        _auth_failed = True
+        _auth_failure_reason = f"async AuthenticationError: {exc}"
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="async",
+            status="OPEN",
+            title="aio.login() async falló (AuthenticationError)",
+            expected="login() retorna token válido y obtiene X-Auth-Token header",
+            actual=f"AuthenticationError: {exc}",
+            diff="verificar PRIMARY_USER/PRIMARY_PASSWORD; revisar headers de respuesta",
+            base_url=base_url,
+        )
+        return ProbeResult("login_async", "FAIL", f"{fid} (OPEN): AuthenticationError")
+    except Exception as exc:
+        _auth_failed = True
+        _auth_failure_reason = f"async {type(exc).__name__}: {exc}"
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"aio.login() async levantó {type(exc).__name__} no mapeado",
+            expected="AuthenticationError o éxito; transporte mapeado a tipo conocido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción no es subclase de AuthenticationError; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("login_async", "FAIL", f"{fid} (OPEN): {type(exc).__name__}")
+    duration = time.monotonic() - t0
+    return ProbeResult("login_async", "PASS", f"token obtenido en {duration:.2f}s")
+
+
+async def _ainvoke(
+    name: str,
+    coro_factory: Callable[[], Any],
+    *,
+    expected: str = "200 OK + surface-typed payload",
+) -> ProbeResult:
+    """Run a single async probe call and map exceptions to ProbeResult.
+
+    Common skeleton for the 16 REST-only async paridad probes — keeps each
+    individual ``probe_X_async`` short and mirrors the error-mapping flow
+    used by ``_envelope_probe`` on the sync side.
+    """
+    if _auth_failed:
+        return ProbeResult(name, "SKIPPED", f"auth failed: {_auth_failure_reason}")
+    base_url = aio._get_default()._state.base_url
+    try:
+        result = await coro_factory()
+    except PrimaryAPIError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"aio.{name} levantó PrimaryAPIError inesperado",
+            expected=expected,
+            actual=f"PrimaryAPIError: {exc}",
+            diff="error upstream o status='ERROR' inesperado",
+            base_url=base_url,
+        )
+        return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"aio.{name} levantó {type(exc).__name__} no mapeado",
+            expected=expected,
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="transporte async devolvió excepción no mapeada a PrimaryAPIError",
+            base_url=base_url,
+        )
+        return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+    # PASS detail mirror sync helpers — short summary only (WR-01: no PII).
+    if isinstance(result, list):
+        return ProbeResult(name, "PASS", f"{len(result)} items")
+    return ProbeResult(name, "PASS", "received")
+
+
+async def probe_get_segments_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_segments``."""
+    return await _ainvoke("get_segments_async", aio.get_segments)
+
+
+async def probe_get_all_instruments_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_all_instruments``."""
+    return await _ainvoke("get_all_instruments_async", aio.get_all_instruments)
+
+
+async def probe_get_instruments_details_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_instruments_details``."""
+    return await _ainvoke("get_instruments_details_async", aio.get_instruments_details)
+
+
+async def probe_get_instrument_detail_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_instrument_detail`` (depende de ``_resolved_symbol``)."""
+    if _resolved_symbol is None and not _auth_failed:
+        return ProbeResult(
+            "get_instrument_detail_async", "SKIPPED", "no _resolved_symbol from probe #3"
+        )
+    sym = _resolved_symbol or ""
+    return await _ainvoke(
+        "get_instrument_detail_async", lambda: aio.get_instrument_detail(sym, "ROFX")
+    )
+
+
+async def probe_get_instruments_by_cfi_ESXXXX_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_instruments_by_cfi_ESXXXX``."""
+    return await _ainvoke(
+        "get_instruments_by_cfi_ESXXXX_async",
+        lambda: aio.get_instruments_by_cfi("ESXXXX"),
+    )
+
+
+async def probe_get_instruments_by_cfi_sanity_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_instruments_by_cfi_sanity`` — 8 CFI codes."""
+    if _auth_failed:
+        return ProbeResult(
+            "get_instruments_by_cfi_sanity_async",
+            "SKIPPED",
+            f"auth failed: {_auth_failure_reason}",
+        )
+    base_url = aio._get_default()._state.base_url
+    failures: list[str] = []
+    counts: dict[str, int] = {}
+    for cfi in _CFI_SANITY_CODES:
+        try:
+            items = await aio.get_instruments_by_cfi(cfi)
+        except PrimaryAPIError as exc:
+            failures.append(f"{cfi}:PrimaryAPIError({exc})")
+            continue
+        except Exception as exc:
+            failures.append(f"{cfi}:{type(exc).__name__}({exc})")
+            continue
+        counts[cfi] = len(items)
+    if failures:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="async",
+            status="OPEN",
+            title="CFI sanity sweep async: shape failures",
+            expected="cada CFI retorna list[Instrument] vía aio",
+            actual=f"failures: {', '.join(failures)}",
+            diff="ver lista de codes que fallaron shape",
+            base_url=base_url,
+        )
+        return ProbeResult("get_instruments_by_cfi_sanity_async", "FINDING", f"{fid} (OPEN)")
+    detail = ", ".join(f"{c}={n}" for c, n in counts.items())
+    return ProbeResult("get_instruments_by_cfi_sanity_async", "PASS", detail)
+
+
+async def probe_get_instruments_by_segment_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_instruments_by_segment``."""
+    if _resolved_segment is None and not _auth_failed:
+        return ProbeResult(
+            "get_instruments_by_segment_async", "SKIPPED", "no _resolved_segment from probe #2"
+        )
+    seg = cast(Any, _resolved_segment or "")
+    return await _ainvoke(
+        "get_instruments_by_segment_async",
+        lambda: aio.get_instruments_by_segment(seg, "ROFX"),
+    )
+
+
+async def probe_get_market_data_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it)."""
+    if _auth_failed:
+        return ProbeResult(
+            "get_market_data_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
+        )
+    if _resolved_symbol is None:
+        return ProbeResult("get_market_data_async", "SKIPPED", "no _resolved_symbol from probe #3")
+    sym = _resolved_symbol
+    return await _ainvoke(
+        "get_market_data_async",
+        lambda: aio.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI")),
+    )
+
+
+async def probe_get_trades_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_trades``."""
+    if _resolved_symbol is None and not _auth_failed:
+        return ProbeResult("get_trades_async", "SKIPPED", "no _resolved_symbol from probe #3")
+    today = dt.date.today()
+    seven_days_ago = today - dt.timedelta(days=7)
+    sym = _resolved_symbol or ""
+    return await _ainvoke(
+        "get_trades_async",
+        lambda: aio.get_trades(
+            sym, date_from=seven_days_ago.isoformat(), date_to=today.isoformat()
+        ),
+    )
+
+
+async def probe_get_active_orders_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_active_orders``."""
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return ProbeResult("get_active_orders_async", "SKIPPED", "no PRIMARY_ACCOUNT env var")
+    acct = _PRIMARY_ACCOUNT or ""
+    return await _ainvoke("get_active_orders_async", lambda: aio.get_active_orders(acct))
+
+
+async def probe_get_filled_orders_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_filled_orders``."""
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return ProbeResult("get_filled_orders_async", "SKIPPED", "no PRIMARY_ACCOUNT env var")
+    acct = _PRIMARY_ACCOUNT or ""
+    return await _ainvoke("get_filled_orders_async", lambda: aio.get_filled_orders(acct))
+
+
+async def probe_get_all_orders_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_all_orders``."""
+    if _PRIMARY_ACCOUNT is None and not _auth_failed:
+        return ProbeResult("get_all_orders_async", "SKIPPED", "no PRIMARY_ACCOUNT env var")
+    acct = _PRIMARY_ACCOUNT or ""
+    return await _ainvoke("get_all_orders_async", lambda: aio.get_all_orders(acct))
+
+
+async def probe_get_order_status_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_order_status``."""
+    if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
+        return ProbeResult(
+            "get_order_status_async",
+            "SKIPPED",
+            "no MATRIZ_SAMPLE_CL_ORD_ID / MATRIZ_SAMPLE_PROPRIETARY env vars",
+        )
+    cl_id = _SAMPLE_CL_ORD_ID or ""
+    prop = _SAMPLE_PROPRIETARY or ""
+    return await _ainvoke("get_order_status_async", lambda: aio.get_order_status(cl_id, prop))
+
+
+async def probe_get_order_history_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_order_history``."""
+    if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
+        return ProbeResult(
+            "get_order_history_async",
+            "SKIPPED",
+            "no MATRIZ_SAMPLE_CL_ORD_ID / MATRIZ_SAMPLE_PROPRIETARY env vars",
+        )
+    cl_id = _SAMPLE_CL_ORD_ID or ""
+    prop = _SAMPLE_PROPRIETARY or ""
+    return await _ainvoke("get_order_history_async", lambda: aio.get_order_history(cl_id, prop))
+
+
+async def probe_get_order_by_exec_id_async() -> ProbeResult:
+    """D-06 async pair of ``probe_get_order_by_exec_id``."""
+    if _SAMPLE_EXEC_ID is None and not _auth_failed:
+        return ProbeResult(
+            "get_order_by_exec_id_async", "SKIPPED", "no MATRIZ_SAMPLE_EXEC_ID env var"
+        )
+    exec_id = _SAMPLE_EXEC_ID or ""
+    return await _ainvoke("get_order_by_exec_id_async", lambda: aio.get_order_by_exec_id(exec_id))
+
+
+# Risk API auth_basic probes (positions / detailed_positions / account_report)
+# — out-of-scope for Phase 10 async paridad per CONTEXT D-09. Each emits a
+# single SKIPPED async stub so the paridad comparator sees a matching
+# SKIPPED entry on the async side (mirror sync SKIPPED-on-no-account, and
+# document that the async surface DOES expose these endpoints but Phase 10
+# scope deliberately defers their live exercise to Phase 11 CR-08).
+
+
+async def probe_get_positions_async() -> ProbeResult:
+    return ProbeResult(
+        "get_positions_async",
+        "SKIPPED",
+        "Risk API auth_basic out-of-scope for Phase 10 async paridad (D-09; Phase 11 CR-08)",
+    )
+
+
+async def probe_get_detailed_positions_async() -> ProbeResult:
+    return ProbeResult(
+        "get_detailed_positions_async",
+        "SKIPPED",
+        "Risk API auth_basic out-of-scope for Phase 10 async paridad (D-09; Phase 11 CR-08)",
+    )
+
+
+async def probe_get_account_report_async() -> ProbeResult:
+    return ProbeResult(
+        "get_account_report_async",
+        "SKIPPED",
+        "Risk API auth_basic out-of-scope for Phase 10 async paridad (D-09; Phase 11 CR-08)",
+    )
+
+
+async def probe_error_bogus_symbol_async() -> ProbeResult:
+    """D-06 async pair of ``probe_error_bogus_symbol`` (MATZ-05)."""
+    if _auth_failed:
+        return ProbeResult(
+            "error_bogus_symbol_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
+        )
+    base_url = aio._get_default()._state.base_url
+    try:
+        await aio.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
+    except PrimaryAPIError as exc:
+        if exc.status == "ERROR":
+            return ProbeResult(
+                "error_bogus_symbol_async",
+                "PASS",
+                f"PrimaryAPIError as expected: {exc.description}",
+            )
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="bogus symbol async: PrimaryAPIError con status != 'ERROR'",
+            expected="PrimaryAPIError(status='ERROR') al pasar símbolo inválido",
+            actual=f"PrimaryAPIError(status={exc.status!r}): {exc}",
+            diff="status no es 'ERROR'; revisar mapping de error",
+            base_url=base_url,
+        )
+        return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
+    except httpx.HTTPStatusError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="bogus symbol async: HTTP 4xx no mapeado a PrimaryAPIError",
+            expected="PrimaryAPIError mapeado para símbolo inválido",
+            actual=f"HTTPStatusError {exc.response.status_code}: {exc}",
+            diff="upstream devolvió 4xx en lugar de status='ERROR' en payload",
+            base_url=base_url,
+        )
+        return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"bogus symbol async: unexpected {type(exc).__name__}",
+            expected="PrimaryAPIError mapeado para símbolo inválido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción inesperada; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="async",
+        status="OPEN",
+        title="aio.get_market_data con símbolo inválido NO levantó excepción",
+        expected="PrimaryAPIError mapeado para símbolo inválido",
+        actual="ninguna excepción; el cliente retornó normalmente",
+        diff="upstream devolvió 200 OK con shape válida pero data inexistente",
+        base_url=base_url,
+    )
+    return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
+
+
+async def probe_error_invalid_account_async() -> ProbeResult:
+    """D-06 async pair of ``probe_error_invalid_account`` (MATZ-05)."""
+    if _auth_failed:
+        return ProbeResult(
+            "error_invalid_account_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
+        )
+    base_url = aio._get_default()._state.base_url
+    try:
+        await aio.get_active_orders("INVALID-ACCT-XXXXX")
+    except PrimaryAPIError as exc:
+        if exc.status == "ERROR":
+            return ProbeResult(
+                "error_invalid_account_async",
+                "PASS",
+                f"PrimaryAPIError as expected: {exc.description}",
+            )
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="invalid account async: PrimaryAPIError con status != 'ERROR'",
+            expected="PrimaryAPIError(status='ERROR') al pasar account inválido",
+            actual=f"PrimaryAPIError(status={exc.status!r}): {exc}",
+            diff="status no es 'ERROR'; revisar mapping de error",
+            base_url=base_url,
+        )
+        return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
+    except httpx.HTTPStatusError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="invalid account async: HTTP 4xx no mapeado a PrimaryAPIError",
+            expected="PrimaryAPIError mapeado para account inválido",
+            actual=f"HTTPStatusError {exc.response.status_code}: {exc}",
+            diff="upstream devolvió 4xx en lugar de status='ERROR' en payload",
+            base_url=base_url,
+        )
+        return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"invalid account async: unexpected {type(exc).__name__}",
+            expected="PrimaryAPIError mapeado para account inválido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción inesperada; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="async",
+        status="OPEN",
+        title="aio.get_active_orders con account inválido NO levantó excepción",
+        expected="PrimaryAPIError mapeado para account inválido",
+        actual="ninguna excepción; el cliente retornó normalmente",
+        diff="upstream devolvió 200 OK con shape válida",
+        base_url=base_url,
+    )
+    return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
+
+
+async def probe_error_malformed_cfi_async() -> ProbeResult:
+    """D-06 async pair of ``probe_error_malformed_cfi`` (MATZ-05)."""
+    if _auth_failed:
+        return ProbeResult(
+            "error_malformed_cfi_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
+        )
+    base_url = aio._get_default()._state.base_url
+    try:
+        await aio.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
+    except PrimaryAPIError as exc:
+        if exc.status == "ERROR":
+            return ProbeResult(
+                "error_malformed_cfi_async",
+                "PASS",
+                f"PrimaryAPIError as expected: {exc.description}",
+            )
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="malformed CFI async: PrimaryAPIError con status != 'ERROR'",
+            expected="PrimaryAPIError(status='ERROR') al pasar CFI inválido",
+            actual=f"PrimaryAPIError(status={exc.status!r}): {exc}",
+            diff="status no es 'ERROR'; revisar mapping de error",
+            base_url=base_url,
+        )
+        return ProbeResult("error_malformed_cfi_async", "FINDING", f"{fid} (OPEN)")
+    except httpx.HTTPStatusError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="malformed CFI async: HTTP 4xx no mapeado a PrimaryAPIError",
+            expected="PrimaryAPIError mapeado para CFI inválido",
+            actual=f"HTTPStatusError {exc.response.status_code}: {exc}",
+            diff="upstream devolvió 4xx en lugar de status='ERROR' en payload",
+            base_url=base_url,
+        )
+        return ProbeResult("error_malformed_cfi_async", "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"malformed CFI async: unexpected {type(exc).__name__}",
+            expected="PrimaryAPIError mapeado para CFI inválido",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="excepción inesperada; revisar mapping",
+            base_url=base_url,
+        )
+        return ProbeResult("error_malformed_cfi_async", "FINDING", f"{fid} (OPEN)")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="async",
+        status="OPEN",
+        title="aio.get_instruments_by_cfi con CFI inválido NO levantó excepción",
+        expected="PrimaryAPIError mapeado para CFI inválido",
+        actual="ninguna excepción; el cliente retornó normalmente",
+        diff="upstream aceptó CFI no válido; revisar validación",
+        base_url=base_url,
+    )
+    return ProbeResult("error_malformed_cfi_async", "FINDING", f"{fid} (OPEN)")
+
+
+# ---------------------------------------------------------------------------
+# Async wrapper — un único asyncio.run (D-IOL-6 mirror).
+#
+# Phase 10 LIVE-02: all async probes share one event loop + one
+# AsyncClient default singleton, then aclose() at the end. The wrapper
+# returns the full list of async ProbeResults in execution order so main()
+# can interleave them with sync results (D-06 pairing per CONTEXT.md).
+# ---------------------------------------------------------------------------
+
+
+async def _async_main() -> list[ProbeResult]:
+    """Run all paridad-scope async probes inside a single asyncio.run.
+
+    Order matches the sync sweep (probes 1-19) plus the 3 error probes.
+    Returns 22 ProbeResults: 1 login + 16 REST-only read-sweep probes +
+    3 Risk-API-skipped probes + 3 error probes — 19 are real async invocations
+    against the live surface; the 3 Risk probes are documented SKIPPED stubs
+    (out-of-scope per D-09).
+    """
+    async_results: list[ProbeResult] = []
+    try:
+        async_results.append(await probe_login_async())
+        async_results.append(await probe_get_segments_async())
+        async_results.append(await probe_get_all_instruments_async())
+        async_results.append(await probe_get_instruments_details_async())
+        async_results.append(await probe_get_instrument_detail_async())
+        async_results.append(await probe_get_instruments_by_cfi_ESXXXX_async())
+        async_results.append(await probe_get_instruments_by_cfi_sanity_async())
+        async_results.append(await probe_get_instruments_by_segment_async())
+        async_results.append(await probe_get_market_data_async())
+        async_results.append(await probe_get_trades_async())
+        async_results.append(await probe_get_active_orders_async())
+        async_results.append(await probe_get_filled_orders_async())
+        async_results.append(await probe_get_all_orders_async())
+        async_results.append(await probe_get_order_status_async())
+        async_results.append(await probe_get_order_history_async())
+        async_results.append(await probe_get_order_by_exec_id_async())
+        async_results.append(await probe_get_positions_async())
+        async_results.append(await probe_get_detailed_positions_async())
+        async_results.append(await probe_get_account_report_async())
+        async_results.append(await probe_error_bogus_symbol_async())
+        async_results.append(await probe_error_invalid_account_async())
+        async_results.append(await probe_error_malformed_cfi_async())
+    finally:
+        with contextlib.suppress(Exception):
+            await aio.aclose()
+    return async_results
+
+
+# ---------------------------------------------------------------------------
 # main() lifecycle (D-MATZ-29 #25 cycle_closure + D-MATZ-27 EXPECTED terminal)
 # ---------------------------------------------------------------------------
 
@@ -1496,6 +2113,12 @@ def main() -> None:
         base_url=base,
     )
 
+    # Phase 10 LIVE-02 — D-06 interleaved sync+async paridad.
+    # Run all async probes in a single asyncio.run (D-IOL-6 mirror), then
+    # APPEND each async result to the report alongside its sync counterpart.
+    async_results = asyncio.run(_async_main())
+    results.extend(async_results)
+
     # Stdout verbatim D-02 + SUMMARY. Cada línea via safe_print con secrets.
     counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "SKIPPED": 0, "FINDING": 0}
     for r in results:
@@ -1507,6 +2130,54 @@ def main() -> None:
         f"SKIPPED={counts['SKIPPED']} FINDING={counts['FINDING']}",
         secrets=secrets,
     )
+
+    # Phase 10 LIVE-02 paridad reporter (D-06): compare PASS/FINDING/SKIPPED
+    # outcome sets between sync and async probes. Naming convention: the
+    # async probe is the sync name with ``_async`` suffix (or the sync name
+    # with ``_sync`` stripped from the sync name where present — matriz sync
+    # uses bare names like ``get_segments``, async uses ``get_segments_async``).
+    sync_outcomes: dict[str, str] = {}
+    async_outcomes: dict[str, str] = {}
+    # D-09 exclusions: Risk API auth_basic + sync-only auxiliaries are
+    # out-of-scope for Phase 10 paridad (Phase 11 CR-08 will lift these).
+    _PARIDAD_EXCLUDED: set[str] = {
+        "get_positions",
+        "get_detailed_positions",
+        "get_account_report",
+        "field_type_map",
+        "schema_snapshot",
+    }
+    for r in results:
+        if r.name.endswith("_async"):
+            key = r.name[: -len("_async")]
+            if key in _PARIDAD_EXCLUDED:
+                continue
+            async_outcomes[key] = r.status
+        elif r.name in {"login_sync"}:
+            sync_outcomes["login"] = r.status
+        elif r.name.startswith("cycle_closure_"):
+            # cycle_closure probes are sync-only (DRIFT-02), not paired async.
+            continue
+        elif r.name in _PARIDAD_EXCLUDED:
+            continue
+        else:
+            sync_outcomes[r.name] = r.status
+    common_keys = set(sync_outcomes) & set(async_outcomes)
+    divergences = [
+        (k, sync_outcomes[k], async_outcomes[k])
+        for k in sorted(common_keys)
+        if sync_outcomes[k] != async_outcomes[k]
+    ]
+    paridad = not divergences and bool(common_keys)
+    paridad_status = "PASS" if paridad else "FAIL"
+    safe_print(
+        f"=== Phase 10 LIVE-02 Paridad sync↔async: {paridad_status} "
+        f"(probes_paired={len(common_keys)}, divergences={len(divergences)}) ===",
+        secrets=secrets,
+    )
+    if divergences:
+        for key, sync_st, async_st in divergences:
+            safe_print(f"  DIVERGENCE {key}: sync={sync_st} async={async_st}", secrets=secrets)
 
 
 if __name__ == "__main__":

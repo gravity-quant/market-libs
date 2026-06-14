@@ -58,6 +58,16 @@ def _configure_async(aio: Any, pkg_name: str) -> None:
             token="test-token",
             token_expires_at=9_999_999_999.0,
         )
+    elif pkg_name == "matriz_client":
+        # Phase 10 Plan 10-04 (REFAC-04 + LIVE-02): matriz aio.py REST surface +
+        # TokenStore landed; the cancellation guard now exercises matriz async too.
+        aio.configure(
+            base_url="https://api.test",
+            username="test-user",
+            password="test-pass",
+            token="test-token",
+            token_expires_at=9_999_999_999.0,
+        )
     else:  # pragma: no cover
         raise AssertionError(f"unhandled pkg in _configure_async: {pkg_name}")
 
@@ -75,12 +85,10 @@ async def test_cancellation_propagates_during_retry_backoff(
     - ``asyncio.TimeoutError`` raised within deadline (or shortly after — < 1.0s)
     - elapsed time < 1.0s (cancellation interrupted the backoff sleep)
 
-    Guard test; RED in HEAD until Plans 2-4 add AsyncRetryTransport. matriz async
-    is skipped per D-25 with the verbatim Phase 7 D-11 reason.
+    Guard test; RED in HEAD until Plans 2-4 add AsyncRetryTransport. Phase 10 Plan
+    10-04 (REFAC-04 + LIVE-02): matriz aio.py REST surface + TokenStore landed
+    (Plan 10-02 + 10-03); matriz branch is now active.
     """
-    if pkg_name == "matriz_client":
-        pytest.skip("matriz aio.py REST stub hasta Phase 10 REFAC-04 + TokenStore")
-
     pkg = importlib.import_module(pkg_name)
     aio = pkg.aio
     _configure_async(aio, pkg_name)
@@ -95,6 +103,9 @@ async def test_cancellation_propagates_during_retry_backoff(
         coro = aio.get_instruments("argentina")
     elif pkg_name == "higyrus_client":
         coro = aio.get_listado_cuentas(estado="alta")
+    elif pkg_name == "matriz_client":
+        # Phase 10 Plan 10-04: simplest REST async endpoint (no params, no risk auth).
+        coro = aio.get_segments()
     else:  # pragma: no cover
         raise AssertionError(f"unhandled pkg: {pkg_name}")
 
