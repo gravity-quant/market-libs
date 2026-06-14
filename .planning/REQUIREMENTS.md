@@ -19,10 +19,10 @@ compat layer sobre la clase `Client` interna.
 
 ### Refactor arquitectónico (REFAC)
 
-- [ ] **REFAC-01**: Safety net previo al refactor — golden public-surface snapshot
+- [x] **REFAC-01**: Safety net previo al refactor — golden public-surface snapshot
   + "fixture-reaches-production" guard test por paquete; baseline de test count,
   assertion count y coverage% registrados antes de cada phase.
-- [ ] **REFAC-02**: Clase `Client` (sync) + `AsyncClient` (async) por paquete con
+- [x] **REFAC-02**: Clase `Client` (sync) + `AsyncClient` (async) por paquete con
   `close()`/`aclose()`, sync/async context manager, estado scoped a instancia
   (`base_url`, credenciales, token, http client, refresh_token); top-level
   functions (`pkg.get_X(...)`) y `configure(...)` quedan delegando en un
@@ -32,7 +32,7 @@ compat layer sobre la clase `Client` interna.
   `client.py` y `aio.py` quedan como shells de transporte (~30-50 LOC por
   endpoint) llamando a `_core`; CI rule (import-linter / grep) que prohíbe
   `_core.py` importar `client.py` o `aio.py`.
-- [ ] **REFAC-04**: `matriz_client/aio.py` mirroring full REST surface (mismas
+- [x] **REFAC-04**: `matriz_client/aio.py` mirroring full REST surface (mismas
   signatures que `client.py`) con `_state` async independiente + `TokenStore`
   con `threading.Lock` callable desde asyncio context y desde `ws_client.py`
   daemon thread.
@@ -88,50 +88,50 @@ compat layer sobre la clase `Client` interna.
 
 ### Harness hardening (HARN-07+)
 
-- [ ] **HARN-07**: `verification/findings.py` append-only con BEGIN/END zone
+- [x] **HARN-07**: `verification/findings.py` append-only con BEGIN/END zone
   parser; lectura de archivo existente + merge + write atómico; preserva todo
   contenido fuera de la zona generada.
-- [ ] **HARN-08**: Content-addressed dedupe by finding ID — cierra D-MATZ-27
+- [x] **HARN-08**: Content-addressed dedupe by finding ID — cierra D-MATZ-27
   (dedupe de "prod-vs-remarkets divergence acknowledged" terminal); aplica a
   los 4 drivers; idempotent re-run = git-clean.
-- [ ] **HARN-09**: Operator field preservation cross-runs — campos
+- [x] **HARN-09**: Operator field preservation cross-runs — campos
   `Classification:`, `Rationale:`, `Regression:`, `Resolution:` añadidos por el
   operador sobreviven verbatim a re-runs del driver; regression test con re-run
   N veces vs estado inicial.
-- [ ] **HARN-10**: `main_matriz.py` dedupe de `D-MATZ-27 EXPECTED` terminal
+- [x] **HARN-10**: `main_matriz.py` dedupe de `D-MATZ-27 EXPECTED` terminal
   finding por idempotencia (no requiere N re-runs para detectar duplicación).
 
 ### Code Review concerns (CR — cierra WR-01..WR-08)
 
-- [ ] **CR-01** (WR-01): `main_matriz.py:1722-1746` `probe_schema_snapshot`
+- [x] **CR-01** (WR-01): `main_matriz.py:1722-1746` `probe_schema_snapshot`
   registra placeholder en `sample_params` mientras el snapshot file path
   refleja `PRIMARY_ACCOUNT` live; alinear ambos.
-- [ ] **CR-02** (WR-02): `probe_login_sync` retorna `"FAIL"` mientras el resto
+- [x] **CR-02** (WR-02): `probe_login_sync` retorna `"FAIL"` mientras el resto
   del driver usa `"FINDING"` para fallos de auth; unificar a `FINDING`.
 - [x] **CR-03** (WR-03): `packages/matriz-client/src/matriz_client/client.py:166-174`
   `_request` no consume response body antes de raise cuando `data.status=="ERROR"`
   — potential connection-pool resource leak con HTTP/2; consumir body explícito.
-- [ ] **CR-04** (WR-04): `main_matriz.py:172-179` `_first_dict` silenciosamente
+- [x] **CR-04** (WR-04): `main_matriz.py:172-179` `_first_dict` silenciosamente
   acepta non-list / empty-list inputs; distinguir y reportar.
 - [x] **CR-05** (WR-05): `main_matriz.py:300-1394` 18 sweep probes con
   ~95% boilerplate duplicado — refactor a helper único; previene drift entre
   probes (con `_core.py` + `Client` ya en v1.1 esto se simplifica).
-- [ ] **CR-06** (WR-06): `main_matriz.py` + `main_higyrus.py` bare `except
+- [x] **CR-06** (WR-06): `main_matriz.py` + `main_higyrus.py` bare `except
   Exception` a nivel módulo (≥20 sites entre ambos) — narrow a `except
   Exception as e` capturando solo lo necesario; nunca enmascarar `KeyboardInterrupt`.
-- [ ] **CR-07** (WR-07): `main_higyrus.py:233-318` `_capture_sync_query_string` /
+- [x] **CR-07** (WR-07): `main_higyrus.py:233-318` `_capture_sync_query_string` /
   `_capture_async_query_string` mutan `event_hooks` sin lock — multi-event-loop
   callers corrompen hooks; usar lock o per-request hook injection.
-- [ ] **CR-08** (WR-08): `main_higyrus.py:767` line lengths >100 cols dentro de
+- [x] **CR-08** (WR-08): `main_higyrus.py:767` line lengths >100 cols dentro de
   f-string `dict.keys()` — split o silenciar con `# noqa`.
 
 ### Live re-verification (LIVE)
 
-- [ ] **LIVE-01**: `main_*.py --live` × 4 paquetes (iol, higyrus, ambito, matriz)
+- [x] **LIVE-01**: `main_*.py --live` × 4 paquetes (iol, higyrus, ambito, matriz)
   pasa sin regresiones del baseline `verification-cycle-2026-Q2` después de
   todos los refactors; `verify_cycle_closure × 4 pkgs` reporta el estado
   esperado (PASS para los 3 limpios + estado actualizado para matriz post-BUG-01).
-- [ ] **LIVE-02**: `matriz-client` async REST (`aio.py`) verificada live como
+- [x] **LIVE-02**: `matriz-client` async REST (`aio.py`) verificada live como
   parte de `main_matriz.py --async` o equivalente; mismo set de probes que la
   superficie sync.
 

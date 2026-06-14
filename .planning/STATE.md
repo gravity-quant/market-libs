@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Tech Debt Cleanup
-status: executing
-last_updated: "2026-06-14T03:59:13.539Z"
+status: milestone_complete
+last_updated: 2026-06-14T12:21:22.015Z
 last_activity: 2026-06-14 -- Phase 11 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 30
-  completed_plans: 27
+  completed_plans: 30
   percent: 83
+stopped_at: Milestone complete (Phase 11 was final phase)
 ---
 
 # Project State
@@ -21,20 +22,20 @@ See: .planning/PROJECT.md (updated 2026-06-10 for v1.1)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.1 layer: saldar la deuda arquitectónica que vino a la luz durante el ciclo de verificación v1.0 — refactor Client class, sync/async dedup, matriz aio.py, retries/backoff, structured logging, deferred fixes, harness hardening.)
 
-**Current focus:** Phase 11 — harness-hardening-code-review-close-out-live-re-verification
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 11 (harness-hardening-code-review-close-out-live-re-verification) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 11
-Last activity: 2026-06-14 -- Phase 11 execution started
+Phase: 11
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-06-14 - Completed quick task 260614-de5: fix DOC-01..04 before completing milestone
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 34 (v1.0)
+- Total plans completed: 37 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -108,6 +109,7 @@ Recent decisions affecting current work:
 |---|-------------|------|---------|-----------|
 | 260611-u0v | Fix CI failures on phase-06-compat-safety-net (snapshot trailing whitespace + iol tests mypy strict + v1.0 archive whitespace) | 2026-06-11 | bc16e26, 2be4e90, 9360cf5 | [260611-u0v-fix-ci-failures-on-phase-06-compat-safet](./quick/260611-u0v-fix-ci-failures-on-phase-06-compat-safet/) |
 | 260613-nwb | Fix INT-01: replace denied `_base_url` with `_get_default()._state.base_url` in main_iol.py (15 probes) — closes INT-01, unblocks LIVE-01 (Phase 11) | 2026-06-13 | 3de1940 | [260613-nwb-fix-int-01-main-iol-py-crashea-con-attri](./quick/260613-nwb-fix-int-01-main-iol-py-crashea-con-attri/) |
+| 260614-de5 | Fix DOC-01..04 before completing milestone v1.1 — backfill 4 SUMMARY frontmatters + flip REQUIREMENTS.md traceability table 18 rows Open→Complete + emit Phase 10/11 VERIFICATION shims + remove ORP-01 dead `account_id` field from matriz `_state.py` | 2026-06-14 | 9d01d7f, cd946a3 | [260614-de5-fix-doc-01-04-before-completing-mileston](./quick/260614-de5-fix-doc-01-04-before-completing-mileston/) |
 
 ## Deferred Items
 

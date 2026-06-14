@@ -269,7 +269,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
 | 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 4/4 | Complete   | 2026-06-14 |
-| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 3/3 | Complete   | 2026-06-14 |
+| 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 3/3 | Complete    | 2026-06-14 |
 
 ## Backlog
 
