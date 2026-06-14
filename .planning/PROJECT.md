@@ -23,19 +23,33 @@ corregida.
 
 **v1.1 Tech Debt Cleanup shipped** (2026-06-14) — 6 phases / 30 plans / 29/29 requirements satisfied / 907 tests green on Python 3.12. Milestone audit `passed` with 29/29 cross-phase integration wired and 9/9 E2E flows complete. The four packages now share a consistent architectural shape: `Client`/`AsyncClient` classes per package backed by `_ClientState` (with the public `pkg.get_X(...)` API preserved 100% via a PEP 562 shim), pure `_core.py` builders/parsers with import-linter contracts blocking re-coupling, `RetryTransport`/`AsyncRetryTransport` with full-jitter backoff + mutation-aware gate + `Retry-After` cap, per-package `RedactingFilter` over `logging.getLogger("<pkg>")`, and the four v1.0 deferred bugs (BUG-01..04) closed with regression coverage. Matriz now has a full async REST surface (`aio.py` 852 LOC) backed by a 3-way concurrent `TokenStore` (`threading.Lock` callable from sync REST, asyncio context via `asyncio.to_thread`, and the `ws_client` daemon thread). Driver hardening landed via `verification/findings.py` append-only BEGIN/END parser + content-addressed dedupe + operator-field preservation. Live re-verification × 4 packages PASS (operator dispositions: ambito/iol/higyrus/matriz all `no_new_findings`; iol F-02 PROBE_STALE fixed inline via the INT-01 idiom at `main_iol.py:1289`).
 
-## Next Milestone Goals (v1.2 — planning)
+## Current Milestone: v1.2 Architecture + Auth/Ergonomics Carry-forwards
 
-Tentative scope inherited from v1.1 backlog and v1.0 carry-forwards (final selection happens in `/gsd-new-milestone`):
+**Goal:** Cerrar la deuda arquitectónica residual de v1.1 — migrar los 4 drivers `main_*.py` a consumir `Client`/`AsyncClient` directamente (cierra el LOC drop residual iol -5.1% / matriz -20%), eliminar la duplicación estructural sync/async vía unasync/codegen single-source, agregar IOL refresh_token disk persistence (secure token storage), y exponer ergonomics cross-package (`Client.from_env()` + `client.with_options(max_retries=N)`).
 
-- **prod-vs-remarkets verification** for matriz (D-MATZ-27 REQUIRED handoff — v1.0 deferred, v1.1 explicitly out of scope).
-- **`matriz_client.ws_client` live verification** (WebSocket streaming over daemon thread; v1.0/v1.1 deferred).
-- **IOL refresh_token disk persistence** (v1.1 BUG-03 closed in-instance; disk-persisted secure token storage carried forward).
-- **Driver migration** to consume the `Client`/`AsyncClient` classes directly (closes the LOC-drop SC#3 partial on iol -5.1% and matriz client.py -20% that v1.1 documented as operator-accepted).
-- **Generated-code parity tooling** (one source, dual emit via `unasync` / codegen — closes the known sync/async duplication tech debt).
-- **Automatic `Idempotency-Key` header** for retried mutating POSTs (belt-and-suspenders on the mutation gate).
-- **`findings.toml` machine-readable side-file** alongside the markdown findings.
-- **`client.with_options(max_retries=N)` per-call override** (anthropic/openai pattern).
-- **Verification scope extension to `wallets-client`** if real endpoints land.
+**Target features:**
+
+### Arquitectura sync/async dedup
+- Driver migration × 4 packages (`main_ambito` → `main_iol` → `main_higyrus` → `main_matriz`) a consumir `Client`/`AsyncClient` directamente vía instancias — cierra el LOC drop residual (iol -5.1%, matriz client.py -20%).
+- Single-source sync/async via unasync/codegen approach — spike-validated antes del plan (research flag activado; evalúa unasync, codegen casero, jinja2 templates, u otra opción).
+- Re-verificación live `main_*.py --live × 4` al cierre del milestone (LIVE-01-equivalent) confirma que la API observable no regresionó.
+
+### Auth/Token persistence + Client ergonomics
+- IOL refresh_token disk persistence — secure token storage para el único paquete con OAuth refresh_token; cierra el carry-forward de v1.1 BUG-03 (in-instance only).
+- `Client.from_env()` classmethod × 4 packages — lectura explícita de env vars (patrón anthropic/openai). Per-package serial.
+- `client.with_options(max_retries=N)` per-call override × 4 packages — patrón anthropic/openai para overrides puntuales sin re-instanciar.
+
+### In-cycle bugs (patrón v1.0/v1.1)
+- Durante la migración de drivers y la re-verificación live, los findings que surjan se clasifican CONFIRMED/FIXED/EXPECTED/NO-FIX y se cierran con regression test mockeado en el mismo phase (sin lista pre-conocida).
+
+**Non-breaking constraint:** v1.2 sigue siendo minor — el top-level `pkg.get_X(...)` API queda 100% backwards-compatible para callers existentes vía el PEP 562 shim de v1.1; solo migran los drivers `main_*.py` internos del repo.
+
+**Out of scope para v1.2 (deferred a v1.3+):**
+- prod-vs-remarkets verification matriz (D-MATZ-27 REQUIRED handoff) — defer a v1.3
+- `matriz_client.ws_client` live verification (WebSocket daemon thread) — defer a v1.3
+- `wallets-client` scope extension — defer
+- Retry observability polish (Idempotency-Key, request_id UUID, max_elapsed_seconds, findings.toml) — defer
+- ERR-01/ERR-02 mocked error mapping — defer
 
 <details>
 <summary>v1.1 Current Milestone block (shipped, archived for reference)</summary>
@@ -164,4 +178,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 after v1.1 milestone — Tech Debt Cleanup shipped (6 phases / 30 plans / 29/29 requirements / 907 tests on Python 3.12 / audit `passed`). Phases 6–11 delivered: PEP 562 compat shim + Client/AsyncClient classes (REFAC-01/02); `_core.py` extraction with import-linter (REFAC-03 + CR-03/05); retries/backoff/logging (RELY-01..04 + LOG-01..03); 4 v1.0 deferred bugs closed with 2 operator overrides (BUG-01..04); matriz async REST + TokenStore 3-way concurrency (REFAC-04 + LIVE-02); harness hardening + 6 CR concerns + LIVE-01 final gate × 4 packages (HARN-07..10 + CR-01/02/04/06/07/08 + LIVE-01). v1.0 archived (5 phases / 18 plans / 35/35 requirements / 277 tests / DRIFT-02 baseline `verification-cycle-2026-Q2`). v1.2 planning starts via `/gsd-new-milestone` — candidate scope: prod-vs-remarkets verification, ws_client live, refresh_token disk persistence, driver migration to Client class, unasync/codegen for sync/async parity.*
+*Last updated: 2026-06-14 — v1.2 milestone started (Architecture + Auth/Ergonomics Carry-forwards). Scope locked at 2 clusters: (1) Arquitectura sync/async dedup = driver migration × 4 + unasync/codegen single-source via spike-before-plan flag + final live re-verification; (2) Auth/Token persistence + Client ergonomics = IOL refresh_token disk persistence + `Client.from_env()` × 4 + `client.with_options(max_retries=N)` × 4. In-cycle bug-fix pattern (v1.0/v1.1) carries forward for findings that surface during driver migration. v1.1 shipped 2026-06-14 (6 phases / 30 plans / 29/29 reqs / 907 tests / audit `passed`); v1.0 shipped 2026-06-10 (5 phases / 18 plans / 35/35 reqs / 277 tests / DRIFT-02 baseline `verification-cycle-2026-Q2`).*
