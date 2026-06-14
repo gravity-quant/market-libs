@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: completed
-last_updated: "2026-06-14T17:53:04.420Z"
-last_activity: 2026-06-14 — v1.2 roadmap created (Phases 12-17 mapped; 5/5 requirements covered with REFAC-06 conditional on Phase 12 spike outcome)
+status: executing
+last_updated: "2026-06-14T18:56:29.090Z"
+last_activity: 2026-06-14 -- Phase 12 planning complete
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
+  total_plans: 3
   completed_plans: 0
   percent: 0
 ---
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 Phase: 12 — Codegen Spike (research flag activated for REFAC-06)
 Plan: Not started
-Status: Roadmap defined; requirements complete; ready for `/gsd-discuss-phase 12`
-Last activity: 2026-06-14 — v1.2 roadmap created (Phases 12-17 mapped; 5/5 requirements covered with REFAC-06 conditional on Phase 12 spike outcome)
+Status: Ready to execute
+Last activity: 2026-06-14 -- Phase 12 planning complete
 
 **Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
 
