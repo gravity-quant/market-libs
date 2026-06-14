@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-06-14T14:13:09.649Z"
 last_activity: 2026-06-14
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,16 +19,18 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async + IOL refresh_token disk persistence + `Client.from_env()` × 4 + `client.with_options(max_retries=N)` × 4.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
 
-**Current focus:** v1.2 — defining requirements
+**Current focus:** v1.2 — Phase 12 (Codegen Spike) ready for `/gsd-discuss-phase 12`
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-14 — Milestone v1.2 started
+Phase: 12 — Codegen Spike (research flag activated for REFAC-06)
+Plan: Not started
+Status: Roadmap defined; requirements complete; ready for `/gsd-discuss-phase 12`
+Last activity: 2026-06-14 — v1.2 roadmap created (Phases 12-17 mapped; 5/5 requirements covered with REFAC-06 conditional on Phase 12 spike outcome)
+
+**Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
 
 ## Performance Metrics
 
@@ -64,6 +66,17 @@ Last activity: 2026-06-14 — Milestone v1.2 started
 - Test suite: 277 (v1.0 close) → 907/908 (v1.1 close) on Python 3.12 local
 - Quick tasks: 3 (260611-u0v, 260613-nwb, 260614-de5)
 
+**By Phase (v1.2 planned):**
+
+| Phase | Plans | Status      | Requirements | Notes |
+|-------|-------|-------------|--------------|-------|
+| 12    | ?     | Not started | REFAC-06 (spike) | Codegen tool-choice spike (unasync vs libcst); go/no-go output for Phase 16 — RESEARCH FLAG |
+| 13    | ?     | Not started | ERG-01 | `with_options(max_retries=N)` × 4 packages; mutation-gate invariant preserved (CRITICAL test: matriz new_order under 503 exactly 1 request) |
+| 14    | ?     | Not started | SEC-01 | IOL `_token_cache.py` + platformdirs + fcntl.flock + 0600 + caplog no-leak + failed-refresh cleanup — parallel-eligible with Phase 15 |
+| 15    | ?     | Not started | REFAC-05 | Driver migration × 4 (ámbito → iol → higyrus → matriz); ONE Client per main() AST guard; probe-name stability vs LIVE-01 71bf201 |
+| 16    | ?     | Not started | REFAC-06 | CONDITIONAL — DROPPED if Phase 12 NO-GO; otherwise unasync codegen × 4 transport shells with @generated marker + CI verify-clean |
+| 17    | ?     | Not started | LIVE-03 | Final LIVE-01-equivalent gate × 4 packages; milestone audit |
+
 ## Accumulated Context
 
 ### Decisions
@@ -71,19 +84,12 @@ Last activity: 2026-06-14 — Milestone v1.2 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [v1.1 Roadmap]: Phase order is dependency-driven (research-mandated): Phase 6 safety net BEFORE refactor → Phase 7 `_core.py` dedup → Phase 8 retries+logging (parallel after `_core.py`) → Phase 9 deferred bugs (single-site fix via `_core.py`) → Phase 10 matriz aio.py (needs `_core.py` + retries/logging infra) → Phase 11 harness + code review + live re-verification.
-- [v1.1 Roadmap]: Per-package serial pattern (v1.0 lesson) — within Phase 6 and Phase 7, process order: ámbito → iol → higyrus → matriz; each package independent (no shared internals — refactors replicate 4x).
-- [v1.1 Roadmap]: Non-breaking via PEP 562 `__getattr__` shim + `configure(token=..., token_expires_at=...)` extension for conftest migration; 277 tests baseline must stay green after EVERY phase.
-- [v1.1 Roadmap]: Mutation gate is mandatory — `RequestSpec.idempotent` defaults False; POST/PATCH NEVER retry without explicit `idempotent=True`; `AuthError`/`PrimaryAPIError`/`HigyrusAPIError` NEVER in `retry_on=` tuple.
-- [v1.1 Research Flag]: Phase 10 (matriz `aio.py` + TokenStore) requires phase-level research spike before planning — the 3-way concurrent token store (sync REST + async REST + ws_client daemon thread with `threading.Lock` callable from asyncio context) is the single architectural unknown in v1.1.
-- [Phase ?]: Phase 8 Plan 1: Wave 1 cross-cutting scaffolding landed — tenacity 9.1.4 dep + 6 guard tests (14 RED awaiting Plans 2-5) + ruff LOG + CI grep step (D-15, D-21, D-26, D-27)
-- [Phase ?]: Phase 8 Plan 2 (ámbito canary): RetryTransport + AsyncRetryTransport + RedactingFilter wired; pattern verified for Plan 3 replication
-- [Phase ?]: Phase 8 Plan 3 (iol): RetryTransport+AsyncRetryTransport+RedactingFilter mirrored from ámbito + 401 re-auth-once at shell tier (D-02) + OAuth refresh_token URL+JSON redaction (D-10). Auth-paquete pattern established for Plans 4 (higyrus) and 5 (matriz).
-- [Phase ?]: Plan 8-01 cross-cutting test bug fixed: test_idempotent_get_retries_on_503 expected_count corrected from 2 to 3 — Plan 8-01 author had a notation slip; canonical default is max_retries=2 = 3 attempts per D-15+D-19. Unblocks Plans 4+5 too.
-- [Phase ?]: Phase 8 Plan 4 (higyrus)
-- [Phase ?]: Phase 8 Plan 5 (matriz): Wave 5 closure. RetryTransport sync + RedactingFilter D-22 (auth_basic split) + Risk API no-401-reauth (D-23) + status=ERROR no-retry (D-24) + mutation gate on Primary order GETs (Pitfall 4 — duplicate-order prevention). matriz aio.py UNCHANGED (103 LOC stub per D-25 — Phase 10 REFAC-04 territory).
-- [Phase ?]: Phase 8 Plan 6 green-gate consolidation complete; nyquist_compliant=true; 627 pytest pass + 3 skip (D-25); 5 ROADMAP success criteria backward-verified; Pitfall 4 GREEN; D-25 matriz aio.py preserved 103 LOC; CI lint-logging grep refined for docstring false-positive (Rule 1 fix)
-- [Phase 8]: Plan 6 Task 2 operator checkpoint closed 2026-06-13 — approval signal delivered via 08-VALIDATION.md frontmatter edit (status=approved, nyquist_compliant=true, wave_0_complete=true, phase_status=ready_for_verify); 6 close-out spot-checks all PASS (matriz aio.py=103, matriz _atransport.py ABSENT, Pitfall 4 matriz_new_order PASS, tenacity 9.1.4 confirmed, 5 atomic feat commits + Plan 6 ci+docs present, green-gate evidence sections complete)
+- [v1.2 Roadmap]: Phase order derived from research SUMMARY.md dependency DAG: Phase 12 spike-before-plan → Phase 13 ergonomics (drivers consume `with_options` in Phase 15) → Phase 14 IOL disk + Phase 15 driver migration in parallel waves → Phase 16 codegen (CONDITIONAL on Phase 12) → Phase 17 LIVE-03 final gate.
+- [v1.2 Roadmap]: REFAC-06 is mapped to Phase 16 as CONDITIONAL — DROPPED entirely if Phase 12 spike returns NO-GO; defers REFAC-06 to v1.3 in that case. All other 4 requirements (REFAC-05, SEC-01, ERG-01, LIVE-03) are mandatory.
+- [v1.2 Roadmap]: Driver migration (REFAC-05, Phase 15) MUST run BEFORE codegen (REFAC-06, Phase 16) — driver migration surfaces public method surface gaps locally; codegen-after would mask them cross-phase. Per ARCHITECTURE §2.6 reason #4.
+- [v1.2 Roadmap]: Per-package serial ordering within phases: ámbito → iol → higyrus → matriz (REFAC-05, SEC-01, LIVE-03 follow this); ERG-01 (Phase 13) uses ámbito → higyrus → matriz → iol (iol LAST because it interacts with SEC-01 disk cache in Phase 14).
+- [v1.2 Roadmap]: HIGHEST-RISK pitfall test gates encoded as merge-gate success criteria — Phase 13 anti-Pitfall 14 (matriz `new_order` exactly 1 request under 503); Phase 14 anti-Pitfall 7/8/9 (caplog no-leak + failed-refresh cleanup + fcntl race); Phase 15 anti-Pitfall 1/15 (AST single-Client guard + probe-name stability); Phase 16 anti-Pitfall 4/5 (B8 identity + @generated marker verify-clean).
+- [v1.2 Roadmap]: Operational pre-gate — v1.1 head `71bf201` confirmed CI-green on Python 3.13 BEFORE Phase 12 starts; anti-Pitfall 17 (prevents v1.1-vs-v1.2 attribution ambiguity).
 
 ### Pending Todos
 
@@ -95,11 +101,15 @@ Recent decisions affecting current work:
 
 [Issues that affect future work]
 
-- [Phase 6]: Pitfall #1 (monkeypatch silent breakage) — the "fixture reaches production" guard test MUST exist and pass BEFORE the first Client class refactor lands per-package.
-- [Phase 7]: Pitfall #3 (re-coupling sync/async via `_core.py` imports) — import-linter rule + distinct sync/async sentinels in conftest are gates for merge.
-- [Phase 8]: Pitfall #4 (retry of mutating POST) — regression test asserting exactly 1 outgoing request per POST mockeado contra 503 is mandatory before enabling retry decorator.
-- [Phase 8]: Pitfall #6 (library logging.basicConfig) — CI grep rule + regression test for `logging.root.handlers` unchanged after import is mandatory.
-- [Phase 10]: TokenStore 3-way design is the highest-uncertainty item of v1.1; research flag triggered — spike must happen before `/gsd-plan-phase 10`.
+- [Phase 12]: Codegen tool choice (unasync vs libcst) is the single architectural unknown in v1.2; spike-before-plan flag activated per PROJECT.md and SUMMARY.md. Phase 12 GO/NO-GO output gates Phase 16.
+- [Phase 13]: Pitfall 14 (`with_options(max_retries=10).new_order(...)` bypassing mutation gate) — duplicate-order money-on-the-line; the CRITICAL test must land BEFORE Phase 13 merge — matriz Primary `new_order` under 503 mock must execute EXACTLY 1 outgoing request.
+- [Phase 14]: Pitfall 7 (new disk log sites bypass `RedactingFilter`) — token-write logger MUST be under `iol_client.*` namespace; `caplog` regression test required.
+- [Phase 14]: Pitfall 8 (stale-token-after-OOB-rotation) — failed-refresh path MUST delete disk token before password fallback; regression test required.
+- [Phase 14]: Pitfall 9 (multi-process race) — `fcntl.flock` required around disk writes; regression test with 20 concurrent threads required.
+- [Phase 15]: Pitfall 1 (state leak between probes / per-instance state defeats singleton expectation) — ONE Client per main() run invariant enforced by AST regression-guard per driver.
+- [Phase 15]: Pitfall 15 (probe-name stability) — finding IDs/titles MUST stay constant vs LIVE-01 baseline `71bf201`; only probe BODIES change.
+- [Phase 16]: Pitfall 4 (codegen breaks B8 identity) — `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` MUST survive codegen; test runs FIRST in CI.
+- [Phase 16]: Pitfall 5 (codegen overwrites hand-edit) — `@generated` marker + CI `lint-codegen` verify-clean job mandatory.
 
 ### Quick Tasks Completed
 
@@ -122,7 +132,7 @@ Items acknowledged and carried forward from v1.0 milestone close on 2026-06-10:
 | verification_gap | 05-VERIFICATION.md | human_needed — operator-driven validation satisfied via re-run | N/A — archived under v1.0 |
 | deferred_bug | F-09 matriz ERROR-MAP | DEFERRED in v1.0 Phase 5 | Resolved in Phase 9 (BUG-01) |
 | deferred_bug | F-02 higyrus get_listado_cuentas=0 | DEFERRED in v1.0 Phase 4 | Resolved in Phase 9 (BUG-02) |
-| deferred_cap | IOL refresh_token persistence | DEFERRED in v1.0 Phase 3 | Resolved in Phase 9 (BUG-03, in-instance only; disk persistence deferred to v1.2) |
+| deferred_cap | IOL refresh_token persistence | DEFERRED in v1.0 Phase 3 | Resolved in Phase 9 (BUG-03, in-instance only; disk persistence deferred to v1.2 — now Phase 14 SEC-01) |
 | deferred_cap | HIGY multi-account iteration | DEFERRED in v1.0 Phase 4 | Resolved in Phase 9 (BUG-04) |
 
 See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit context.
@@ -133,9 +143,9 @@ Items surfaced by `gsd-sdk query audit-open` and acknowledged by operator at mil
 
 | Category | Item | Status | Carry-forward |
 |----------|------|--------|---------------|
-| uat_gap | 07-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation); test 2 accepted 2026-06-14 (SC#3 LOC drop disposition signed off) | Human-only — requires push + observe GitHub Actions matrix |
-| uat_gap | 08-HUMAN-UAT.md | partial — 4 pending: live retry smoke under real transients, log legibility subjective UX, CI 3.13 matrix, deferred review-item tracking | Human-only; deferred-review-tracking actually closed by Phase 11 (HARN scope), other 3 remain operator-confirm |
-| uat_gap | 09-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation) | Human-only — same as Phase 07 test 1 |
+| uat_gap | 07-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation); test 2 accepted 2026-06-14 (SC#3 LOC drop disposition signed off) | Human-only — requires push + observe GitHub Actions matrix; **PRE-PHASE-12 OPERATIONAL GATE** |
+| uat_gap | 08-HUMAN-UAT.md | partial — 4 pending: live retry smoke under real transients, log legibility subjective UX, CI 3.13 matrix, deferred review-item tracking | Human-only; deferred-review-tracking actually closed by Phase 11 (HARN scope), other 3 remain operator-confirm; **CI 3.13 matrix is PRE-PHASE-12 OPERATIONAL GATE** |
+| uat_gap | 09-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation) | Human-only — same as Phase 07 test 1; **PRE-PHASE-12 OPERATIONAL GATE** |
 | quick_task | 260611-u0v-fix-ci-failures-on-phase-06-compat-safet | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 3 commits in git history | False-positive (SDK parser heuristic) |
 | quick_task | 260613-nwb-fix-int-01-main-iol-py-crashea-con-attri | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 1 commit in git history | False-positive (SDK parser heuristic) |
 | quick_task | 260614-de5-fix-doc-01-04-before-completing-mileston | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 2 commits in git history | False-positive (SDK parser heuristic) |
@@ -148,9 +158,11 @@ Cleaned up inline before milestone close:
 ## Session Continuity
 
 Last session: 2026-06-14T02:58:27.721Z
-Stopped at: Phase 11 planning complete
-Resume file: .planning/phases/11-harness-hardening-code-review-close-out-live-re-verification/11-01-PLAN.md
+Stopped at: v1.2 roadmap defined (Phases 12-17 mapped; 5/5 requirements covered with REFAC-06 conditional on Phase 12 spike)
+Resume file: .planning/ROADMAP.md (v1.2 Phase Details section, Phases 12-17)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+1. **Pre-Phase-12 operational gate:** push v1.1 head `71bf201` to remote (if not already) and confirm GitHub Actions matrix green on Python 3.12 + 3.13. If red, file as quick-task before Phase 12.
+2. **Start Phase 12 discussion:** `/gsd-discuss-phase 12` — codegen tool-choice spike (unasync vs libcst on ámbito canary + matriz worst case). RESEARCH FLAG active.
+3. **Phase 12 output gates Phase 16:** if NO-GO, REFAC-06 defers to v1.3 and Phase 16 is DROPPED from the schedule; Phase 17 (LIVE-03) runs directly after Phase 14 + 15.

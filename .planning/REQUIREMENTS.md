@@ -139,16 +139,20 @@ PROBE_STALE fix inline). Tracking via `verification/findings.py` append-only con
 
 *Filled by roadmap (see `ROADMAP.md`)*
 
-| REQ-ID   | Phase     | Status |
-|----------|-----------|--------|
-| REFAC-05 | TBD       | Open   |
-| REFAC-06 | TBD (spike-gated) | Open |
-| SEC-01   | TBD       | Open   |
-| ERG-01   | TBD       | Open   |
-| LIVE-03  | TBD       | Open   |
+| REQ-ID   | Phase                       | Status |
+|----------|-----------------------------|--------|
+| REFAC-05 | Phase 15                    | Open   |
+| REFAC-06 | Phase 16 (conditional)      | Open   |
+| SEC-01   | Phase 14                    | Open   |
+| ERG-01   | Phase 13                    | Open   |
+| LIVE-03  | Phase 17                    | Open   |
 
-**Coverage:** 5/5 requirements mapped a placeholder pendiente del roadmap. REFAC-06 está
-conditionally-gated en el spike output (puede defer a v1.3).
+Phase 12 (Codegen Spike) is the spike-before-plan research flag for REFAC-06; its output is a
+binary GO/NO-GO decision that gates Phase 16. If NO-GO, REFAC-06 defers to v1.3 and Phase 16
+is DROPPED from the v1.2 schedule.
+
+**Coverage:** 5/5 requirements mapped to v1.2 phases. REFAC-06 (Phase 16) is conditionally-gated
+on the Phase 12 spike output (may defer to v1.3).
 
 ---
 
