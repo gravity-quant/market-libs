@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: executing
-last_updated: "2026-06-14T18:56:29.090Z"
-last_activity: 2026-06-14 -- Phase 12 planning complete
+status: ready_to_plan
+last_updated: 2026-06-14T20:52:30.433Z
+last_activity: 2026-06-14 -- Phase 12 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
+  completed_plans: 4
   percent: 0
+stopped_at: Phase 12 complete (4/3) — ready to discuss Phase 13
 ---
 
 # Project State
@@ -21,14 +22,14 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
 
-**Current focus:** v1.2 — Phase 12 (Codegen Spike) ready for `/gsd-discuss-phase 12`
+**Current focus:** Phase 13 — cross package ergonomics (`with_options(max_retries=n)`)
 
 ## Current Position
 
-Phase: 12 — Codegen Spike (research flag activated for REFAC-06)
+Phase: 13
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-14 -- Phase 12 planning complete
+Status: Ready to plan
+Last activity: 2026-06-14
 
 **Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
 
@@ -36,7 +37,7 @@ Last activity: 2026-06-14 -- Phase 12 planning complete
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 37 (v1.0)
+- Total plans completed: 41 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
