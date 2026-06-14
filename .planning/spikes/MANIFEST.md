@@ -34,7 +34,7 @@ Decisiones que emergieron del spiking y son **non-negotiables** para el real bui
 | 001c | tokenstore-double-checked-locking | comparison | DCL: `threading.Lock` (state) + per-loop `asyncio.Lock` (coord) | ✓ **WINNER** | dcl, matriz-pattern, winner |
 | 002 | tokenstore-3way-integration-stress | standard | 100+100+5 callers × 2 phases (cold + TTL expiry) usando 001c | ✓ VALIDATED | stress, integration, phase-10-ready |
 | 003 | tokenstore-refresh-policy | standard | RefreshPolicy decorator (retry + exp backoff + fail-cache + transient/permanent classification) composed with 001c | ✓ VALIDATED | refresh-policy, retry, backoff, dos-prevention |
-| 005 | codegen-tool-choice | standard | unasync 0.6.0 round-trip + B8 identity + matriz construct audit + deny-list intact | TBD | codegen, unasync, phase-12 |
+| 005 | codegen-tool-choice | standard | unasync 0.6.0 round-trip + B8 identity + matriz construct audit + deny-list intact | ✗ **NO-GO** [^spike-005] | codegen, unasync, phase-12, NO-GO |
 
 ## SPIKE-005 sub-experiments
 
@@ -63,6 +63,20 @@ Decisiones que emergieron del spiking y son **non-negotiables** para el real bui
 - **Phase 10** (`matriz aio.py` + TokenStore creation): blocker is now resolved. Plan can proceed knowing the primitive choice and key constraints.
 - **Phase 9** (deferred bugs, BUG-03 IOL refresh_token persistence): the DCL pattern is applicable but **NOT identical** — IOL has a refresh_token concept on top of bearer token. Phase 9 can reuse the locking PATTERN but state shape will differ.
 - **`_async_locks` leak handling**: deferred to Phase 10 planning. Recommended approach is "accept the leak, document it" because the per-entry size is microscopic and most realistic use cases have <10 distinct loops over the lifetime of a Client instance.
+
+## SPIKE-005 Forward References
+
+[^spike-005]: SPIKE-005 returned **NO-GO** on 2026-06-14 (signed by sebadlf) under
+strict D-RIGOR-01 reading (3 of 8 evidence items FAIL: items 1 byte-identical,
+4 ruff check, 6 ámbito pytest). All 3 FAILs trace to a single source-shape
+asymmetry root cause; zero Recipe-2 class-3 (unfixable) hunks. REFAC-06 deferred
+to v1.3 with a dedicated libcst spike per D-NOGO-01. Phase 16 DROPPED from v1.2
+schedule; Phase 17 (LIVE-03) unblocked. See:
+
+- NO-GO close-out: `SPIKE-005-codegen-tool-choice/NO-GO.md`
+- v1.3 libcst pending todo: `.planning/todos/pending/spike-codegen-libcst-v1.3.md`
+- Auto-loaded skill carrying the NO-GO learnings:
+  `.claude/skills/spike-findings-codegen-market-libs/SKILL.md`
 
 ## Conventions Followed
 

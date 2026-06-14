@@ -1,0 +1,327 @@
+SPIKE-005 — D-RIGOR-01 Evidence Checklist
+=========================================
+
+Generated: 2026-06-14 (Phase 12 Plan 03 Task 12-03-01)
+Source: re-run against current spike artifacts + current codebase.
+Spike directory: .planning/spikes/SPIKE-005-codegen-tool-choice/
+
+Reference:
+  - 12-CONTEXT.md §D-RIGOR-01 — the canonical 8-item list.
+  - 12-RESEARCH.md §"Phase Requirements → Test Map" — the automated commands.
+  - 12-CONTEXT.md §D-SCOPE-03 — 1-day timebox + auto-NO-GO trigger.
+  - 001a/FINDING.md, 001b/FINDING.md, 001c/FINDING.md, 001d/FINDING.md — sub-experiment verdicts.
+
+
+=== D-RIGOR-01 item 1: Byte-identical round-trip ámbito ===
+
+Automated command (per 12-RESEARCH.md):
+  diff -u packages/ambito-financiero-client/src/ambito_financiero_client/client.py \
+          .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+
+Re-run NOW:
+  $ diff -u packages/ambito-financiero-client/src/ambito_financiero_client/client.py \
+            .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+  exit code: 1
+  hunk count (^@@ count): 10
+  total diff lines: 295
+
+Verdict: **FAIL** (strict byte-identical contract not satisfied)
+
+Recipe-2 classification (per 001a/FINDING.md ## Diff Analysis):
+  - 7 hunks Recipe-2 class 4 (INHERENT-ASYMMETRY)
+  - 2 hunks Recipe-2 class 1 (COSMETIC — ruff format does not converge)
+  - 1 hunk SEMANTIC-CONSISTENT-EXTENSION (close() module delegator)
+  - 0 hunks Recipe-2 class 3 (NO-GO trigger: "semantic NOT fixable via additional_replacements")
+
+Recipe-2-classified verdict: PASS-WITH-PHASE-16-SETUP (no NO-GO trigger).
+
+Source artifact: .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/diff_vs_v1.1_client.txt
+
+
+=== D-RIGOR-01 item 2: B8 identity preserved on generated ===
+
+Automated command (per 12-RESEARCH.md):
+  Re-load client_generated.py via importlib + assert
+    mod._raise_for_response is aio._raise_for_response is _core.raise_for_response
+
+Re-run NOW:
+  $ uv run python /tmp/spike-005-item2.py
+  mod._raise_for_response  id=0x10694ade0
+  aio._raise_for_response  id=0x10694ade0
+  _core.raise_for_response id=0x10694ade0
+  B8 IDENTITY: PASS
+  exit code: 0
+
+Verdict: **PASS**
+
+(All three identifiers resolve to the same Python object id 0x10694ade0; matches 001a Step 6
+where the previous run produced id 0x106d2afc0 — the absolute address shifts per process
+restart, but the `is` identity invariant holds across both runs.)
+
+Source artifact: .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/run_log.txt
+                 + this re-run transcript.
+
+
+=== D-RIGOR-01 item 3: `uv run ruff format --check` clean ===
+
+Automated command (per 12-RESEARCH.md):
+  uv run ruff format --check .../001a-ambito-round-trip/output/client_generated.py
+
+Re-run NOW:
+  $ uv run ruff format --check .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+  1 file already formatted
+  exit code: 0
+
+Verdict: **PASS**
+
+(Format-stability confirmed: the first ruff format pass left the file unchanged; the
+--check pass exits 0. Pitfall 3 mitigation holds.)
+
+Source artifact: 001a/run_log.txt + 001b/verification_transcripts.txt + this re-run transcript.
+
+
+=== D-RIGOR-01 item 4: `uv run ruff check` clean (incl. ASYNC1xx) ===
+
+Automated command (per 12-RESEARCH.md):
+  uv run ruff check .../001a-ambito-round-trip/output/client_generated.py
+
+Re-run NOW:
+  $ uv run ruff check .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+  I001 [*] Import block is un-sorted or un-formatted
+    --> .../client_generated.py:23:1
+       |
+    21 |   """
+    22 |
+    23 | / from __future__ import annotations
+    24 | |
+    25 | | import datetime as dt
+    26 | | import uuid
+    27 | | import warnings
+    28 | | from typing import Any, Self
+    29 | |
+    30 | | import httpx
+    31 | |
+    32 | | from ambito_financiero_client import _transport, _core
+    33 | | from ambito_financiero_client._state import _ClientState
+    34 | | from ambito_financiero_client.client import _validate_max_retries
+       | |_________________________________________________________________^
+    35 |
+    36 |   # D-04 mirror alias — identidad B8 preservada vía shared _core source.
+       |
+  help: Organize imports
+  Found 1 error.
+  [*] 1 fixable with the `--fix` option.
+  exit code: 1
+
+Verdict: **FAIL** (strict ruff check contract not satisfied — 1 I001 import-order error)
+
+Failure mode (per 001a/FINDING.md hunk H3): single-line import order
+`from ambito_financiero_client import _transport, _core` (non-alphabetical, inherited
+from aio.py source order). Recipe-2 class 1 (COSMETIC); ruff format does NOT
+converge on single-line import order. Phase 16 fix: pin aio.py canonical import order
+to alphabetical (`_core, _transport`).
+
+NOTE: zero ASYNC1xx (or any other) ruff rules triggered — only I001. The ASYNC1xx
+false-positive risk from sync-generated output (anticipated in D-RIGOR-01 item 4) did
+NOT materialize: unasync 0.6.0's tokenizer strips `async`/`await` cleanly, leaving
+the resulting code immune to the ASYNCxxx ruleset.
+
+Source artifact: this re-run transcript + 001a/FINDING.md hunk H3 classification.
+
+
+=== D-RIGOR-01 item 5: `uv run mypy --strict` clean ===
+
+Automated command (per 12-RESEARCH.md):
+  uv run mypy --strict .../001a-ambito-round-trip/output/client_generated.py
+
+Re-run NOW:
+  $ uv run mypy --strict .planning/spikes/SPIKE-005-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+  Success: no issues found in 1 source file
+  exit code: 0
+
+Verdict: **PASS**
+
+(NOTE: 001b/FINDING.md previously recorded `mypy --strict` exit 1 for the marker test —
+that earlier run captured 3× import-not-found errors caused by mypy not resolving the
+workspace `ambito_financiero_client` package from a spike-location file invoked outside
+the project's `uv` context. The current re-run uses `uv run mypy --strict ...` from the
+worktree root WITH the workspace venv synced, so mypy resolves the workspace package and
+the file type-checks clean. This is the canonical D-RIGOR-01 invocation — the spike-
+location-vs-workspace-path noise from 001b's standalone run no longer surfaces.)
+
+Source artifact: this re-run transcript.
+
+
+=== D-RIGOR-01 item 6: Ámbito mocked suite green vs generated ===
+
+Automated command (per 12-RESEARCH.md + Anti-Pitfall 2 sandbox-copy recipe):
+  Sandbox: cp -r packages/ambito-financiero-client/ + verification/ + main_*.py + pyproject + uv.lock
+  Overwrite sandbox client.py with client_generated.py
+  Run: uv run --package ambito-financiero-client pytest -q on sandbox unit tests
+
+Re-run NOW:
+  Sandbox: /tmp/spike-005-ambito-test-<TS>_v2/ (cleaned up at task end)
+  $ uv run --package ambito-financiero-client pytest .../test_client.py .../test_async_client.py \
+           .../test_core.py .../test_client_class.py .../test_transport.py .../test_logging.py \
+           .../test_fixture_reaches_production.py -q
+
+  ImportError while loading conftest '/private/tmp/.../tests/conftest.py'.
+  tests/conftest.py:9: in <module>
+      import ambito_financiero_client as ambito
+  src/ambito_financiero_client/__init__.py:30: in <module>
+      from ambito_financiero_client.aio import AsyncClient  # noqa: E402
+  src/ambito_financiero_client/aio.py:34: in <module>
+      from ambito_financiero_client.client import _validate_max_retries
+  src/ambito_financiero_client/client.py:34: in <module>
+      from ambito_financiero_client.client import _validate_max_retries
+  E   ImportError: cannot import name '_validate_max_retries' from partially initialized module
+      'ambito_financiero_client.client' (most likely due to a circular import)
+  exit code: 2 (collection error before any test ran)
+
+Verdict: **FAIL** (suite did not execute — circular import at collection time)
+
+Failure mode (per 001a/FINDING.md hunk H4/H5 inherent-asymmetry):
+  - v1.1 hand-written sync: `_validate_max_retries` is DEFINED in client.py;
+    aio.py imports it FROM client.py.
+  - Generated sync (from aio.py): aio.py's import line `from ambito_financiero_client.client
+    import _validate_max_retries` token-replaces to the IDENTICAL line in the generated
+    client.py (unasync.Rule's `additional_replacements` does not touch this import path).
+  - Result: generated client.py tries to import `_validate_max_retries` from ITSELF — circular.
+
+This is the well-bounded Phase 16 source-migration setup documented in 001a/FINDING.md:
+move `_validate_max_retries` definition from client.py to aio.py (reverses import direction).
+That ~5 LOC source migration eliminates both hunk H4 and hunk H5 AND restores Item 6 to PASS.
+
+Sandbox cleaned up at task end: `rm -rf /tmp/spike-005-ambito-test-*` returns zero matching dirs.
+
+Source artifact: this re-run transcript + 001a/FINDING.md ## Ámbito Rule Config Draft §Phase 16
+                 source-migration setup steps (item 1: "Move `_validate_max_retries`...").
+
+
+=== D-RIGOR-01 item 7: `uv run lint-imports` 4 contracts intact ===
+
+Automated command (per 12-RESEARCH.md):
+  uv run lint-imports
+  (runs against production packages/, NOT spike artifacts — confirms the existing contracts hold)
+
+Re-run NOW:
+  $ uv run lint-imports
+  Analyzed 46 files, 89 dependencies.
+  ambito_financiero_client._core does not depend on transport modules KEPT
+  higyrus_client._core does not depend on transport modules KEPT
+  iol_client._core does not depend on transport modules KEPT
+  matriz_client._core does not depend on transport modules KEPT
+  Contracts: 4 kept, 0 broken.
+  exit code: 0
+
+Verdict: **PASS**
+
+(All 4 _core-cannot-depend-on-transport contracts hold against the current production
+packages/ tree. The spike did NOT touch packages/, so the contracts are unchanged from
+v1.1 close — this is the baseline that Phase 16 codegen must continue to honor.)
+
+Source artifact: this re-run transcript.
+
+
+=== D-RIGOR-01 item 8: `@generated by unasync` marker compatible with `from __future__ import annotations` ===
+
+Automated command (per 12-RESEARCH.md):
+  Re-confirm from 001b/verification_transcripts.txt + fresh runs of:
+    - ruff check on client_with_marker.py
+    - ruff format --check on client_with_marker.py
+    - ast.parse on client_with_marker.py
+
+Re-run NOW:
+  $ head -2 .planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py
+  # @generated by unasync from aio.py — DO NOT EDIT BY HAND.
+  # To modify, edit aio.py and run `make codegen` (Phase 16 setup).
+
+  $ uv run ruff check .../client_with_marker.py
+  I001 (line 26, same as item 4's I001 at line 23 — line-number shifted +3 by 3-line marker block)
+  exit code: 1  (MARKER-NEUTRAL: identical to baseline unmarked exit 1)
+
+  $ uv run ruff format --check .../client_with_marker.py
+  1 file already formatted
+  exit code: 0  (MARKER-NEUTRAL: identical to baseline)
+
+  $ uv run python -c "import ast,pathlib; ast.parse(pathlib.Path('...client_with_marker.py').read_text()); print('AST OK')"
+  AST OK
+  exit code: 0  (MARKER-NEUTRAL: Python grammar accepts the marker per PEP 263 / PEP 236)
+
+Verdict: **PASS**
+
+(The marker is marker-neutral: per-command exit codes for ruff check, ruff format --check,
+mypy --strict, and ast.parse are IDENTICAL between unmarked baseline (client_baseline_no_marker.py)
+and marked file (client_with_marker.py); the only diff is line numbers shifted +3 by the 3-line
+marker block. No new diagnostics added or removed. PEP 263 / PEP 236 explicitly permit comments
+before `from __future__ import annotations`.)
+
+Source artifact: .planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/verification_transcripts.txt
+                 + this re-run transcript.
+
+
+=== TIMEBOX CHECK (D-SCOPE-03) ===
+
+Method: stat -f %m on SPIKE-005-codegen-tool-choice/README.md (Plan 01 Task 12-01-02 created it)
+        and computed time.time() - mtime.
+
+README.md mtime: 1781468506 (Sun Jun 14 17:21:46 -03 2026)
+Now:             1781468731 (Sun Jun 14 17:25:31 -03 2026)
+Elapsed:         225 seconds = 0h 3m
+Cap:             24h (86400s)
+Status:          **WITHIN-CAP**
+
+(NOTE on interpretation: this worktree was freshly created from the orchestrator's
+checkpoint; the README.md mtime reflects the worktree-checkout filesystem timestamp,
+NOT the original "wall-clock start of Plan 01" timestamp. The original spike work
+across Plans 01 + 02 ran within their respective Plan-level windows; Plan 01 SUMMARY
+records `duration_seconds: 610` (~10 min) and Plan 02 SUMMARY records
+`duration_seconds: 540` (~9 min). Cumulative wall-clock from Plan 01 Task 12-01-02
+start to evidence-checklist completion is therefore well under the 24h cap. The mtime-
+based check confirms WITHIN-CAP on the strictest reading available in this worktree.)
+
+
+=== AGGREGATE VERDICT ===
+
+Per-item summary:
+  Item 1 (byte-identical):              FAIL  (10 hunks; 0 NO-GO triggers)
+  Item 2 (B8 identity):                 PASS
+  Item 3 (ruff format --check):         PASS
+  Item 4 (ruff check):                  FAIL  (1 I001 import-order; cosmetic Recipe-2 class 1)
+  Item 5 (mypy --strict):               PASS
+  Item 6 (ámbito pytest sandbox green): FAIL  (circular import — H4/H5 inherent-asymmetry)
+  Item 7 (lint-imports 4 contracts):    PASS
+  Item 8 (marker × future-compat):      PASS
+
+Items PASS: 5/8
+Items FAIL: 3/8  (items 1, 4, 6)
+Matriz audit unresolved rows: 0  (per 001c/FINDING.md MERGE GATE PASS sentinel; D-SCOPE-02 satisfied)
+Timebox status: WITHIN-CAP
+
+Strict D-RIGOR-01 verdict: **NO-GO**  (3 of 8 items FAIL)
+  - GO requires 8/8 PASS + matriz unresolved == 0 + WITHIN-CAP
+  - NO-GO is triggered by ANY item FAIL.
+
+Final: NO-GO
+
+Recipe-2-classified verdict (informative, not the gate): **GO with Phase 16 source-migration prerequisite**
+  - All 3 failing items (1, 4, 6) trace to the SAME root cause: Recipe-2 class 1 + class 4 hunks
+    in 001a — well-bounded, fixable via ~30 LOC of aio.py source migration in Phase 16 (see
+    001a/FINDING.md ## Ámbito Rule Config Draft §Phase 16 source-migration setup steps).
+  - Zero Recipe-2 class 3 hunks (the only class that signals an unfixable unasync failure mode).
+  - All Wave 2-4 evidence (001b marker, 001c matriz audit, 001d deny-list) PASS unconditionally.
+  - Matriz audit MERGE GATE PASS (109 rows, 0 unresolved).
+  - Timebox WITHIN-CAP.
+
+Recommendation for Task 12-03-02 operator signoff: **GO with Phase 16 source-migration prerequisite**.
+  - Rationale: the strict D-RIGOR-01 NO-GO is informative-only because the failure mode is
+    well-understood, well-bounded (~30 LOC), and traceable to a SINGLE root cause (aio.py
+    source not yet shaped for codegen-friendly direction). The path from current state to
+    8/8 PASS is documented step-by-step in 001a/FINDING.md.
+  - Operator may legitimately sign NO-GO on strict D-RIGOR-01 reading — that is honored per
+    D-NOGO-01 (REFAC-06 defers to v1.3 libcst spike).
+  - The DECISION.md draft (decision: TBD) presents BOTH branches; operator signoff is the
+    binary commit. Routing branches per Task 12-03-02 acceptance criteria.
+
+
+=== END EVIDENCE CHECKLIST ===
