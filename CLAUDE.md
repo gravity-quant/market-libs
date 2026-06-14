@@ -290,6 +290,7 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 ## Auto-loaded Knowledge
 
 - **Spike findings for market-libs** (implementation patterns, constraints, gotchas — TokenStore 3-way concurrency primitive + refresh policy with retry/backoff/fail-cache, both validated for Phase 10) → `Skill("spike-findings-market-libs")`
+- **Spike findings for codegen** (NO-GO from SPIKE-005; root cause + v1.3 libcst handoff scope) → `Skill("spike-findings-codegen-market-libs")`
 <!-- GSD:knowledge-end -->
 
 
