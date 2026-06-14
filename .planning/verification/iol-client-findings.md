@@ -1,7 +1,7 @@
 # Findings: iol-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-06T14:56:08.192584+00:00
+- Timestamp: 2026-06-14T05:11:31.130065+00:00
 - Resolved base URL / env: https://api.invertironline.com
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -13,6 +13,7 @@
 | ID | Class | Surface | Status |
 |----|-------|---------|--------|
 | F-01 | SHAPE | both | OPEN |
+| F-02 | AUTH | sync | OPEN |
 
 ## Detalle por hallazgo
 
@@ -23,6 +24,14 @@
 - **Expected:** clave `simbolo` (tipo str) presente en payload
 - **Actual:** keys=['apertura', 'cantidadOperaciones', 'cierreAnterior', 'descripcionTitulo', 'fechaHora', 'interesesAbiertos', 'laminaMinima', 'lote', 'maximo', 'minimo', 'moneda', 'montoOperado', 'plazo', 'precioAjuste', 'precioPromedio', 'puntas', 'tendencia', 'ultimoPrecio', 'variacion', 'volumenNominal']
 - **Diff:** clave `simbolo` ausente
+
+### F-02 -- _token_expires_at no se renovó tras refresh path
+
+**Class:** `AUTH` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** _token_expires_at > 1781413891.129759
+- **Actual:** _token_expires_at=0.0
+- **Diff:** el refresh path no actualizó el expiry
 <!-- END AUTO-GENERATED -->
 
 ## Cycle Closure

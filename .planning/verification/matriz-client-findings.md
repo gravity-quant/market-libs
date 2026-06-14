@@ -1,7 +1,7 @@
 # Findings: matriz-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-10T01:01:55.430560+00:00 (original Phase 5 baseline); updated 2026-06-13 for Phase 9 Plan 09-03 F-09 close (operator-driven live re-run timestamp captured in 09-03 SUMMARY paste).
+- Timestamp: 2026-06-14T05:13:01.923274+00:00
 - Resolved base URL / env: https://api.remarkets.primary.com.ar
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
