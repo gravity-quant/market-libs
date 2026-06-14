@@ -1,0 +1,4 @@
+Audit written to /Users/sebadlf/development/becerra/market-libs/.claude/worktrees/agent-a979230d4af83577e/.planning/spikes/SPIKE-005-codegen-tool-choice/001c-matriz-construct-audit/matriz-aio-constructs.md
+Total rows: 109
+Unresolved (REVIEW/TBD/DENY-LIST-VIOLATION): 0
+Deny-list imports detected in aio.py (re-exports): ['build_token_store']
