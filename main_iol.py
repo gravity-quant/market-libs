@@ -1286,7 +1286,12 @@ def probe_refresh_token() -> ProbeResult:
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
     token_before = iol_client.client._token
     # Simulación in-vivo de expiry para forzar el branch refresh.
-    iol_client.client._token_expires_at = 0.0
+    # INT-01 idiom (quick task 260613-nwb): write via _get_default()._state.X
+    # NOT via PEP 562 module attribute (que sombrearía el __getattr__ forward).
+    # El bug previo: `iol_client.client._token_expires_at = 0.0` creaba un
+    # atributo en el módulo que sombreaba la lectura forwarded a state, y la
+    # lectura post-_refresh() devolvía 0.0 cacheado en vez del state value.
+    iol_client.client._get_default()._state.token_expires_at = 0.0
     try:
         iol_client.get_instruments("argentina")
     except IOLAuthError as exc:

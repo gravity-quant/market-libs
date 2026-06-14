@@ -1,7 +1,7 @@
 # Findings: iol-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-14T05:11:31.130065+00:00
+- Timestamp: 2026-06-14T10:56:00.496319+00:00
 - Resolved base URL / env: https://api.invertironline.com
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -13,7 +13,7 @@
 | ID | Class | Surface | Status |
 |----|-------|---------|--------|
 | F-01 | SHAPE | both | OPEN |
-| F-02 | AUTH | sync | OPEN |
+| F-02 | AUTH | sync | FIXED |
 
 ## Detalle por hallazgo
 
@@ -27,12 +27,28 @@
 
 ### F-02 -- _token_expires_at no se renovó tras refresh path
 
-**Class:** `AUTH` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `AUTH` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** _token_expires_at > 1781413891.129759
 - **Actual:** _token_expires_at=0.0
 - **Diff:** el refresh path no actualizó el expiry
 <!-- END AUTO-GENERATED -->
+
+**Classification:** PROBE_STALE (not a client bug)
+**Rationale:** El bug está en el probe, no en el cliente. `_refresh()` SÍ actualiza
+`self._state.token_expires_at` correctamente (`packages/iol-client/src/iol_client/client.py:270`).
+El probe en `main_iol.py:1289` hacía `iol_client.client._token_expires_at = 0.0` que CREABA
+un atributo en el módulo sombreando el PEP 562 `__getattr__` forward a state. Lecturas
+posteriores devolvían el 0.0 cacheado en el módulo, no el state value. Mismo patrón
+estructural que INT-01 quick task `260613-nwb` (2026-06-13).
+**Resolution:** Fix aplicado en `main_iol.py:1289` usando INT-01 idiom
+(`iol_client.client._get_default()._state.token_expires_at = 0.0`) durante Phase 11
+Plan 11-03 Task 3 operator disposition (2026-06-14).
+**Regression:** `main_iol.py` re-run post-fix reporta
+`PROBE refresh_token: PASS refresh path verified — token rotated`
+(SUMMARY: PASS=13 FAIL=0 SKIPPED=1 FINDING=1; F-02 ya no surgió).
+**Operator signoff:** sebadlf, 2026-06-14, via /gsd-execute-phase 11 Task 3 checkpoint
+disposition "Fix inline ahora y cerrar Phase 11".
 
 ## Cycle Closure
 
