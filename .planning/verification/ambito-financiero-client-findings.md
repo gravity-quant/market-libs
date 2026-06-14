@@ -8,6 +8,7 @@
 <!-- Clases (D-09): SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT -->
 <!-- Estados (D-08): OPEN -> CONFIRMED -> FIXED (+ terminal EXPECTED/NO-FIX). Sin campo de severidad. -->
 
+<!-- BEGIN AUTO-GENERATED -->
 ## Index
 | ID | Class | Surface | Status |
 |----|-------|---------|--------|
@@ -22,6 +23,7 @@
 - **Expected:** 403 con UA=python-httpx/...
 - **Actual:** 403 con UA=python-httpx/...
 - **Diff:** ninguno; comportamiento esperado de la defensa anti-bot
+<!-- END AUTO-GENERATED -->
 
 ## Cycle Closure
 

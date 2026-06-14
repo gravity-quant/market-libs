@@ -9,6 +9,7 @@
 <!-- Clases (D-09): SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT -->
 <!-- Estados (D-08): OPEN -> CONFIRMED -> FIXED (+ terminal EXPECTED/NO-FIX). Sin campo de severidad. -->
 
+<!-- BEGIN AUTO-GENERATED -->
 ## Index
 | ID | Class | Surface | Status |
 |----|-------|---------|--------|
@@ -55,6 +56,7 @@ in same wave: fix(higyrus): legacy shim — forward _base_url + add
 aio._ensure_http_client wrapper (Phase 6 migration drift).
 -->
 
+<!-- END AUTO-GENERATED -->
 
 ## Cycle Closure
 

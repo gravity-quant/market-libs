@@ -8,6 +8,7 @@
 <!-- Clases (D-09): SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT -->
 <!-- Estados (D-08): OPEN -> CONFIRMED -> FIXED (+ terminal EXPECTED/NO-FIX). Sin campo de severidad. -->
 
+<!-- BEGIN AUTO-GENERATED -->
 ## Index
 | ID | Class | Surface | Status |
 |----|-------|---------|--------|
@@ -113,6 +114,7 @@
 - **Expected:** verification limited to remarkets sandbox by safety policy (REQUIREMENTS.md Out of Scope)
 - **Actual:** prod (api.primary.com.ar) shape unverified; sandbox shape committed in .planning/verification/schemas/matriz-client/
 - **Diff:** N/A (acknowledged limitation, not detected drift)
+<!-- END AUTO-GENERATED -->
 
 ## Cycle Closure
 

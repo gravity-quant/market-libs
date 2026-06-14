@@ -8,6 +8,7 @@
 <!-- Clases (D-09): SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT -->
 <!-- Estados (D-08): OPEN -> CONFIRMED -> FIXED (+ terminal EXPECTED/NO-FIX). Sin campo de severidad. -->
 
+<!-- BEGIN AUTO-GENERATED -->
 ## Index
 | ID | Class | Surface | Status |
 |----|-------|---------|--------|
@@ -22,6 +23,7 @@
 - **Expected:** clave `simbolo` (tipo str) presente en payload
 - **Actual:** keys=['apertura', 'cantidadOperaciones', 'cierreAnterior', 'descripcionTitulo', 'fechaHora', 'interesesAbiertos', 'laminaMinima', 'lote', 'maximo', 'minimo', 'moneda', 'montoOperado', 'plazo', 'precioAjuste', 'precioPromedio', 'puntas', 'tendencia', 'ultimoPrecio', 'variacion', 'volumenNominal']
 - **Diff:** clave `simbolo` ausente
+<!-- END AUTO-GENERATED -->
 
 ## Cycle Closure
 
