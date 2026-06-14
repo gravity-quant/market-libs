@@ -180,10 +180,10 @@ compat layer sobre la clase `Client` interna.
 
 | REQ-ID   | Phase     | Status |
 |----------|-----------|--------|
-| REFAC-01 | Phase 6   | Open   |
-| REFAC-02 | Phase 6   | Open   |
-| REFAC-03 | Phase 7   | Open   |
-| REFAC-04 | Phase 10  | Open   |
+| REFAC-01 | Phase 6   | Complete |
+| REFAC-02 | Phase 6   | Complete |
+| REFAC-03 | Phase 7   | Complete |
+| REFAC-04 | Phase 10  | Complete |
 | RELY-01  | Phase 8   | Complete |
 | RELY-02  | Phase 8   | Complete |
 | RELY-03  | Phase 8   | Complete |
@@ -195,20 +195,20 @@ compat layer sobre la clase `Client` interna.
 | BUG-02   | Phase 9   | Complete |
 | BUG-03   | Phase 9   | Complete |
 | BUG-04   | Phase 9   | Complete |
-| HARN-07  | Phase 11  | Open   |
-| HARN-08  | Phase 11  | Open   |
-| HARN-09  | Phase 11  | Open   |
-| HARN-10  | Phase 11  | Open   |
-| CR-01    | Phase 11  | Open   |
-| CR-02    | Phase 11  | Open   |
-| CR-03    | Phase 7   | Open   |
-| CR-04    | Phase 11  | Open   |
-| CR-05    | Phase 7   | Open   |
-| CR-06    | Phase 11  | Open   |
-| CR-07    | Phase 11  | Open   |
-| CR-08    | Phase 11  | Open   |
-| LIVE-01  | Phase 11  | Open   |
-| LIVE-02  | Phase 10  | Open   |
+| HARN-07  | Phase 11  | Complete |
+| HARN-08  | Phase 11  | Complete |
+| HARN-09  | Phase 11  | Complete |
+| HARN-10  | Phase 11  | Complete |
+| CR-01    | Phase 11  | Complete |
+| CR-02    | Phase 11  | Complete |
+| CR-03    | Phase 7   | Complete |
+| CR-04    | Phase 11  | Complete |
+| CR-05    | Phase 7   | Complete |
+| CR-06    | Phase 11  | Complete |
+| CR-07    | Phase 11  | Complete |
+| CR-08    | Phase 11  | Complete |
+| LIVE-01  | Phase 11  | Complete |
+| LIVE-02  | Phase 10  | Complete |
 
 **Coverage:** 29/29 requirements mapped to exactly one phase ✓
 

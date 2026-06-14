@@ -42,6 +42,7 @@ key-files:
     - "main_iol.py:1444 — auth_401 EXPECTED terminal flip (HARN-08)"
     - "main_higyrus.py:2010 — auth_401 EXPECTED terminal flip (HARN-08)"
     - "main_ambito_financiero.py:604 — antibot EXPECTED terminal flip (HARN-08)"
+requirements_completed: [HARN-07, HARN-08, HARN-09, HARN-10]
 decisions:
   - "D-HARN-01 HÍBRIDO: extender `_parse_findings`/`_serialize_findings` en sitio (NO full rewrite). +~110 LOC delta vs ~400 LOC de un rewrite from scratch; preserva los 3 invariantes existentes (CR-01 preservation guard, CR-02 single-line title, ART block refresh)."
   - "Rule 1 deviation discovered during Task 3 verification: cuando se preserva un `operator_prefix` capturado por el parser, el ART block dentro del prefix se refresca in-place via `_replace_art_block` (vs re-emitirse verbatim que dejaba los placeholders sin actualizar)."

@@ -36,6 +36,7 @@ key-files:
     - main_iol.py (line 1289 — INT-01 idiom: _get_default()._state.token_expires_at = 0.0)
     - .planning/verification/iol-client-findings.md (F-02 OPEN → FIXED + operator bullets)
     - .planning/verification/{higyrus,iol,matriz}-client-findings.md (ART timestamps refreshed by Task 2 live re-runs)
+requirements_completed: [LIVE-01]
 decisions:
   - "D-LIVE-01 honored: baseline = 4d48e07 (verification-cycle-2026-Q2); acceptance = operator-gated for NEW FIDs; triad blockers (sync/async URL, credential leak, PASS→FAIL flips) auto-detected and verified ZERO"
   - "Operator disposition for iol F-02: FIX INLINE (not deferred to v1.2)"

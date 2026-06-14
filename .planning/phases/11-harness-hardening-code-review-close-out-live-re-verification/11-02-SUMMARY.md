@@ -52,6 +52,7 @@ key-files:
     - "main_matriz.py — 10 bare except narrowed (CR-06) + _first_dict 3-branch + fname kwarg (CR-04) + probe_login_sync FAIL→FINDING ×2 sites (CR-02) + probe_schema_snapshot sample_params placeholder-everywhere (CR-01) + 5 call-sites _first_dict en probe_field_type_map updated to pass fname="
     - "main_higyrus.py — `_capture_*_query_string` wrapped en lock (CR-07) + 17 bare except narrowed (CR-06) + 2 import additions (threading) + module-level _RESIDUAL_PROBE_EXCEPTIONS tuple"
     - "pyproject.toml — [tool.ruff] extend-exclude para .claude/skills/spike-findings-market-libs/sources/** + .planning/spikes/** (CR-08)"
+requirements_completed: [CR-01, CR-02, CR-04, CR-06, CR-07, CR-08]
 decisions:
   - "D-CR-01 honored: per-CR atomic commits (9 commits total — 2 para CR-07 RED+GREEN, 3 para CR-06 RED+GREEN×2, 1 cada para CR-04/CR-02/CR-01 RED+GREEN single, 1 para CR-08 chore)"
   - "D-CR-02 honored: CR-07 + CR-06 = RED-first (TDD); CR-04 + CR-02 + CR-01 = RED+GREEN single-commit con mocked driver-level tests; CR-08 = ruff-only gate (no regression test)"

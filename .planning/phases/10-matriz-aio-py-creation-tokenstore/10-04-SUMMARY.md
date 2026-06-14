@@ -37,6 +37,7 @@ key-files:
     - packages/matriz-client/tests/test_fixture_reaches_production.py  # skip at line 64 removed, async guard body added (X-Auth-Token sentinel propagation through aio path)
     - verification/test_async_cancellation.py  # skip at line 82 removed, matriz async branch active
     - verification/test_sync_async_isolation.py  # skip at line 176 removed, matriz cross-leak + NEW test_matriz_sync_async_state_and_token_store_instance_isolation guard added
+requirements_completed: [REFAC-04, LIVE-02]
 decisions:
   - "D-06 honored: interleaved sync+async probes in same main() per main_iol.py reference — NO --async flag (operator runs once and sees paridad result inline)"
   - "D-07 honored: test count delta = +0 NEW tests on disk; +3 active tests (the 3 skip flips); total suite count grew from baseline ~785 → 876 on 3.12 + 3.13 (overshoot vs ~840 target)"
