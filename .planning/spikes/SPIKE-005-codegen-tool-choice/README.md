@@ -3,7 +3,9 @@ spike: 005
 name: codegen-tool-choice
 type: standard
 validates: "Given the v1.1 hand-written packages/ambito-financiero-client/.../client.py + matriz aio.py 852 LOC, when unasync 0.6.0 runs against aio.py with prescribed additional_replacements AND ruff format normalizes, then byte-identical diff + B8 identity preserved + matriz construct audit zero TBD + deny-list intact"
-verdict: TBD
+verdict: NO-GO
+signoff_date: 2026-06-14
+signoff_by: sebadlf
 related: [001a, 001b, 001c, 001d]
 tags: [codegen, unasync, ambito, matriz, B8-identity, phase-12]
 created: 2026-06-14

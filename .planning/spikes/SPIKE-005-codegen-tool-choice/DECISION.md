@@ -1,8 +1,8 @@
 ---
 spike: 005
-decision: TBD
-signoff_date: TBD
-signoff_by: TBD
+decision: NO-GO
+signoff_date: 2026-06-14
+signoff_by: sebadlf
 evidence_checklist:
   item_1_byte_identical_ambito: FAIL
   item_2_b8_identity: PASS
@@ -15,7 +15,7 @@ evidence_checklist:
 matriz_audit_unresolved_rows: 0
 timebox_status: WITHIN-CAP
 next_phase: 13
-phase_16_status: TBD
+phase_16_status: DROPPED
 recommended_verdict: GO_with_phase_16_source_migration_prerequisite
 ---
 
@@ -52,16 +52,16 @@ shells × 4 packages), based on the 8-item D-RIGOR-01 evidence checklist + matri
 **Strict D-RIGOR-01 verdict:** NO-GO (any FAIL → NO-GO).
 **Recipe-2-classified verdict (informative):** GO-with-Phase-16-source-migration (all 3 fails trace to a SINGLE root cause: aio.py not yet shaped for codegen-friendly direction — well-bounded ~30 LOC migration).
 
-## Decision (TBD — operator signoff required in Task 12-03-02)
+## Decision (signed 2026-06-14 by sebadlf)
 
-`decision: TBD` — flips to `GO` or `NO-GO` at operator signoff.
+`decision: NO-GO` (strict D-RIGOR-01 reading). REFAC-06 defers to v1.3 with a dedicated
+libcst spike per D-NOGO-01. Phase 16 DROPPED from v1.2 schedule. Phase 17 (LIVE-03)
+unblocked to run immediately after Phases 14 + 15.
 
-Resume-signal expected at the checkpoint: `(GO|NO-GO) YYYY-MM-DD <operator-name>`.
-
-After signoff:
-
-- If GO: `phase_16_status: PROCEED`, next agent runs Task 12-03-03 (wrap-up Skill + CLAUDE.md auto-load + 12-SUMMARY.md GO).
-- If NO-GO: `phase_16_status: DROPPED`, next agent runs Tasks 12-03-04a + 12-03-04b (NO-GO.md + pending todo + Skill NO-GO flavor + REQUIREMENTS.md + ROADMAP.md + CLAUDE.md updates + 12-SUMMARY.md NO-GO).
+Routing: Tasks 12-03-04a (spike-local close-out — NO-GO.md, v1.3 pending todo,
+spike-findings-codegen-market-libs Skill, MANIFEST flip) → 12-03-04b (project-state
+governance — REQUIREMENTS.md REFAC-06 deferred, ROADMAP.md Phase 16 dropped,
+CLAUDE.md auto-load update, 12-SUMMARY.md NO-GO).
 
 ## Recommendation
 
@@ -272,19 +272,36 @@ dev = [
 
 ## Routing After Signoff
 
-`decision: TBD` — at Task 12-03-02 operator signoff:
+Decision signed 2026-06-14 by sebadlf. Proceeding to Tasks 12-03-04a + 12-03-04b
+(NO-GO branch — 04a writes spike-local artifacts, 04b depends on 04a and writes
+project-state governance files).
 
-- **If signed GO:**
-  - Update DECISION.md frontmatter: `decision: GO`, `signoff_date: <YYYY-MM-DD>`, `signoff_by: <name>`, `phase_16_status: PROCEED`.
-  - Flip SPIKE-005 README.md frontmatter `verdict: TBD` → `verdict: GO`.
-  - Flip MANIFEST.md SPIKE-005 row Verdict column to `GO`.
-  - Proceed to Task 12-03-03 (GO branch close-out).
+- DECISION.md frontmatter updated: `decision: NO-GO`, `signoff_date: 2026-06-14`, `signoff_by: sebadlf`, `phase_16_status: DROPPED`.
+- SPIKE-005 README.md frontmatter `verdict:` flipped to `NO-GO`.
+- MANIFEST.md SPIKE-005 row Verdict column flipped to `NO-GO`.
+- Tasks 12-03-04a + 12-03-04b execute the NO-GO close-out branch.
 
-- **If signed NO-GO:**
-  - Update DECISION.md frontmatter: `decision: NO-GO`, `signoff_date: <YYYY-MM-DD>`, `signoff_by: <name>`, `phase_16_status: DROPPED`.
-  - Flip SPIKE-005 README.md frontmatter `verdict: TBD` → `verdict: NO-GO`.
-  - Flip MANIFEST.md SPIKE-005 row Verdict column to `NO-GO`.
-  - Proceed to Tasks 12-03-04a (spike-local close-out) then 12-03-04b (project-state governance).
+## Operator Signoff
+
+**Verdict:** NO-GO (strict D-RIGOR-01)
+**Date:** 2026-06-14
+**Operator:** sebadlf
+
+**Rationale:** 3 of 8 D-RIGOR-01 evidence items FAIL (items 1 byte-identical, 4 ruff check,
+6 ámbito pytest). Per the canonical D-RIGOR-01 contract — "ANY failure → NO-GO" — strict
+reading triggers NO-GO. The Recipe-2 informative classification ("GO with Phase 16
+source-migration prerequisite") notes that the failing items trace to a single,
+well-bounded source-shape asymmetry (~30 LOC of aio.py edits would migrate the source
+to a codegen-friendly direction). The operator chose to honor the strict reading rather
+than soft-relax the gate, and defer REFAC-06 to v1.3 with a dedicated libcst spike per
+locked decision D-NOGO-01.
+
+**Next:**
+- REFAC-06 → v1.3 (`spike-codegen-libcst-v1.3.md` pending todo captures scope).
+- Phase 16 (Codegen Single-Source) DROPPED from v1.2 schedule.
+- Phase 17 (LIVE-03 Final Live Re-verification × 4) UNBLOCKED — runs immediately after
+  Phases 14 + 15 with no Phase 16 gate.
+- v1.2 milestone proceeds with 4/5 requirements (REFAC-05, SEC-01, ERG-01, LIVE-03).
 
 ## Linkage
 
