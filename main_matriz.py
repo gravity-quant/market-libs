@@ -1375,30 +1375,44 @@ def probe_schema_snapshot(payloads: dict[str, Any], base_url: str) -> ProbeResul
     """
     if _auth_failed:
         return ProbeResult("schema_snapshot", "SKIPPED", f"auth failed: {_auth_failure_reason}")
+    # Phase 11 CR-01: sample_params placeholders alineados al estilo del path
+    # template (``{name}``) para que el envelope sea visualmente consistente
+    # entre la columna ``endpoint`` (que ya usa ``{account_id}``) y la columna
+    # ``sample_params``. Pre-fix usaba un mix: el path template tenia
+    # ``{account_id}`` mientras sample_params tenia ``<PRIMARY_ACCOUNT>``,
+    # divergencia documentada como CR-01 (WR-01).
+    #
+    # CR-01 Option B (placeholder-everywhere): el envelope NO leak PII; todos
+    # los valores account/symbol/segment/cl_ord_id/proprietary/exec_id se
+    # representan como ``{name}`` placeholders. La column ``endpoint`` ya usa
+    # ese estilo para las 3 risk probes; las probes con account-en-query ahora
+    # tambien emiten placeholder en ``sample_params`` aunque el wire-level
+    # query string SI envia el valor live -- el envelope documenta la SHAPE,
+    # no el valor.
     sample_params: dict[str, dict[str, Any]] = {
         "get_segments": {},
         "get_all_instruments": {},
         "get_instruments_details": {},
-        "get_instrument_detail": {"symbol": _resolved_symbol or "<unresolved>"},
+        "get_instrument_detail": {"symbol": "{symbol}"},
         "get_instruments_by_cfi_ESXXXX": {"CFICode": "ESXXXX"},
-        "get_instruments_by_segment": {"segmentId": _resolved_segment or "<unresolved>"},
-        "get_market_data": {"symbol": _resolved_symbol or "<unresolved>"},
-        "get_trades": {"symbol": _resolved_symbol or "<unresolved>", "windowDays": 7},
-        "get_active_orders": {"accountId": "<PRIMARY_ACCOUNT>"},
-        "get_filled_orders": {"accountId": "<PRIMARY_ACCOUNT>"},
-        "get_all_orders": {"accountId": "<PRIMARY_ACCOUNT>"},
+        "get_instruments_by_segment": {"segmentId": "{segment_id}"},
+        "get_market_data": {"symbol": "{symbol}"},
+        "get_trades": {"symbol": "{symbol}", "windowDays": 7},
+        "get_active_orders": {"accountId": "{account_id}"},
+        "get_filled_orders": {"accountId": "{account_id}"},
+        "get_all_orders": {"accountId": "{account_id}"},
         "get_order_status": {
-            "clOrdId": "<MATRIZ_SAMPLE_CL_ORD_ID>",
-            "proprietary": "<MATRIZ_SAMPLE_PROPRIETARY>",
+            "clOrdId": "{cl_ord_id}",
+            "proprietary": "{proprietary}",
         },
         "get_order_history": {
-            "clOrdId": "<MATRIZ_SAMPLE_CL_ORD_ID>",
-            "proprietary": "<MATRIZ_SAMPLE_PROPRIETARY>",
+            "clOrdId": "{cl_ord_id}",
+            "proprietary": "{proprietary}",
         },
-        "get_order_by_exec_id": {"execId": "<MATRIZ_SAMPLE_EXEC_ID>"},
-        "get_positions": {"account": "<PRIMARY_ACCOUNT>"},
-        "get_detailed_positions": {"account": "<PRIMARY_ACCOUNT>"},
-        "get_account_report": {"account": "<PRIMARY_ACCOUNT>"},
+        "get_order_by_exec_id": {"execId": "{exec_id}"},
+        "get_positions": {"account_id": "{account_id}"},
+        "get_detailed_positions": {"account_id": "{account_id}"},
+        "get_account_report": {"account_id": "{account_id}"},
     }
     fids: list[str] = []
     snapshots_taken = 0
