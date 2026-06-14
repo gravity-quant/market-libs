@@ -195,13 +195,60 @@ class ProbeResult:
     detail: str
 
 
-def _first_dict(payload: Any) -> dict[str, Any] | None:
-    """Devuelve el primer dict de una lista, o None si payload no es lista no vacía
-    o el primer elemento no es dict. Utility para extraer un sample dict de un
-    envelope-unwrapped list payload (segments, instruments, trades, orders, ...).
+def _first_dict(payload: Any, *, fname: str | None = None) -> dict[str, Any] | None:
+    """Devuelve el primer dict de una lista, o None.
+
+    Distingue 3 casos (Phase 11 CR-04 fix):
+
+    - **ok**: ``payload`` es ``list[dict, ...]`` no vacía -> retorna el primer dict.
+    - **no_data**: ``payload`` es ``[]`` -> retorna None silenciosamente
+      (legitimate; vacío esperable durante off-market windows).
+    - **wrong_type**: ``payload`` no es list, o lo es pero su primer elemento no
+      es dict -> retorna None Y (si ``fname is not None``) emite un finding
+      ``SHAPE OPEN`` con descripcion del shape divergente. Esto cierra CR-04:
+      pre-Phase-11 los callers no podían distinguir wrong_type de no_data, y
+      payloads mal-formados se ocultaban silenciosamente en el pipeline.
+
+    El kwarg ``fname`` es opt-in para backwards-compat: los call-sites que no
+    lo pasan obtienen el comportamiento legacy (silent None).
     """
-    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+    if isinstance(payload, list):
+        if not payload:
+            # no_data: vacío legítimo, NO finding.
+            return None
+        if not isinstance(payload[0], dict):
+            # wrong_type: list cuyo primer elemento no es dict.
+            if fname is not None:
+                fid = _next_fid()
+                append_finding(
+                    _PKG,
+                    fid=fid,
+                    class_="SHAPE",
+                    surface="sync",
+                    status="OPEN",
+                    title=f"{fname}: payload[0] no es dict",
+                    expected="list[dict] (envelope-unwrapped)",
+                    actual=f"type(payload[0])={type(payload[0]).__name__}",
+                    diff="downstream SafeModel diff SKIPPED",
+                    base_url=primary.client._base_url,
+                )
+            return None
         return cast(dict[str, Any], payload[0])
+    # wrong_type: payload no es list.
+    if fname is not None:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="sync",
+            status="OPEN",
+            title=f"{fname}: payload no es list",
+            expected="list[dict] (envelope-unwrapped)",
+            actual=f"type(payload)={type(payload).__name__}",
+            diff="downstream SafeModel diff SKIPPED",
+            base_url=primary.client._base_url,
+        )
     return None
 
 
@@ -1002,14 +1049,20 @@ def probe_field_type_map(payloads: dict[str, Any]) -> ProbeResult:
     if _auth_failed:
         return ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     base_url = primary.client._base_url
+    # Phase 11 CR-04: pasar fname= a _first_dict para que el wrong_type case
+    # emita un finding SHAPE OPEN en vez de colapsar silenciosamente con no_data.
     targets: list[tuple[str, Any, type]] = [
-        ("segment", _first_dict(payloads.get("get_segments")), Segment),
-        ("instrument", _first_dict(payloads.get("get_all_instruments")), Instrument),
+        ("segment", _first_dict(payloads.get("get_segments"), fname="get_segments"), Segment),
+        (
+            "instrument",
+            _first_dict(payloads.get("get_all_instruments"), fname="get_all_instruments"),
+            Instrument,
+        ),
         ("instrument_detail", payloads.get("get_instrument_detail"), InstrumentDetail),
         ("market_data", payloads.get("get_market_data"), MarketDataSnapshot),
-        ("trade", _first_dict(payloads.get("get_trades")), Trade),
-        ("order", _first_dict(payloads.get("get_all_orders")), Order),
-        ("position", _first_dict(payloads.get("get_positions")), Position),
+        ("trade", _first_dict(payloads.get("get_trades"), fname="get_trades"), Trade),
+        ("order", _first_dict(payloads.get("get_all_orders"), fname="get_all_orders"), Order),
+        ("position", _first_dict(payloads.get("get_positions"), fname="get_positions"), Position),
         ("detailed_position", payloads.get("get_detailed_positions"), DetailedPosition),
         ("account_report", payloads.get("get_account_report"), AccountReport),
     ]
