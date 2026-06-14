@@ -86,6 +86,12 @@ FINDING_CLASSES: tuple[str, ...] = (
 # Ciclo de estados (D-08) — sin campo de severidad.
 STATUS_LIFECYCLE: tuple[str, ...] = ("OPEN", "CONFIRMED", "FIXED", "EXPECTED", "NO-FIX")
 
+# Phase 11 HARN-07 — markers HTML-comment que delimitan la zona auto-gestionada
+# del archivo de findings. Contenido ARRIBA del BEGIN o ABAJO del END es
+# operator-owned y sobrevive verbatim los re-runs.
+_AUTO_BEGIN_MARKER = "<!-- BEGIN AUTO-GENERATED -->"
+_AUTO_END_MARKER = "<!-- END AUTO-GENERATED -->"
+
 
 def findings_path(pkg: str) -> Path:
     """Ruta del archivo de hallazgos para ``pkg``: ``.planning/verification/<pkg>-findings.md``.
@@ -98,7 +104,14 @@ def findings_path(pkg: str) -> Path:
 
 
 def new_findings(pkg: str) -> str:
-    """Renderiza el esqueleto (encabezado ART + índice vacío) de un archivo de hallazgos."""
+    """Renderiza el esqueleto (encabezado ART + índice vacío) de un archivo de hallazgos.
+
+    Phase 11 HARN-07: el ``## Index`` queda envuelto por los markers
+    ``<!-- BEGIN AUTO-GENERATED -->`` / ``<!-- END AUTO-GENERATED -->`` que
+    delimitan la zona auto-gestionada del archivo. Cualquier contenido que el
+    operador inserte ARRIBA del BEGIN o ABAJO del END sobrevive verbatim los
+    re-runs de :func:`append_finding`.
+    """
     _validate_pkg_slug(pkg)
     classes = ", ".join(FINDING_CLASSES)
     lifecycle = " -> ".join(("OPEN", "CONFIRMED", "FIXED")) + " (+ terminal EXPECTED/NO-FIX)"
@@ -113,9 +126,11 @@ def new_findings(pkg: str) -> str:
         f"<!-- Clases (D-09): {classes} -->\n"
         f"<!-- Estados (D-08): {lifecycle}. Sin campo de severidad. -->\n"
         "\n"
+        f"{_AUTO_BEGIN_MARKER}\n"
         "## Index\n"
         "| ID | Class | Surface | Status |\n"
         "|----|-------|---------|--------|\n"
+        f"{_AUTO_END_MARKER}\n"
     )
 
 
@@ -154,10 +169,18 @@ class _Finding:
 
 @dataclass(slots=True)
 class _ParsedFile:
-    """Resultado de parsear un findings file existente."""
+    """Resultado de parsear un findings file existente.
+
+    Phase 11 HARN-07: ``operator_prefix`` y ``operator_suffix`` capturan las
+    líneas (preservando el orden) ARRIBA del marker ``BEGIN AUTO-GENERATED``
+    y ABAJO del marker ``END AUTO-GENERATED`` respectivamente. Estas líneas se
+    re-emiten verbatim al re-serializar.
+    """
 
     findings: list[_Finding] = field(default_factory=list)
     art: dict[str, str] = field(default_factory=dict)
+    operator_prefix: list[str] = field(default_factory=list)
+    operator_suffix: list[str] = field(default_factory=list)
 
 
 # Regex para la fila del índice: `| F-NN | CLASS | SURFACE | STATUS |`.
@@ -219,10 +242,32 @@ def _parse_findings(text: str) -> _ParsedFile:
     (3) Sección ``## Detalle por hallazgo`` con un ``### F-NN -- <título>``
         por finding; los bullets ``- **Expected:**`` etc. siguen al header.
 
+    Phase 11 HARN-07 — 3-zone parsing:
+    El archivo se divide en tres zonas según los markers HTML-comment:
+
+    - **Operator prefix**: líneas ARRIBA del ``<!-- BEGIN AUTO-GENERATED -->``.
+      Capturadas verbatim en :attr:`_ParsedFile.operator_prefix` (incluye
+      header del paquete, ART block, comentarios de clases/estados).
+    - **Auto-zone**: líneas entre BEGIN y END markers — donde corre el
+      parser de Index + Detalle.
+    - **Operator suffix**: líneas ABAJO del ``<!-- END AUTO-GENERATED -->``.
+      Capturadas verbatim en :attr:`_ParsedFile.operator_suffix` (incluye
+      sección Cycle Closure y cualquier nota operator-added).
+
+    Back-compat: archivos SIN markers (baseline PRE-migration) se parsean
+    como si toda la zona fuese auto-zone (los markers se asumen "implícitos");
+    ``operator_prefix`` y ``operator_suffix`` quedan vacíos. La detección se
+    hace pre-loop chequeando presencia del marker BEGIN.
+
     El parser es tolerante: si una sección falta, devuelve valores por
     defecto. Si una fila no matchea el regex, se ignora silenciosamente.
     """
     lines = text.splitlines()
+
+    # Pre-scan: detectar si el archivo ya tiene markers. Si no los tiene,
+    # tratamos TODO el contenido como auto-zone (back-compat para baseline
+    # PRE-migration files).
+    has_markers = _AUTO_BEGIN_MARKER in text and _AUTO_END_MARKER in text
 
     art: dict[str, str] = {}
     # Estado de scan.
@@ -239,8 +284,39 @@ def _parse_findings(text: str) -> _ParsedFile:
     bullets_by_fid: dict[str, dict[str, str]] = {}
     insertion_order: list[str] = []
 
+    # Phase 11 HARN-07 — zone state machine.
+    # Cuando ``has_markers`` es False, ``in_auto_zone`` arranca True y las dos
+    # listas de operador quedan vacías (back-compat). Cuando hay markers,
+    # in_auto_zone arranca False y se activa al ver BEGIN.
+    in_auto_zone = not has_markers
+    seen_end = False
+    operator_prefix: list[str] = []
+    operator_suffix: list[str] = []
+
     for raw_line in lines:
         line = raw_line.rstrip("\r")
+
+        # Zone transitions (HARN-07). El marker MUST ser una línea entera para
+        # transitionar; matches parciales o markers en strings rotos quedan
+        # como contenido normal.
+        if line == _AUTO_BEGIN_MARKER:
+            in_auto_zone = True
+            # El marker en sí no se preserva en prefix/suffix — se re-emite
+            # por _serialize_findings.
+            continue
+        if line == _AUTO_END_MARKER:
+            in_auto_zone = False
+            seen_end = True
+            continue
+
+        if has_markers and not in_auto_zone:
+            # Operator territory — capturar verbatim (preservar raw_line con
+            # CR si existía, aunque ya se hizo rstrip; usamos line).
+            if seen_end:
+                operator_suffix.append(line)
+            else:
+                operator_prefix.append(line)
+            continue
 
         # ART section start/end
         if line.startswith("## Run Context (ART)"):
@@ -339,16 +415,34 @@ def _parse_findings(text: str) -> _ParsedFile:
             )
         )
 
-    return _ParsedFile(findings=findings, art=art)
+    return _ParsedFile(
+        findings=findings,
+        art=art,
+        operator_prefix=operator_prefix,
+        operator_suffix=operator_suffix,
+    )
 
 
-def _serialize_findings(pkg: str, findings: list[_Finding], art: dict[str, str]) -> str:
+def _serialize_findings(
+    pkg: str,
+    findings: list[_Finding],
+    art: dict[str, str],
+    *,
+    prefix: list[str] | None = None,
+    suffix: list[str] | None = None,
+) -> str:
     """Re-renderiza el archivo entero desde el modelo interno.
 
     Estructura: header del paquete + ART block (con valores resueltos) +
-    comentarios HTML de clases/estados + tabla ``## Index`` + sección
-    ``## Detalle por hallazgo`` con un block por finding (orden de
-    inserción preservado).
+    comentarios HTML de clases/estados + marker ``<!-- BEGIN AUTO-GENERATED -->`` +
+    tabla ``## Index`` + sección ``## Detalle por hallazgo`` + marker
+    ``<!-- END AUTO-GENERATED -->``.
+
+    Phase 11 HARN-07: cuando ``prefix`` y/o ``suffix`` se proveen (vienen del
+    ``_ParsedFile.operator_prefix``/``operator_suffix``), reemplazan el header +
+    ART block emitido por defecto (``prefix``) y se añaden al final del archivo
+    (``suffix``), preservando el contenido operator-owned verbatim. Los markers
+    BEGIN/END siempre se emiten (contrato HARN-07).
     """
     classes = ", ".join(FINDING_CLASSES)
     lifecycle = " -> ".join(("OPEN", "CONFIRMED", "FIXED")) + " (+ terminal EXPECTED/NO-FIX)"
@@ -364,16 +458,28 @@ def _serialize_findings(pkg: str, findings: list[_Finding], art: dict[str, str])
     )
 
     out: list[str] = []
-    out.append(f"# Findings: {pkg}-client")
-    out.append("")
-    out.append("## Run Context (ART)")
-    out.append(f"- Timestamp: {timestamp}")
-    out.append(f"- Resolved base URL / env: {base_url}")
-    out.append(f"- Market hours note: {market_hours}")
-    out.append("")
-    out.append(f"<!-- Clases (D-09): {classes} -->")
-    out.append(f"<!-- Estados (D-08): {lifecycle}. Sin campo de severidad. -->")
-    out.append("")
+    if prefix:
+        # Operator-owned prefix preserva el header + ART block + clases/estados
+        # comments + cualquier prosa adicional que el operador haya inyectado
+        # arriba del BEGIN marker. Re-emitimos verbatim.
+        out.extend(prefix)
+    else:
+        out.append(f"# Findings: {pkg}-client")
+        out.append("")
+        out.append("## Run Context (ART)")
+        out.append(f"- Timestamp: {timestamp}")
+        out.append(f"- Resolved base URL / env: {base_url}")
+        out.append(f"- Market hours note: {market_hours}")
+        out.append("")
+    # Clases/estados comments — sólo se emiten si NO había prefix operator-owned
+    # (cuando prefix viene del parsed file, esos comments ya están dentro del
+    # prefix verbatim).
+    if not prefix:
+        out.append(f"<!-- Clases (D-09): {classes} -->")
+        out.append(f"<!-- Estados (D-08): {lifecycle}. Sin campo de severidad. -->")
+        out.append("")
+    # HARN-07: marker BEGIN delimita el inicio de la auto-zone.
+    out.append(_AUTO_BEGIN_MARKER)
     out.append("## Index")
     out.append("| ID | Class | Surface | Status |")
     out.append("|----|-------|---------|--------|")
@@ -397,6 +503,13 @@ def _serialize_findings(pkg: str, findings: list[_Finding], art: dict[str, str])
             if f.regression is not None:
                 out.append(f"- **Regression:** {f.regression}")
 
+    # HARN-07: marker END delimita el fin de la auto-zone.
+    out.append(_AUTO_END_MARKER)
+
+    # Operator-owned suffix — preservado verbatim después del END marker.
+    if suffix:
+        out.extend(suffix)
+
     return "\n".join(out) + "\n"
 
 
@@ -414,6 +527,7 @@ def append_finding(
     regression: str | None = None,
     base_url: str | None = None,
     market_hours: str | None = None,
+    idempotent_by_title: bool = False,
 ) -> Path:
     """Agrega o actualiza un finding ``fid`` en ``<pkg>-findings.md`` (D-10).
 
@@ -432,6 +546,18 @@ def append_finding(
       ``Market hours note``) se refresca en cada call. ``Timestamp`` se
       regenera como UTC ISO-8601 actual. ``base_url`` y ``market_hours``
       se reemplazan solo si se pasan como argumento.
+
+    Phase 11 HARN-08/10 — ``idempotent_by_title``:
+
+    - Cuando ``idempotent_by_title=True``, ANTES de la guard de preservation
+      por status humano, se busca si **algún** finding existente tiene el
+      mismo ``title``. Si lo hay, el call se considera no-op (solo se
+      refresca el ART block) y se retorna sin modificar el finding existente
+      ni añadir uno nuevo. Esto cierra HARN-08 (content-addressed dedupe
+      cross-driver — terminales EXPECTED/NO-FIX no se duplican aunque el
+      driver use un ``_next_fid()`` distinto cada run) y HARN-10 (matriz
+      ``D-MATZ-27`` EXPECTED terminal dedupe en un solo run).
+    - Default ``False`` preserva el comportamiento legacy fid-based.
 
     Devuelve el :class:`Path` al archivo escrito.
     """
@@ -465,6 +591,16 @@ def append_finding(
 
     existing = {f.fid: f for f in findings_list}
 
+    # HARN-08/10 — content-addressed dedupe by title (opt-in via kwarg).
+    # Si ya existe un finding con el mismo title, el call es no-op excepto por
+    # el refresh del ART block (preserva el finding original byte-identical —
+    # title preservado, fid original preservado, fields preservados).
+    if idempotent_by_title:
+        for existing_finding in findings_list:
+            if existing_finding.title == title:
+                path.write_text(_replace_art_block(text, art), encoding="utf-8")
+                return path
+
     # CR-01: Preservación de status promovido por humano. Si ya existe un
     # finding con status != OPEN, NO re-serializamos el archivo (eso
     # descartaría prosa libre, bullets extra como ``**Notes:**``/``**Repro:**``,
@@ -490,5 +626,14 @@ def append_finding(
     else:
         findings_list.append(new)
 
-    path.write_text(_serialize_findings(pkg, findings_list, art), encoding="utf-8")
+    path.write_text(
+        _serialize_findings(
+            pkg,
+            findings_list,
+            art,
+            prefix=parsed.operator_prefix,
+            suffix=parsed.operator_suffix,
+        ),
+        encoding="utf-8",
+    )
     return path
