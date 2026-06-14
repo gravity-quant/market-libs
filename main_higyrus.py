@@ -121,6 +121,22 @@ from higyrus_client.models import (
 _PKG = "higyrus-client"
 _REPO_ROOT = Path(__file__).resolve().parent
 _SCHEMA_DIR = _REPO_ROOT / ".planning" / "verification" / "schemas" / _PKG
+
+# Phase 11 CR-06: tuple de excepciones residuales para los catch-all post-mapeo
+# en los probe boundaries. Los probes capturan primero ``HigyrusAPIError`` /
+# ``HigyrusAuthError`` / ``HigyrusAuthorizationError`` para los casos
+# esperados; este catch-all atrapa cualquier residual de red, parsing o
+# typing inesperado (e.g. SafeModel construction errors, dict.get sobre None),
+# y los reporta via ``append_finding(..., class_="ERROR-MAP", ...)``. EXCLUYE
+# ``KeyboardInterrupt`` y ``SystemExit`` (no son ``Exception`` subclasses).
+_RESIDUAL_PROBE_EXCEPTIONS = (
+    httpx.HTTPError,
+    OSError,
+    AttributeError,
+    TypeError,
+    ValueError,
+    KeyError,
+)
 _SCHEMA_FILES: dict[str, Path] = {
     "get_health": _SCHEMA_DIR / "get-health.json",
     "get_listado_cuentas": _SCHEMA_DIR / "get-listado-cuentas.json",
@@ -464,7 +480,7 @@ def probe_login_sync() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"sync login: unexpected {type(exc).__name__}: {exc}"
         fid = _next_fid()
@@ -517,7 +533,7 @@ async def probe_login_async() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_async", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"async login: unexpected {type(exc).__name__}: {exc}"
         fid = _next_fid()
@@ -588,7 +604,7 @@ def probe_get_health_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
             base_url=base_url,
         )
         return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -661,7 +677,7 @@ async def probe_get_health_async() -> tuple[ProbeResult, dict[str, Any] | None]:
             base_url=base_url,
         )
         return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -759,7 +775,7 @@ def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] 
             base_url=base_url,
         )
         return (ProbeResult("get_listado_cuentas_sync", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -905,7 +921,7 @@ async def probe_get_listado_cuentas_async() -> tuple[ProbeResult, list[dict[str,
             base_url=base_url,
         )
         return (ProbeResult("get_listado_cuentas_async", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1009,7 +1025,7 @@ def probe_get_movimientos_sync(
             base_url=base_url,
         )
         return (ProbeResult("get_movimientos_sync", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1113,7 +1129,7 @@ async def probe_get_movimientos_async(
             base_url=base_url,
         )
         return (ProbeResult("get_movimientos_async", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1242,7 +1258,7 @@ def probe_get_posicion_valuada_sync(
                 base_url=base_url,
             )
         return (ProbeResult("get_posicion_valuada_sync", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1355,7 +1371,7 @@ async def probe_get_posicion_valuada_async(
                 base_url=base_url,
             )
         return (ProbeResult("get_posicion_valuada_async", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1477,7 +1493,7 @@ def probe_get_posiciones_sync(
             base_url=base_url,
         )
         return (ProbeResult("get_posiciones_sync", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1582,7 +1598,7 @@ async def probe_get_posiciones_async(
             base_url=base_url,
         )
         return (ProbeResult("get_posiciones_async", "FINDING", f"{fid} (OPEN)"), None)
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1891,7 +1907,7 @@ def probe_errors_envelope_sync(today: dt.date) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("errors_envelope_sync", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1962,7 +1978,7 @@ async def probe_errors_envelope_async(today: dt.date) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("errors_envelope_async", "FINDING", f"{fid} (OPEN)")
-    except Exception as exc:
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -2059,7 +2075,7 @@ def probe_auth_401() -> ProbeResult:
                 base_url=base_url,
             )
             return ProbeResult("auth_401", "FINDING", f"{fid} (OPEN)")
-        except Exception as exc:
+        except _RESIDUAL_PROBE_EXCEPTIONS as exc:
             fid = _next_fid()
             append_finding(
                 _PKG,
@@ -2126,7 +2142,7 @@ def probe_multi_account_iteration() -> ProbeResult:
         # Source 2: live get_listado_cuentas() — si non-empty, primeras 2.
         try:
             live = higyrus_client.get_listado_cuentas(estado="alta")
-        except Exception as exc:
+        except _RESIDUAL_PROBE_EXCEPTIONS as exc:
             return ProbeResult(
                 "multi_account_iteration",
                 "SKIPPED",
@@ -2250,12 +2266,12 @@ async def _async_main(
                 async_query = await _capture_async_query_string(
                     resolved_cuenta, fecha_desde, fecha_hasta
                 )
-            except Exception:
+            except _RESIDUAL_PROBE_EXCEPTIONS:
                 async_query = None
 
         result_errors = await probe_errors_envelope_async(today)
     finally:
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(*_RESIDUAL_PROBE_EXCEPTIONS):
             await aio.aclose()
     return _AsyncResults(
         login=result_login,
