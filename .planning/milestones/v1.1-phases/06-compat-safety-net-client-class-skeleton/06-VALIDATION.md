@@ -117,7 +117,7 @@ Per-package test additions (Wave 1) introduce `tests/test_client_class.py` in ea
 
 ## Validation Audit — 2026-06-11
 
-**Auditor:** Nyquist adversarial auditor  
+**Auditor:** Nyquist adversarial auditor
 **Phase state at audit time:** Merged to main (commit `fd7ab43`), security audit complete (`10278ec`), CI fixes applied (`bc16e26`, `2be4e90`, `9360cf5`). Full suite 389 passed, 1 skipped, 1 deselected.
 
 ### Audit Findings
@@ -152,7 +152,7 @@ All 3 secondary gaps were filled by creating `verification/test_phase06_nyquist_
 | `test_snapshot_regen_is_idempotent` | 6-01-03 | PASS |
 | `test_phase_06_baseline_has_required_keys` | 6-01-04 | PASS |
 
-Post-audit full suite: **392 passed**, 1 skipped, 1 deselected.  
+Post-audit full suite: **392 passed**, 1 skipped, 1 deselected.
 Ruff + mypy strict: clean on new test file.
 
 ### Escalations
