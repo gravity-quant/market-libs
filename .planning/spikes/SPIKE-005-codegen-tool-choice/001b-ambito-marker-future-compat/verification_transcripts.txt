@@ -1,0 +1,135 @@
+# Spike 001b — verification transcripts
+# Each command runs twice: against the unmarked 001a baseline and against the
+# 001a baseline with the @generated marker prepended. Marker compatibility =
+# per-command exit codes IDENTICAL between baseline and marked (i.e., marker
+# introduces zero new failures). Absolute non-zero exit codes inherited from
+# 001a are documented as Recipe-2 inherent-asymmetry in 001a/FINDING.md.
+
+=== ruff check ===
+exit 1
+I001 [*] Import block is un-sorted or un-formatted
+  --> .planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py:26:1
+   |
+24 |   """
+25 |
+26 | / from __future__ import annotations
+27 | |
+28 | | import datetime as dt
+29 | | import uuid
+30 | | import warnings
+31 | | from typing import Any, Self
+32 | |
+33 | | import httpx
+34 | |
+35 | | from ambito_financiero_client import _transport, _core
+36 | | from ambito_financiero_client._state import _ClientState
+37 | | from ambito_financiero_client.client import _validate_max_retries
+   | |_________________________________________________________________^
+38 |
+39 |   # D-04 mirror alias — identidad B8 preservada vía shared _core source.
+   |
+help: Organize imports
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+=== ruff format --check ===
+exit 0
+1 file already formatted
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+=== mypy --strict ===
+exit 1
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py:35: error:
+Cannot find implementation or library stub for module named
+"ambito_financiero_client"  [import-not-found]
+    from ambito_financiero_client import _transport, _core
+    ^
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py:36: error:
+Cannot find implementation or library stub for module named
+"ambito_financiero_client._state"  [import-not-found]
+    from ambito_financiero_client._state import _ClientState
+    ^
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py:36: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py:37: error:
+Cannot find implementation or library stub for module named
+"ambito_financiero_client.client"  [import-not-found]
+    from ambito_financiero_client.client import _validate_max_retries
+    ^
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_with_marker.py:154: error:
+Returning Any from function declared to return "float"  [no-any-return]
+            return _core.parse_get_dollar_banco_nacion_response(resp)
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Found 4 errors in 1 file (checked 1 source file)
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+=== ast.parse ===
+exit 0
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+# --- Baseline (no marker) results, for delta comparison -----------
+
+=== baseline ruff check ===
+exit 1
+I001 [*] Import block is un-sorted or un-formatted
+  --> .planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_baseline_no_marker.py:23:1
+   |
+21 |   """
+22 |
+23 | / from __future__ import annotations
+24 | |
+25 | | import datetime as dt
+26 | | import uuid
+27 | | import warnings
+28 | | from typing import Any, Self
+29 | |
+30 | | import httpx
+31 | |
+32 | | from ambito_financiero_client import _transport, _core
+33 | | from ambito_financiero_client._state import _ClientState
+34 | | from ambito_financiero_client.client import _validate_max_retries
+   | |_________________________________________________________________^
+35 |
+36 |   # D-04 mirror alias — identidad B8 preservada vía shared _core source.
+   |
+help: Organize imports
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+=== baseline ruff format --check ===
+exit 0
+1 file already formatted
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+=== baseline mypy --strict ===
+exit 1
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_baseline_no_marker.py:32: error:
+Cannot find implementation or library stub for module named
+"ambito_financiero_client"  [import-not-found]
+    from ambito_financiero_client import _transport, _core
+    ^
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_baseline_no_marker.py:33: error:
+Cannot find implementation or library stub for module named
+"ambito_financiero_client._state"  [import-not-found]
+    from ambito_financiero_client._state import _ClientState
+    ^
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_baseline_no_marker.py:33: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_baseline_no_marker.py:34: error:
+Cannot find implementation or library stub for module named
+"ambito_financiero_client.client"  [import-not-found]
+    from ambito_financiero_client.client import _validate_max_retries
+    ^
+.planning/spikes/SPIKE-005-codegen-tool-choice/001b-ambito-marker-future-compat/client_baseline_no_marker.py:151: error:
+Returning Any from function declared to return "float"  [no-any-return]
+            return _core.parse_get_dollar_banco_nacion_response(resp)
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Found 4 errors in 1 file (checked 1 source file)
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+
+=== baseline ast.parse ===
+exit 0
+warning: `VIRTUAL_ENV=/Users/sebadlf/.cache/uv/builds-v0/.tmpApbxAh` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+

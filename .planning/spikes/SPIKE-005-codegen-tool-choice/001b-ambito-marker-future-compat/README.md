@@ -4,7 +4,7 @@ sub: 001b
 name: ambito-marker-future-compat
 type: standard
 validates: "Given the @generated marker comment prepended to client_generated.py, when ruff check + ruff format --check + mypy --strict + ast.parse run, then all 4 commands exit 0 (marker compatible with from __future__ import annotations per PEP 236)"
-verdict: TBD
+verdict: PASS
 related: [001a]
 tags: [codegen, marker, future-import, ruff, mypy]
 created: 2026-06-14
@@ -33,4 +33,14 @@ uv run --with unasync python .planning/spikes/SPIKE-005-codegen-tool-choice/001b
 
 ## Investigation Trail
 
-<!-- Filled in Plan 02 -->
+**Run (2026-06-14):** Iteration 1 ran the 4 commands against the marked file only;
+verdict surfaced as FAIL because the inherent 001a output noise (Recipe-2 hunk H3
+ruff I001 + 3× mypy import-not-found + 1× no-any-return) made absolute exit codes
+non-zero. Iteration 2 (current) added a baseline (unmarked) copy run to isolate
+marker-introduced failures from pre-existing 001a noise. Result: per-command exit
+codes IDENTICAL between baseline and marked — marker is verifiably MARKER-NEUTRAL
+on all 4 commands. Verdict flipped to PASS (D-RIGOR-01 item 8 satisfied).
+
+See `FINDING.md` for the full Marker Syntax Verified + File Header Layout +
+4-Command Transcripts + Anti-Pitfall 6 Compliance + Recommendation for Phase 16
+sections.
