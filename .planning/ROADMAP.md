@@ -28,7 +28,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 - [x] **Phase 7: `_core.py` Extraction — Sync/Async Logic Dedup** — Pure builders/parsers per package; `client.py` and `aio.py` collapse to transport shells; import-linter rule blocks `_core.py` from importing `client.py`/`aio.py`. (completed 2026-06-12)
 - [x] **Phase 8: Retries, Backoff, Structured Logging** — `tenacity` with full-jitter backoff and `Retry-After` cap (60 s); mutating-aware retry gate via `RequestSpec.idempotent`; per-package `getLogger` + `NullHandler` + `RedactingFilter`. (completed 2026-06-13)
 - [x] **Phase 9: Deferred Bug Fixes** — F-09 matriz ERROR-MAP, F-02 higyrus `get_listado_cuentas=0`, IOL refresh_token in-instance persistence, HIGY multi-account iteration; each lands once in `_core.py` and propagates to both surfaces. (completed 2026-06-13)
-- [ ] **Phase 10: matriz `aio.py` Creation + TokenStore** — Full async REST surface for matriz; `TokenStore` with `threading.Lock` callable from sync, asyncio, and ws_client daemon thread. **Research flag**: TokenStore spike before plan.
+- [x] **Phase 10: matriz `aio.py` Creation + TokenStore** — Full async REST surface for matriz; `TokenStore` with `threading.Lock` callable from sync, asyncio, and ws_client daemon thread. **Research flag**: TokenStore spike before plan. (completed 2026-06-14)
 - [ ] **Phase 11: Harness Hardening + Code Review Close-out + Live Re-verification** — `verification/findings.py` append-only with BEGIN/END zone parser, content-addressed dedup, operator-field preservation; WR-01..02, WR-04, WR-06..08 close-out; live `main_*.py --live × 4` final gate including matriz async.
 
 ## Phase Details
@@ -205,7 +205,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 
 **Wave 4** *(blocked on Wave 3 — operator-driven live gate)*
 
-- [ ] 10-04-PLAN.md — Live verification paridad sync↔async via `main_matriz.py` interleaved probes (D-06) + 3 forward-reference skips flipped + cross-leak sentinel matriz async extension + snapshot regen (matriz: +AsyncClient + 22 delegators; otros 3: zero diff) + CI green matrix 3.12+3.13 + operator checkpoint (REFAC-04, LIVE-02)
+- [x] 10-04-PLAN.md — Live verification paridad sync↔async via `main_matriz.py` interleaved probes (D-06) + 3 forward-reference skips flipped + cross-leak sentinel matriz async extension + snapshot regen (matriz: +AsyncClient + 22 delegators; otros 3: zero diff) + CI green matrix 3.12+3.13 + operator checkpoint (REFAC-04, LIVE-02)
 
 **Research flag**: closed — TokenStore 3-way design spike completed (Spike 001c + 003); blueprint auto-loaded via `.claude/skills/spike-findings-market-libs/`.
 
@@ -249,7 +249,7 @@ Audit: [`milestones/v1.0-MILESTONE-AUDIT.md`](./milestones/v1.0-MILESTONE-AUDIT.
 | 7. `_core.py` Extraction — Sync/Async Logic Dedup                  | v1.1      | 6/6 | Complete    | 2026-06-12 |
 | 8. Retries, Backoff, Structured Logging                            | v1.1      | 6/6 | Complete    | 2026-06-13 |
 | 9. Deferred Bug Fixes                                              | v1.1      | 4/4 | Complete    | 2026-06-13 |
-| 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 3/4 | In Progress|  |
+| 10. matriz `aio.py` Creation + TokenStore                          | v1.1      | 4/4 | Complete   | 2026-06-14 |
 | 11. Harness Hardening + Code Review + Live Re-verification         | v1.1      | 0/?            | Not started | -          |
 
 ## Backlog
