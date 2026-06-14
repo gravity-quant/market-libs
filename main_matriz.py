@@ -103,15 +103,22 @@ _REPO_ROOT = Path(__file__).resolve().parent
 _SCHEMA_DIR = _REPO_ROOT / ".planning" / "verification" / "schemas" / _PKG
 
 # Phase 11 CR-06: tuple de excepciones residuales para los catch-all post-mapeo
-# en los probe boundaries. Los probes capturan primero ``PrimaryAPIError`` y/o
-# ``httpx.HTTPStatusError`` para los casos esperados; este catch-all atrapa
-# cualquier residual de red, parsing o ataque de typing inesperado (e.g.
-# payload shape inesperado que rompe un .get() o un .values()), y los reporta
-# via ``append_finding(..., class_="ERROR-MAP", ...)``. EXCLUYE
+# en los probe boundaries. Los probes capturan primero ``AuthenticationError``
+# y/o ``httpx.HTTPStatusError`` específico cuando aplica; este catch-all
+# atrapa el resto -- ``PrimaryAPIError`` no-AuthenticationError, network /
+# transport residual, parsing o typing inesperado (e.g. payload shape
+# inesperado que rompe un .get() o un .values()) -- y los reporta via
+# ``append_finding(..., class_="ERROR-MAP", ...)``. EXCLUYE
 # ``KeyboardInterrupt`` y ``SystemExit`` (no son ``Exception`` subclasses).
+#
+# NOTA: ``PrimaryAPIError`` ES incluido porque varios probes lo dejan caer al
+# catch-all post-mapeo cuando NO es ``AuthenticationError`` (el primer except
+# arriba captura el caso ``AuthenticationError`` esperado, y este residual
+# atrapa el caso 500 / ERROR mapeado al base ``PrimaryAPIError``).
 _RESIDUAL_PROBE_EXCEPTIONS = (
     httpx.HTTPError,
     OSError,
+    PrimaryAPIError,
     AttributeError,
     TypeError,
     ValueError,
@@ -471,7 +478,10 @@ def probe_login_sync() -> ProbeResult:
             diff="verificar PRIMARY_USER/PRIMARY_PASSWORD; revisar headers de respuesta",
             base_url=base_url,
         )
-        return ProbeResult("login_sync", "FAIL", f"{fid} (OPEN): AuthenticationError")
+        # Phase 11 CR-02: 'FINDING' (was 'FAIL') for uniformity with the rest
+        # of the driver taxonomy (e.g. ERROR-MAP probes use 'FINDING' on the
+        # equivalent diagnostic path).
+        return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN): AuthenticationError")
     except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"{type(exc).__name__}: {exc}"
@@ -488,7 +498,9 @@ def probe_login_sync() -> ProbeResult:
             diff="excepción no es subclase de AuthenticationError; revisar mapping",
             base_url=base_url,
         )
-        return ProbeResult("login_sync", "FAIL", f"{fid} (OPEN): {type(exc).__name__}")
+        # Phase 11 CR-02: 'FINDING' (was 'FAIL') for uniformity with the rest
+        # of the driver taxonomy.
+        return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN): {type(exc).__name__}")
     duration = time.monotonic() - t0
     return ProbeResult("login_sync", "PASS", f"token obtenido en {duration:.2f}s")
 
