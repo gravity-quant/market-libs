@@ -667,7 +667,7 @@ Ninguno. `cross_reference_todos` step encontró 0 matches relevantes
       client = matriz_client._get_default()
       with pytest.raises(matriz_client.exceptions.MatrizClientError):
           client.with_options(max_retries=10).new_order(
-              symbol="GGAL", side="BUY", quantity=1, price=100.0,
+              symbol="GGAL", side="BUY", qty=1, price=100.0,
               account="test-acct",
           )
       assert len(httpx_mock.get_requests()) == 1  # NO retry
