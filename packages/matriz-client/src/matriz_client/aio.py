@@ -165,6 +165,10 @@ class AsyncClient:
             self._state.token_expires_at = token_expires_at
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
         self._max_retries = max_retries
+        # Phase 13 D-T3 (async mirror sync): TokenStore retry cap source. View's
+        # _max_retries does NOT propagate; the TokenStore keeps the parent's
+        # constructor cap.
+        self._state.client_max_retries = max_retries
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
@@ -302,9 +306,11 @@ class AsyncClient:
             # lock semantics.
             self._state.http_client = sync_default._state.http_client
             try:
-                self._state.token_store = build_token_store(
-                    self._state, max_retries=self._max_retries
-                )
+                # Phase 13 D-T1/D-T3: read from state.client_max_retries (the
+                # parent's constructor value) instead of self._max_retries so a
+                # view's HTTP-only override does NOT rebind the TokenStore retry
+                # cap.
+                self._state.token_store = build_token_store(self._state, max_retries=self._state.client_max_retries)  # fmt: skip
             finally:
                 self._state.http_client = saved_http_client
         snap = await self._state.token_store.get_async()
@@ -667,6 +673,10 @@ def configure(
                 stacklevel=2,
             )
         client._max_retries = max_retries
+        # Phase 13 D-T3 (async mirror): mirror max_retries into
+        # state.client_max_retries so the rebuilt TokenStore (below) uses the
+        # new constructor cap.
+        client._state.client_max_retries = max_retries
         client._state.http_client = None
         # Phase 10 Plan 10-03 — RefreshPolicy is wired with the old max_retries
         # value at TokenStore construction time; force a rebuild to apply the

@@ -62,3 +62,6 @@ class _ClientState:
     # ``ws_client`` daemon thread. Lazily initialized via ``build_token_store``
     # on first call to the respective ``_ensure_token`` flavor.
     token_store: TokenStore | None = None
+    # Phase 13 D-T3: TokenStore retry cap source (separate from HTTP-level
+    # ``_max_retries`` which view can override via ``with_options``).
+    client_max_retries: int = 2
