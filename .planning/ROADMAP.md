@@ -49,7 +49,7 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
 **Summary checklist (Phases 12-17):**
 
 - [x] **Phase 12: Codegen Spike** — Tool-choice spike (unasync vs libcst) on ámbito canary + matriz worst-case. **NO-GO 2026-06-14** — strict D-RIGOR-01 reading (3/8 items FAIL: 1 byte-identical, 4 ruff check, 6 ámbito pytest; all source-shape asymmetry; 0 unfixable hunks). REFAC-06 deferred to v1.3 with libcst spike per D-NOGO-01. RESEARCH FLAG (completed).
-- [ ] **Phase 13: Cross-Package Ergonomics** — `client.with_options(max_retries=N)` × 4 packages via `request.extensions["max_attempts"]` per-request override; mutation-gate invariant preserved (anti-Pitfall 14: duplicate-order). ERG-01.
+- [x] **Phase 13: Cross-Package Ergonomics** — `client.with_options(max_retries=N)` × 4 packages via `request.extensions["max_attempts"]` per-request override; mutation-gate invariant preserved (anti-Pitfall 14: duplicate-order). ERG-01. (completed 2026-06-15)
 - [ ] **Phase 14: IOL Disk Persistence** — `iol_client/_token_cache.py` + `platformdirs >=4.0,<5` runtime dep + atomic write + `fcntl.flock` + 0600 chmod + failed-refresh cleanup + caplog no-leak guard. SEC-01. *Parallel-eligible with Phase 15.*
 - [ ] **Phase 15: Driver Migration × 4** — `main_ambito` → `main_iol` → `main_higyrus` → `main_matriz` consume `Client()`/`AsyncClient()` directly; ONE Client per `main()` run invariant; probe names UNCHANGED; AST regression-guard per driver. REFAC-05. *Parallel-eligible with Phase 14.*
 - ~~[ ] **Phase 16: Codegen Single-Source** — DROPPED per Phase 12 NO-GO 2026-06-14; REFAC-06 deferred to v1.3.~~
@@ -114,7 +114,7 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 13-05-PLAN.md — `with_options` iol-client (last; coexists with Phase 14 SEC-01) + Phase 13 consolidated green gate (Wave 5)
+- [x] 13-05-PLAN.md — `with_options` iol-client (last; coexists with Phase 14 SEC-01) + Phase 13 consolidated green gate (Wave 5)
 
 ### Phase 14: IOL Disk Persistence (SEC-01)
 
@@ -202,7 +202,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 10. matriz `aio.py` Creation + TokenStore                   | v1.1      | 4/4   | Complete    | 2026-06-14 |
 | 11. Harness Hardening + Code Review + Live Re-verification  | v1.1      | 3/3   | Complete    | 2026-06-14 |
 | 12. Codegen Spike                                           | v1.2      | 4/3 | Complete    | 2026-06-14 |
-| 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 4/5 | In Progress|  |
+| 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 5/5 | Complete   | 2026-06-15 |
 | 14. IOL Disk Persistence                                    | v1.2      | 0/?   | Not started | -          |
 | 15. Driver Migration × 4                                    | v1.2      | 0/?   | Not started | -          |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
