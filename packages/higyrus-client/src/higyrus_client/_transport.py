@@ -137,12 +137,14 @@ class RetryTransport(httpx.HTTPTransport):
         request_id = request.extensions.get("request_id", "")
         endpoint_name = request.extensions.get("endpoint_name", "")
         account_id = request.extensions.get("account_id")
+        # Phase 13 ERG-01: per-request override via with_options(max_retries=N) view.
+        effective_max_attempts = request.extensions.get("max_attempts", self._max_attempts)
         start = time.monotonic()
         attempt_number = 0
 
         try:
             for attempt in Retrying(
-                stop=stop_after_attempt(self._max_attempts),
+                stop=stop_after_attempt(effective_max_attempts),
                 wait=wait_exponential_jitter(initial=1.0, max=30.0, exp_base=2, jitter=1.0),
                 retry=(
                     retry_if_exception_type(_RETRYABLE_EXC)
