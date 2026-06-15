@@ -38,7 +38,7 @@
 
 ### Client ergonomics (ERG)
 
-- [ ] **ERG-01**: `client.with_options(max_retries=N)` per-call override × 4 packages
+- [x] **ERG-01**: `client.with_options(max_retries=N)` per-call override × 4 packages
   (anthropic/openai pattern). Shallow clone del `Client` que comparte underlying
   `httpx.Client` + `_ClientState` (anti-Pitfall 13: resource leak). Override threads via
   `request.extensions["max_attempts"]` extension (mirror del v1.1 mutation gate
