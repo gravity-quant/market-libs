@@ -1055,3 +1055,153 @@ def test_token_path_second_401_carve_out_consumes_body_before_raise(
     with pytest.raises(AuthenticationError):
         matriz_client.get_segments()
     assert len(httpx_mock.get_requests()) == 3
+
+
+# ------ Phase 13 ERG-01 — with_options(max_retries=N) view shape ------
+
+
+def test_with_options_close_is_noop(httpx_mock: HTTPXMock) -> None:
+    """Phase 13 D-V1: view.close() MUST NOT close parent's http_client.
+
+    Anti-Pitfall 13: a view shares ``_state.http_client`` with the parent;
+    closing the view would tear down the parent's TCP pool. The lifecycle
+    no-op guard prevents this. Matriz-specific: also asserts the parent's
+    cached token survives the view's close (no re-auth) AND the
+    ``_state.token_store`` reference (when present) is not cleared (D-T2).
+    """
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        json={"status": "OK", "segments": []},
+    )
+    client = matriz_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    client.get_segments()
+    parent_http = client._state.http_client
+    assert parent_http is not None
+    assert client._state.token == "test-token"
+
+    view = client.with_options(max_retries=5)
+    view.close()  # MUST be no-op
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None  # parent's pool still open
+    assert client._state.token == "test-token"  # no re-auth triggered
+
+
+def test_with_options_exit_is_noop(httpx_mock: HTTPXMock) -> None:
+    """``with view:`` block exits without tearing down parent's http_client."""
+    httpx_mock.add_response(
+        url="https://api.test/rest/segment/all",
+        json={"status": "OK", "segments": []},
+    )
+    client = matriz_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    client.get_segments()
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    with view:
+        pass  # exit triggers __exit__ → close() → no-op guard
+
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    assert client._state.token == "test-token"
+
+
+def test_with_options_chaining_inner_wins_local() -> None:
+    """D-V2: ``c.with_options(5).with_options(10)._max_retries == 10``."""
+    client = matriz_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5).with_options(max_retries=10)
+    assert view._max_retries == 10
+    assert client._max_retries == 2
+    assert view._state is client._state
+
+
+def test_with_options_repr_shows_view_prefix() -> None:
+    """View ``__repr__`` is prefixed with ``"view of "``. D-18 redaction preserved."""
+    client = matriz_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="SECRET-PASSWORD-DO-NOT-LEAK",
+        token="SECRET-TOKEN-DO-NOT-LEAK",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5)
+    assert repr(view).startswith("view of Client(")
+    assert not repr(client).startswith("view of ")
+    # D-18 redaction must still apply on views.
+    assert "SECRET-PASSWORD-DO-NOT-LEAK" not in repr(view)
+    assert "SECRET-TOKEN-DO-NOT-LEAK" not in repr(view)
+    assert "password='***'" in repr(view)
+    assert "token='***'" in repr(view)
+
+
+def test_with_options_invalid_max_retries_raises_value_error() -> None:
+    """WR-06 carry-forward: invalid ``max_retries`` rejected BEFORE view construction."""
+    client = matriz_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=True)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=1.5)  # type: ignore[arg-type]
+
+
+def test_with_options_view_shares_token_store_3way_primitive(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """D-T2: view shares ``_state.token_store`` (Phase 10 3-way concurrency primitive).
+
+    The view shallow-clone does NOT create a TokenStore of its own; it consumes
+    the shared ``_state.token_store`` synced by threading.Lock (sync REST +
+    ws_client daemon thread) + asyncio.Lock (per loop, async REST). Asserts
+    that after the parent's first ``_ensure_token`` builds the store, the view
+    sees the SAME instance via ``view._state.token_store is parent._state.token_store``.
+    """
+    client = matriz_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        max_retries=2,
+    )
+    # Force first _ensure_token in parent so token_store gets built.
+    client._state.token = None
+    client._state.token_expires_at = 0.0
+    client._state.token_store = None
+    httpx_mock.add_response(
+        url="https://api.test/auth/getToken",
+        method="POST",
+        headers={"X-Auth-Token": "first-token"},
+    )
+    client._ensure_token()
+    parent_store = client._state.token_store
+    assert parent_store is not None, "parent's _ensure_token did not build token_store"
+
+    view = client.with_options(max_retries=5)
+    assert view._state.token_store is parent_store, (
+        "view must SHARE _state.token_store (Phase 10 3-way primitive) — D-T2 "
+        "violation if the view holds a separate instance."
+    )
+    assert view._state is client._state  # full _state share by construction
