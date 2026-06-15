@@ -162,11 +162,12 @@ def test_async_client_has_no_client_lock_attribute() -> None:
     No auth, no token refresh race, no lock. The asyncio.Lock pattern from
     PATTERNS.md Section 7 is unnecessary here; the AsyncClient slots tuple
     has no ``_client_lock``. Phase 8 adds ``_max_retries`` to slots (D-15).
+    Phase 13 adds ``_is_view`` to slots (D-V1) — views' lifecycle no-op flag.
     See aio.AsyncClient._ensure_http_client docstring.
     """
     assert "_client_lock" not in AsyncClient.__slots__
-    # Phase 8: slots is (_max_retries, _state) — no _client_lock (B7 divergence preserved).
-    assert set(AsyncClient.__slots__) == {"_state", "_max_retries"}
+    # Phase 13: slots is (_is_view, _max_retries, _state) — no _client_lock (B7 divergence preserved).
+    assert set(AsyncClient.__slots__) == {"_is_view", "_state", "_max_retries"}
 
 
 def test_aio_imports_raise_for_response_from_client() -> None:

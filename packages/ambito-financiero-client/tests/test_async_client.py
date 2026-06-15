@@ -87,3 +87,72 @@ async def test_async_get_dollar_banco_nacion_shape_list_of_list_str(
 
 # (vacío hasta que un finding promovido a CONFIRMED se cierre como FIXED;
 # convención: docstring ``Regression: ... (finding F-NN)`` per D-07).
+
+
+# ------ Phase 13 ERG-01 — with_options(max_retries=N) view shape (async mirror) ------
+
+
+async def test_with_options_aclose_is_noop(httpx_mock: HTTPXMock) -> None:
+    """Phase 13 D-V1 async mirror: view.aclose() MUST NOT close parent's http_client."""
+    httpx_mock.add_response(
+        url="https://mercados.ambito.com/dolarnacion/historico-general/2026-04-07/2026-04-07",
+        json=[["Fecha", "Compra", "Venta"], ["07/04/2026", "1365,00", "1415,00"]],
+    )
+    client = aio.AsyncClient()
+    await client.get_dollar_banco_nacion(dt.date(2026, 4, 7))
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    await view.aclose()  # MUST be no-op
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    await client.aclose()  # cleanup parent's pool
+
+
+async def test_with_options_aexit_is_noop(httpx_mock: HTTPXMock) -> None:
+    """``async with view:`` block exits without tearing down parent's http_client."""
+    httpx_mock.add_response(
+        url="https://mercados.ambito.com/dolarnacion/historico-general/2026-04-07/2026-04-07",
+        json=[["Fecha", "Compra", "Venta"], ["07/04/2026", "1365,00", "1415,00"]],
+    )
+    client = aio.AsyncClient()
+    await client.get_dollar_banco_nacion(dt.date(2026, 4, 7))
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    async with view:
+        pass  # exit triggers __aexit__ → aclose() → no-op guard
+
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    await client.aclose()
+
+
+async def test_with_options_chaining_inner_wins_local_async() -> None:
+    """D-V2 async mirror: chaining inner wins."""
+    client = aio.AsyncClient()
+    view = client.with_options(max_retries=5).with_options(max_retries=10)
+    assert view._max_retries == 10
+    assert client._max_retries == 2
+    assert view._state is client._state
+
+
+async def test_with_options_async_repr_shows_view_prefix() -> None:
+    """Async view's ``__repr__`` is prefixed with ``"view of "``."""
+    client = aio.AsyncClient()
+    view = client.with_options(max_retries=5)
+    assert repr(view).startswith("view of AmbitoFinancieroAsyncClient(")
+    assert not repr(client).startswith("view of ")
+
+
+async def test_with_options_async_invalid_max_retries_raises_value_error() -> None:
+    """WR-06 carry-forward async mirror: invalid ``max_retries`` raises ValueError."""
+    client = aio.AsyncClient()
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=True)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=1.5)  # type: ignore[arg-type]

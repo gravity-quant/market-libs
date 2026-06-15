@@ -102,3 +102,76 @@ def test_get_dollar_banco_nacion_shape_list_of_list_str(httpx_mock: HTTPXMock) -
 
 # (vacío hasta que un finding promovido a CONFIRMED se cierre como FIXED;
 # convención: docstring ``Regression: ... (finding F-NN)`` per D-07).
+
+
+# ------ Phase 13 ERG-01 — with_options(max_retries=N) view shape ------
+
+
+def test_with_options_close_is_noop(httpx_mock: HTTPXMock) -> None:
+    """Phase 13 D-V1: view.close() MUST NOT close parent's http_client.
+
+    Anti-Pitfall 13: a view shares ``_state.http_client`` with the parent;
+    closing the view would tear down the parent's TCP pool. The lifecycle
+    no-op guard (``if getattr(self, "_is_view", False): return``) prevents this.
+    """
+    httpx_mock.add_response(
+        url="https://mercados.ambito.com/dolarnacion/historico-general/2026-04-07/2026-04-07",
+        json=[["Fecha", "Compra", "Venta"], ["07/04/2026", "1365,00", "1415,00"]],
+    )
+    client = ambito.Client()
+    # Force lazy init of http_client via an actual call.
+    client.get_dollar_banco_nacion(dt.date(2026, 4, 7))
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    view.close()  # MUST be no-op
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None  # parent's pool still open
+
+
+def test_with_options_exit_is_noop(httpx_mock: HTTPXMock) -> None:
+    """``with view:`` block exits without tearing down parent's http_client."""
+    httpx_mock.add_response(
+        url="https://mercados.ambito.com/dolarnacion/historico-general/2026-04-07/2026-04-07",
+        json=[["Fecha", "Compra", "Venta"], ["07/04/2026", "1365,00", "1415,00"]],
+    )
+    client = ambito.Client()
+    client.get_dollar_banco_nacion(dt.date(2026, 4, 7))
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    with view:
+        pass  # exit triggers __exit__ → close() → no-op guard
+
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+
+
+def test_with_options_chaining_inner_wins_local() -> None:
+    """D-V2: ``c.with_options(5).with_options(10)._max_retries == 10``."""
+    client = ambito.Client()
+    view = client.with_options(max_retries=5).with_options(max_retries=10)
+    assert view._max_retries == 10
+    assert client._max_retries == 2
+    assert view._state is client._state
+
+
+def test_with_options_repr_shows_view_prefix() -> None:
+    """View's ``__repr__`` is prefixed with ``"view of "`` (debug ergonomics)."""
+    client = ambito.Client()
+    view = client.with_options(max_retries=5)
+    assert repr(view).startswith("view of AmbitoFinancieroClient(")
+    assert not repr(client).startswith("view of ")
+
+
+def test_with_options_invalid_max_retries_raises_value_error() -> None:
+    """WR-06 carry-forward: invalid ``max_retries`` rejected BEFORE view construction."""
+    client = ambito.Client()
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=True)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=1.5)  # type: ignore[arg-type]
