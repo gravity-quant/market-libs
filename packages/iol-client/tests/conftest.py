@@ -21,6 +21,13 @@ import pytest
 import iol_client
 from iol_client import aio
 
+# Phase 13 IN-03: symbolic name for the "non-expiring token" sentinel used
+# throughout the iol test suite. ``9_999_999_999.0`` is Unix epoch
+# ~year 2286 (well beyond any test horizon). New test sites SHOULD use
+# this constant; legacy sites that still embed the literal are kept until
+# v1.3 sweep.
+NEVER_EXPIRES = 9_999_999_999.0
+
 
 @pytest.fixture(autouse=True)
 def _configure_sync() -> Iterator[None]:
@@ -29,7 +36,7 @@ def _configure_sync() -> Iterator[None]:
         username="u",
         password="p",
         token="test-token",
-        token_expires_at=9_999_999_999.0,
+        token_expires_at=NEVER_EXPIRES,
     )
     yield
     # Cierre del transport: cada test arranca con un httpx.Client fresco
@@ -45,7 +52,7 @@ async def _configure_async() -> AsyncIterator[None]:
         username="u",
         password="p",
         token="test-token",
-        token_expires_at=9_999_999_999.0,
+        token_expires_at=NEVER_EXPIRES,
     )
     yield
     await aio._get_default().aclose()

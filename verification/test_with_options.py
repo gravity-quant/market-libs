@@ -58,6 +58,12 @@ import higyrus_client
 import iol_client
 import matriz_client
 
+# Phase 13 IN-03: symbolic name for the "non-expiring token" sentinel used by
+# every helper that pre-seeds a token to bypass auth-flow during cross-cutting
+# tests. ``9_999_999_999.0`` is Unix epoch ~year 2286 — well beyond any test
+# horizon, but the symbolic name documents intent at the call sites.
+_NEVER_EXPIRES: float = 9_999_999_999.0
+
 # ---------------------------------------------------------------------------
 # Per-test isolation — clear each package's module-level _default_client so
 # state from a prior test (e.g., a configure() call) does not leak.
@@ -96,7 +102,7 @@ def _make_client(pkg_name: str, *, max_retries: int = 2) -> Any:
             username="u",
             password="p",
             token="test-token",
-            token_expires_at=9_999_999_999.0,
+            token_expires_at=_NEVER_EXPIRES,
             max_retries=max_retries,
         )
     if pkg_name == "higyrus_client":
@@ -106,7 +112,7 @@ def _make_client(pkg_name: str, *, max_retries: int = 2) -> Any:
             username="u",
             password="p",
             token="test-token",
-            token_expires_at=9_999_999_999.0,
+            token_expires_at=_NEVER_EXPIRES,
             max_retries=max_retries,
         )
     if pkg_name == "matriz_client":
@@ -115,7 +121,7 @@ def _make_client(pkg_name: str, *, max_retries: int = 2) -> Any:
             username="u",
             password="p",
             token="test-token",
-            token_expires_at=9_999_999_999.0,
+            token_expires_at=_NEVER_EXPIRES,
             max_retries=max_retries,
         )
     raise AssertionError(f"unhandled package: {pkg_name}")  # pragma: no cover
@@ -218,7 +224,7 @@ def test_with_options_does_not_bypass_mutation_gate_matriz(httpx_mock: HTTPXMock
         username="u",
         password="p",
         token="test-token",
-        token_expires_at=9_999_999_999.0,
+        token_expires_at=_NEVER_EXPIRES,
     )
     httpx_mock.add_response(status_code=503, is_reusable=True)
     client = matriz_client._get_default()
