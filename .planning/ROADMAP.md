@@ -96,11 +96,24 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
   5. v1.1's 907-test baseline is preserved (`pytest` reports ≥ 907 passing); the new tests are net-additive.
 
 **Plans**: 5 plans
+**Wave 1**
 
 - [ ] 13-01-PLAN.md — Cross-cutting tests-first + RetryTransport `max_attempts` extension wiring × 4 packages × 2 surfaces (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 13-02-PLAN.md — `with_options` ámbito-financiero-client (canary, no auth) (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 13-03-PLAN.md — `with_options` higyrus-client + RedactingFilter integrity (Wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 13-04-PLAN.md — `with_options` matriz-client (D-T1..T6: TokenStore isolation + CRITICAL mutation-gate merge gate) (Wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 13-05-PLAN.md — `with_options` iol-client (last; coexists with Phase 14 SEC-01) + Phase 13 consolidated green gate (Wave 5)
 
 ### Phase 14: IOL Disk Persistence (SEC-01)
