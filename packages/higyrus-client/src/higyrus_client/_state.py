@@ -99,3 +99,10 @@ class _ClientState:
     # event loop, so we don't bind the lock to a particular loop at import
     # time. Always ``None`` for the sync ``Client``.
     token_lock: asyncio.Lock | None = None
+    # Phase 13 WR-01 fix: lazy lock guarding ``http_client`` lazy-init.
+    # Lives on shared ``_state`` (NOT per-instance ``__slots__``) so a
+    # ``with_options`` view inherits the SAME lock instance as the parent.
+    # Without this, parent and view each held an independent
+    # ``asyncio.Lock``, leaving the shared ``http_client`` materialization
+    # racy across concurrent first-callers (parent + view on the same loop).
+    client_lock: asyncio.Lock | None = None

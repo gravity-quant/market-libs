@@ -72,10 +72,15 @@ class AsyncClient:
     shared mutable state between sync and async surfaces by construction).
 
     Locks (Pitfall #6): ``self._state.token_lock`` and
-    ``self._client_lock`` are lazily created on first async use so they
-    bind to whatever event loop is running. Creating an ``asyncio.Lock()``
-    inside ``__init__`` would bind it to the loop alive at construction
-    time, which is fragile under ``asyncio.run`` patterns.
+    ``self._state.client_lock`` are lazily created on first async use so
+    they bind to whatever event loop is running. Creating an
+    ``asyncio.Lock()`` inside ``__init__`` would bind it to the loop alive
+    at construction time, which is fragile under ``asyncio.run`` patterns.
+
+    Phase 13 WR-01 fix: ``client_lock`` lives on ``_state`` (mirror of
+    ``token_lock``) so ``with_options`` views inherit the SAME lock instance
+    as the parent — no second lock per view, no race on first
+    ``_ensure_http_client`` materialization.
 
     Pickle / deepcopy contract (D-23): NOT supported (httpx.AsyncClient
     owns a TCP pool + SSL context tied to a specific event loop).
@@ -84,7 +89,7 @@ class AsyncClient:
     ``await client.aclose()``.
     """
 
-    __slots__ = ("_client_lock", "_is_view", "_max_retries", "_state")
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -118,8 +123,10 @@ class AsyncClient:
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
-        # Lazy — created in _ensure_http_client on first async use.
-        self._client_lock: asyncio.Lock | None = None
+        # Phase 13 WR-01 fix: ``client_lock`` lives on ``self._state`` (lazy,
+        # bound to the current event loop on first use). Hoisted off the
+        # instance __slots__ so ``with_options`` views share the SAME lock
+        # instance as the parent (mirror of ``token_lock``).
 
     async def __aenter__(self) -> Self:
         return self
@@ -187,17 +194,18 @@ class AsyncClient:
         Phase 8 D-15 / D-19 / D-32: wraps ``AsyncRetryTransport`` so async
         requests benefit from bounded retries + native ``asyncio.sleep``
         backoff (CancelledError-aware). Preserves the Phase 6 double-checked
-        locking pattern (``self._client_lock``) — instantiation runs INSIDE
-        the lock-protected block so concurrent first-callers race a single
+        locking pattern (``self._state.client_lock`` — Phase 13 WR-01 fix
+        hoists from per-instance __slots__ onto shared _state so views and
+        parent acquire the SAME lock) — instantiation runs INSIDE the
+        lock-protected block so concurrent first-callers race a single
         ``AsyncClient`` allocation.
         """
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.AsyncClient)
             return http_client
-        if self._client_lock is None:
-            self._client_lock = asyncio.Lock()
-        async with self._client_lock:
+        client_lock = self._ensure_client_lock()
+        async with client_lock:
             http_client = self._state.http_client
             if http_client is not None:
                 assert isinstance(http_client, httpx.AsyncClient)
@@ -208,6 +216,17 @@ class AsyncClient:
             )
             self._state.http_client = new_client
             return new_client
+
+    def _ensure_client_lock(self) -> asyncio.Lock:
+        """Crea el lock de http-client lazy (bind to current loop).
+
+        Phase 13 WR-01 fix: backed by ``self._state.client_lock`` (shared
+        across parent and ``with_options`` views) instead of a per-instance
+        ``__slots__`` attribute. Mirrors the existing ``token_lock`` pattern.
+        """
+        if self._state.client_lock is None:
+            self._state.client_lock = asyncio.Lock()
+        return self._state.client_lock
 
     def _ensure_token_lock(self) -> asyncio.Lock:
         if self._state.token_lock is None:
@@ -260,13 +279,12 @@ class AsyncClient:
         """
         _validate_max_retries(max_retries)
         view = type(self).__new__(type(self))
-        view._state = self._state  # SHARE — anti-Pitfall 13
+        # SHARE — anti-Pitfall 13 (incl. ``client_lock``; Phase 13 WR-01 fix
+        # moved the lock onto ``_state`` so view and parent acquire the SAME
+        # ``asyncio.Lock`` on first ``_ensure_http_client``).
+        view._state = self._state
         view._max_retries = max_retries  # OVERRIDE
         view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
-        # Phase 13 D-V3 mirror: share parent's _client_lock so the view's
-        # first call goes through the SAME asyncio.Lock as the parent
-        # (no second lock per view; preserves the per-loop binding).
-        view._client_lock = self._client_lock
         return view
 
     async def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
@@ -314,7 +332,8 @@ class AsyncClient:
         Pitfall 6: NO llamar ``self._ensure_token()`` / ``self._login_unlocked()``
         / ``self._request(...)`` adentro — re-adquirirían el lock y causarían
         deadlock. Solo httpx send directo. ``_ensure_http_client`` usa un
-        lock separado (``self._client_lock``), sin conflicto.
+        lock separado (``self._state.client_lock`` — Phase 13 WR-01 fix
+        hoisted onto _state), sin conflicto.
         """
         spec = _core.build_refresh_request(self._state)
         resp = await self._send_auth_request(spec)

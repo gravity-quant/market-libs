@@ -78,12 +78,17 @@ __all__ = [
 class AsyncClient:
     """Async HTTP client for Higyrus. Phase 7 transport shell.
 
-    Async-specific bits (``_client_lock`` para http-client; ``state.token_lock``
-    para token refresh) se crean lazy dentro del loop. Pickle/deepcopy NO
-    soportados (D-23).
+    Async-specific bits (``state.client_lock`` para http-client;
+    ``state.token_lock`` para token refresh) se crean lazy dentro del loop.
+    Pickle/deepcopy NO soportados (D-23).
+
+    Phase 13 WR-01 fix: ``client_lock`` lives on ``_state`` (mirror of
+    ``token_lock``) so ``with_options`` views inherit the SAME lock
+    instance as the parent — no second lock per view, no race on first
+    ``_ensure_http_client`` materialization.
     """
 
-    __slots__ = ("_client_lock", "_is_view", "_max_retries", "_state")
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -121,8 +126,10 @@ class AsyncClient:
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
-        # Lazy: bound to the current event loop on first use.
-        self._client_lock: asyncio.Lock | None = None
+        # Phase 13 WR-01 fix: ``client_lock`` lives on ``self._state`` (lazy,
+        # bound to the current event loop on first use). Hoisted off the
+        # instance __slots__ so ``with_options`` views share the SAME lock
+        # instance as the parent (mirror of ``token_lock``).
 
     # ---- Lifecycle ----
 
@@ -182,10 +189,15 @@ class AsyncClient:
     # ---- Locks + HTTP client + auth ----
 
     def _ensure_client_lock(self) -> asyncio.Lock:
-        """Crea el lock de http-client lazy (bind to current loop)."""
-        if self._client_lock is None:
-            self._client_lock = asyncio.Lock()
-        return self._client_lock
+        """Crea el lock de http-client lazy (bind to current loop).
+
+        Phase 13 WR-01 fix: backed by ``self._state.client_lock`` (shared
+        across parent and ``with_options`` views) instead of a per-instance
+        ``__slots__`` attribute. Mirrors the existing ``token_lock`` pattern.
+        """
+        if self._state.client_lock is None:
+            self._state.client_lock = asyncio.Lock()
+        return self._state.client_lock
 
     def _ensure_token_lock(self) -> asyncio.Lock:
         """Crea el lock de token lazy. Expuesto via PEP 562 como ``aio._token_lock``."""
@@ -211,12 +223,12 @@ class AsyncClient:
             view = client.with_options(max_retries=5)
             movs = await view.get_movimientos("CTA-001", d1, d2)
 
-        Note that the view does NOT get its own ``_client_lock``; the per-loop
-        binding lives on the parent. The view inherits ``self._client_lock``
-        from the parent at view-construction time via ``__new__`` (it would be
-        ``None`` if the parent has not yet opened its async client lock). The
-        view's first async call triggers the same double-checked locking
-        through the parent's lock if both are awaited on the same loop.
+        Phase 13 WR-01 fix: the view shares ``_state.client_lock`` with the
+        parent (mirror of the existing ``token_lock`` pattern). Whichever
+        of {parent, view} triggers the first ``_ensure_http_client`` lazy-init
+        creates the single ``asyncio.Lock`` on ``_state``, and both surfaces
+        thereafter acquire the SAME lock — guaranteeing exactly one
+        ``httpx.AsyncClient`` is allocated for the shared ``_state.http_client``.
         Cross-loop usage is unsupported (Phase 6 + 7 invariant).
 
         See ``higyrus_client.Client.with_options`` for full semantics
@@ -226,13 +238,9 @@ class AsyncClient:
         # WR-06 carry-forward: validate before view construction (D-V3 parity).
         _validate_max_retries(max_retries)
         view = type(self).__new__(type(self))
-        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._state = self._state  # SHARE — anti-Pitfall 13 (incl. client_lock)
         view._max_retries = max_retries  # OVERRIDE
         view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
-        # Mirror parent's _client_lock (None or live asyncio.Lock); view shares
-        # the lock so first-call double-checked locking on view goes through
-        # the SAME asyncio.Lock as the parent (no second lock per view).
-        view._client_lock = self._client_lock
         return view
 
     async def _ensure_http_client(self) -> httpx.AsyncClient:
@@ -241,8 +249,10 @@ class AsyncClient:
         Phase 8 D-15 / D-19 / D-32: wraps ``AsyncRetryTransport`` so async
         requests benefit from bounded retries + native ``asyncio.sleep``
         backoff (CancelledError-aware). Preserves the Phase 6/7 double-checked
-        locking pattern (``self._client_lock``) — instantiation runs INSIDE
-        the lock-protected block so concurrent first-callers race a single
+        locking pattern (``self._state.client_lock`` — Phase 13 WR-01 fix
+        hoists from per-instance __slots__ onto shared _state so views and
+        parent acquire the SAME lock) — instantiation runs INSIDE the
+        lock-protected block so concurrent first-callers race a single
         ``AsyncClient`` allocation.
         """
         client = self._state.http_client

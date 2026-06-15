@@ -507,6 +507,34 @@ async def test_with_options_chaining_inner_wins_local_async() -> None:
     assert view._state is client._state
 
 
+async def test_with_options_async_view_shares_client_lock_with_parent() -> None:
+    """Phase 13 WR-01 regression: view shares ``_state.client_lock`` with parent.
+
+    Construct the view BEFORE the parent has materialized its async
+    ``client_lock`` (lazy on first ``_ensure_client_lock``). The view's
+    first lock acquisition MUST observe the SAME ``asyncio.Lock`` instance
+    as the parent's subsequent acquisition — otherwise the two would race
+    on the shared ``_state.http_client`` lazy-init (anti-Pitfall 13).
+    """
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    # View constructed BEFORE the parent's lock is materialized.
+    assert client._state.client_lock is None
+    view = client.with_options(max_retries=5)
+    # First-call materialization on the view populates the SHARED state slot.
+    view._ensure_client_lock()
+    assert client._state.client_lock is not None
+    # Parent's view of the same shared state surfaces the SAME Lock instance.
+    assert view._ensure_client_lock() is client._ensure_client_lock()
+    assert view._state.client_lock is client._state.client_lock
+
+
 async def test_with_options_async_repr_shows_view_prefix() -> None:
     """Async view's ``__repr__`` is prefixed with ``"view of "``. D-18 redaction preserved."""
     client = aio.AsyncClient(
