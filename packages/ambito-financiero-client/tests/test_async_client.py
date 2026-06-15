@@ -133,26 +133,35 @@ async def test_with_options_aexit_is_noop(httpx_mock: HTTPXMock) -> None:
 async def test_with_options_chaining_inner_wins_local_async() -> None:
     """D-V2 async mirror: chaining inner wins."""
     client = aio.AsyncClient()
-    view = client.with_options(max_retries=5).with_options(max_retries=10)
-    assert view._max_retries == 10
-    assert client._max_retries == 2
-    assert view._state is client._state
+    try:
+        view = client.with_options(max_retries=5).with_options(max_retries=10)
+        assert view._max_retries == 10
+        assert client._max_retries == 2
+        assert view._state is client._state
+    finally:
+        await client.aclose()
 
 
 async def test_with_options_async_repr_shows_view_prefix() -> None:
     """Async view's ``__repr__`` is prefixed with ``"view of "``."""
     client = aio.AsyncClient()
-    view = client.with_options(max_retries=5)
-    assert repr(view).startswith("view of AmbitoFinancieroAsyncClient(")
-    assert not repr(client).startswith("view of ")
+    try:
+        view = client.with_options(max_retries=5)
+        assert repr(view).startswith("view of AmbitoFinancieroAsyncClient(")
+        assert not repr(client).startswith("view of ")
+    finally:
+        await client.aclose()
 
 
 async def test_with_options_async_invalid_max_retries_raises_value_error() -> None:
     """WR-06 carry-forward async mirror: invalid ``max_retries`` raises ValueError."""
     client = aio.AsyncClient()
-    with pytest.raises(ValueError, match="max_retries"):
-        client.with_options(max_retries=-1)
-    with pytest.raises(ValueError, match="max_retries"):
-        client.with_options(max_retries=True)
-    with pytest.raises(ValueError, match="max_retries"):
-        client.with_options(max_retries=1.5)  # type: ignore[arg-type]
+    try:
+        with pytest.raises(ValueError, match="max_retries"):
+            client.with_options(max_retries=-1)
+        with pytest.raises(ValueError, match="max_retries"):
+            client.with_options(max_retries=True)
+        with pytest.raises(ValueError, match="max_retries"):
+            client.with_options(max_retries=1.5)  # type: ignore[arg-type]
+    finally:
+        await client.aclose()
