@@ -129,7 +129,19 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
   4. `Client(token_cache_path=Path(...))` opt-in kwarg + `IOL_TOKEN_CACHE_PATH` env var override + `platformdirs.user_data_dir("iol-client", "market-libs")` default; chmod 0600 on POSIX + parent dir 0700; CI detection (`os.environ["CI"]=="true"`) refuses default-path persistence (anti-Pitfall 10).
   5. 8+ regression tests cover the 4 v1.1 BUG-03 lifecycle paths × disk (refresh→success, refresh→401→password fallback, preserve-on-omit, rotate-on-provide) for both sync and async; `platformdirs >=4.0,<5` added to `packages/iol-client/pyproject.toml` runtime deps ONLY (other 3 packages unaffected).
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 14-01-PLAN.md — Cross-cutting tests-first + platformdirs dep on iol-client (RED in HEAD per D-P1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 14-02-PLAN.md — `_token_cache.py` + `_state.py` field + sync `Client` integration (3 CRITICAL gates + 4 sync regression GREEN)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 14-03-PLAN.md — Async `AsyncClient` mirror via `asyncio.to_thread` + Phase 14 consolidated green gate
 
 ### Phase 15: Driver Migration × 4 (REFAC-05)
 
@@ -203,7 +215,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 11. Harness Hardening + Code Review + Live Re-verification  | v1.1      | 3/3   | Complete    | 2026-06-14 |
 | 12. Codegen Spike                                           | v1.2      | 4/3 | Complete    | 2026-06-14 |
 | 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 5/5 | Complete    | 2026-06-15 |
-| 14. IOL Disk Persistence                                    | v1.2      | 0/?   | Not started | -          |
+| 14. IOL Disk Persistence                                    | v1.2      | 0/3   | Not started | -          |
 | 15. Driver Migration × 4                                    | v1.2      | 0/?   | Not started | -          |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
 | 17. Final Live Re-verification × 4                          | v1.2      | 0/?   | Not started (unblocked) | -          |
