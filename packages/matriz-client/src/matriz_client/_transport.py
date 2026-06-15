@@ -238,11 +238,7 @@ class RetryTransport(httpx.HTTPTransport):
                 extra["account_id"] = account_id
             # Phase 13 WR-03 fix: mirror the async transport's inline D-22
             # split on terminal-failure ERROR records too (defense-in-depth).
-            if (
-                auth_basic is not None
-                and isinstance(auth_basic, tuple)
-                and len(auth_basic) == 2
-            ):
+            if auth_basic is not None and isinstance(auth_basic, tuple) and len(auth_basic) == 2:
                 user, _password = auth_basic
                 if isinstance(user, str):
                     extra["auth_basic_user"] = user

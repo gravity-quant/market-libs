@@ -121,7 +121,8 @@ class Client:
         # short-circuit so view.close()/__exit__ never tear down the parent's TCP pool
         # (anti-Pitfall 13). getattr defensive for pre-Phase-13 pickled or partially-
         # initialized instances.
-        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
+        if getattr(self, "_is_view", False):
+            return
         if self._state.http_client is not None:
             assert isinstance(self._state.http_client, httpx.Client)
             self._state.http_client.close()

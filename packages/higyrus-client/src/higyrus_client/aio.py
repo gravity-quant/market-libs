@@ -151,7 +151,8 @@ class AsyncClient:
         short-circuit here so ``view.aclose()`` / ``view.__aexit__`` never
         tear down the parent's shared TCP pool (anti-Pitfall 13).
         """
-        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
+        if getattr(self, "_is_view", False):
+            return
         client_lock = self._ensure_client_lock()
         async with client_lock:
             client = self._state.http_client

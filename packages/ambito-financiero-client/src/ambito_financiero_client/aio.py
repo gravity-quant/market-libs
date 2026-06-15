@@ -93,7 +93,8 @@ class AsyncClient:
 
     async def aclose(self) -> None:
         # Phase 13 D-V1 mirror sync.
-        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
+        if getattr(self, "_is_view", False):
+            return
         if self._state.http_client is not None:
             assert isinstance(self._state.http_client, httpx.AsyncClient)
             await self._state.http_client.aclose()

@@ -178,7 +178,8 @@ class Client:
         token (anti-Pitfall 13). ``getattr`` defensive for pre-Phase-13
         pickled or partially-initialized instances.
         """
-        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
+        if getattr(self, "_is_view", False):
+            return
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.Client)
