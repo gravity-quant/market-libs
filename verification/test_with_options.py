@@ -223,7 +223,7 @@ def test_with_options_does_not_bypass_mutation_gate_matriz(httpx_mock: HTTPXMock
     httpx_mock.add_response(status_code=503, is_reusable=True)
     client = matriz_client._get_default()
     with pytest.raises(matriz_client.exceptions.MatrizClientError):
-        client.with_options(max_retries=10).new_order(symbol="GGAL", side="BUY", qty=1, price=100.0, account="test-acct")  # type: ignore[attr-defined]  # fmt: skip
+        client.with_options(max_retries=10).new_order(symbol="GGAL", side="BUY", qty=1, price=100.0, account="test-acct")  # fmt: skip
     assert len(httpx_mock.get_requests()) == 1, (
         "matriz new_order under 503 with with_options(max_retries=10) must emit "
         "EXACTLY 1 wire request — mutation gate breach if > 1 (Anti-Pitfall 14)."
