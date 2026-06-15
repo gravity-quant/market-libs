@@ -81,7 +81,7 @@ class Client:
     (D-23). Instancias explícitas NO afectadas por ``configure()`` (D-14).
     """
 
-    __slots__ = ("_max_retries", "_state")
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -102,6 +102,10 @@ class Client:
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         # max_retries=0 means no retries (bypass retry loop entirely per D-19).
         self._max_retries = max_retries
+        # Phase 13 D-V1: False for normally-constructed Clients; True for views
+        # returned by with_options(). Views' close()/__exit__ are no-op so the
+        # parent's shared http_client TCP pool is not accidentally torn down.
+        self._is_view = False
         # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap with RetryTransport).
         if http_client is not None:
             self._state.http_client = http_client
@@ -113,6 +117,11 @@ class Client:
         self.close()
 
     def close(self) -> None:
+        # Phase 13 D-V1: views don't own the http_client (shared _state with parent);
+        # short-circuit so view.close()/__exit__ never tear down the parent's TCP pool
+        # (anti-Pitfall 13). getattr defensive for pre-Phase-13 pickled or partially-
+        # initialized instances.
+        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
         if self._state.http_client is not None:
             assert isinstance(self._state.http_client, httpx.Client)
             self._state.http_client.close()
@@ -120,8 +129,11 @@ class Client:
 
     def __repr__(self) -> str:
         # D-18: ambito has no credentials; repr exposes only non-secret state.
+        # Phase 13: views surface a "view of " prefix for debug ergonomics
+        # (Claude's Discretion per 13-CONTEXT.md <decisions>).
+        prefix = "view of " if getattr(self, "_is_view", False) else ""
         return (
-            f"AmbitoFinancieroClient("
+            f"{prefix}AmbitoFinancieroClient("
             f"base_url={self._state.base_url!r}, "
             f"user_agent={self._state.user_agent!r}, "
             f"client_open={self._state.http_client is not None})"
@@ -145,6 +157,58 @@ class Client:
         assert isinstance(self._state.http_client, httpx.Client)
         return self._state.http_client
 
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a new Client view with overridden ``max_retries``.
+
+        The view shares this Client's ``_state`` and underlying ``httpx.Client``
+        (no re-auth, no connection pool fragmentation — Phase 13 D-V1, anti-
+        Pitfall 13). Only the per-call ``max_retries`` differs; the parent's
+        ``_max_retries`` stays at its constructor value (D-V2 chaining truth).
+
+        Use for one-off requests that need different retry behavior::
+
+            # Bump retries for a flaky symbol (idempotent GET):
+            precio = client.with_options(max_retries=5).get_dollar_banco_nacion(date)
+
+            # Disable retries entirely for debug iteration:
+            precio = client.with_options(max_retries=0).get_dollar_banco_nacion(date)
+
+        Per Phase 8 D-19 the mapping is ``max_retries=N → max_attempts=N+1``
+        (1 initial + N retries). The view's ``_max_retries`` is threaded into
+        the shell's ``_request()`` via ``request.extensions["max_attempts"]`` so
+        the ``RetryTransport`` honors it per-call. The mutation gate (Phase 8
+        D-01) remains the absolute authority — non-idempotent calls always
+        pass through to a single outgoing request, even from a view with
+        ``max_retries=10``.
+
+        Lifecycle no-op: ``view.close()`` / ``view.__exit__`` / ``view.aclose()``
+        / ``view.__aexit__`` do NOT touch the shared ``http_client``. The
+        parent (or letting the parent fall out of scope) owns the pool.
+
+        Chaining returns a fresh view each call; the inner call wins (D-V2)::
+
+            client.with_options(5).with_options(10)._max_retries  # 10
+            client._max_retries                                    # 2 (intact)
+
+        D-V4 configure-invariance: ``configure()`` called AFTER ``with_options()``
+        replaces the module ``_default_client`` with a NEW ``Client`` that has
+        its own ``_state``. Existing views still point at the original
+        ``_state`` instance — they are snapshots of the parent at view-
+        construction time.
+
+        Endpoint: N/A — this is a method on the ``Client`` instance, not an
+        HTTP endpoint. The next endpoint call on the returned view executes
+        the actual HTTP exchange with the per-call retry cap.
+        """
+        # WR-06 Phase 8 carry-forward: validate early so the surfacing error is
+        # a clean ValueError before view construction (D-V3 parity with async).
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._max_retries = max_retries  # OVERRIDE
+        view._is_view = True  # FLAG for close()/__exit__ no-op (D-V1)
+        return view
+
     def _request(self, spec: _core.RequestSpec) -> httpx.Response:
         """Transport shell — dispatch HTTP only (D-03). Status / body handled by ``_core``.
 
@@ -164,6 +228,10 @@ class Client:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01: per-call override; parent or view's _max_retries
+        # (Phase 8 D-19 N→N+1). Set uniformly — uniform path keeps the cross-
+        # cutting test shape simple and eliminates shell branches.
+        req.extensions["max_attempts"] = self._max_retries + 1
         return http.send(req)
 
     def get_dollar_banco_nacion(self, date: dt.date) -> float:
