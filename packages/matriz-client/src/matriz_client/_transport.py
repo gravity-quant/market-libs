@@ -200,11 +200,22 @@ class RetryTransport(httpx.HTTPTransport):
                         }
                         if account_id:
                             extra["account_id"] = account_id
-                        # CR-02 fix: include auth_basic tuple so RedactingFilter
-                        # splits it into auth_basic_user + auth_basic_password=***
-                        # before the record reaches downstream handlers (D-22).
-                        if auth_basic is not None:
-                            extra["auth_basic"] = auth_basic
+                        # Phase 13 WR-03 fix: mirror the async transport's
+                        # inline D-22 split (defense-in-depth — the password
+                        # value never leaves this transport unredacted, even
+                        # if a downstream handler is attached BEFORE the
+                        # package's RedactingFilter). The filter's tuple-split
+                        # branch still covers any future call site that passes
+                        # ``extra["auth_basic"]`` directly.
+                        if (
+                            auth_basic is not None
+                            and isinstance(auth_basic, tuple)
+                            and len(auth_basic) == 2
+                        ):
+                            user, _password = auth_basic
+                            if isinstance(user, str):
+                                extra["auth_basic_user"] = user
+                                extra["auth_basic_password"] = "***"
                         self._logger.warning("retry attempt", extra=extra)
                         raise _RetryableStatus(response)
                     return response
@@ -225,9 +236,17 @@ class RetryTransport(httpx.HTTPTransport):
             }
             if account_id:
                 extra["account_id"] = account_id
-            # CR-02 fix: same D-22 split for ERROR records on terminal failures.
-            if auth_basic is not None:
-                extra["auth_basic"] = auth_basic
+            # Phase 13 WR-03 fix: mirror the async transport's inline D-22
+            # split on terminal-failure ERROR records too (defense-in-depth).
+            if (
+                auth_basic is not None
+                and isinstance(auth_basic, tuple)
+                and len(auth_basic) == 2
+            ):
+                user, _password = auth_basic
+                if isinstance(user, str):
+                    extra["auth_basic_user"] = user
+                    extra["auth_basic_password"] = "***"
             self._logger.error(
                 "retry exhausted (transport error)",
                 extra=extra,

@@ -313,3 +313,43 @@ def test_account_id_in_warning_record_when_retrying(
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert warning_records, "expected WARNING retry attempt record"
     assert getattr(warning_records[0], "account_id", None) == "ACC-MATZ-2"
+
+
+def test_auth_basic_tuple_split_in_sync_warning_log_record(
+    httpx_mock: HTTPXMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Phase 13 WR-03 regression: sync transport mirrors async D-22 split inline.
+
+    The sync ``RetryTransport`` is now symmetric with ``AsyncRetryTransport``:
+    both surfaces set ``extra["auth_basic_user"]`` + ``extra["auth_basic_password"]
+    = "***"`` directly at the emit site (defense-in-depth — the password value
+    never leaves the transport unredacted, even if a downstream handler is
+    attached BEFORE the package's ``RedactingFilter``).
+    """
+    httpx_mock.add_response(status_code=503)
+    httpx_mock.add_response(status_code=200, json={"ok": True})
+
+    caplog.set_level(logging.WARNING, logger="matriz_client")
+    client = httpx.Client(transport=RetryTransport(max_attempts=2))
+    req = _build_request(
+        client,
+        idempotent=True,
+        method="GET",
+        url="https://api.test/rest/risk/accountReport/acc",
+        endpoint_name="get_account_report",
+    )
+    req.extensions["auth_basic"] = ("operator-u", "super-secret-p")
+    resp = client.send(req)
+
+    assert resp.status_code == 200
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning_records, "expected at least one WARNING retry record"
+    record = warning_records[0]
+    assert getattr(record, "auth_basic_user", None) == "operator-u"
+    assert getattr(record, "auth_basic_password", None) == "***"
+    # The password literal must NOT appear in the formatted log message either.
+    for r in caplog.records:
+        assert "super-secret-p" not in r.getMessage(), (
+            f"password literal leaked in record: {r.getMessage()!r}"
+        )
