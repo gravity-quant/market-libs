@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 
 import pytest
@@ -19,6 +20,7 @@ from higyrus_client import (
     Posicion,
     PosicionValuada,
 )
+from higyrus_client._logging import attach as _attach_higyrus_logger
 
 
 def test_login_obtiene_y_cachea_token(httpx_mock: HTTPXMock) -> None:
@@ -505,3 +507,204 @@ def test_401_carve_out_body_consumed_before_raise(httpx_mock: HTTPXMock) -> None
         higyrus_client.get_listado_cuentas(estado="alta")
     # 3 wire requests = initial 401 + login 200 + retry 401 (D-02 exactly once).
     assert len(httpx_mock.get_requests()) == 3
+
+
+# ------ Phase 13 ERG-01 — with_options(max_retries=N) view shape ------
+
+
+def test_with_options_close_is_noop(httpx_mock: HTTPXMock) -> None:
+    """Phase 13 D-V1: view.close() MUST NOT close parent's http_client.
+
+    Anti-Pitfall 13: a view shares ``_state.http_client`` with the parent;
+    closing the view would tear down the parent's TCP pool. The lifecycle
+    no-op guard (``if getattr(self, "_is_view", False): return``) prevents this.
+    Also asserts the parent's cached token survives the view's close (no
+    re-auth) — higyrus-specific bit since ámbito has no token.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/health",
+        json={"status": "ok"},
+    )
+    client = higyrus_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    # Force lazy init of http_client via an actual call.
+    client.get_health()
+    parent_http = client._state.http_client
+    assert parent_http is not None
+    assert client._state.token == "test-token"
+
+    view = client.with_options(max_retries=5)
+    view.close()  # MUST be no-op
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None  # parent's pool still open
+    assert client._state.token == "test-token"  # no re-auth triggered
+
+
+def test_with_options_exit_is_noop(httpx_mock: HTTPXMock) -> None:
+    """``with view:`` block exits without tearing down parent's http_client."""
+    httpx_mock.add_response(
+        url="https://api.test/api/health",
+        json={"status": "ok"},
+    )
+    client = higyrus_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    client.get_health()
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    with view:
+        pass  # exit triggers __exit__ → close() → no-op guard
+
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    assert client._state.token == "test-token"
+
+
+def test_with_options_chaining_inner_wins_local() -> None:
+    """D-V2: ``c.with_options(5).with_options(10)._max_retries == 10``."""
+    client = higyrus_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5).with_options(max_retries=10)
+    assert view._max_retries == 10
+    assert client._max_retries == 2
+    assert view._state is client._state
+
+
+def test_with_options_repr_shows_view_prefix() -> None:
+    """View's ``__repr__`` is prefixed with ``"view of "``. Token/password redaction preserved (D-18)."""
+    client = higyrus_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="SECRET-PASSWORD-DO-NOT-LEAK",
+        client_id="tenant",
+        token="SECRET-TOKEN-DO-NOT-LEAK",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5)
+    assert repr(view).startswith("view of <higyrus_client.Client(")
+    assert not repr(client).startswith("view of ")
+    # D-18 redaction must still apply on views.
+    assert "SECRET-PASSWORD-DO-NOT-LEAK" not in repr(view)
+    assert "SECRET-TOKEN-DO-NOT-LEAK" not in repr(view)
+
+
+def test_with_options_invalid_max_retries_raises_value_error() -> None:
+    """WR-06 carry-forward: invalid ``max_retries`` rejected BEFORE view construction."""
+    client = higyrus_client.Client(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=True)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=1.5)  # type: ignore[arg-type]
+
+
+def test_with_options_view_retry_log_still_redacts_token(
+    caplog: pytest.LogCaptureFixture,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Phase 13 T-13-03-01 / LOG-02: view's retry log MUST NOT leak token sentinel.
+
+    The view shares the parent's logger namespace (``higyrus_client``) via
+    shared package. The Phase 8 LOG-02 ``RedactingFilter`` is attached at the
+    package-logger level and applies to every record emitted by the
+    ``RetryTransport`` — including records from a view-triggered retry. This
+    test exercises the end-to-end thread:
+
+    1. Construct a Client with a sentinel token literal.
+    2. Configure mock to return 503 forever (3 wire requests with
+       ``max_retries=2``, fast wall-clock — 1s + 2s jitter total max).
+    3. Trigger ``view.get_movimientos(...)`` (idempotent GET).
+    4. Assert WARNING records emitted by transport do NOT contain the token
+       sentinel literal anywhere (``record.getMessage()``, ``record.args``,
+       ``record.__dict__`` string values).
+
+    The token literal travels via the ``Authorization: Bearer <token>`` header
+    which is part of ``request.url``-adjacent metadata; the canonical D-09
+    fields (``url``) include the URL but not the headers. Even so, this test
+    provides a regression net: if a future change starts logging the
+    ``Authorization`` header content (e.g., via ``extra=`` field), the
+    RedactingFilter's ``_BEARER_RE`` pattern catches it and the assertion
+    still passes. If the filter ever gets bypassed (e.g., logger swap on
+    views), the assertion fails.
+    """
+    sentinel = "HIGYRUS-TOKEN-SENTINEL-DO-NOT-LEAK"
+    # Attach the RedactingFilter explicitly (idempotent — production code
+    # would call this at import time of the consuming application).
+    _attach_higyrus_logger()
+    higyrus_client.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token=sentinel,
+        token_expires_at=9_999_999_999.0,
+    )
+
+    # 3 wire requests under max_retries=2 (3 attempts = max_attempts=3).
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/123/movimientos?fechaDesde=01%2F01%2F2024&fechaHasta=31%2F01%2F2024",
+        status_code=503,
+        is_reusable=True,
+    )
+
+    caplog.set_level(logging.DEBUG, logger="higyrus_client")
+    client = higyrus_client._get_default()
+    view = client.with_options(max_retries=2)
+    fecha_desde = dt.date(2024, 1, 1)
+    fecha_hasta = dt.date(2024, 1, 31)
+    with pytest.raises((HigyrusAPIError, HigyrusAuthorizationError, HigyrusRateLimitError)):
+        view.get_movimientos("123", fecha_desde, fecha_hasta)
+
+    # Sanity: at least one WARNING record emitted (retry attempts) — without
+    # this assertion the rest of the test is vacuous (no records → no leak by
+    # construction).
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning_records, (
+        "expected >=1 WARNING retry-attempt record; got zero. The view's "
+        "max_attempts extension did not reach the transport — RedactingFilter "
+        "integrity test cannot exercise the retry path."
+    )
+
+    # Sentinel MUST be absent everywhere in the records.
+    for record in caplog.records:
+        message = record.getMessage()
+        assert sentinel not in message, (
+            f"view retry log leaked token in record.getMessage(): {message!r}"
+        )
+        if record.args:
+            args_str = str(record.args)
+            assert sentinel not in args_str, (
+                f"view retry log leaked token in record.args: {args_str!r}"
+            )
+        for key, value in record.__dict__.items():
+            if isinstance(value, str):
+                assert sentinel not in value, (
+                    f"view retry log leaked token in record.{key}: {value!r}"
+                )

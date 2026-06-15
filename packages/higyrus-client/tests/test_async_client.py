@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 
 import pytest
@@ -13,11 +14,13 @@ from higyrus_client import (
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
+    HigyrusRateLimitError,
     Movimiento,
     Posicion,
     PosicionValuada,
     aio,
 )
+from higyrus_client._logging import attach as _attach_higyrus_logger
 
 
 async def test_async_login_obtiene_token(httpx_mock: HTTPXMock) -> None:
@@ -428,3 +431,169 @@ async def test_concurrent_401_triggers_exactly_one_reauth(httpx_mock: HTTPXMock)
         f"WR-01: expected exactly 1 login wire request from 3 concurrent 401s, "
         f"got {len(login_requests)}. The token-clear + re-auth was not atomic."
     )
+
+
+# ------ Phase 13 ERG-01 — with_options(max_retries=N) view shape (async mirror) ------
+
+
+async def test_with_options_aclose_is_noop(httpx_mock: HTTPXMock) -> None:
+    """Phase 13 D-V1 async mirror: view.aclose() MUST NOT close parent's http_client."""
+    httpx_mock.add_response(
+        url="https://api.test/api/health",
+        json={"status": "ok"},
+    )
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    await client.get_health()
+    parent_http = client._state.http_client
+    assert parent_http is not None
+    assert client._state.token == "test-token"
+
+    view = client.with_options(max_retries=5)
+    await view.aclose()  # MUST be no-op
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    assert client._state.token == "test-token"
+    await client.aclose()  # cleanup parent's pool
+
+
+async def test_with_options_aexit_is_noop(httpx_mock: HTTPXMock) -> None:
+    """``async with view:`` exits without tearing down parent's http_client."""
+    httpx_mock.add_response(
+        url="https://api.test/api/health",
+        json={"status": "ok"},
+    )
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    await client.get_health()
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    async with view:
+        pass  # exit triggers __aexit__ → aclose() → no-op guard
+
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    assert client._state.token == "test-token"
+    await client.aclose()
+
+
+async def test_with_options_chaining_inner_wins_local_async() -> None:
+    """D-V2 async mirror: chaining inner wins."""
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5).with_options(max_retries=10)
+    assert view._max_retries == 10
+    assert client._max_retries == 2
+    assert view._state is client._state
+
+
+async def test_with_options_async_repr_shows_view_prefix() -> None:
+    """Async view's ``__repr__`` is prefixed with ``"view of "``. D-18 redaction preserved."""
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="SECRET-PASSWORD-DO-NOT-LEAK",
+        client_id="tenant",
+        token="SECRET-TOKEN-DO-NOT-LEAK",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5)
+    assert repr(view).startswith("view of <higyrus_client.AsyncClient(")
+    assert not repr(client).startswith("view of ")
+    assert "SECRET-PASSWORD-DO-NOT-LEAK" not in repr(view)
+    assert "SECRET-TOKEN-DO-NOT-LEAK" not in repr(view)
+
+
+async def test_with_options_async_invalid_max_retries_raises_value_error() -> None:
+    """WR-06 carry-forward async mirror: invalid ``max_retries`` raises ValueError."""
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=True)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=1.5)  # type: ignore[arg-type]
+
+
+async def test_with_options_view_async_retry_log_still_redacts_token(
+    caplog: pytest.LogCaptureFixture,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Phase 13 T-13-03-01 async mirror: view's async retry log MUST NOT leak token sentinel.
+
+    Mirror of the sync redaction test. Exercises the AsyncRetryTransport
+    retry path through the view's per-call cap; asserts the WARNING records
+    do NOT contain the token sentinel anywhere.
+    """
+    sentinel = "HIGYRUS-TOKEN-SENTINEL-DO-NOT-LEAK"
+    _attach_higyrus_logger()
+    aio.configure(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        client_id="tenant",
+        token=sentinel,
+        token_expires_at=9_999_999_999.0,
+    )
+    httpx_mock.add_response(
+        url="https://api.test/api/cuentas/123/movimientos?fechaDesde=01%2F01%2F2024&fechaHasta=31%2F01%2F2024",
+        status_code=503,
+        is_reusable=True,
+    )
+
+    caplog.set_level(logging.DEBUG, logger="higyrus_client")
+    client = aio._get_default()
+    view = client.with_options(max_retries=2)
+    fecha_desde = dt.date(2024, 1, 1)
+    fecha_hasta = dt.date(2024, 1, 31)
+    with pytest.raises((HigyrusAPIError, HigyrusAuthorizationError, HigyrusRateLimitError)):
+        await view.get_movimientos("123", fecha_desde, fecha_hasta)
+
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning_records, (
+        "expected >=1 WARNING async retry-attempt record; got zero. View's "
+        "async max_attempts did not reach the AsyncRetryTransport."
+    )
+
+    for record in caplog.records:
+        message = record.getMessage()
+        assert sentinel not in message, (
+            f"async view retry log leaked token in record.getMessage(): {message!r}"
+        )
+        if record.args:
+            args_str = str(record.args)
+            assert sentinel not in args_str, (
+                f"async view retry log leaked token in record.args: {args_str!r}"
+            )
+        for key, value in record.__dict__.items():
+            if isinstance(value, str):
+                assert sentinel not in value, (
+                    f"async view retry log leaked token in record.{key}: {value!r}"
+                )
