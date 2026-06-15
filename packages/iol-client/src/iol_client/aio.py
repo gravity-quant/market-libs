@@ -84,7 +84,7 @@ class AsyncClient:
     ``await client.aclose()``.
     """
 
-    __slots__ = ("_client_lock", "_max_retries", "_state")
+    __slots__ = ("_client_lock", "_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -112,6 +112,9 @@ class AsyncClient:
             self._state.token_expires_at = token_expires_at
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
         self._max_retries = max_retries
+        # Phase 13 D-V1: normally-constructed AsyncClients are NOT views; with_options
+        # sets this to True on the returned shallow clone.
+        self._is_view = False
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
@@ -130,7 +133,15 @@ class AsyncClient:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Release the underlying ``httpx.AsyncClient`` (idempotent)."""
+        """Release the underlying ``httpx.AsyncClient`` (idempotent).
+
+        Phase 13 D-V1: views (constructed via ``with_options``) short-circuit
+        here so ``view.aclose()`` / ``view.__aexit__`` never tear down the
+        parent's shared TCP pool nor invalidate the parent's cached OAuth
+        token (anti-Pitfall 13). ``getattr`` defensive for pre-Phase-13
+        pickled or partially-initialized instances.
+        """
+        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.AsyncClient)
@@ -138,11 +149,15 @@ class AsyncClient:
             self._state.http_client = None
 
     def __repr__(self) -> str:
+        # Phase 13: views surface a "view of " prefix for debug ergonomics
+        # (Claude's Discretion per 13-CONTEXT.md <decisions>). The token/
+        # password/refresh_token redaction stays intact.
+        prefix = "view of " if getattr(self, "_is_view", False) else ""
         password_repr = "'***'" if self._state.password else "''"
         token_repr = "'***'" if self._state.token else "None"
         refresh_repr = "'***'" if self._state.refresh_token else "None"
         return (
-            f"IOLAsyncClient(base_url={self._state.base_url!r}, "
+            f"{prefix}IOLAsyncClient(base_url={self._state.base_url!r}, "
             f"username={self._state.username!r}, "
             f"password={password_repr}, "
             f"token={token_repr}, "
@@ -199,6 +214,61 @@ class AsyncClient:
             self._state.token_lock = asyncio.Lock()
         return self._state.token_lock
 
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a new AsyncClient view with overridden ``max_retries``.
+
+        Async mirror of :meth:`iol_client.Client.with_options`. The view shares
+        this AsyncClient's ``_state`` (incl. cached ``token``, ``refresh_token``,
+        ``token_expires_at``, ``token_lock``, and the underlying
+        ``httpx.AsyncClient``). No re-auth, no second TCP connection pool —
+        anti-Pitfall 13 (Phase 13 D-V1). Only the per-call ``max_retries``
+        differs; the parent's ``_max_retries`` stays at its constructor value
+        (D-V2 chaining truth).
+
+        Use for one-off requests that need different retry behavior::
+
+            # Bump retries for a flaky symbol (idempotent GET):
+            quote = await client.with_options(max_retries=5).get_quote("RARE")
+
+        Per Phase 8 D-19 the mapping is ``max_retries=N → max_attempts=N+1``.
+        The view's ``_max_retries`` is threaded into the async ``_request``
+        and ``_send_auth_request`` shells via ``request.extensions["max_attempts"]``
+        so the ``AsyncRetryTransport`` honors it per-call. Auth-flow requests
+        (login + refresh) carry ``idempotent=True`` (Phase 8 D-03) so the
+        view's cap is honored for those calls too (per CONTEXT.md D-T6).
+
+        IOL-specific 401 re-auth path: on a 401 response, the view's async
+        ``_request`` shell re-authenticates through the SHARED
+        ``state.token_lock`` (per-loop ``asyncio.Lock``) using the parent's
+        shared ``_state.refresh_token``. The new token is written back to
+        the shared ``_state.token`` — visible to the parent and any sibling
+        views (INTENDED, shared ``_state`` semantics). There is NO per-view
+        refresh-token tracking; the view's behavior under OAuth refresh is
+        identical to the parent's.
+
+        Phase 14 SEC-01 forward reference: when the IOL refresh-token disk
+        persistence lands, the view will continue sharing ``_state`` (and
+        therefore the disk-cached refresh_token) without modification.
+
+        Lifecycle no-op: ``view.aclose()`` / ``view.__aexit__`` do NOT touch
+        the shared ``http_client``. The parent (or letting the parent fall
+        out of scope) owns the pool.
+
+        Endpoint: N/A — this is a method on the ``AsyncClient`` instance,
+        not an HTTP endpoint. The next endpoint call on the returned view
+        executes the actual HTTP exchange with the per-call retry cap.
+        """
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._max_retries = max_retries  # OVERRIDE
+        view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
+        # Phase 13 D-V3 mirror: share parent's _client_lock so the view's
+        # first call goes through the SAME asyncio.Lock as the parent
+        # (no second lock per view; preserves the per-loop binding).
+        view._client_lock = self._client_lock
+        return view
+
     async def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
         """Send an auth-flow request through the AsyncRetryTransport with extensions.
 
@@ -220,6 +290,10 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01 (D-T6): auth-flow requests are ``idempotent=True``
+        # (Phase 8 D-03), so the view's per-call cap MUST also apply to
+        # login/refresh. Uniform path — parent or view both set this.
+        req.extensions["max_attempts"] = self._max_retries + 1
         return await http.send(req)
 
     async def _login_unlocked(self) -> str:
@@ -304,6 +378,9 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01: per-call override; parent or view's _max_retries
+        # (Phase 8 D-19 N→N+1). Set uniformly (parent and view path).
+        req.extensions["max_attempts"] = self._max_retries + 1
         resp = await http.send(req)
         try:
             _raise_for_response(resp)
