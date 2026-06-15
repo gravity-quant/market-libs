@@ -110,7 +110,7 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 13-04-PLAN.md — `with_options` matriz-client (D-T1..T6: TokenStore isolation + CRITICAL mutation-gate merge gate) (Wave 4)
+- [x] 13-04-PLAN.md — `with_options` matriz-client (D-T1..T6: TokenStore isolation + CRITICAL mutation-gate merge gate) (Wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -202,7 +202,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 10. matriz `aio.py` Creation + TokenStore                   | v1.1      | 4/4   | Complete    | 2026-06-14 |
 | 11. Harness Hardening + Code Review + Live Re-verification  | v1.1      | 3/3   | Complete    | 2026-06-14 |
 | 12. Codegen Spike                                           | v1.2      | 4/3 | Complete    | 2026-06-14 |
-| 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 3/5 | In Progress|  |
+| 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 4/5 | In Progress|  |
 | 14. IOL Disk Persistence                                    | v1.2      | 0/?   | Not started | -          |
 | 15. Driver Migration × 4                                    | v1.2      | 0/?   | Not started | -          |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
