@@ -60,7 +60,7 @@ class AsyncClient:
     = ("_state",)`` — sin ``_client_lock``.
     """
 
-    __slots__ = ("_max_retries", "_state")
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -79,6 +79,8 @@ class AsyncClient:
             self._state.user_agent = user_agent
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
+        # Phase 13 D-V1 mirror sync.
+        self._is_view = False
         # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
         if http_client is not None:
             self._state.http_client = http_client
@@ -90,6 +92,8 @@ class AsyncClient:
         await self.aclose()
 
     async def aclose(self) -> None:
+        # Phase 13 D-V1 mirror sync.
+        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
         if self._state.http_client is not None:
             assert isinstance(self._state.http_client, httpx.AsyncClient)
             await self._state.http_client.aclose()
@@ -97,8 +101,10 @@ class AsyncClient:
 
     def __repr__(self) -> str:
         # D-18 mirror: ambito has no credentials; repr exposes only non-secret state.
+        # Phase 13: views surface "view of " prefix (mirror sync — debug ergonomics).
+        prefix = "view of " if getattr(self, "_is_view", False) else ""
         return (
-            f"AmbitoFinancieroAsyncClient("
+            f"{prefix}AmbitoFinancieroAsyncClient("
             f"base_url={self._state.base_url!r}, "
             f"user_agent={self._state.user_agent!r}, "
             f"client_open={self._state.http_client is not None})"
@@ -125,6 +131,33 @@ class AsyncClient:
         assert isinstance(self._state.http_client, httpx.AsyncClient)
         return self._state.http_client
 
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a new AsyncClient view with overridden ``max_retries``.
+
+        Async mirror of ``Client.with_options`` (D-V3 — same idiomatic shape;
+        zero divergence sync↔async). The view shares ``_state`` and the shared
+        ``httpx.AsyncClient`` with the parent (anti-Pitfall 13; no second TCP
+        pool); only ``_max_retries`` differs. Lifecycle ``aclose()`` /
+        ``__aexit__`` are no-op on views.
+
+        NOTE: ``with_options`` itself is SYNC even on ``AsyncClient`` — it
+        constructs the view in-memory only. The subsequent endpoint call is
+        the async one::
+
+            view = client.with_options(max_retries=5)
+            precio = await view.get_dollar_banco_nacion(date)
+
+        See ``Client.with_options`` for full semantics (chaining, D-V4
+        configure-invariance, mutation gate authority).
+        """
+        # WR-06 carry-forward: validate before view construction (D-V3 parity).
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._max_retries = max_retries  # OVERRIDE
+        view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
+        return view
+
     async def _request(self, spec: _core.RequestSpec) -> httpx.Response:
         """Transport shell async — dispatch HTTP only (D-03 mirror).
 
@@ -142,6 +175,9 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01 mirror sync — per-call override; parent or view's
+        # _max_retries (Phase 8 D-19 N→N+1). Uniform path.
+        req.extensions["max_attempts"] = self._max_retries + 1
         return await http.send(req)
 
     async def get_dollar_banco_nacion(self, date: dt.date) -> float:
