@@ -95,7 +95,13 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
   4. Per-package serial roll-out completes (ámbito → higyrus → matriz → iol; iol last because it interacts with Phase 14 disk cache): each package's mocked test suite stays green; the cross-cutting mutation-gate regression test lands ONCE in `verification/` and applies to all 4.
   5. v1.1's 907-test baseline is preserved (`pytest` reports ≥ 907 passing); the new tests are net-additive.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+- [ ] 13-01-PLAN.md — Cross-cutting tests-first + RetryTransport `max_attempts` extension wiring × 4 packages × 2 surfaces (Wave 1)
+- [ ] 13-02-PLAN.md — `with_options` ámbito-financiero-client (canary, no auth) (Wave 2)
+- [ ] 13-03-PLAN.md — `with_options` higyrus-client + RedactingFilter integrity (Wave 3)
+- [ ] 13-04-PLAN.md — `with_options` matriz-client (D-T1..T6: TokenStore isolation + CRITICAL mutation-gate merge gate) (Wave 4)
+- [ ] 13-05-PLAN.md — `with_options` iol-client (last; coexists with Phase 14 SEC-01) + Phase 13 consolidated green gate (Wave 5)
 
 ### Phase 14: IOL Disk Persistence (SEC-01)
 
@@ -183,7 +189,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 10. matriz `aio.py` Creation + TokenStore                   | v1.1      | 4/4   | Complete    | 2026-06-14 |
 | 11. Harness Hardening + Code Review + Live Re-verification  | v1.1      | 3/3   | Complete    | 2026-06-14 |
 | 12. Codegen Spike                                           | v1.2      | 4/3 | Complete    | 2026-06-14 |
-| 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 0/?   | Not started | -          |
+| 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 0/5   | Planned     | -          |
 | 14. IOL Disk Persistence                                    | v1.2      | 0/?   | Not started | -          |
 | 15. Driver Migration × 4                                    | v1.2      | 0/?   | Not started | -          |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
