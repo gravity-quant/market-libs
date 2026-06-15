@@ -83,7 +83,7 @@ class AsyncClient:
     soportados (D-23).
     """
 
-    __slots__ = ("_client_lock", "_max_retries", "_state")
+    __slots__ = ("_client_lock", "_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -114,6 +114,10 @@ class AsyncClient:
             self._state.token_expires_at = token_expires_at
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
         self._max_retries = max_retries
+        # Phase 13 D-V1 mirror sync — False for normally-constructed clients;
+        # True for views returned by with_options(). Used by aclose()/__aexit__
+        # short-circuit guard.
+        self._is_view = False
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
@@ -134,7 +138,13 @@ class AsyncClient:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Cierra ``httpx.AsyncClient`` si fue inicializado. Idempotente."""
+        """Cierra ``httpx.AsyncClient`` si fue inicializado. Idempotente.
+
+        Phase 13 D-V1 mirror sync: views (constructed via ``with_options``)
+        short-circuit here so ``view.aclose()`` / ``view.__aexit__`` never
+        tear down the parent's shared TCP pool (anti-Pitfall 13).
+        """
+        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
         client_lock = self._ensure_client_lock()
         async with client_lock:
             client = self._state.http_client
@@ -145,8 +155,10 @@ class AsyncClient:
 
     def __repr__(self) -> str:
         # D-18: redact password and token; show client_id (not a secret).
+        # Phase 13 mirror sync: views surface "view of " prefix for debug ergonomics.
+        prefix = "view of " if getattr(self, "_is_view", False) else ""
         return (
-            "<higyrus_client.AsyncClient("
+            f"{prefix}<higyrus_client.AsyncClient("
             f"base_url={self._state.base_url!r}, "
             f"client_id={self._state.client_id!r}, "
             f"username={self._state.username!r}, "
@@ -180,6 +192,48 @@ class AsyncClient:
         if self._state.token_lock is None:
             self._state.token_lock = asyncio.Lock()
         return self._state.token_lock
+
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a new AsyncClient view with overridden ``max_retries``.
+
+        Async mirror of ``Client.with_options`` (D-V3 — same idiomatic shape;
+        zero divergence sync↔async). The view shares ``_state`` (token,
+        refresh state via ``token_expires_at``, account_id propagation) and
+        the shared ``httpx.AsyncClient`` with the parent (anti-Pitfall 13;
+        no second TCP pool). Only ``_max_retries`` differs.
+
+        Lifecycle ``aclose()`` / ``__aexit__`` are no-op on views.
+
+        NOTE: ``with_options`` itself is SYNC even on ``AsyncClient`` — it
+        constructs the view in-memory only. The subsequent endpoint call is
+        the async one::
+
+            view = client.with_options(max_retries=5)
+            movs = await view.get_movimientos("CTA-001", d1, d2)
+
+        Note that the view does NOT get its own ``_client_lock``; the per-loop
+        binding lives on the parent. The view inherits ``self._client_lock``
+        from the parent at view-construction time via ``__new__`` (it would be
+        ``None`` if the parent has not yet opened its async client lock). The
+        view's first async call triggers the same double-checked locking
+        through the parent's lock if both are awaited on the same loop.
+        Cross-loop usage is unsupported (Phase 6 + 7 invariant).
+
+        See ``higyrus_client.Client.with_options`` for full semantics
+        (chaining, D-V4 configure-invariance, mutation gate authority,
+        auth-flow override per D-T6).
+        """
+        # WR-06 carry-forward: validate before view construction (D-V3 parity).
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._max_retries = max_retries  # OVERRIDE
+        view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
+        # Mirror parent's _client_lock (None or live asyncio.Lock); view shares
+        # the lock so first-call double-checked locking on view goes through
+        # the SAME asyncio.Lock as the parent (no second lock per view).
+        view._client_lock = self._client_lock
+        return view
 
     async def _ensure_http_client(self) -> httpx.AsyncClient:
         """Crea ``httpx.AsyncClient`` lazy (necesita loop) con AsyncRetryTransport.
@@ -226,6 +280,10 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01 mirror sync (D-T6): auth-flow requests are
+        # ``idempotent=True`` (D-03), so the view's per-call cap MUST also
+        # apply to login/refresh. Uniform path — parent or view both set this.
+        req.extensions["max_attempts"] = self._max_retries + 1
         return await http.send(req)
 
     async def _login_unlocked(self) -> str:
@@ -304,6 +362,9 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01 mirror sync — per-call override; parent or view's
+        # _max_retries (Phase 8 D-19 N→N+1). Uniform path.
+        req.extensions["max_attempts"] = self._max_retries + 1
         # D-11: only set account_id when non-None (no leak when caller didn't pass id_cuenta).
         if spec.account_id is not None:
             req.extensions["account_id"] = spec.account_id
