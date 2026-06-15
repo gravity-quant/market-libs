@@ -351,3 +351,172 @@ async def test_concurrent_401_triggers_exactly_one_reauth(httpx_mock: HTTPXMock)
         f"got {len(login_requests)}. The token-clear + re-auth was not atomic — "
         f"two coroutines raced into separate login attempts."
     )
+
+
+# ----------------------------------------------------------------------
+# Phase 13 ERG-01 — async with_options view shape tests + iol-specific
+# 401-re-auth-with-view (async). Plan 13-05.
+# ----------------------------------------------------------------------
+
+
+async def test_with_options_aclose_is_noop(httpx_mock: HTTPXMock) -> None:
+    """Phase 13 D-V1 async mirror: view.aclose() MUST NOT close parent's http_client."""
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        json={"ultimoPrecio": 100.0},
+    )
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    await client.get_quote("GGAL")
+    parent_http = client._state.http_client
+    assert parent_http is not None
+    assert client._state.token == "test-token"
+
+    view = client.with_options(max_retries=5)
+    await view.aclose()  # MUST be no-op
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    assert client._state.token == "test-token"
+    # Cleanup parent for next test (autouse fixture handles default too).
+    await client.aclose()
+
+
+async def test_with_options_aexit_is_noop(httpx_mock: HTTPXMock) -> None:
+    """``async with view:`` block exits without tearing down parent's http_client."""
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        json={"ultimoPrecio": 100.0},
+    )
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    await client.get_quote("GGAL")
+    parent_http = client._state.http_client
+    assert parent_http is not None
+
+    view = client.with_options(max_retries=5)
+    async with view:
+        pass  # __aexit__ → aclose() → no-op guard
+
+    assert client._state.http_client is parent_http
+    assert client._state.http_client is not None
+    assert client._state.token == "test-token"
+    await client.aclose()
+
+
+async def test_with_options_chaining_inner_wins_local_async() -> None:
+    """D-V2 async mirror: ``c.with_options(5).with_options(10)._max_retries == 10``."""
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    view = client.with_options(max_retries=5).with_options(max_retries=10)
+    assert view._max_retries == 10
+    assert client._max_retries == 2
+    assert view._state is client._state
+    await client.aclose()
+
+
+async def test_with_options_async_repr_shows_view_prefix() -> None:
+    """Async view's ``__repr__`` is prefixed with ``"view of "``. D-18 redaction preserved."""
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="ASYNC-SECRET-PASSWORD-DO-NOT-LEAK",
+        token="ASYNC-SECRET-TOKEN-DO-NOT-LEAK",
+        token_expires_at=9_999_999_999.0,
+    )
+    client._state.refresh_token = "ASYNC-SECRET-REFRESH-DO-NOT-LEAK"
+    view = client.with_options(max_retries=5)
+    assert repr(view).startswith("view of IOLAsyncClient(")
+    assert not repr(client).startswith("view of ")
+    assert "ASYNC-SECRET-PASSWORD-DO-NOT-LEAK" not in repr(view)
+    assert "ASYNC-SECRET-TOKEN-DO-NOT-LEAK" not in repr(view)
+    assert "ASYNC-SECRET-REFRESH-DO-NOT-LEAK" not in repr(view)
+    await client.aclose()
+
+
+async def test_with_options_async_invalid_max_retries_raises_value_error() -> None:
+    """WR-06 carry-forward (async): invalid ``max_retries`` rejected BEFORE view construction."""
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=True)
+    with pytest.raises(ValueError, match="max_retries"):
+        client.with_options(max_retries=1.5)  # type: ignore[arg-type]
+    await client.aclose()
+
+
+async def test_with_options_async_view_401_triggers_reauth_via_shared_refresh_token(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Phase 13 iol-specific async: view's 401 path uses parent's shared refresh_token.
+
+    Async mirror of the sync test. iol AsyncClient kwargs are
+    ``username``/``password`` (NOT ``client_id``/``client_secret``);
+    ``refresh_token`` is a ``_state`` field set post-construction (NOT a
+    constructor kwarg) — verified at ``packages/iol-client/src/iol_client/aio.py:89-99``.
+    """
+    client = aio.AsyncClient(
+        base_url="https://api.test",
+        username="u",
+        password="p",
+        token="stale-token",
+        token_expires_at=9_999_999_999.0,
+    )
+    client._state.refresh_token = "fresh-refresh"
+
+    view = client.with_options(max_retries=5)
+
+    # 1. GET → 401 (stale token).
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        status_code=401,
+        text="unauthorized",
+    )
+    # 2. POST /token refresh → 200 with new tokens.
+    httpx_mock.add_response(
+        url="https://api.test/token",
+        method="POST",
+        match_content=b"refresh_token=fresh-refresh&grant_type=refresh_token",
+        json={
+            "access_token": "new-token",
+            "refresh_token": "new-refresh",
+            "expires_in": 900,
+        },
+    )
+    # 3. GET → 200 with quote.
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
+        json={"ultimoPrecio": 123.45},
+    )
+
+    quote = await view.get_quote("GGAL")
+
+    assert quote == {"ultimoPrecio": 123.45}
+    # Parent's state updated by view's re-auth path — SHARED _state semantics.
+    assert client._state.token == "new-token"
+    assert client._state.refresh_token == "new-refresh"
+    assert view._state is client._state
+    # 3 wire requests: initial 401 + /token refresh + retry GET.
+    assert len(httpx_mock.get_requests()) == 3
+    await client.aclose()
