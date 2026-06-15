@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: ready_to_plan
-last_updated: 2026-06-15T12:25:27.941Z
-last_activity: 2026-06-15 -- Phase 13 execution started
+status: planning
+last_updated: "2026-06-15T15:38:20.314Z"
+last_activity: 2026-06-15
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
   completed_plans: 9
-  percent: 17
-stopped_at: Phase 13 complete (5/5) — ready to discuss Phase 14
+  percent: 33
 ---
 
 # Project State
@@ -159,9 +158,9 @@ Cleaned up inline before milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T00:32:11.734Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-cross-package-ergonomics-with-options-max-retries-n/13-CONTEXT.md
+Last session: 2026-06-15T15:38:20.307Z
+Stopped at: Phase 14 context gathered
+Resume file: .planning/phases/14-iol-disk-persistence-sec-01/14-CONTEXT.md
 
 ## Operator Next Steps
 
