@@ -61,7 +61,20 @@ from matriz_client._core import RequestSpec
 from matriz_client._core import raise_for_response as _raise_for_response
 from matriz_client._state import _REQUEST_TIMEOUT, _ClientState
 from matriz_client._token_store import build_token_store
-from matriz_client.client import _validate_max_retries
+
+# Phase 13 IN-04 fix: hoisted from a deferred in-function import inside
+# ``_aensure_token``. No circular-import hazard exists today —
+# ``matriz_client.client`` does NOT import from ``matriz_client.aio``
+# (verified by inspection); the in-function import was a historical
+# defensive pattern. ``_validate_max_retries`` is already imported at
+# module level via the same path, so this only formalizes what was already
+# a one-way dependency.
+from matriz_client.client import (
+    _get_default as _get_sync_default,
+)
+from matriz_client.client import (
+    _validate_max_retries,
+)
 from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
     AccountReport,
@@ -351,8 +364,9 @@ class AsyncClient:
             # default ``Client``'s ``_state.http_client`` via the cross-surface
             # state. The refresh runs inside ``asyncio.to_thread`` (TokenStore
             # ``get_async`` path), so a sync ``httpx.Client`` is safe there.
-            from matriz_client.client import _get_default as _get_sync_default
-
+            # Phase 13 IN-04 fix: ``_get_sync_default`` is hoisted to a
+            # module-level import (no circular-import hazard exists today —
+            # client.py does not import from aio.py).
             sync_default = _get_sync_default()
             sync_default._ensure_http_client()
             saved_http_client = self._state.http_client
