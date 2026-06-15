@@ -122,7 +122,7 @@ class Client:
             segments = c.get_segments()
     """
 
-    __slots__ = ("_max_retries", "_state")
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -155,6 +155,12 @@ class Client:
         # with_options). View's _max_retries does NOT propagate here; the TokenStore
         # keeps the parent's constructor cap.
         self._state.client_max_retries = max_retries
+        # Phase 13 D-V1: False for normally-constructed Clients; True for views
+        # returned by with_options(). Views' close()/__exit__ are no-op so the
+        # parent's shared http_client TCP pool is not accidentally torn down
+        # (anti-Pitfall 13). Also preserves the parent's cached token + refresh
+        # state + the shared TokenStore 3-way primitive (D-T2; Phase 10).
+        self._is_view = False
         # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
         if http_client is not None:
             self._state.http_client = http_client
@@ -168,14 +174,28 @@ class Client:
         self.close()
 
     def close(self) -> None:
+        """Cierra ``httpx.Client`` si fue inicializado. Idempotente.
+
+        Phase 13 D-V1: views (constructed via ``with_options``) short-circuit
+        here so ``view.close()`` / ``view.__exit__`` never tear down the
+        parent's shared TCP pool, cached token, or 3-way TokenStore primitive
+        (anti-Pitfall 13 + D-T2). ``getattr`` defensive for pre-Phase-13
+        pickled or partially-initialized instances.
+        """
+        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
         http_client = self._state.http_client
         if http_client is not None and isinstance(http_client, httpx.Client):
             http_client.close()
         self._state.http_client = None
 
     def __repr__(self) -> str:
+        # Phase 6 D-18: redact password and token (always '***').
+        # Phase 13: views surface a "view of " prefix for debug ergonomics
+        # (Claude's Discretion per 13-CONTEXT.md <decisions>). The token/
+        # password redaction stays intact.
+        prefix = "view of " if getattr(self, "_is_view", False) else ""
         return (
-            f"Client(base_url={self._state.base_url!r}, "
+            f"{prefix}Client(base_url={self._state.base_url!r}, "
             f"username={self._state.username!r}, "
             f"password='***', token='***')"
         )
@@ -210,6 +230,79 @@ class Client:
         self._state.http_client = new
         return new
 
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a new Client view with overridden ``max_retries``.
+
+        The view shares this Client's ``_state`` (incl. cached ``token``,
+        ``token_expires_at``, the shared 3-way ``token_store`` primitive, and
+        the underlying ``httpx.Client``). No re-auth, no second TCP connection
+        pool, no second TokenStore — anti-Pitfall 13 (Phase 13 D-V1 + D-T2).
+        Only the per-call ``max_retries`` differs; the parent's ``_max_retries``
+        stays at its constructor value (D-V2 chaining truth).
+
+        Use for one-off requests that need different retry behavior::
+
+            # Bump retries for a flaky idempotent GET (e.g., segments):
+            segments = client.with_options(max_retries=5).get_segments()
+
+            # Disable retries entirely for debug iteration:
+            md = client.with_options(max_retries=0).get_market_data("GGAL")
+
+        **CRITICAL — matriz mutation gate (Anti-Pitfall 14 / SC#2 ROADMAP):**
+        On matriz, calling ``view.new_order(...)`` (or any non-idempotent
+        order-mutation endpoint) does NOT bypass the mutation gate —
+        non-idempotent requests still execute exactly 1 outgoing request
+        regardless of view's ``max_retries``. The mutation gate (Phase 8 D-01:
+        ``request.extensions["idempotent"] = False`` for ``new_order`` per
+        D-03) is the absolute authority on retry permission. Use view's
+        ``max_retries`` for idempotent GET endpoints (e.g., ``get_segments``,
+        ``get_account_report``, ``get_market_data``) that benefit from
+        per-call retry tightening or loosening.
+
+        **D-T1 / D-T3 — TokenStore retry-cap isolation:** View's
+        ``max_retries`` is HTTP-only; the TokenStore (auth-server) retry cap
+        stays gobernado por the Client constructor via
+        ``self._state.client_max_retries``. Calling ``view._ensure_token()``
+        does NOT rebind the TokenStore — the existing instance from
+        ``self._state.token_store`` is reused, preserving the Phase 10 3-way
+        concurrent primitive (threading.Lock + asyncio.Lock per loop).
+
+        Per Phase 8 D-19 the mapping is ``max_retries=N → max_attempts=N+1``
+        (1 initial + N retries). The view's ``_max_retries`` is threaded into
+        the shell's ``login()`` + ``_request()`` (Risk API and Token paths)
+        via ``request.extensions["max_attempts"]`` so the ``RetryTransport``
+        honors it per-call. Auth-flow requests (login) carry
+        ``idempotent=True`` (Phase 8 D-03) so the view's cap is honored for
+        login too (per CONTEXT.md D-T6).
+
+        Lifecycle no-op: ``view.close()`` / ``view.__exit__`` do NOT touch
+        the shared ``http_client``, ``token``, or ``token_store``. The parent
+        (or letting the parent fall out of scope) owns the pool.
+
+        Chaining returns a fresh view each call; the inner call wins (D-V2)::
+
+            client.with_options(5).with_options(10)._max_retries  # 10
+            client._max_retries                                    # 2 (intact)
+
+        D-V4 configure-invariance: ``configure()`` called AFTER
+        ``with_options()`` replaces the module ``_default_client`` with a NEW
+        ``Client`` that has its own ``_state``. Existing views still point at
+        the original ``_state`` instance — they are snapshots of the parent
+        at view-construction time.
+
+        Endpoint: N/A — this is a method on the ``Client`` instance, not an
+        HTTP endpoint. The next endpoint call on the returned view executes
+        the actual HTTP exchange with the per-call retry cap.
+        """
+        # WR-06 Phase 8 carry-forward: validate early so the surfacing error
+        # is a clean ValueError before view construction (D-V3 parity).
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13 + D-T2 token_store
+        view._max_retries = max_retries  # OVERRIDE — HTTP-only (D-T1)
+        view._is_view = True  # FLAG for close()/__exit__ no-op (D-V1)
+        return view
+
     def login(self) -> str:
         """Authenticate via ``POST /auth/getToken`` (D-22: token en header).
 
@@ -229,6 +322,10 @@ class Client:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01 (D-T6): auth-flow login carries idempotent=True
+        # (Phase 8 D-03), so view's per-call cap MUST apply here too.
+        # Uniform — parent or view both set this.
+        req.extensions["max_attempts"] = self._max_retries + 1
         resp = http.send(req)
         token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
@@ -307,6 +404,10 @@ class Client:
             req.extensions["idempotent"] = spec.idempotent
             req.extensions["request_id"] = request_id
             req.extensions["endpoint_name"] = spec.endpoint_name
+            # Phase 13 ERG-01: per-call override; parent or view's _max_retries
+            # (Phase 8 D-19 N→N+1). Set uniformly for the Risk API auth_basic
+            # path — view override flows through here too.
+            req.extensions["max_attempts"] = self._max_retries + 1
             if spec.account_id is not None:
                 req.extensions["account_id"] = spec.account_id
             # D-22 auth_basic propagation for log redaction (filter scans
@@ -338,6 +439,12 @@ class Client:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01: per-call override; parent or view's _max_retries
+        # (Phase 8 D-19 N→N+1). Set uniformly — the mutation gate (Phase 8
+        # D-01 / idempotent extension) is still the absolute authority on
+        # whether a retry actually fires (Anti-Pitfall 14 / SC#2 ROADMAP —
+        # money-on-the-line for non-idempotent new_order/cancel_order).
+        req.extensions["max_attempts"] = self._max_retries + 1
         if spec.account_id is not None:
             req.extensions["account_id"] = spec.account_id
 

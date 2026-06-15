@@ -137,7 +137,7 @@ class AsyncClient:
     ``await client.aclose()``.
     """
 
-    __slots__ = ("_max_retries", "_state")
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -169,6 +169,11 @@ class AsyncClient:
         # _max_retries does NOT propagate; the TokenStore keeps the parent's
         # constructor cap.
         self._state.client_max_retries = max_retries
+        # Phase 13 D-V1: False for normally-constructed AsyncClients; True for
+        # views returned by with_options(). Views' aclose()/__aexit__ are no-op
+        # so the parent's shared http_client + cached token + 3-way TokenStore
+        # primitive are not accidentally torn down (anti-Pitfall 13 + D-T2).
+        self._is_view = False
         # Phase 8 D-16: caller-supplied http_client used AS-IS.
         if http_client is not None:
             self._state.http_client = http_client
@@ -200,7 +205,13 @@ class AsyncClient:
         tied to old credentials/transport. The TokenStore itself holds no
         socket resources, so there is no async cleanup required for the
         store — just drop the reference.
+
+        Phase 13 D-V1: views (constructed via ``with_options``) short-circuit
+        here so ``view.aclose()`` / ``view.__aexit__`` never tear down the
+        parent's shared TCP pool, cached token, or 3-way TokenStore primitive
+        (anti-Pitfall 13 + D-T2).
         """
+        if getattr(self, "_is_view", False): return  # noqa: E701  # fmt: skip
         http_client = self._state.http_client
         if http_client is not None and isinstance(http_client, httpx.AsyncClient):
             await http_client.aclose()
@@ -208,10 +219,14 @@ class AsyncClient:
         self._state.token_store = None
 
     def __repr__(self) -> str:
+        # Phase 6 D-18: redact password and token.
+        # Phase 13: views surface a "view of " prefix for debug ergonomics
+        # (Claude's Discretion). Redaction stays intact.
+        prefix = "view of " if getattr(self, "_is_view", False) else ""
         password_repr = "'***'" if self._state.password else "''"
         token_repr = "'***'" if self._state.token else "None"
         return (
-            f"AsyncClient(base_url={self._state.base_url!r}, "
+            f"{prefix}AsyncClient(base_url={self._state.base_url!r}, "
             f"username={self._state.username!r}, "
             f"password={password_repr}, "
             f"token={token_repr})"
@@ -251,6 +266,55 @@ class AsyncClient:
         )
         self._state.http_client = new_client
         return new_client
+
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a new AsyncClient view with overridden ``max_retries``.
+
+        Async mirror of ``Client.with_options``. The view shares this
+        AsyncClient's ``_state`` (incl. cached ``token``, ``token_expires_at``,
+        the shared 3-way ``token_store`` primitive, and the underlying
+        ``httpx.AsyncClient``). No re-auth, no second TCP pool, no second
+        TokenStore — anti-Pitfall 13 (Phase 13 D-V1 + D-T2).
+
+        Use within the same event loop as the parent::
+
+            c = AsyncClient(base_url="...", username="...", password="...")
+            view = c.with_options(max_retries=5)
+            segments = await view.get_segments()
+
+        **CRITICAL — matriz mutation gate (Anti-Pitfall 14 / SC#2 ROADMAP):**
+        ``view.new_order(...)`` does NOT bypass the mutation gate. Non-idempotent
+        order-mutation endpoints execute EXACTLY 1 outgoing request regardless
+        of view's ``max_retries``. The mutation gate (Phase 8 D-01) is the
+        absolute authority on retry permission. Use view's ``max_retries`` for
+        idempotent GET endpoints only.
+
+        **D-T1 / D-T3 — TokenStore retry-cap isolation:** View's
+        ``max_retries`` is HTTP-only; the TokenStore (auth-server) retry cap
+        stays gobernado por the AsyncClient constructor via
+        ``self._state.client_max_retries``. The Phase 10 3-way primitive
+        (threading.Lock + asyncio.Lock per loop) is preserved unchanged.
+
+        Per Phase 8 D-19: ``max_retries=N → max_attempts=N+1``. The view's
+        ``_max_retries`` flows through the shell's async ``login()`` and
+        async ``_request()`` (Risk + Token paths) via
+        ``request.extensions["max_attempts"]``.
+
+        Lifecycle no-op: ``view.aclose()`` / ``view.__aexit__`` do NOT touch
+        the shared ``http_client``, ``token``, or ``token_store``.
+
+        Chaining returns a fresh view each call; the inner call wins (D-V2)::
+
+            c.with_options(5).with_options(10)._max_retries  # 10
+            c._max_retries                                    # 2 (intact)
+        """
+        # WR-06 carry-forward: validate early (D-V3 parity with sync Client).
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13 + D-T2 token_store
+        view._max_retries = max_retries  # OVERRIDE — HTTP-only (D-T1)
+        view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
+        return view
 
     async def _aensure_token(self) -> None:
         """Ensure ``self._state.token`` is fresh via ``state.token_store.get_async()``.
@@ -334,6 +398,9 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01 (D-T6): auth-flow login carries idempotent=True
+        # (Phase 8 D-03), so view's per-call cap MUST apply here too.
+        req.extensions["max_attempts"] = self._max_retries + 1
         resp = await http.send(req)
         token, expires_at = _core.parse_login_response(resp)
         self._state.token = token
@@ -370,6 +437,9 @@ class AsyncClient:
             req.extensions["idempotent"] = spec.idempotent
             req.extensions["request_id"] = request_id
             req.extensions["endpoint_name"] = spec.endpoint_name
+            # Phase 13 ERG-01: per-call override; parent or view's _max_retries
+            # (Phase 8 D-19 N→N+1). Uniform — view override flows through here.
+            req.extensions["max_attempts"] = self._max_retries + 1
             if spec.account_id is not None:
                 req.extensions["account_id"] = spec.account_id
             # D-22 auth_basic propagation for log redaction (transport scans
@@ -394,6 +464,11 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # Phase 13 ERG-01: per-call override; parent or view's _max_retries
+        # (Phase 8 D-19 N→N+1). Mutation gate (Phase 8 D-01) remains absolute
+        # authority — non-idempotent specs short-circuit to 1 outgoing request
+        # (Anti-Pitfall 14 / SC#2 ROADMAP — money-on-the-line).
+        req.extensions["max_attempts"] = self._max_retries + 1
         if spec.account_id is not None:
             req.extensions["account_id"] = spec.account_id
 
