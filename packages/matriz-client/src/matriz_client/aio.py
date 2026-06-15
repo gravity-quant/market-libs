@@ -355,19 +355,25 @@ class AsyncClient:
             sync_default = _get_sync_default()
             sync_default._ensure_http_client()
             saved_http_client = self._state.http_client
-            # CONCURRENCY INVARIANT (per-loop asyncio.Lock):
-            # The swap of ``self._state.http_client`` below is safe because
-            # this entire ``if self._state.token_store is None`` lazy-init
-            # block executes inside the per-loop asyncio.Lock acquired by
-            # ``TokenStore.get_async()`` before ``_aensure_token`` returns.
-            # The Lock guarantees no concurrent coroutine on the SAME event
-            # loop can observe the swapped ``self._state.http_client``
-            # mid-build. Across loops, each loop has its own
-            # ``TokenStore.get_async()`` Lock, but the lazy-init only fires
-            # once per state instance (guarded by the ``is None`` check) —
-            # subsequent calls skip the swap entirely. Do NOT relax or
-            # remove this invariant without re-analyzing the cross-context
-            # lock semantics.
+            # CONCURRENCY NOTE (Phase 13 WR-02 corrected):
+            # This lazy-init block runs BEFORE ``TokenStore.get_async()``
+            # acquires its per-loop ``asyncio.Lock``, so the swap of
+            # ``self._state.http_client`` below is NOT protected by the
+            # TokenStore lock. The race window is narrow — once a
+            # ``TokenStore`` is built, the ``is None`` check short-circuits
+            # all subsequent callers. Concurrent first-arrival coroutines
+            # on the same loop may both observe ``token_store is None``,
+            # both swap+build a TokenStore, and one wins the final
+            # assignment; the loser's TokenStore is GC'd silently and the
+            # swapped-back ``http_client`` is the original
+            # ``saved_http_client`` (the swap is symmetric via the
+            # try/finally). Acceptable today because views share
+            # ``_state.token_store`` (Phase 13 D-T2) and a stray swap
+            # collision does not corrupt subsequent reads — but if
+            # ``MatrizRefresh`` ever takes ownership of the
+            # ``httpx.Client`` it's handed (rather than borrowing for the
+            # duration of ``get_async``), this becomes a real bug and the
+            # swap must move INSIDE a dedicated synchronization point.
             self._state.http_client = sync_default._state.http_client
             try:
                 # Phase 13 D-T1/D-T3: read from state.client_max_retries (the
