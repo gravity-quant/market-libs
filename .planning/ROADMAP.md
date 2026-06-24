@@ -236,7 +236,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 12. Codegen Spike                                           | v1.2      | 4/3 | Complete    | 2026-06-14 |
 | 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 5/5 | Complete    | 2026-06-15 |
 | 14. IOL Disk Persistence                                    | v1.2      | 3/3 | Complete    | 2026-06-24 |
-| 15. Driver Migration × 4                                    | v1.2      | 4/4 | Complete   | 2026-06-24 |
+| 15. Driver Migration × 4                                    | v1.2      | 5/4 | Complete    | 2026-06-24 |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
 | 17. Final Live Re-verification × 4                          | v1.2      | 0/?   | Not started (unblocked) | -          |
 

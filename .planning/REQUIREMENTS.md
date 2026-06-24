@@ -12,7 +12,7 @@
 
 ### Arquitectura sync/async dedup (REFAC)
 
-- [ ] **REFAC-05**: Driver migration × 4 packages — `main_ambito_financiero.py`, `main_iol.py`,
+- [x] **REFAC-05**: Driver migration × 4 packages — `main_ambito_financiero.py`, `main_iol.py`,
   `main_higyrus.py`, `main_matriz.py` consumen `Client`/`AsyncClient` instancias directamente
   (no más top-level `pkg.get_X(...)` ni `_get_default()._state.<attr>` patterns). **ONE Client
   per `main()` run** invariante (anti-Pitfall 1/2: evita OAuth churn IOL + TokenStore corruption
