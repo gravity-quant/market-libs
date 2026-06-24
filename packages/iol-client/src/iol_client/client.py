@@ -45,13 +45,16 @@ cacheado.
 from __future__ import annotations
 
 import datetime as dt
+import os
+import time
 import uuid
+from pathlib import Path
 from typing import Any, Literal, Self
 
 import httpx
 from dotenv import load_dotenv
 
-from iol_client import _core, _transport
+from iol_client import _core, _token_cache, _transport
 from iol_client._core import RequestSpec
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.exceptions import IOLAuthError
@@ -132,6 +135,8 @@ class Client:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        refresh_token: str | None = None,
+        token_cache_path: Path | None = None,
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
     ) -> None:
@@ -148,6 +153,22 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 14 BUG-03: seed in-memory refresh_token so a cold instance can
+        # take the refresh path before any disk read (test parity with the
+        # configure(refresh_token=...) surface).
+        if refresh_token is not None:
+            self._state.refresh_token = refresh_token
+        # Phase 14 SEC-01 (D-T4): resolve token_cache_path precedence —
+        # explicit kwarg > env-var override > platformdirs default (None on
+        # CI=true per anti-Pitfall 10). Result may be None (disk persistence
+        # disabled).
+        _env_cache_path = os.environ.get("IOL_TOKEN_CACHE_PATH")
+        if token_cache_path is not None:
+            self._state.token_cache_path = token_cache_path
+        elif _env_cache_path:
+            self._state.token_cache_path = Path(_env_cache_path)
+        else:
+            self._state.token_cache_path = _token_cache._resolve_default_path()
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         # max_retries=0 disables retries entirely per D-19 (max_attempts <= 1 bypass).
         self._max_retries = max_retries
@@ -346,6 +367,16 @@ class Client:
         # state.refresh_token cuando el parser nos da un valor truthy.
         if refresh is not None:
             self._state.refresh_token = refresh
+        # Phase 14 SEC-01: persist the fresh refresh_token after a password
+        # grant (anti-Pitfall 8 — the post-401 fallback writes the FRESH token
+        # to disk in the same _ensure_token() call). ``acquired_at`` read at the
+        # call site keeps the save() helper pure/deterministic.
+        if self._state.token_cache_path is not None and self._state.refresh_token is not None:
+            _token_cache.save(
+                self._state.token_cache_path,
+                self._state.refresh_token,
+                acquired_at=time.time(),
+            )
         return token
 
     def _refresh(self) -> str:
@@ -359,9 +390,25 @@ class Client:
         # refresh_token en cada refresh — preservar el cacheado entonces.
         if refresh is not None:
             self._state.refresh_token = refresh
+        # Phase 14 SEC-01: persist the refresh_token after a successful refresh
+        # (rotated value or the preserved cached one — both are written so the
+        # disk file stays in sync with in-memory state). ``acquired_at`` read at
+        # the call site keeps the save() helper pure/deterministic.
+        if self._state.token_cache_path is not None and self._state.refresh_token is not None:
+            _token_cache.save(
+                self._state.token_cache_path,
+                self._state.refresh_token,
+                acquired_at=time.time(),
+            )
         return token
 
     def _ensure_token(self) -> None:
+        # Phase 14 SEC-01: cold-start disk load. Runs once per cold instance —
+        # subsequent calls see state.refresh_token non-None and skip the read.
+        if self._state.refresh_token is None and self._state.token_cache_path is not None:
+            loaded = _token_cache.load(self._state.token_cache_path)
+            if loaded is not None:
+                self._state.refresh_token = loaded["refresh_token"]
         if _core.token_is_fresh(self._state):
             return
         # D-IOL-10: si tenemos refresh_token, intentar refresh antes de password.
@@ -369,8 +416,12 @@ class Client:
             try:
                 self._refresh()
             except IOLAuthError:
-                # Refresh inválido (revocado, expirado) — fallback a password.
-                pass
+                # Phase 14 SEC-01 (anti-Pitfall 8): the stale refresh_token is
+                # invalid — delete it from disk and clear in-memory BEFORE the
+                # password fallback so the disk never retains the stale token.
+                if self._state.token_cache_path is not None:
+                    _token_cache.delete(self._state.token_cache_path)
+                self._state.refresh_token = None
             else:
                 return
         self.login()

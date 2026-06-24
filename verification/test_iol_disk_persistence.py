@@ -142,12 +142,14 @@ def test_disk_token_deleted_on_refresh_401(tmp_path, monkeypatch, httpx_mock):
     path = tmp_path / "refresh_token.json"
     iol_client._token_cache.save(path, "STALE-REFRESH-TOKEN", acquired_at=1.0)
 
-    # Mock IOL: refresh 401, password grant success
+    # Mock IOL: refresh 401, password grant success. ``match_content`` is the
+    # FULL urlencoded body (pytest-httpx exact match) — mirrors the real client
+    # body shape and the existing iol-client test-suite convention.
     httpx_mock.add_response(
         url="https://api.invertironline.com/token",
         method="POST",
         status_code=401,
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=STALE-REFRESH-TOKEN&grant_type=refresh_token",
     )
     httpx_mock.add_response(
         url="https://api.invertironline.com/token",
@@ -157,7 +159,7 @@ def test_disk_token_deleted_on_refresh_401(tmp_path, monkeypatch, httpx_mock):
             "refresh_token": "FRESH-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=password",
+        match_content=b"username=u&password=p&grant_type=password",
     )
 
     client = iol_client.Client(
@@ -198,7 +200,7 @@ def test_disk_token_loaded_on_init_skips_password_sync(tmp_path, monkeypatch, ht
             "refresh_token": "ROTATED-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=SEED-REFRESH-TOKEN&grant_type=refresh_token",
     )
 
     client = iol_client.Client(
@@ -231,7 +233,7 @@ async def test_disk_token_loaded_on_init_skips_password_async(tmp_path, monkeypa
             "refresh_token": "ROTATED-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=SEED-REFRESH-TOKEN&grant_type=refresh_token",
     )
 
     client = aio.AsyncClient(
@@ -273,7 +275,7 @@ def test_disk_token_written_after_successful_refresh_sync(tmp_path, monkeypatch,
             "refresh_token": "FRESH-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=SEED-REFRESH-TOKEN&grant_type=refresh_token",
     )
 
     before = time.time()
@@ -312,7 +314,7 @@ async def test_disk_token_written_after_successful_refresh_async(tmp_path, monke
             "refresh_token": "FRESH-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=SEED-REFRESH-TOKEN&grant_type=refresh_token",
     )
 
     before = time.time()
@@ -423,7 +425,7 @@ def test_disk_token_rotated_on_explicit_path_sync(tmp_path, monkeypatch, httpx_m
             "refresh_token": "NEW-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=OLD-REFRESH-TOKEN&grant_type=refresh_token",
     )
 
     client = iol_client.Client(
@@ -457,7 +459,7 @@ async def test_disk_token_rotated_on_explicit_path_async(tmp_path, monkeypatch, 
             "refresh_token": "NEW-REFRESH-TOKEN",
             "expires_in": 900,
         },
-        match_content=b"grant_type=refresh_token",
+        match_content=b"refresh_token=OLD-REFRESH-TOKEN&grant_type=refresh_token",
     )
 
     client = aio.AsyncClient(
