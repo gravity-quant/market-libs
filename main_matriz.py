@@ -78,8 +78,7 @@ from verification.cycle_report import verify_cycle_closure
 
 import matriz_client as primary
 from matriz_client import AsyncClient, Client, PrimaryAPIError
-from matriz_client.client import _request as _matriz_request
-from matriz_client.client import _risk_auth
+from matriz_client._core import RequestSpec, parse_envelope_response
 from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
     AccountReport,
@@ -323,7 +322,38 @@ def _write_or_check_schema(
 # ---------------------------------------------------------------------------
 
 
+def _sync_matriz_request(
+    client: Client,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    auth_basic: tuple[str, str] | None = None,
+) -> dict[str, Any]:
+    """Raw envelope request sobre el ``Client`` threadeado, semántica del shim legacy.
+
+    Replica byte-por-byte el comportamiento del antiguo module shim
+    ``matriz_client.client._request`` (que el driver usaba para capturar el raw
+    envelope-parsed payload, y que delegaba en el cached default-client del
+    paquete vía su ``_matriz_legacy_request`` — el camino singleton que esta
+    migración 15-05 cierra): construye un ``RequestSpec``, llama al
+    ``Client._request`` de instancia (que devuelve el ``httpx.Response`` crudo SIN
+    levantar a nivel app), y delega el parseo + raise-on-error a
+    ``parse_envelope_response`` (D-24: ``status='ERROR'`` → ``PrimaryAPIError``;
+    401 Risk → ``AuthenticationError`` ya desde ``_request``). Misma firma y
+    mismo return shape (``dict[str, Any]`` envelope) que el shim módulo-level.
+
+    Mirror del idiom ``_raw_request_sync`` de ``main_higyrus.py`` adaptado al
+    ``parse_envelope_response`` de matriz. Mantiene exactamente UN ``Client``: el
+    threadeado desde ``main()`` (TokenStore-safe — sin segundo login remarkets).
+    """
+    spec = RequestSpec(method=method, path=path, params=params, auth_basic=auth_basic)
+    resp = client._request(spec)
+    return parse_envelope_response(resp, path)
+
+
 def _envelope_probe(
+    client: Client,
     name: str,
     path: str,
     *,
@@ -335,11 +365,15 @@ def _envelope_probe(
     """Sweep probe helper — CR-05 close.
 
     Args:
+        client: The single threaded sync ``Client`` from ``main()`` (15-05
+            single-Client migration; routes through ``_sync_matriz_request``
+            instead of the module singleton shim).
         name: ProbeResult label.
         path: REST path (e.g. ``/rest/segment/all``).
         envelope_key: Envelope key to unwrap. ``None`` para risk probes (D-07)
             donde el payload raíz ES el resultado.
-        request_params: Forwarded to ``_matriz_request("GET", path, params=...)``.
+        request_params: Forwarded to ``_sync_matriz_request(client, "GET", path,
+            params=...)``.
         auth_basic_fn: Returns ``(user, pass)`` for Risk API HTTP Basic; ``None``
             usa el token X-Auth-Token cacheado.
         pass_detail: Optional callable que mapea ``payload -> str`` para
@@ -357,7 +391,7 @@ def _envelope_probe(
     base_url = primary.client._base_url
     auth = auth_basic_fn() if auth_basic_fn is not None else None
     try:
-        raw = _matriz_request("GET", path, params=request_params, auth_basic=auth)
+        raw = _sync_matriz_request(client, "GET", path, params=request_params, auth_basic=auth)
     except PrimaryAPIError as exc:
         fid = _next_fid()
         expected = (
@@ -509,12 +543,13 @@ def probe_login_sync(client: Client) -> ProbeResult:
 # Probes 2-19: read-sweep (D-MATZ-29 #2-#19, MATZ-02)
 #
 # Cada probe retorna ``(ProbeResult, raw_payload | None)``. El raw_payload es
-# el dict/lista crudo retornado por ``_matriz_request`` (envelope ya extraído)
-# para uso downstream por ``probe_field_type_map`` y ``probe_schema_snapshot``.
+# el dict/lista crudo retornado por ``_sync_matriz_request`` sobre el ``Client``
+# threadeado (envelope ya extraído) para uso downstream por
+# ``probe_field_type_map`` y ``probe_schema_snapshot``.
 # ---------------------------------------------------------------------------
 
 
-def probe_get_segments() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_segments(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 2 (D-MATZ-29 #2): ``GET /rest/segment/all``.
 
     Setea ``_resolved_segment`` = ``segments[0].marketSegmentId`` (D-MATZ-2).
@@ -528,7 +563,7 @@ def probe_get_segments() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     base_url = primary.client._base_url
     path = "/rest/segment/all"
     try:
-        raw = _matriz_request("GET", path)
+        raw = _sync_matriz_request(client, "GET", path)
     except PrimaryAPIError as exc:
         fid = _next_fid()
         append_finding(
@@ -567,7 +602,7 @@ def probe_get_segments() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     return (ProbeResult("get_segments", "PASS", f"{len(segments)} segments"), segments)
 
 
-def probe_get_all_instruments() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_all_instruments(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 3 (D-MATZ-29 #3): ``GET /rest/instruments/all``.
 
     Setea ``_resolved_symbol`` = ``instruments[0].instrumentId.symbol`` (D-MATZ-1).
@@ -582,7 +617,7 @@ def probe_get_all_instruments() -> tuple[ProbeResult, list[dict[str, Any]] | Non
     base_url = primary.client._base_url
     path = "/rest/instruments/all"
     try:
-        raw = _matriz_request("GET", path)
+        raw = _sync_matriz_request(client, "GET", path)
     except PrimaryAPIError as exc:
         fid = _next_fid()
         append_finding(
@@ -628,9 +663,12 @@ def probe_get_all_instruments() -> tuple[ProbeResult, list[dict[str, Any]] | Non
     )
 
 
-def probe_get_instruments_details() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_instruments_details(
+    client: Client,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 4 (D-MATZ-29 #4): ``GET /rest/instruments/details`` — vía ``_envelope_probe``."""
     return _envelope_probe(
+        client,
         "get_instruments_details",
         "/rest/instruments/details",
         envelope_key="instruments",
@@ -638,7 +676,7 @@ def probe_get_instruments_details() -> tuple[ProbeResult, list[dict[str, Any]] |
     )
 
 
-def probe_get_instrument_detail() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_instrument_detail(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 5 (D-MATZ-29 #5): ``GET /rest/instruments/detail`` con ``_resolved_symbol``.
 
     SKIPPED si ``_resolved_symbol`` no se resolvió (probe #3 falló o instruments vacío).
@@ -649,6 +687,7 @@ def probe_get_instrument_detail() -> tuple[ProbeResult, dict[str, Any] | None]:
             None,
         )
     return _envelope_probe(
+        client,
         "get_instrument_detail",
         "/rest/instruments/detail",
         envelope_key="instrument",
@@ -657,12 +696,15 @@ def probe_get_instrument_detail() -> tuple[ProbeResult, dict[str, Any] | None]:
     )
 
 
-def probe_get_instruments_by_cfi_ESXXXX() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_instruments_by_cfi_ESXXXX(
+    client: Client,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 6 (D-MATZ-29 #6): ``GET /rest/instruments/byCFICode`` con ``CFICode='ESXXXX'``.
 
     Baseline para schema snapshot D-MATZ-6 (los otros 8 CFI van por probe #7).
     """
     return _envelope_probe(
+        client,
         "get_instruments_by_cfi_ESXXXX",
         "/rest/instruments/byCFICode",
         envelope_key="instruments",
@@ -684,7 +726,7 @@ _CFI_SANITY_CODES: tuple[CFICode, ...] = (
 )
 
 
-def probe_get_instruments_by_cfi_sanity() -> tuple[ProbeResult, None]:
+def probe_get_instruments_by_cfi_sanity(client: Client) -> tuple[ProbeResult, None]:
     """Probe 7 (D-MATZ-29 #7): sanity sweep de los 8 CFI codes restantes.
 
     Type-only assertions (sin snapshot por cada uno per D-MATZ-6). Si CUALQUIER
@@ -705,7 +747,7 @@ def probe_get_instruments_by_cfi_sanity() -> tuple[ProbeResult, None]:
     counts: dict[str, int] = {}
     for cfi in _CFI_SANITY_CODES:
         try:
-            raw = _matriz_request("GET", path, params={"CFICode": cfi})
+            raw = _sync_matriz_request(client, "GET", path, params={"CFICode": cfi})
         except PrimaryAPIError as exc:
             failures.append(f"{cfi}:PrimaryAPIError({exc})")
             continue
@@ -739,7 +781,9 @@ def probe_get_instruments_by_cfi_sanity() -> tuple[ProbeResult, None]:
     return (ProbeResult("get_instruments_by_cfi_sanity", "PASS", detail), None)
 
 
-def probe_get_instruments_by_segment() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_instruments_by_segment(
+    client: Client,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 8 (D-MATZ-29 #8): ``GET /rest/instruments/bySegment`` con ``_resolved_segment``.
 
     SKIPPED si ``_resolved_segment`` no se resolvió (probe #2 falló o segments vacío).
@@ -752,6 +796,7 @@ def probe_get_instruments_by_segment() -> tuple[ProbeResult, list[dict[str, Any]
             None,
         )
     return _envelope_probe(
+        client,
         "get_instruments_by_segment",
         "/rest/instruments/bySegment",
         envelope_key="instruments",
@@ -760,7 +805,7 @@ def probe_get_instruments_by_segment() -> tuple[ProbeResult, list[dict[str, Any]
     )
 
 
-def probe_get_market_data() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_market_data(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 9 (D-MATZ-29 #9): ``GET /rest/marketdata/get`` con ``_resolved_symbol``.
 
     D-MATZ-5 market-hours guard: inspecciona ``LA.date`` (epoch ms). Si stale > 2h
@@ -782,7 +827,8 @@ def probe_get_market_data() -> tuple[ProbeResult, dict[str, Any] | None]:
     path = "/rest/marketdata/get"
     entries = "BI,OF,LA,OP,CL,SE,OI"
     try:
-        raw = _matriz_request(
+        raw = _sync_matriz_request(
+            client,
             "GET",
             path,
             params={
@@ -849,7 +895,7 @@ def probe_get_market_data() -> tuple[ProbeResult, dict[str, Any] | None]:
     return (ProbeResult("get_market_data", "PASS", detail), md)
 
 
-def probe_get_trades() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_trades(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 10 (D-MATZ-29 #10): ``GET /rest/data/getTrades`` con ``date_from=today-7d``.
 
     D-MATZ-8: si lista vacía → finding NO-DATA OPEN + PASS-shape (reportado por
@@ -860,6 +906,7 @@ def probe_get_trades() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     today = dt.date.today()
     seven_days_ago = today - dt.timedelta(days=7)
     result, payload = _envelope_probe(
+        client,
         "get_trades",
         "/rest/data/getTrades",
         envelope_key="trades",
@@ -890,11 +937,12 @@ def probe_get_trades() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     return (result, payload)
 
 
-def probe_get_active_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_active_orders(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 11 (D-MATZ-29 #11): ``GET /rest/order/actives`` con ``PRIMARY_ACCOUNT``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (ProbeResult("get_active_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
     return _envelope_probe(
+        client,
         "get_active_orders",
         "/rest/order/actives",
         envelope_key="orders",
@@ -903,11 +951,12 @@ def probe_get_active_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]
     )
 
 
-def probe_get_filled_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_filled_orders(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 12 (D-MATZ-29 #12): ``GET /rest/order/filleds`` con ``PRIMARY_ACCOUNT``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (ProbeResult("get_filled_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
     return _envelope_probe(
+        client,
         "get_filled_orders",
         "/rest/order/filleds",
         envelope_key="orders",
@@ -916,11 +965,12 @@ def probe_get_filled_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]
     )
 
 
-def probe_get_all_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_all_orders(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 13 (D-MATZ-29 #13): ``GET /rest/order/all`` con ``PRIMARY_ACCOUNT``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (ProbeResult("get_all_orders", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
     return _envelope_probe(
+        client,
         "get_all_orders",
         "/rest/order/all",
         envelope_key="orders",
@@ -929,7 +979,7 @@ def probe_get_all_orders() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     )
 
 
-def probe_get_order_status() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_order_status(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 14 (D-MATZ-29 #14): ``GET /rest/order/id`` con ``cl_ord_id``+``proprietary``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
         return (
@@ -941,6 +991,7 @@ def probe_get_order_status() -> tuple[ProbeResult, dict[str, Any] | None]:
             None,
         )
     return _envelope_probe(
+        client,
         "get_order_status",
         "/rest/order/id",
         envelope_key="order",
@@ -949,7 +1000,7 @@ def probe_get_order_status() -> tuple[ProbeResult, dict[str, Any] | None]:
     )
 
 
-def probe_get_order_history() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_order_history(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 15 (D-MATZ-29 #15): ``GET /rest/order/allById`` con ``cl_ord_id``+``proprietary``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
         return (
@@ -961,6 +1012,7 @@ def probe_get_order_history() -> tuple[ProbeResult, list[dict[str, Any]] | None]
             None,
         )
     return _envelope_probe(
+        client,
         "get_order_history",
         "/rest/order/allById",
         envelope_key="orders",
@@ -969,7 +1021,7 @@ def probe_get_order_history() -> tuple[ProbeResult, list[dict[str, Any]] | None]
     )
 
 
-def probe_get_order_by_exec_id() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_order_by_exec_id(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 16 (D-MATZ-29 #16): ``GET /rest/order/byExecId`` con ``MATRIZ_SAMPLE_EXEC_ID``."""
     if _SAMPLE_EXEC_ID is None and not _auth_failed:
         return (
@@ -977,6 +1029,7 @@ def probe_get_order_by_exec_id() -> tuple[ProbeResult, dict[str, Any] | None]:
             None,
         )
     return _envelope_probe(
+        client,
         "get_order_by_exec_id",
         "/rest/order/byExecId",
         envelope_key="order",
@@ -985,7 +1038,7 @@ def probe_get_order_by_exec_id() -> tuple[ProbeResult, dict[str, Any] | None]:
     )
 
 
-def probe_get_positions() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_positions(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 17 (D-MATZ-29 #17): ``GET /rest/risk/position/getPositions/{account}``.
 
     **Risk API HTTP Basic Auth** (Pitfall 2 RESEARCH L640): el helper acepta
@@ -994,15 +1047,16 @@ def probe_get_positions() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (ProbeResult("get_positions", "SKIPPED", "no PRIMARY_ACCOUNT env var"), None)
     return _envelope_probe(
+        client,
         "get_positions",
         f"/rest/risk/position/getPositions/{_PRIMARY_ACCOUNT}",
         envelope_key="positions",
-        auth_basic_fn=_risk_auth,
+        auth_basic_fn=client._risk_auth,
         pass_detail=lambda p: f"{len(p)} positions",
     )
 
 
-def probe_get_detailed_positions() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 18 (D-MATZ-29 #18): ``GET /rest/risk/detailedPosition/{account}``.
 
     Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
@@ -1014,16 +1068,17 @@ def probe_get_detailed_positions() -> tuple[ProbeResult, dict[str, Any] | None]:
             None,
         )
     return _envelope_probe(
+        client,
         "get_detailed_positions",
         f"/rest/risk/detailedPosition/{_PRIMARY_ACCOUNT}",
         envelope_key=None,
-        auth_basic_fn=_risk_auth,
+        auth_basic_fn=client._risk_auth,
         # WR-01: no insertamos accountId completo en detail string.
         pass_detail=lambda _: "account received",
     )
 
 
-def probe_get_account_report() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 19 (D-MATZ-29 #19): ``GET /rest/risk/accountReport/{account}``.
 
     Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
@@ -1035,10 +1090,11 @@ def probe_get_account_report() -> tuple[ProbeResult, dict[str, Any] | None]:
             None,
         )
     return _envelope_probe(
+        client,
         "get_account_report",
         f"/rest/risk/accountReport/{_PRIMARY_ACCOUNT}",
         envelope_key=None,
-        auth_basic_fn=_risk_auth,
+        auth_basic_fn=client._risk_auth,
         # WR-01: no insertamos accountName real en detail string.
         pass_detail=lambda _: "accountName received",
     )
@@ -2018,10 +2074,12 @@ async def probe_error_malformed_cfi_async(aclient: AsyncClient) -> ProbeResult:
 # ---------------------------------------------------------------------------
 # Async wrapper — un único asyncio.run (D-IOL-6 mirror).
 #
-# Phase 10 LIVE-02: all async probes share one event loop + one
-# AsyncClient default singleton, then aclose() at the end. The wrapper
-# returns the full list of async ProbeResults in execution order so main()
-# can interleave them with sync results (D-06 pairing per CONTEXT.md).
+# Phase 10 LIVE-02: all async probes share one event loop + exactly one
+# explicitly-constructed ``AsyncClient`` instance (threaded as a parameter into
+# every async probe — NOT the module default singleton), then aclose() at the
+# end. The wrapper returns the full list of async ProbeResults in execution
+# order so main() can interleave them with sync results (D-06 pairing per
+# CONTEXT.md).
 # ---------------------------------------------------------------------------
 
 
@@ -2165,7 +2223,7 @@ def main() -> None:
         ("get_account_report", probe_get_account_report),
     ]
     for key, probe_fn in sweep_probes:
-        result, raw = probe_fn()
+        result, raw = probe_fn(client)
         results.append(result)
         if raw is not None:
             payloads[key] = raw
