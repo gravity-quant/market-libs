@@ -105,7 +105,14 @@ from verification import (
 )
 
 import higyrus_client
-from higyrus_client import HigyrusAPIError, HigyrusAuthError, HigyrusClientError, aio
+from higyrus_client import (
+    AsyncClient,
+    Client,
+    HigyrusAPIError,
+    HigyrusAuthError,
+    HigyrusClientError,
+)
+from higyrus_client._core import RequestSpec, raise_for_response
 from higyrus_client._params import format_bool, format_date
 from higyrus_client.models import (
     Cuenta,
@@ -233,6 +240,51 @@ def _next_fid() -> str:
     return f"F-{_fid_counter:02d}"
 
 
+def _raw_request_sync(
+    client: Client,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | list[Any] | None:
+    """Raw request sobre el ``Client`` threadeado, semántica del shim legacy.
+
+    Replica byte-por-byte el comportamiento del antiguo
+    ``higyrus_client.client._request(method, path, params=...)`` (que el driver
+    usaba para capturar el raw payload): construye un ``RequestSpec``, llama al
+    ``Client._request`` de instancia, levanta vía ``raise_for_response`` ante
+    non-2xx, y devuelve ``None`` en 204/empty o ``resp.json()`` en caso éxito.
+    Necesario porque ``Client._request`` (D-03) devuelve el ``httpx.Response``
+    crudo SIN levantar — el shim module-level sí levantaba.
+    """
+    spec = RequestSpec(method=method, path=path, params=params)
+    resp = client._request(spec)
+    if not resp.is_success:
+        raise_for_response(resp)
+    if resp.status_code == 204 or not resp.content:
+        return None
+    body: dict[str, Any] | list[Any] = resp.json()
+    return body
+
+
+async def _raw_request_async(
+    aclient: AsyncClient,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | list[Any] | None:
+    """Mirror async de ``_raw_request_sync`` sobre el ``AsyncClient`` threadeado."""
+    spec = RequestSpec(method=method, path=path, params=params)
+    resp = await aclient._request(spec)
+    if not resp.is_success:
+        raise_for_response(resp)
+    if resp.status_code == 204 or not resp.content:
+        return None
+    body: dict[str, Any] | list[Any] = resp.json()
+    return body
+
+
 # ---------------------------------------------------------------------------
 # ProbeResult
 # ---------------------------------------------------------------------------
@@ -263,7 +315,7 @@ class ProbeResult:
 
 
 def _capture_sync_query_string(
-    cuenta: str, fecha_desde: dt.date, fecha_hasta: dt.date
+    client: Client, cuenta: str, fecha_desde: dt.date, fecha_hasta: dt.date
 ) -> str | None:
     """Captura el query string emitido por el sync client.
 
@@ -281,9 +333,7 @@ def _capture_sync_query_string(
     # Phase 11 CR-07: forzar instanciación del http_client lazy ANTES de
     # capturar ``original_hooks`` para no leer ``None.event_hooks`` cuando el
     # helper se llama antes que cualquier endpoint.
-    higyrus_client.client._get_default()._ensure_http_client()
-    client = higyrus_client.client._client
-    assert client is not None  # invariante post-_ensure_http_client
+    http_client = client._ensure_http_client()
 
     def _spy(request: httpx.Request) -> None:
         # WR-NEW-01 (review-04 iter-2): el event_hook se dispara para TODO
@@ -306,7 +356,7 @@ def _capture_sync_query_string(
     # zona de corrupción cross-thread; el lock serializa el ciclo completo
     # (capture-original / install-spy / call / restore-original).
     with _event_hooks_lock_sync:
-        original_hooks = client.event_hooks
+        original_hooks = http_client.event_hooks
         # Preserva los hooks pre-existentes en caso de que otro componente los
         # haya registrado (defensivo aunque hoy el client no usa hooks).
         hooks_with_spy: dict[str, list[Any]] = {
@@ -314,8 +364,8 @@ def _capture_sync_query_string(
             "response": list(original_hooks.get("response", [])),
         }
         try:
-            client.event_hooks = hooks_with_spy
-            higyrus_client.get_movimientos(cuenta, fecha_desde, fecha_hasta)
+            http_client.event_hooks = hooks_with_spy
+            client.get_movimientos(cuenta, fecha_desde, fecha_hasta)
         except (httpx.HTTPError, HigyrusAPIError, HigyrusAuthError, HigyrusClientError):
             # Phase 11 CR-07 + CR-06: narrowed from bare ``Exception`` to the
             # specific subclasses raised by ``get_movimientos`` (httpx transport
@@ -326,23 +376,21 @@ def _capture_sync_query_string(
             # SKIPPED en vez de propagar.
             pass
         finally:
-            client.event_hooks = original_hooks
+            http_client.event_hooks = original_hooks
     return captured.get("query")
 
 
 async def _capture_async_query_string(
-    cuenta: str, fecha_desde: dt.date, fecha_hasta: dt.date
+    aclient: AsyncClient, cuenta: str, fecha_desde: dt.date, fecha_hasta: dt.date
 ) -> str | None:
     """Mirror async del sync — captura del aio surface vía ``event_hooks``.
 
     WR-05 mirror (review-04): usa ``httpx.AsyncClient.event_hooks`` (request
     hook async-aware) en vez de monkey-patch del bound method. El async
     client es lazy; ``_ensure_http_client`` se invoca para garantizar que
-    ``_client is not None`` antes de modificar los hooks.
+    el ``httpx.AsyncClient`` está materializado antes de modificar los hooks.
     """
-    await aio._get_default()._ensure_http_client()
-    assert aio._client is not None
-    client = aio._client
+    http_client = await aclient._ensure_http_client()
     captured: dict[str, str] = {}
 
     async def _spy(request: httpx.Request) -> None:
@@ -361,21 +409,21 @@ async def _capture_async_query_string(
     # Phase 11 CR-07: asyncio.Lock serializa el read-modify-write de
     # ``client.event_hooks`` cross-coroutine (asyncio.gather x N invocaciones).
     async with _get_event_hooks_lock_async():
-        original_hooks = client.event_hooks
+        original_hooks = http_client.event_hooks
         hooks_with_spy: dict[str, list[Any]] = {
             "request": [*original_hooks.get("request", []), _spy],
             "response": list(original_hooks.get("response", [])),
         }
         try:
-            client.event_hooks = hooks_with_spy
-            await aio.get_movimientos(cuenta, fecha_desde, fecha_hasta)
+            http_client.event_hooks = hooks_with_spy
+            await aclient.get_movimientos(cuenta, fecha_desde, fecha_hasta)
         except (httpx.HTTPError, HigyrusAPIError, HigyrusAuthError, HigyrusClientError):
             # Phase 11 CR-07 + CR-06: narrowed from bare ``Exception`` to the
-            # specific subclasses raised by ``aio.get_movimientos``. Paridad
+            # specific subclasses raised by ``aclient.get_movimientos``. Paridad
             # sync↔async preservada en el clause.
             pass
         finally:
-            client.event_hooks = original_hooks
+            http_client.event_hooks = original_hooks
     return captured.get("query")
 
 
@@ -438,8 +486,8 @@ def _write_or_check_schema(
 # ---------------------------------------------------------------------------
 
 
-def probe_login_sync() -> ProbeResult:
-    """Probe 1: ``higyrus_client.login()`` (HIGY-01).
+def probe_login_sync(client: Client) -> ProbeResult:
+    """Probe 1: ``client.login()`` (HIGY-01).
 
     Setea ``_auth_failed`` global ante CUALQUIER falla de login para activar
     la cascade SKIPPED (D-HIGY-10, Phase 3 D-IOL-3 mirror). Se diferencian
@@ -459,9 +507,9 @@ def probe_login_sync() -> ProbeResult:
     aborte la driver antes de las 18 líneas + SUMMARY (review-04 CR-02).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        higyrus_client.login()
+        client.login()
     except HigyrusClientError as exc:
         _auth_failed = True
         _auth_failure_reason = f"sync login: {type(exc).__name__}: {exc}"
@@ -500,8 +548,8 @@ def probe_login_sync() -> ProbeResult:
     return ProbeResult("login_sync", "PASS", "_token cached")
 
 
-async def probe_login_async() -> ProbeResult:
-    """Probe 2: ``await aio.login()`` (HIGY-01).
+async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
+    """Probe 2: ``await aclient.login()`` (HIGY-01).
 
     Setea el mismo ``_auth_failed`` global compartido con probe 1 (Discretion:
     flag único, no surface-segregated — D-IOL-3 Discretion mirror).
@@ -512,9 +560,9 @@ async def probe_login_async() -> ProbeResult:
     fuera de ``asyncio.run()`` y aborten la driver antes del SUMMARY.
     """
     global _auth_failed, _auth_failure_reason
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        await aio.login()
+        await aclient.login()
     except HigyrusClientError as exc:
         _auth_failed = True
         _auth_failure_reason = f"async login: {type(exc).__name__}: {exc}"
@@ -558,7 +606,7 @@ async def probe_login_async() -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
-def probe_get_health_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 3: ``higyrus_client.get_health()`` (HIGY-02). WR-03 single call.
 
     Captura el raw payload vía ``_request`` directo (en vez del wrapper, que
@@ -571,9 +619,9 @@ def probe_get_health_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
             ProbeResult("get_health_sync", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        raw = higyrus_client.client._request("GET", "/api/health")
+        raw = _raw_request_sync(client, "GET", "/api/health")
     except HigyrusAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -637,16 +685,18 @@ def probe_get_health_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
     return (ProbeResult("get_health_sync", "PASS", f"keys={len(raw)}"), raw)
 
 
-async def probe_get_health_async() -> tuple[ProbeResult, dict[str, Any] | None]:
+async def probe_get_health_async(
+    aclient: AsyncClient,
+) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 4: espejo async de probe 3 (HIGY-02)."""
     if _auth_failed:
         return (
             ProbeResult("get_health_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        raw = await aio._request("GET", "/api/health")
+        raw = await _raw_request_async(aclient, "GET", "/api/health")
     except HigyrusAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -715,7 +765,9 @@ async def probe_get_health_async() -> tuple[ProbeResult, dict[str, Any] | None]:
 # ---------------------------------------------------------------------------
 
 
-def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+def probe_get_listado_cuentas_sync(
+    client: Client,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 5: ``higyrus_client.get_listado_cuentas(estado="alta")`` (HIGY-02).
 
     Resuelve ``_resolved_cuenta`` global (D-HIGY-11):
@@ -738,9 +790,10 @@ def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] 
             ),
             None,
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        raw = higyrus_client.client._request(
+        raw = _raw_request_sync(
+            client,
             "GET",
             "/api/cuentas/listadoCuentas",
             params={"estado": "alta"},
@@ -872,7 +925,9 @@ def probe_get_listado_cuentas_sync() -> tuple[ProbeResult, list[dict[str, Any]] 
     )
 
 
-async def probe_get_listado_cuentas_async() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+async def probe_get_listado_cuentas_async(
+    aclient: AsyncClient,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 6: espejo async (HIGY-02). NO toca ``_resolved_cuenta`` (ya seteado
     por probe 5 sync; si sync skippeó por cascade, el async también)."""
     if _auth_failed:
@@ -884,9 +939,10 @@ async def probe_get_listado_cuentas_async() -> tuple[ProbeResult, list[dict[str,
             ),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        raw = await aio._request(
+        raw = await _raw_request_async(
+            aclient,
             "GET",
             "/api/cuentas/listadoCuentas",
             params={"estado": "alta"},
@@ -965,6 +1021,7 @@ async def probe_get_listado_cuentas_async() -> tuple[ProbeResult, list[dict[str,
 
 
 def probe_get_movimientos_sync(
+    client: Client,
     today: dt.date,
     resolved_cuenta: str | None,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -983,11 +1040,12 @@ def probe_get_movimientos_sync(
             ProbeResult("get_movimientos_sync", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     fecha_desde = today - dt.timedelta(days=30)
     fecha_hasta = today
     try:
-        raw = higyrus_client.client._request(
+        raw = _raw_request_sync(
+            client,
             "GET",
             f"/api/cuentas/{resolved_cuenta}/movimientos",
             params={
@@ -1069,6 +1127,7 @@ def probe_get_movimientos_sync(
 
 
 async def probe_get_movimientos_async(
+    aclient: AsyncClient,
     today: dt.date,
     resolved_cuenta: str | None,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -1087,11 +1146,12 @@ async def probe_get_movimientos_async(
             ProbeResult("get_movimientos_async", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     fecha_desde = today - dt.timedelta(days=30)
     fecha_hasta = today
     try:
-        raw = await aio._request(
+        raw = await _raw_request_async(
+            aclient,
             "GET",
             f"/api/cuentas/{resolved_cuenta}/movimientos",
             params={
@@ -1178,6 +1238,7 @@ async def probe_get_movimientos_async(
 
 
 def probe_get_posicion_valuada_sync(
+    client: Client,
     today: dt.date,
     resolved_cuenta: str | None,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -1201,9 +1262,10 @@ def probe_get_posicion_valuada_sync(
             ProbeResult("get_posicion_valuada_sync", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        raw = higyrus_client.client._request(
+        raw = _raw_request_sync(
+            client,
             "GET",
             f"/api/cuentas/{resolved_cuenta}/posicionValuada",
             params={
@@ -1297,6 +1359,7 @@ def probe_get_posicion_valuada_sync(
 
 
 async def probe_get_posicion_valuada_async(
+    aclient: AsyncClient,
     today: dt.date,
     resolved_cuenta: str | None,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -1315,9 +1378,10 @@ async def probe_get_posicion_valuada_async(
             ProbeResult("get_posicion_valuada_async", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        raw = await aio._request(
+        raw = await _raw_request_async(
+            aclient,
             "GET",
             f"/api/cuentas/{resolved_cuenta}/posicionValuada",
             params={
@@ -1430,6 +1494,7 @@ def _errors_mention(errors: list[dict[str, Any]] | None, keywords: tuple[str, ..
 
 
 def probe_get_posiciones_sync(
+    client: Client,
     today: dt.date,
     resolved_cuenta: str | None,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -1448,9 +1513,10 @@ def probe_get_posiciones_sync(
             ProbeResult("get_posiciones_sync", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        raw = higyrus_client.client._request(
+        raw = _raw_request_sync(
+            client,
             "GET",
             f"/api/cuentas/{resolved_cuenta}/posiciones",
             params={
@@ -1537,6 +1603,7 @@ def probe_get_posiciones_sync(
 
 
 async def probe_get_posiciones_async(
+    aclient: AsyncClient,
     today: dt.date,
     resolved_cuenta: str | None,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -1555,9 +1622,10 @@ async def probe_get_posiciones_async(
             ProbeResult("get_posiciones_async", "SKIPPED", "no _resolved_cuenta resuelto"),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        raw = await aio._request(
+        raw = await _raw_request_async(
+            aclient,
             "GET",
             f"/api/cuentas/{resolved_cuenta}/posiciones",
             params={
@@ -1647,6 +1715,7 @@ async def probe_get_posiciones_async(
 
 
 def probe_parity_sync_async(
+    client: Client,
     today: dt.date,
     resolved_cuenta: str | None,
     async_query: str | None,
@@ -1663,10 +1732,10 @@ def probe_parity_sync_async(
         return ProbeResult("parity_sync_async", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     if resolved_cuenta is None:
         return ProbeResult("parity_sync_async", "SKIPPED", "no _resolved_cuenta resuelto")
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     fecha_desde = today - dt.timedelta(days=30)
     fecha_hasta = today
-    sync_q = _capture_sync_query_string(resolved_cuenta, fecha_desde, fecha_hasta)
+    sync_q = _capture_sync_query_string(client, resolved_cuenta, fecha_desde, fecha_hasta)
     if sync_q is None and async_query is None:
         return ProbeResult(
             "parity_sync_async",
@@ -1697,6 +1766,7 @@ def probe_parity_sync_async(
 
 
 def probe_field_type_map(
+    client: Client,
     cuentas_raw: list[dict[str, Any]] | None,
     movimientos_raw: list[dict[str, Any]] | None,
     posiciones_raw: list[dict[str, Any]] | None,
@@ -1710,7 +1780,7 @@ def probe_field_type_map(
     """
     if _auth_failed:
         return ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     targets: list[tuple[str, dict[str, Any] | None, type]] = [
         (
             "cuenta",
@@ -1868,7 +1938,7 @@ def probe_schema_snapshot(
 _INVALID_CUENTA_LITERAL = "INVALID-CUENTA-XXXXX"
 
 
-def probe_errors_envelope_sync(today: dt.date) -> ProbeResult:
+def probe_errors_envelope_sync(client: Client, today: dt.date) -> ProbeResult:
     """Probe 16: id_cuenta inválido → envelope ``[{title, detail}]`` (HIGY-05)."""
     if _auth_failed:
         return ProbeResult(
@@ -1876,9 +1946,9 @@ def probe_errors_envelope_sync(today: dt.date) -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        higyrus_client.get_movimientos(_INVALID_CUENTA_LITERAL, today, today)
+        client.get_movimientos(_INVALID_CUENTA_LITERAL, today, today)
     except HigyrusAPIError as exc:
         envelope_ok = (
             isinstance(exc.errors, list)
@@ -1939,7 +2009,7 @@ def probe_errors_envelope_sync(today: dt.date) -> ProbeResult:
     return ProbeResult("errors_envelope_sync", "FINDING", f"{fid} (OPEN)")
 
 
-async def probe_errors_envelope_async(today: dt.date) -> ProbeResult:
+async def probe_errors_envelope_async(aclient: AsyncClient, today: dt.date) -> ProbeResult:
     """Probe 17: espejo async de probe 16 (HIGY-05)."""
     if _auth_failed:
         return ProbeResult(
@@ -1947,9 +2017,9 @@ async def probe_errors_envelope_async(today: dt.date) -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        await aio.get_movimientos(_INVALID_CUENTA_LITERAL, today, today)
+        await aclient.get_movimientos(_INVALID_CUENTA_LITERAL, today, today)
     except HigyrusAPIError as exc:
         envelope_ok = (
             isinstance(exc.errors, list)
@@ -2014,7 +2084,7 @@ async def probe_errors_envelope_async(today: dt.date) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
-def probe_auth_401() -> ProbeResult:
+def probe_auth_401(client: Client) -> ProbeResult:
     """Probe 18: 401 con credenciales inválidas (HIGY-AUTH).
 
     Opt-in vía ``VERIFY_HIGYRUS_BAD_CREDS=1``. Single-shot, sin retry, sin
@@ -2033,10 +2103,16 @@ def probe_auth_401() -> ProbeResult:
     if _auth_failed:
         return ProbeResult("auth_401", "SKIPPED", f"auth failed: {_auth_failure_reason}")
 
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     original_password = os.getenv("HIGYRUS_PASSWORD", "")
     bad_password = original_password + "_INVALID"
     try:
+        # D-03/T-15-05: ``configure()`` queda FUERA de scope de la migración —
+        # este probe deliberadamente muta las credenciales del default-client
+        # module-level y ejercita su ``login()`` para forzar el 401. Por eso el
+        # ``configure``/``login`` siguen siendo module-level (NO se threadea el
+        # ``client`` de buenas credenciales acá): el threaded ``client`` se usa
+        # sólo para leer ``base_url`` arriba.
         higyrus_client.configure(password=bad_password)
         try:
             higyrus_client.login()
@@ -2115,7 +2191,7 @@ def probe_auth_401() -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
-def probe_multi_account_iteration() -> ProbeResult:
+def probe_multi_account_iteration(client: Client) -> ProbeResult:
     """Probe BUG-04 (D-08 per-call only): itera ≥2 cuentas via per-call kwarg.
 
     Source order:
@@ -2134,14 +2210,14 @@ def probe_multi_account_iteration() -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     # Source 1: env var override (CSV).
     if _SAMPLE_CUENTAS_CSV.strip():
         cuentas = [c.strip() for c in _SAMPLE_CUENTAS_CSV.split(",") if c.strip()]
     else:
         # Source 2: live get_listado_cuentas() — si non-empty, primeras 2.
         try:
-            live = higyrus_client.get_listado_cuentas(estado="alta")
+            live = client.get_listado_cuentas(estado="alta")
         except _RESIDUAL_PROBE_EXCEPTIONS as exc:
             return ProbeResult(
                 "multi_account_iteration",
@@ -2158,7 +2234,7 @@ def probe_multi_account_iteration() -> ProbeResult:
     today = dt.date.today()
     for acct in cuentas[:2]:
         try:
-            higyrus_client.get_movimientos(
+            client.get_movimientos(
                 id_cuenta=acct,
                 fecha_desde=today,
                 fecha_hasta=today,
@@ -2236,6 +2312,11 @@ async def _async_main(
     def _skipped(name: str) -> ProbeResult:
         return ProbeResult(name, "SKIPPED", "(not executed)")
 
+    # D-02: un único ``AsyncClient`` threadeado en todos los probes async; estado
+    # propio (independiente del sync ``Client``). El ``aclose()`` del finally
+    # cierra ESTA instancia (no el default-client module-level).
+    aclient = AsyncClient()
+
     result_login: ProbeResult = _skipped("login_async")
     async_token_snapshot: str | None = None
     result_health: ProbeResult = _skipped("get_health_async")
@@ -2249,14 +2330,14 @@ async def _async_main(
     async_query: str | None = None
 
     try:
-        result_login = await probe_login_async()
-        async_token_snapshot = aio._token if result_login.status == "PASS" else None
+        result_login = await probe_login_async(aclient)
+        async_token_snapshot = aclient._state.token if result_login.status == "PASS" else None
 
-        result_health, health_raw = await probe_get_health_async()
-        result_listado, listado_raw = await probe_get_listado_cuentas_async()
-        result_movs, _movs_raw = await probe_get_movimientos_async(today, resolved_cuenta)
-        result_pv, _pv_raw = await probe_get_posicion_valuada_async(today, resolved_cuenta)
-        result_pos, _pos_raw = await probe_get_posiciones_async(today, resolved_cuenta)
+        result_health, health_raw = await probe_get_health_async(aclient)
+        result_listado, listado_raw = await probe_get_listado_cuentas_async(aclient)
+        result_movs, _movs_raw = await probe_get_movimientos_async(aclient, today, resolved_cuenta)
+        result_pv, _pv_raw = await probe_get_posicion_valuada_async(aclient, today, resolved_cuenta)
+        result_pos, _pos_raw = await probe_get_posiciones_async(aclient, today, resolved_cuenta)
 
         # Async parity capture for probe 13 (params optional = None → drop_none).
         if not _auth_failed and resolved_cuenta is not None:
@@ -2264,15 +2345,15 @@ async def _async_main(
             fecha_hasta = today
             try:
                 async_query = await _capture_async_query_string(
-                    resolved_cuenta, fecha_desde, fecha_hasta
+                    aclient, resolved_cuenta, fecha_desde, fecha_hasta
                 )
             except _RESIDUAL_PROBE_EXCEPTIONS:
                 async_query = None
 
-        result_errors = await probe_errors_envelope_async(today)
+        result_errors = await probe_errors_envelope_async(aclient, today)
     finally:
         with contextlib.suppress(*_RESIDUAL_PROBE_EXCEPTIONS):
-            await aio.aclose()
+            await aclient.aclose()
     return _AsyncResults(
         login=result_login,
         health=result_health,
@@ -2352,40 +2433,43 @@ def main() -> None:
     results: dict[str, ProbeResult] = {}
     payloads: dict[str, Any] = {}
 
+    # D-01/D-02: un único ``Client`` sync threadeado en TODOS los probes sync.
+    # Estado propio (independiente del ``AsyncClient`` que ``_async_main``
+    # construye por separado). Reemplaza los ~14 ``_get_default()`` reads.
+    client = Client()
+
     # (a) Probe 1 sync (login_sync) — puede setear _auth_failed.
-    results["login_sync"] = probe_login_sync()
-    _sync_token_snapshot = (
-        higyrus_client.client._token if results["login_sync"].status == "PASS" else None
-    )
+    results["login_sync"] = probe_login_sync(client)
+    _sync_token_snapshot = client._state.token if results["login_sync"].status == "PASS" else None
     if _sync_token_snapshot:
         secrets.append(_sync_token_snapshot)
 
     # (b) Probe 3 sync (get_health_sync).
-    result_health_sync, health_raw = probe_get_health_sync()
+    result_health_sync, health_raw = probe_get_health_sync(client)
     results["get_health_sync"] = result_health_sync
     if health_raw is not None:
         payloads["get_health"] = health_raw
 
     # (c) Probe 5 sync (get_listado_cuentas_sync) — RESOLVE _resolved_cuenta.
-    result_listado_sync, listado_raw = probe_get_listado_cuentas_sync()
+    result_listado_sync, listado_raw = probe_get_listado_cuentas_sync(client)
     results["get_listado_cuentas_sync"] = result_listado_sync
     if listado_raw is not None:
         payloads["get_listado_cuentas"] = listado_raw
 
     # (d) Probe 7 sync (get_movimientos_sync).
-    result_movs_sync, movs_raw = probe_get_movimientos_sync(today, _resolved_cuenta)
+    result_movs_sync, movs_raw = probe_get_movimientos_sync(client, today, _resolved_cuenta)
     results["get_movimientos_sync"] = result_movs_sync
     if movs_raw is not None:
         payloads["get_movimientos"] = movs_raw
 
     # (e) Probe 9 sync (get_posicion_valuada_sync).
-    result_pv_sync, pv_raw = probe_get_posicion_valuada_sync(today, _resolved_cuenta)
+    result_pv_sync, pv_raw = probe_get_posicion_valuada_sync(client, today, _resolved_cuenta)
     results["get_posicion_valuada_sync"] = result_pv_sync
     if pv_raw is not None:
         payloads["get_posicion_valuada"] = pv_raw
 
     # (f) Probe 11 sync (get_posiciones_sync).
-    result_pos_sync, pos_raw = probe_get_posiciones_sync(today, _resolved_cuenta)
+    result_pos_sync, pos_raw = probe_get_posiciones_sync(client, today, _resolved_cuenta)
     results["get_posiciones_sync"] = result_pos_sync
     if pos_raw is not None:
         payloads["get_posiciones"] = pos_raw
@@ -2406,11 +2490,12 @@ def main() -> None:
 
     # (h) Probe 13 (parity_sync_async).
     results["parity_sync_async"] = probe_parity_sync_async(
-        today, _resolved_cuenta, async_results.async_query
+        client, today, _resolved_cuenta, async_results.async_query
     )
 
     # (i) Probe 14 (field_type_map) — diff sobre raw sync payloads.
     results["field_type_map"] = probe_field_type_map(
+        client,
         payloads.get("get_listado_cuentas"),
         payloads.get("get_movimientos"),
         payloads.get("get_posiciones"),
@@ -2418,20 +2503,20 @@ def main() -> None:
     )
 
     # (j) Probe 15 (schema_snapshot) — 5 snapshots.
-    base_url = higyrus_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     results["schema_snapshot"] = probe_schema_snapshot(today, _resolved_cuenta, payloads, base_url)
 
     # (k) Probe 16 (errors_envelope_sync) — always-on.
-    results["errors_envelope_sync"] = probe_errors_envelope_sync(today)
+    results["errors_envelope_sync"] = probe_errors_envelope_sync(client, today)
 
     # (k.5) Phase 9 BUG-04 (D-08, D-10): multi-account iteration probe.
     # Corre después de get_listado_cuentas + get_movimientos (sync + async) para
     # que _resolved_cuenta esté disponible si el operator quiere comparar; el
     # propio probe puede consumir get_listado_cuentas o el override CSV.
-    results["multi_account_iteration"] = probe_multi_account_iteration()
+    results["multi_account_iteration"] = probe_multi_account_iteration(client)
 
     # (l) Probe 18 (auth_401) — opt-in, single-shot, ÚLTIMO.
-    results["auth_401"] = probe_auth_401()
+    results["auth_401"] = probe_auth_401(client)
 
     # Presentation order: imprimir las 18 líneas en orden D-HIGY-10 declarado.
     for name in _D_HIGY_10_ORDER:
