@@ -156,7 +156,11 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
   4. Each driver passes its existing per-package LIVE smoke at end of migration (operator-driven; not the milestone-final gate); v1.1 907-test baseline preserved across the milestone (`pytest` reports ≥ 907 passing).
   5. LOC-drop residual closes: iol `client.py` + `aio.py` aggregate LOC delta ≤ -30% vs v1.0 baseline; matriz `client.py` aggregate LOC delta ≤ -30% (operator-accepted thresholds from v1.1 Phase 7 SC#3 carry-forward).
 
-**Plans**: TBD
+**Plans**: 4 plans (serial waves 1→4 per D-11)
+- [ ] 15-01-PLAN.md — ámbito driver migration + first AST-guard test + LOC-attestation anchor (Wave 1)
+- [ ] 15-02-PLAN.md — iol driver migration + AST guard (forced-refresh write-site, Wave 2)
+- [ ] 15-03-PLAN.md — higyrus driver migration + AST guard (~19 probes, Wave 3)
+- [ ] 15-04-PLAN.md — matriz driver migration + AST guard + final stability gate + ≥907-test attestation (Wave 4)
 
 ### Phase 16: Codegen Single-Source (REFAC-06) — DROPPED
 
