@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
 status: executing
 stopped_at: Phase 17 context gathered (assumptions mode)
-last_updated: "2026-06-24T18:14:50.230Z"
-last_activity: 2026-06-24 -- Phase 17 planning complete
+last_updated: "2026-06-24T18:16:26.938Z"
+last_activity: 2026-06-24 -- Phase 17 execution started
 progress:
   total_phases: 6
   completed_phases: 4
@@ -22,14 +22,14 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
 
-**Current focus:** Phase 16 — codegen single source (refac 06) — dropped
+**Current focus:** Phase 17 — final-live-re-verification-4-live-03
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-24 -- Phase 17 planning complete
+Phase: 17 (final-live-re-verification-4-live-03) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 17
+Last activity: 2026-06-24 -- Phase 17 execution started
 
 **Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
 
