@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: executing
-stopped_at: Phase 14 context gathered
-last_updated: "2026-06-24T00:23:25.618Z"
+status: ready_to_plan
+stopped_at: Phase 14 complete (3/3) — ready to discuss Phase 15
+last_updated: 2026-06-24T02:13:48.586Z
 last_activity: 2026-06-24 -- Phase 14 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 12
   percent: 33
 ---
 
@@ -22,14 +22,14 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
 
-**Current focus:** Phase 14 — iol-disk-persistence-sec-01
+**Current focus:** Phase 15 — driver migration × 4 (refac 05)
 
 ## Current Position
 
-Phase: 14 (iol-disk-persistence-sec-01) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 14
-Last activity: 2026-06-24 -- Phase 14 execution started
+Phase: 15
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-24
 
 **Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
 
@@ -37,7 +37,7 @@ Last activity: 2026-06-24 -- Phase 14 execution started
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 46 (v1.0)
+- Total plans completed: 49 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 

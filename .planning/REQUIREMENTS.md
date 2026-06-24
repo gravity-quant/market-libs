@@ -22,7 +22,7 @@
 
 ### Auth/Token persistence (SEC)
 
-- [ ] **SEC-01**: IOL refresh_token disk persistence (IOL only). `iol_client/_token_cache.py`
+- [x] **SEC-01**: IOL refresh_token disk persistence (IOL only). `iol_client/_token_cache.py`
   con read-on-init + write-on-rotate atómico (write-then-rename), `platformdirs >=4.0,<5`
   para `user_data_dir('iol-client')` default (`~/.local/share/iol-client/refresh_token.json` en
   Linux, `~/Library/Application Support/iol-client/refresh_token.json` en macOS), opt-in
