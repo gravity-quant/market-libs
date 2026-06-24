@@ -27,5 +27,6 @@ repos:
           - pytest>=8.3
           - pytest-httpx>=0.34
           - tenacity>=9.1.0,<10
+          - platformdirs>=4.0,<5
         args: [--config-file=pyproject.toml]
         files: ^packages/.*/src/
