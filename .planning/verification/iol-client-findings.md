@@ -47,8 +47,15 @@ Plan 11-03 Task 3 operator disposition (2026-06-14).
 **Regression:** `main_iol.py` re-run post-fix reporta
 `PROBE refresh_token: PASS refresh path verified — token rotated`
 (SUMMARY: PASS=13 FAIL=0 SKIPPED=1 FINDING=1; F-02 ya no surgió).
+- **Regression:** packages/iol-client/tests/test_refresh_token_lifecycle.py::test_refresh_token_success_path_rotates
 **Operator signoff:** sebadlf, 2026-06-14, via /gsd-execute-phase 11 Task 3 checkpoint
 disposition "Fix inline ahora y cerrar Phase 11".
+**Phase 17 link (operator):** la línea `Regression:` resoluble arriba enlaza el guarantee de
+cliente subyacente a F-02 (que `_refresh()` actualiza `_state.token_expires_at` tras un refresh
+exitoso) con la cobertura in-tree existente
+`test_refresh_token_success_path_rotates`. Cierra el gap prose-only-Regression que dejaba
+`verify_cycle_closure("iol-client")` en FAIL tras Phase 11. Provenance aditiva: F-02 sigue FIXED,
+sin re-apertura ni cambio de status (D-05 / HARN-09).
 
 ## Cycle Closure
 
