@@ -77,7 +77,7 @@ from verification import (
 from verification.cycle_report import verify_cycle_closure
 
 import matriz_client as primary
-from matriz_client import PrimaryAPIError, aio
+from matriz_client import AsyncClient, Client, PrimaryAPIError
 from matriz_client.client import _request as _matriz_request
 from matriz_client.client import _risk_auth
 from matriz_client.exceptions import AuthenticationError
@@ -449,8 +449,8 @@ def _envelope_probe(
 # ---------------------------------------------------------------------------
 
 
-def probe_login_sync() -> ProbeResult:
-    """Probe 1: ``primary.login()`` sync (MATZ-01).
+def probe_login_sync(client: Client) -> ProbeResult:
+    """Probe 1: ``client.login()`` sync (MATZ-01).
 
     Setea ``_auth_failed`` global si la auth falla — activa cascade SKIPPED
     en todos los downstream (D-MATZ-31). Distingue ``AuthenticationError``
@@ -458,10 +458,10 @@ def probe_login_sync() -> ProbeResult:
     / network — emite finding ERROR-MAP OPEN).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = primary.client._base_url
+    base_url = client._state.base_url
     t0 = time.monotonic()
     try:
-        primary.login()
+        client.login()
     except AuthenticationError as exc:
         _auth_failed = True
         _auth_failure_reason = f"AuthenticationError: {exc}"
@@ -1125,7 +1125,7 @@ def probe_field_type_map(payloads: dict[str, Any]) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
-def probe_error_bogus_symbol() -> ProbeResult:
+def probe_error_bogus_symbol(client: Client) -> ProbeResult:
     """Probe 21 (D-MATZ-29 #21): símbolo inválido en ``get_market_data``.
 
     Distingue ``PrimaryAPIError(status='ERROR')`` mapeado (PASS) de
@@ -1133,9 +1133,9 @@ def probe_error_bogus_symbol() -> ProbeResult:
     """
     if _auth_failed:
         return ProbeResult("error_bogus_symbol", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = primary.client._base_url
+    base_url = client._state.base_url
     try:
-        primary.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
+        client.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
     except PrimaryAPIError as exc:
         if exc.status == "ERROR":
             return ProbeResult(
@@ -1201,7 +1201,7 @@ def probe_error_bogus_symbol() -> ProbeResult:
     return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
 
 
-def probe_error_invalid_account() -> ProbeResult:
+def probe_error_invalid_account(client: Client) -> ProbeResult:
     """Probe 22 (D-MATZ-29 #22): account inválido en ``get_active_orders``.
 
     Distingue ``PrimaryAPIError(status='ERROR')`` mapeado (PASS) de HTTP 4xx
@@ -1211,9 +1211,9 @@ def probe_error_invalid_account() -> ProbeResult:
         return ProbeResult(
             "error_invalid_account", "SKIPPED", f"auth failed: {_auth_failure_reason}"
         )
-    base_url = primary.client._base_url
+    base_url = client._state.base_url
     try:
-        primary.get_active_orders("INVALID-ACCT-XXXXX")
+        client.get_active_orders("INVALID-ACCT-XXXXX")
     except PrimaryAPIError as exc:
         if exc.status == "ERROR":
             return ProbeResult(
@@ -1281,7 +1281,7 @@ def probe_error_invalid_account() -> ProbeResult:
     return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
 
 
-def probe_error_malformed_cfi() -> ProbeResult:
+def probe_error_malformed_cfi(client: Client) -> ProbeResult:
     """Probe 23 (D-MATZ-29 #23): CFI malformado en ``get_instruments_by_cfi``.
 
     Requiere ``cast(CFICode, 'INVALID-CFI')`` por mypy strict — el cliente
@@ -1290,9 +1290,9 @@ def probe_error_malformed_cfi() -> ProbeResult:
     """
     if _auth_failed:
         return ProbeResult("error_malformed_cfi", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = primary.client._base_url
+    base_url = client._state.base_url
     try:
-        primary.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
+        client.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
     except PrimaryAPIError as exc:
         if exc.status == "ERROR":
             return ProbeResult(
@@ -1462,13 +1462,13 @@ def probe_schema_snapshot(payloads: dict[str, Any], base_url: str) -> ProbeResul
 # ---------------------------------------------------------------------------
 
 
-async def probe_login_async() -> ProbeResult:
+async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     """Async login probe (D-06 pair of ``probe_login_sync``)."""
     global _auth_failed, _auth_failure_reason
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     t0 = time.monotonic()
     try:
-        await aio.login()
+        await aclient.login()
     except AuthenticationError as exc:
         _auth_failed = True
         _auth_failure_reason = f"async AuthenticationError: {exc}"
@@ -1508,6 +1508,7 @@ async def probe_login_async() -> ProbeResult:
 
 
 async def _ainvoke(
+    aclient: AsyncClient,
     name: str,
     coro_factory: Callable[[], Any],
     *,
@@ -1517,11 +1518,13 @@ async def _ainvoke(
 
     Common skeleton for the 16 REST-only async paridad probes — keeps each
     individual ``probe_X_async`` short and mirrors the error-mapping flow
-    used by ``_envelope_probe`` on the sync side.
+    used by ``_envelope_probe`` on the sync side. ``aclient`` is the single
+    ``AsyncClient`` threaded from ``_async_main`` (TokenStore-safe: exactly one
+    instance shares the 3-way concurrency primitive).
     """
     if _auth_failed:
         return ProbeResult(name, "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
         result = await coro_factory()
     except PrimaryAPIError as exc:
@@ -1560,22 +1563,22 @@ async def _ainvoke(
     return ProbeResult(name, "PASS", "received")
 
 
-async def probe_get_segments_async() -> ProbeResult:
+async def probe_get_segments_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_segments``."""
-    return await _ainvoke("get_segments_async", aio.get_segments)
+    return await _ainvoke(aclient, "get_segments_async", aclient.get_segments)
 
 
-async def probe_get_all_instruments_async() -> ProbeResult:
+async def probe_get_all_instruments_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_all_instruments``."""
-    return await _ainvoke("get_all_instruments_async", aio.get_all_instruments)
+    return await _ainvoke(aclient, "get_all_instruments_async", aclient.get_all_instruments)
 
 
-async def probe_get_instruments_details_async() -> ProbeResult:
+async def probe_get_instruments_details_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_details``."""
-    return await _ainvoke("get_instruments_details_async", aio.get_instruments_details)
+    return await _ainvoke(aclient, "get_instruments_details_async", aclient.get_instruments_details)
 
 
-async def probe_get_instrument_detail_async() -> ProbeResult:
+async def probe_get_instrument_detail_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instrument_detail`` (depende de ``_resolved_symbol``)."""
     if _resolved_symbol is None and not _auth_failed:
         return ProbeResult(
@@ -1583,19 +1586,20 @@ async def probe_get_instrument_detail_async() -> ProbeResult:
         )
     sym = _resolved_symbol or ""
     return await _ainvoke(
-        "get_instrument_detail_async", lambda: aio.get_instrument_detail(sym, "ROFX")
+        aclient, "get_instrument_detail_async", lambda: aclient.get_instrument_detail(sym, "ROFX")
     )
 
 
-async def probe_get_instruments_by_cfi_ESXXXX_async() -> ProbeResult:
+async def probe_get_instruments_by_cfi_ESXXXX_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_by_cfi_ESXXXX``."""
     return await _ainvoke(
+        aclient,
         "get_instruments_by_cfi_ESXXXX_async",
-        lambda: aio.get_instruments_by_cfi("ESXXXX"),
+        lambda: aclient.get_instruments_by_cfi("ESXXXX"),
     )
 
 
-async def probe_get_instruments_by_cfi_sanity_async() -> ProbeResult:
+async def probe_get_instruments_by_cfi_sanity_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_by_cfi_sanity`` — 8 CFI codes."""
     if _auth_failed:
         return ProbeResult(
@@ -1603,12 +1607,12 @@ async def probe_get_instruments_by_cfi_sanity_async() -> ProbeResult:
             "SKIPPED",
             f"auth failed: {_auth_failure_reason}",
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     failures: list[str] = []
     counts: dict[str, int] = {}
     for cfi in _CFI_SANITY_CODES:
         try:
-            items = await aio.get_instruments_by_cfi(cfi)
+            items = await aclient.get_instruments_by_cfi(cfi)
         except PrimaryAPIError as exc:
             failures.append(f"{cfi}:PrimaryAPIError({exc})")
             continue
@@ -1635,7 +1639,7 @@ async def probe_get_instruments_by_cfi_sanity_async() -> ProbeResult:
     return ProbeResult("get_instruments_by_cfi_sanity_async", "PASS", detail)
 
 
-async def probe_get_instruments_by_segment_async() -> ProbeResult:
+async def probe_get_instruments_by_segment_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_by_segment``."""
     if _resolved_segment is None and not _auth_failed:
         return ProbeResult(
@@ -1643,12 +1647,13 @@ async def probe_get_instruments_by_segment_async() -> ProbeResult:
         )
     seg = cast(Any, _resolved_segment or "")
     return await _ainvoke(
+        aclient,
         "get_instruments_by_segment_async",
-        lambda: aio.get_instruments_by_segment(seg, "ROFX"),
+        lambda: aclient.get_instruments_by_segment(seg, "ROFX"),
     )
 
 
-async def probe_get_market_data_async() -> ProbeResult:
+async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it)."""
     if _auth_failed:
         return ProbeResult(
@@ -1658,12 +1663,13 @@ async def probe_get_market_data_async() -> ProbeResult:
         return ProbeResult("get_market_data_async", "SKIPPED", "no _resolved_symbol from probe #3")
     sym = _resolved_symbol
     return await _ainvoke(
+        aclient,
         "get_market_data_async",
-        lambda: aio.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI")),
+        lambda: aclient.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI")),
     )
 
 
-async def probe_get_trades_async() -> ProbeResult:
+async def probe_get_trades_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_trades``."""
     if _resolved_symbol is None and not _auth_failed:
         return ProbeResult("get_trades_async", "SKIPPED", "no _resolved_symbol from probe #3")
@@ -1671,38 +1677,43 @@ async def probe_get_trades_async() -> ProbeResult:
     seven_days_ago = today - dt.timedelta(days=7)
     sym = _resolved_symbol or ""
     return await _ainvoke(
+        aclient,
         "get_trades_async",
-        lambda: aio.get_trades(
+        lambda: aclient.get_trades(
             sym, date_from=seven_days_ago.isoformat(), date_to=today.isoformat()
         ),
     )
 
 
-async def probe_get_active_orders_async() -> ProbeResult:
+async def probe_get_active_orders_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_active_orders``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return ProbeResult("get_active_orders_async", "SKIPPED", "no PRIMARY_ACCOUNT env var")
     acct = _PRIMARY_ACCOUNT or ""
-    return await _ainvoke("get_active_orders_async", lambda: aio.get_active_orders(acct))
+    return await _ainvoke(
+        aclient, "get_active_orders_async", lambda: aclient.get_active_orders(acct)
+    )
 
 
-async def probe_get_filled_orders_async() -> ProbeResult:
+async def probe_get_filled_orders_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_filled_orders``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return ProbeResult("get_filled_orders_async", "SKIPPED", "no PRIMARY_ACCOUNT env var")
     acct = _PRIMARY_ACCOUNT or ""
-    return await _ainvoke("get_filled_orders_async", lambda: aio.get_filled_orders(acct))
+    return await _ainvoke(
+        aclient, "get_filled_orders_async", lambda: aclient.get_filled_orders(acct)
+    )
 
 
-async def probe_get_all_orders_async() -> ProbeResult:
+async def probe_get_all_orders_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_all_orders``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return ProbeResult("get_all_orders_async", "SKIPPED", "no PRIMARY_ACCOUNT env var")
     acct = _PRIMARY_ACCOUNT or ""
-    return await _ainvoke("get_all_orders_async", lambda: aio.get_all_orders(acct))
+    return await _ainvoke(aclient, "get_all_orders_async", lambda: aclient.get_all_orders(acct))
 
 
-async def probe_get_order_status_async() -> ProbeResult:
+async def probe_get_order_status_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_order_status``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
         return ProbeResult(
@@ -1712,10 +1723,12 @@ async def probe_get_order_status_async() -> ProbeResult:
         )
     cl_id = _SAMPLE_CL_ORD_ID or ""
     prop = _SAMPLE_PROPRIETARY or ""
-    return await _ainvoke("get_order_status_async", lambda: aio.get_order_status(cl_id, prop))
+    return await _ainvoke(
+        aclient, "get_order_status_async", lambda: aclient.get_order_status(cl_id, prop)
+    )
 
 
-async def probe_get_order_history_async() -> ProbeResult:
+async def probe_get_order_history_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_order_history``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
         return ProbeResult(
@@ -1725,17 +1738,21 @@ async def probe_get_order_history_async() -> ProbeResult:
         )
     cl_id = _SAMPLE_CL_ORD_ID or ""
     prop = _SAMPLE_PROPRIETARY or ""
-    return await _ainvoke("get_order_history_async", lambda: aio.get_order_history(cl_id, prop))
+    return await _ainvoke(
+        aclient, "get_order_history_async", lambda: aclient.get_order_history(cl_id, prop)
+    )
 
 
-async def probe_get_order_by_exec_id_async() -> ProbeResult:
+async def probe_get_order_by_exec_id_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_order_by_exec_id``."""
     if _SAMPLE_EXEC_ID is None and not _auth_failed:
         return ProbeResult(
             "get_order_by_exec_id_async", "SKIPPED", "no MATRIZ_SAMPLE_EXEC_ID env var"
         )
     exec_id = _SAMPLE_EXEC_ID or ""
-    return await _ainvoke("get_order_by_exec_id_async", lambda: aio.get_order_by_exec_id(exec_id))
+    return await _ainvoke(
+        aclient, "get_order_by_exec_id_async", lambda: aclient.get_order_by_exec_id(exec_id)
+    )
 
 
 # Risk API auth_basic probes (positions / detailed_positions / account_report)
@@ -1746,7 +1763,7 @@ async def probe_get_order_by_exec_id_async() -> ProbeResult:
 # scope deliberately defers their live exercise to Phase 11 CR-08).
 
 
-async def probe_get_positions_async() -> ProbeResult:
+async def probe_get_positions_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult(
         "get_positions_async",
         "SKIPPED",
@@ -1754,7 +1771,7 @@ async def probe_get_positions_async() -> ProbeResult:
     )
 
 
-async def probe_get_detailed_positions_async() -> ProbeResult:
+async def probe_get_detailed_positions_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult(
         "get_detailed_positions_async",
         "SKIPPED",
@@ -1762,7 +1779,7 @@ async def probe_get_detailed_positions_async() -> ProbeResult:
     )
 
 
-async def probe_get_account_report_async() -> ProbeResult:
+async def probe_get_account_report_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult(
         "get_account_report_async",
         "SKIPPED",
@@ -1770,15 +1787,15 @@ async def probe_get_account_report_async() -> ProbeResult:
     )
 
 
-async def probe_error_bogus_symbol_async() -> ProbeResult:
+async def probe_error_bogus_symbol_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_error_bogus_symbol`` (MATZ-05)."""
     if _auth_failed:
         return ProbeResult(
             "error_bogus_symbol_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        await aio.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
+        await aclient.get_market_data("ZZZZZZ-NOT-A-SYMBOL")
     except PrimaryAPIError as exc:
         if exc.status == "ERROR":
             return ProbeResult(
@@ -1846,15 +1863,15 @@ async def probe_error_bogus_symbol_async() -> ProbeResult:
     return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
 
 
-async def probe_error_invalid_account_async() -> ProbeResult:
+async def probe_error_invalid_account_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_error_invalid_account`` (MATZ-05)."""
     if _auth_failed:
         return ProbeResult(
             "error_invalid_account_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        await aio.get_active_orders("INVALID-ACCT-XXXXX")
+        await aclient.get_active_orders("INVALID-ACCT-XXXXX")
     except PrimaryAPIError as exc:
         if exc.status == "ERROR":
             return ProbeResult(
@@ -1922,15 +1939,15 @@ async def probe_error_invalid_account_async() -> ProbeResult:
     return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
 
 
-async def probe_error_malformed_cfi_async() -> ProbeResult:
+async def probe_error_malformed_cfi_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_error_malformed_cfi`` (MATZ-05)."""
     if _auth_failed:
         return ProbeResult(
             "error_malformed_cfi_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        await aio.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
+        await aclient.get_instruments_by_cfi(cast(CFICode, "INVALID-CFI"))
     except PrimaryAPIError as exc:
         if exc.status == "ERROR":
             return ProbeResult(
@@ -2017,33 +2034,40 @@ async def _async_main() -> list[ProbeResult]:
     against the live surface; the 3 Risk probes are documented SKIPPED stubs
     (out-of-scope per D-09).
     """
+    # CRITICAL (anti-Pitfall 1): construct EXACTLY ONE AsyncClient. matriz's
+    # TokenStore is a 3-way concurrency primitive — a second AsyncClient would
+    # split the shared token/refresh state and risk corruption / OAuth churn.
+    # The <=2-ctor AST gate (test_main_matriz_uses_single_client_instance)
+    # enforces this invariant. The single instance is threaded into every async
+    # probe below.
+    aclient = AsyncClient()
     async_results: list[ProbeResult] = []
     try:
-        async_results.append(await probe_login_async())
-        async_results.append(await probe_get_segments_async())
-        async_results.append(await probe_get_all_instruments_async())
-        async_results.append(await probe_get_instruments_details_async())
-        async_results.append(await probe_get_instrument_detail_async())
-        async_results.append(await probe_get_instruments_by_cfi_ESXXXX_async())
-        async_results.append(await probe_get_instruments_by_cfi_sanity_async())
-        async_results.append(await probe_get_instruments_by_segment_async())
-        async_results.append(await probe_get_market_data_async())
-        async_results.append(await probe_get_trades_async())
-        async_results.append(await probe_get_active_orders_async())
-        async_results.append(await probe_get_filled_orders_async())
-        async_results.append(await probe_get_all_orders_async())
-        async_results.append(await probe_get_order_status_async())
-        async_results.append(await probe_get_order_history_async())
-        async_results.append(await probe_get_order_by_exec_id_async())
-        async_results.append(await probe_get_positions_async())
-        async_results.append(await probe_get_detailed_positions_async())
-        async_results.append(await probe_get_account_report_async())
-        async_results.append(await probe_error_bogus_symbol_async())
-        async_results.append(await probe_error_invalid_account_async())
-        async_results.append(await probe_error_malformed_cfi_async())
+        async_results.append(await probe_login_async(aclient))
+        async_results.append(await probe_get_segments_async(aclient))
+        async_results.append(await probe_get_all_instruments_async(aclient))
+        async_results.append(await probe_get_instruments_details_async(aclient))
+        async_results.append(await probe_get_instrument_detail_async(aclient))
+        async_results.append(await probe_get_instruments_by_cfi_ESXXXX_async(aclient))
+        async_results.append(await probe_get_instruments_by_cfi_sanity_async(aclient))
+        async_results.append(await probe_get_instruments_by_segment_async(aclient))
+        async_results.append(await probe_get_market_data_async(aclient))
+        async_results.append(await probe_get_trades_async(aclient))
+        async_results.append(await probe_get_active_orders_async(aclient))
+        async_results.append(await probe_get_filled_orders_async(aclient))
+        async_results.append(await probe_get_all_orders_async(aclient))
+        async_results.append(await probe_get_order_status_async(aclient))
+        async_results.append(await probe_get_order_history_async(aclient))
+        async_results.append(await probe_get_order_by_exec_id_async(aclient))
+        async_results.append(await probe_get_positions_async(aclient))
+        async_results.append(await probe_get_detailed_positions_async(aclient))
+        async_results.append(await probe_get_account_report_async(aclient))
+        async_results.append(await probe_error_bogus_symbol_async(aclient))
+        async_results.append(await probe_error_invalid_account_async(aclient))
+        async_results.append(await probe_error_malformed_cfi_async(aclient))
     finally:
         with contextlib.suppress(Exception):
-            await aio.aclose()
+            await aclient.aclose()
     return async_results
 
 
@@ -2075,8 +2099,12 @@ def main() -> None:
     if not require_env(_PKG, ["PRIMARY_USER", "PRIMARY_PASSWORD"]):
         sys.exit(0)
 
+    # Single sync Client for the whole sync sweep (D-01/D-02). One instance —
+    # the AST gate caps construction at one sync + one async client.
+    client = Client()
+
     # D-MATZ-33 belt-and-suspenders hostname assert: prevention contra prod.
-    base = primary.client._base_url
+    base = client._state.base_url
     if "remarkets" not in base:
         print(
             f"ABORT: PRIMARY_BASE_URL={base!r} is not a remarkets sandbox URL — "
@@ -2109,9 +2137,9 @@ def main() -> None:
     payloads: dict[str, Any] = {}
 
     # Probe 1: login.
-    r1 = probe_login_sync()
+    r1 = probe_login_sync(client)
     results.append(r1)
-    token = getattr(primary.client, "_token", None)
+    token = getattr(client._state, "token", None)
     if isinstance(token, str) and len(token) >= 4:
         secrets.append(token)
 
@@ -2147,9 +2175,9 @@ def main() -> None:
 
     # Probes 21-23: error probes (MATZ-05). D-MATZ-24: DESPUÉS de happy-path
     # sweep y field_type_map para minimizar interferencia con state.
-    results.append(probe_error_bogus_symbol())
-    results.append(probe_error_invalid_account())
-    results.append(probe_error_malformed_cfi())
+    results.append(probe_error_bogus_symbol(client))
+    results.append(probe_error_invalid_account(client))
+    results.append(probe_error_malformed_cfi(client))
 
     # Probe 24: schema snapshots (DRIFT-01 mirror, D-MATZ-24 después de errors).
     results.append(probe_schema_snapshot(payloads, base))
