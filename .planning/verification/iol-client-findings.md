@@ -57,6 +57,17 @@ exitoso) con la cobertura in-tree existente
 `verify_cycle_closure("iol-client")` en FAIL tras Phase 11. Provenance aditiva: F-02 sigue FIXED,
 sin re-apertura ni cambio de status (D-05 / HARN-09).
 
+**Phase 17 — F-01 re-confirmado OPEN (operator, baseline carry-forward, D-05):** La
+re-verificación en vivo LIVE-03 posterior a las migraciones v1.2 (REFAC-05 driver migration /
+SEC-01 IOL disk persistence / ERG-01 `with_options`) NO resolvió F-01
+(`missing assumed key 'simbolo' in get_quote`, SHAPE/both). Se re-confirma **OPEN** como
+divergencia documentada de baseline `verification-cycle-2026-Q2`; la investigación de root-cause
+de la forma del payload de `get_quote` queda fuera de alcance (17-CONTEXT Deferred Ideas). OPEN es
+no-gating para `verify_cycle_closure`. NO es un cambio de status ni una nueva entrada
+AUTO-GENERATED; no se re-abrió ningún finding terminal (D-05 / HARN-09). Nota: en esta corrida el
+driver iol SKIPpeó (creds ausentes), por lo que la zona AUTO-GENERATED de F-01 quedó byte-idéntica.
+**Operator signoff:** sebadlf, 2026-06-24, via /gsd-execute-phase 17 (LIVE-03 gate).
+
 ## Cycle Closure
 
 **Cycle ID:** `verification-cycle-2026-Q2`
