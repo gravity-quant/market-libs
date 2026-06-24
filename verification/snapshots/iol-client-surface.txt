@@ -6,7 +6,7 @@
 # above and commit the diff alongside the source change that justifies it.
 # See PATTERNS.md Section 3 for the snapshot file convention.
 #
-AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
+AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, token_cache_path: 'Path | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
 Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, token_cache_path: 'Path | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'
 IOLAPIError : class : (status_code: 'int', message: 'str') -> 'None'
 IOLAuthError : class : (status_code: 'int', message: 'str') -> 'None'
