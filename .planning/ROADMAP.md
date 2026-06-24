@@ -137,7 +137,7 @@ Phase artifacts: [`milestones/v1.1-phases/`](./milestones/v1.1-phases/)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 14-02-PLAN.md — `_token_cache.py` + `_state.py` field + sync `Client` integration (3 CRITICAL gates + 4 sync regression GREEN)
+- [x] 14-02-PLAN.md — `_token_cache.py` + `_state.py` field + sync `Client` integration (3 CRITICAL gates + 4 sync regression GREEN)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -215,7 +215,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 11. Harness Hardening + Code Review + Live Re-verification  | v1.1      | 3/3   | Complete    | 2026-06-14 |
 | 12. Codegen Spike                                           | v1.2      | 4/3 | Complete    | 2026-06-14 |
 | 13. Cross-Package Ergonomics (`with_options`)               | v1.2      | 5/5 | Complete    | 2026-06-15 |
-| 14. IOL Disk Persistence                                    | v1.2      | 1/3 | In Progress|  |
+| 14. IOL Disk Persistence                                    | v1.2      | 2/3 | In Progress|  |
 | 15. Driver Migration × 4                                    | v1.2      | 0/?   | Not started | -          |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
 | 17. Final Live Re-verification × 4                          | v1.2      | 0/?   | Not started (unblocked) | -          |
