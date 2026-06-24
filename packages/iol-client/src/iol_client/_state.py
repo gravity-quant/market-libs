@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 
@@ -97,3 +98,6 @@ class _ClientState:
     # ``asyncio.Lock``, leaving the shared ``http_client`` materialization
     # racy across concurrent first-callers (parent + view on the same loop).
     client_lock: asyncio.Lock | None = None
+    # Phase 14 SEC-01 (D-T4 iol-only carve-out): disk-cache path for refresh_token.
+    # None disables disk persistence (covers CI=true + operator opt-out path).
+    token_cache_path: Path | None = None
