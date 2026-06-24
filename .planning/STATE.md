@@ -2,16 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
+current_phase: 16
 status: ready_to_plan
-stopped_at: Phase 15 complete (5/4) — ready to discuss Phase 16
-last_updated: 2026-06-24T16:54:25.555Z
-last_activity: 2026-06-24 -- Phase 15 execution started
+stopped_at: Phase 17 context gathered (assumptions mode)
+last_updated: "2026-06-24T17:47:20.161Z"
+last_activity: 2026-06-24
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
   completed_plans: 17
-  percent: 50
+  percent: 67
 ---
 
 # Project State
@@ -159,9 +160,9 @@ Cleaned up inline before milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-24T12:16:17.035Z
-Stopped at: Phase 15 context gathered (assumptions mode)
-Resume file: .planning/phases/15-driver-migration-4-refac-05/15-CONTEXT.md
+Last session: 2026-06-24T17:47:20.157Z
+Stopped at: Phase 17 context gathered (assumptions mode)
+Resume file: .planning/phases/17-final-live-re-verification-4-live-03/17-CONTEXT.md
 
 ## Operator Next Steps
 
