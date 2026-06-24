@@ -165,3 +165,8 @@ None. The "missing" `iol_client._token_cache` module and `token_cache_path` kwar
 - Plan 2 must create `packages/iol-client/src/iol_client/_token_cache.py` with `logger = logging.getLogger(__name__)` (= `iol_client._token_cache`) so it inherits the v1.1 LOG-02 `RedactingFilter` (anti-Pitfall 7 precondition for `test_disk_persistence_never_logs_token` to go GREEN).
 - The tests construct `iol_client.Client(..., refresh_token="SEED-REFRESH-TOKEN", token_cache_path=path)` and `aio.AsyncClient(..., refresh_token=..., token_cache_path=path)`. Plan 2/3 must add BOTH the `token_cache_path` kwarg AND a `refresh_token` constructor kwarg (the current constructors expose neither — `refresh_token` is presently only settable via `configure()`). The RED `TypeError` on `refresh_token` confirms this gap.
 - `test_disk_token_preserved_when_no_kwarg_*` requires `_resolve_default_path()` to return `None` under `CI=true` (anti-Pitfall 10) so the seeded-elsewhere file stays byte-untouched.
+
+## Self-Check: PASSED
+
+- Files verified on disk: `verification/test_iol_disk_persistence.py`, `packages/iol-client/pyproject.toml`, `uv.lock`, `.planning/phases/14-iol-disk-persistence-sec-01/14-01-SUMMARY.md` — all FOUND.
+- Commits verified in git log: `66a9f4b`, `8f9a6ef`, `4aa3193`, `702e4ca` — all FOUND.
