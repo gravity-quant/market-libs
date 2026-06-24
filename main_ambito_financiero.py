@@ -50,8 +50,10 @@ from verification import safe_print, schema_of, write_findings
 from verification.findings import append_finding
 
 import ambito_financiero_client as ambito
-from ambito_financiero_client import aio
+from ambito_financiero_client import AsyncClient, Client
+from ambito_financiero_client._core import RequestSpec
 from ambito_financiero_client._parsing import parse_ar_decimal
+from ambito_financiero_client.client import _raise_for_response
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -128,17 +130,19 @@ def _last_business_day_with_day_gt_12(today: dt.date) -> dt.date:
 # ---------------------------------------------------------------------------
 
 
-def probe_happy_sync(today: dt.date) -> tuple[ProbeResult, list[list[str]] | None]:
+def probe_happy_sync(
+    today: dt.date, client: Client
+) -> tuple[ProbeResult, list[list[str]] | None]:
     """Probe 1: happy path sync de ``get_dollar_banco_nacion``.
 
-    Llama ``ambito.client._request`` (estado resuelto en vivo; sólo lectura)
+    Llama ``client._request`` (estado resuelto en vivo; sólo lectura)
     para inspeccionar el payload crudo (``rows``) y además invoca el wrapper
     público ``ambito.get_dollar_banco_nacion`` para cross-check. Retorna el
     ``rows`` capturado para que los probes 3, 4 y 6 lo reutilicen sin
     re-pegar al servidor.
     """
     fecha = _last_business_day(today)
-    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
+    base_url = client._state.base_url
     formatted = fecha.strftime("%Y-%m-%d")
     path = f"/dolarnacion/historico-general/{formatted}/{formatted}"
     try:
@@ -147,7 +151,8 @@ def probe_happy_sync(today: dt.date) -> tuple[ProbeResult, list[list[str]] | Non
         # ``get_dollar_banco_nacion`` que repetiría el GET al mismo endpoint.
         # Reduce el riesgo de IP-ban (T-2-06) y elimina el stale-snapshot
         # mismatch entre la shape captura y el precio cross-checked.
-        resp = ambito.client._request("GET", path)
+        resp = client._request(RequestSpec(method="GET", path=path))
+        _raise_for_response(resp)
         rows = resp.json()
         if not isinstance(rows, list) or len(rows) < 2 or rows[0] != _EXPECTED_HEADER:
             fid = _next_fid()
@@ -216,23 +221,26 @@ def probe_happy_sync(today: dt.date) -> tuple[ProbeResult, list[list[str]] | Non
     return (ProbeResult("happy_sync", "PASS", f"precio={precio}"), rows)
 
 
-async def probe_happy_async(today: dt.date) -> tuple[ProbeResult, float | None]:
+async def probe_happy_async(
+    today: dt.date, aclient: AsyncClient
+) -> tuple[ProbeResult, float | None]:
     """Probe 2: happy path async de ``aio.get_dollar_banco_nacion``.
 
     Espejo de ``probe_happy_sync`` usando la superficie ``aio``. No reusa
-    ``rows`` del sync — captura su propio payload via ``await aio._request``
+    ``rows`` del sync — captura su propio payload via ``await aclient._request``
     para verificar el shape independientemente y devuelve sólo el ``precio``
     parseado (que el probe 3 compara contra el sync).
     """
     fecha = _last_business_day(today)
-    base_url = aio._get_default()._state.base_url  # post-refactor accessor
+    base_url = aclient._state.base_url
     formatted = fecha.strftime("%Y-%m-%d")
     path = f"/dolarnacion/historico-general/{formatted}/{formatted}"
     try:
         # WR-03 (mirror del sync): una sola llamada HTTP — parse de la venta
         # directamente desde ``rows`` capturado. Evita doblar el tráfico
         # contra mercados.ambito.com y elimina el stale-snapshot mismatch.
-        resp = await aio._request("GET", path)
+        resp = await aclient._request(RequestSpec(method="GET", path=path))
+        _raise_for_response(resp)
         rows = resp.json()
         if not isinstance(rows, list) or len(rows) < 2 or rows[0] != _EXPECTED_HEADER:
             fid = _next_fid()
@@ -302,6 +310,7 @@ def probe_parity_sync_async(
     today: dt.date,
     rows_sync: list[list[str]] | None,
     precio_async: float | None,
+    client: Client,
 ) -> ProbeResult:
     """Probe 3: sync ↔ async paridad estructural y numérica.
 
@@ -315,7 +324,7 @@ def probe_parity_sync_async(
             "SKIPPED",
             "(sync o async happy probe falló antes)",
         )
-    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
+    base_url = client._state.base_url
     try:
         venta_sync = parse_ar_decimal(rows_sync[1][2])
     except Exception as exc:
@@ -355,7 +364,9 @@ def probe_parity_sync_async(
     )
 
 
-def probe_parse_decimal_adversarial(rows_sync: list[list[str]] | None) -> ProbeResult:
+def probe_parse_decimal_adversarial(
+    rows_sync: list[list[str]] | None, client: Client
+) -> ProbeResult:
     """Probe 4: doble check del wire AR-decimal (D-23, AMB-02).
 
     Doble validación sobre ``rows_sync[1][2]``:
@@ -372,7 +383,7 @@ def probe_parse_decimal_adversarial(rows_sync: list[list[str]] | None) -> ProbeR
             "SKIPPED",
             "(happy_sync falló antes)",
         )
-    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
+    base_url = client._state.base_url
     try:
         venta_raw = rows_sync[1][2]
     except (IndexError, TypeError) as exc:
@@ -443,7 +454,7 @@ def probe_parse_decimal_adversarial(rows_sync: list[list[str]] | None) -> ProbeR
     return ProbeResult("parse_decimal", "PASS", f"venta={venta_parseada}")
 
 
-def probe_no_data(today: dt.date) -> ProbeResult:
+def probe_no_data(today: dt.date, client: Client) -> ProbeResult:
     """Probe 5: una fecha futura debe levantar ``AmbitoFinancieroNoDataError``.
 
     Usa ``today + 60d`` (D-24) — la API pública no tiene datos del futuro,
@@ -453,9 +464,9 @@ def probe_no_data(today: dt.date) -> ProbeResult:
     ``ERROR-MAP`` OPEN.
     """
     fecha_futura = today + dt.timedelta(days=60)
-    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
+    base_url = client._state.base_url
     try:
-        returned = ambito.get_dollar_banco_nacion(fecha_futura)
+        returned = client.get_dollar_banco_nacion(fecha_futura)
     except ambito.AmbitoFinancieroNoDataError:
         return ProbeResult("no_data", "PASS", f"NoDataError para {fecha_futura}")
     except Exception as exc:
@@ -492,6 +503,7 @@ def probe_no_data(today: dt.date) -> ProbeResult:
 def probe_schema_snapshot(
     today: dt.date,
     rows_sync: list[list[str]] | None,
+    client: Client,
 ) -> ProbeResult:
     """Probe 6: DRIFT-01 — escribe/compara snapshot estructural del endpoint.
 
@@ -507,7 +519,7 @@ def probe_schema_snapshot(
     """
     if rows_sync is None:
         return ProbeResult("schema_snapshot", "SKIPPED", "(happy_sync falló antes)")
-    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
+    base_url = client._state.base_url
     fecha = _last_business_day(today)
     actual_schema = schema_of(rows_sync)
     envelope: dict[str, object] = {
@@ -548,7 +560,7 @@ def probe_schema_snapshot(
     )
 
 
-def probe_antibot(today: dt.date) -> ProbeResult:
+def probe_antibot(today: dt.date, client: Client) -> ProbeResult:
     """Probe 7: anti-bot con BAD_UA (opt-in, sync, one-shot).
 
     Reglas (D-12/D-13/D-14/D-15/D-16/D-17/D-18):
@@ -566,18 +578,27 @@ def probe_antibot(today: dt.date) -> ProbeResult:
       ``finally`` para restaurar el cliente aun ante excepción (D-15).
     - Tres ramas D-18: 403 esperado -> EXPECTED terminal; 200 OK ->
       OPEN (defensa relajada); cualquier otra cosa -> OPEN.
+
+    Phase 15 driver migration: el estado mutado vive ahora en la instancia
+    ``client`` threadeada (no en el default module-level). Mutar la UA sobre
+    una instancia requiere descartar su ``httpx.Client`` cacheado para que el
+    próximo request reconstruya el pool con el header nuevo (la UA se hornea
+    en los headers al construir el ``httpx.Client``). El ``finally`` restaura
+    la UA buena y vuelve a descartar el pool para que el resto del run use el
+    cliente sano.
     """
     if os.getenv("VERIFY_ANTIBOT") != "1":
         return ProbeResult("antibot", "SKIPPED", "(opt-in via VERIFY_ANTIBOT=1)")
 
     fecha = _last_business_day(today)
     bad_ua = f"python-httpx/{httpx.__version__}"
-    good_ua = ambito.client._get_default()._state.user_agent  # post-refactor accessor
-    base_url = ambito.client._get_default()._state.base_url  # post-refactor accessor
+    good_ua = client._state.user_agent
+    base_url = client._state.base_url
     try:
-        ambito.configure(user_agent=bad_ua)
+        client._state.user_agent = bad_ua
+        client.close()  # drop cached pool so the bad UA is baked on rebuild
         try:
-            returned = ambito.get_dollar_banco_nacion(fecha)
+            returned = client.get_dollar_banco_nacion(fecha)
         except ambito.AmbitoFinancieroAuthError as exc:
             # WR-01: AmbitoFinancieroAPIError.__init__ siempre setea
             # ``self.status_code = status_code`` (ver exceptions.py:15), así
@@ -650,7 +671,8 @@ def probe_antibot(today: dt.date) -> ProbeResult:
         return ProbeResult("antibot", "FINDING", f"{fid} (OPEN)")
     finally:
         # D-15: SIEMPRE restaurar el UA del cliente, aun ante excepción.
-        ambito.configure(user_agent=good_ua)
+        client._state.user_agent = good_ua
+        client.close()  # drop the bad-UA pool so the rebuilt one carries good_ua
 
 
 # ---------------------------------------------------------------------------
@@ -667,15 +689,16 @@ async def _async_main(today: dt.date) -> tuple[ProbeResult, float | None]:
     ``asyncio.run(...)`` y crashear el driver. El driver siempre completa
     todos los probes y sale con exit 0 salvo crash inesperado.
     """
+    aclient = AsyncClient()
     try:
-        result, precio_async = await probe_happy_async(today)
+        result, precio_async = await probe_happy_async(today, aclient)
     finally:
         # Pitfall 5: cerrar el AsyncClient siempre, aun ante excepción.
         # IN-03: aislar fallos durante teardown para no violar D-04 (exit 0
         # salvo crash inesperado). Errores del teardown del AsyncClient no
         # deben tirarnos abajo el run.
         with contextlib.suppress(Exception):
-            await aio.aclose()
+            await aclient.aclose()
     return result, precio_async
 
 
@@ -691,30 +714,38 @@ def main() -> None:
     # D-03: el helper es idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
 
+    # Phase 15 (D-01/D-02): una sola instancia sync ``Client()`` threadeada a
+    # todas las probes sync; el ``AsyncClient`` vive en ``_async_main`` (D-02).
+    client = Client()
     results: list[ProbeResult] = []
+    try:
+        # 1. happy_sync — captura rows para reutilizar en probes 3, 4, 6
+        result_happy_sync, rows_sync = probe_happy_sync(today, client)
+        results.append(result_happy_sync)
 
-    # 1. happy_sync — captura rows para reutilizar en probes 3, 4, 6
-    result_happy_sync, rows_sync = probe_happy_sync(today)
-    results.append(result_happy_sync)
+        # 2. happy_async — un único asyncio.run (D-11)
+        result_happy_async, precio_async = asyncio.run(_async_main(today))
+        results.append(result_happy_async)
 
-    # 2. happy_async — un único asyncio.run (D-11)
-    result_happy_async, precio_async = asyncio.run(_async_main(today))
-    results.append(result_happy_async)
+        # 3. parity sync ↔ async
+        results.append(probe_parity_sync_async(today, rows_sync, precio_async, client))
 
-    # 3. parity sync ↔ async
-    results.append(probe_parity_sync_async(today, rows_sync, precio_async))
+        # 4. parse_ar_decimal adversarial (D-23 doble check)
+        results.append(probe_parse_decimal_adversarial(rows_sync, client))
 
-    # 4. parse_ar_decimal adversarial (D-23 doble check)
-    results.append(probe_parse_decimal_adversarial(rows_sync))
+        # 5. fecha futura -> NoDataError
+        results.append(probe_no_data(today, client))
 
-    # 5. fecha futura -> NoDataError
-    results.append(probe_no_data(today))
+        # 6. schema snapshot (DRIFT-01 + D-25)
+        results.append(probe_schema_snapshot(today, rows_sync, client))
 
-    # 6. schema snapshot (DRIFT-01 + D-25)
-    results.append(probe_schema_snapshot(today, rows_sync))
-
-    # 7. anti-bot (D-13: ÚLTIMO)
-    results.append(probe_antibot(today))
+        # 7. anti-bot (D-13: ÚLTIMO)
+        results.append(probe_antibot(today, client))
+    finally:
+        # Pitfall 5 (mirror sync): cerrar el ``httpx.Client`` siempre. Aislamos
+        # el teardown para no violar D-04 (exit 0 salvo crash inesperado).
+        with contextlib.suppress(Exception):
+            client.close()
 
     # Output verbatim D-02 + D-26 safe_print con secrets=[] para uniformidad.
     for r in results:
