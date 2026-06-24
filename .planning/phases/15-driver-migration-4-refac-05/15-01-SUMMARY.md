@@ -144,6 +144,10 @@ None. No hardcoded empty values, placeholder text, or unwired data sources intro
 - Note for later drivers with auth (iol OAuth, matriz TokenStore): the single-Client invariant is now machine-enforced; the forced-refresh write-site `main_iol.py:1289` must target the threaded instance.
 - Full live-suite confirmation deferred to Phase 17 (LIVE-03); the static baseline obligation is met.
 
+## Self-Check: PASSED
+
+All created files exist on disk; all task commits (`4a21a09`, `204baa6`, `6da94d6`, `170cd20`, `36654e7`) present in git history.
+
 ---
 *Phase: 15-driver-migration-4-refac-05*
 *Completed: 2026-06-24*
