@@ -125,3 +125,12 @@ The substantive invariant the criterion guards — the D-03 write and its verify
 ---
 *Phase: 15-driver-migration-4-refac-05*
 *Completed: 2026-06-24*
+
+## Self-Check: PASSED
+
+- FOUND: verification/test_main_iol_uses_single_client_instance.py
+- FOUND: .planning/phases/15-driver-migration-4-refac-05/15-02-SUMMARY.md
+- FOUND commit 9d3601c (test — RED AST guard)
+- FOUND commit 2d367b2 (feat — GREEN migration)
+- FOUND commit fa8f15b (docs — SUMMARY)
+- STATE.md / ROADMAP.md untouched (worktree mode — orchestrator owns those writes)
