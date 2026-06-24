@@ -122,6 +122,13 @@ None - this plan touches no live API and requires no external service configurat
 - 17-02 (operator live gate) can start from a known-green cycle-closure state: `verify_cycle_closure x 4` PASS and the deterministic blocking gates are GREEN at HEAD, so 17-02 only needs to add live evidence.
 - No blockers. No live credentials were used or required by this plan.
 
+## Self-Check: PASSED
+
+- FOUND: `.planning/verification/iol-client-findings.md`
+- FOUND: `.planning/phases/17-final-live-re-verification-4-live-03/17-01-SUMMARY.md`
+- FOUND commit: `65633af` (Task 1)
+- FOUND commit: `429dc50` (plan SUMMARY)
+
 ---
 *Phase: 17-final-live-re-verification-4-live-03*
 *Completed: 2026-06-24*
