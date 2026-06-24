@@ -138,3 +138,8 @@ wave altered any finding literal — the migrations changed only client acquisit
   `client._state.base_url` with the `if "remarkets" not in base` assert preserved.
 - **T-15-01 (credential disclosure):** no credential literal touched; `.env` stays
   uncommitted; migration changed only client acquisition.
+
+## Self-Check: PASSED
+
+All created files present on disk; all 4 commits (`01d0efc`, `d1927f5`, `9067f55`,
+`7d7afd6`) reachable in git history.
