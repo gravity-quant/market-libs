@@ -1,7 +1,7 @@
 # Findings: iol-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-14T10:56:00.496319+00:00
+- Timestamp: 2026-06-25T00:06:30.440087+00:00
 - Resolved base URL / env: https://api.invertironline.com
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -64,9 +64,12 @@ SEC-01 IOL disk persistence / ERG-01 `with_options`) NO resolvió F-01
 divergencia documentada de baseline `verification-cycle-2026-Q2`; la investigación de root-cause
 de la forma del payload de `get_quote` queda fuera de alcance (17-CONTEXT Deferred Ideas). OPEN es
 no-gating para `verify_cycle_closure`. NO es un cambio de status ni una nueva entrada
-AUTO-GENERATED; no se re-abrió ningún finding terminal (D-05 / HARN-09). Nota: en esta corrida el
-driver iol SKIPpeó (creds ausentes), por lo que la zona AUTO-GENERATED de F-01 quedó byte-idéntica.
-**Operator signoff:** sebadlf, 2026-06-24, via /gsd-execute-phase 17 (LIVE-03 gate).
+AUTO-GENERATED; no se re-abrió ningún finding terminal (D-05 / HARN-09). Nota: en la corrida en
+vivo LIVE-03 (2026-06-25, credenciales provisionadas por el operador) el driver iol **RAN** y
+re-emitió F-01 (`field_type_map: FINDING F-01 (OPEN)`, SUMMARY `PASS=13 FAIL=0 SKIPPED=1 FINDING=1`);
+la zona AUTO-GENERATED quedó byte-idéntica (dedupe content-addressed) y F-01 se mantiene OPEN. No
+surgió ningún fid nuevo.
+**Operator signoff:** sebadlf, 2026-06-25, via /gsd-execute-phase 17 (LIVE-03 gate, iol RAN en vivo).
 
 ## Cycle Closure
 
