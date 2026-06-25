@@ -55,6 +55,5 @@ def test_main_higyrus_uses_single_client_instance() -> None:
         elif isinstance(func, ast.Attribute) and func.attr in _CTOR_NAMES:
             ctor_sites.append((node.lineno, func.attr))
     assert 1 <= len(ctor_sites) <= 2, (
-        f"{_DRIVER} constructs {len(ctor_sites)} client instance(s) "
-        f"(expected 1..2): {ctor_sites}"
+        f"{_DRIVER} constructs {len(ctor_sites)} client instance(s) (expected 1..2): {ctor_sites}"
     )

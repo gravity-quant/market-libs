@@ -130,9 +130,7 @@ def _last_business_day_with_day_gt_12(today: dt.date) -> dt.date:
 # ---------------------------------------------------------------------------
 
 
-def probe_happy_sync(
-    today: dt.date, client: Client
-) -> tuple[ProbeResult, list[list[str]] | None]:
+def probe_happy_sync(today: dt.date, client: Client) -> tuple[ProbeResult, list[list[str]] | None]:
     """Probe 1: happy path sync de ``get_dollar_banco_nacion``.
 
     Llama ``client._request`` (estado resuelto en vivo; sólo lectura)
