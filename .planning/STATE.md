@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: milestone_complete
-stopped_at: Milestone complete (Phase 17 was final phase)
-last_updated: 2026-06-25T01:08:41.572Z
-last_activity: 2026-06-24 -- Phase 17 execution started
+status: verifying
+stopped_at: Phase 17 context gathered (assumptions mode)
+last_updated: "2026-06-25T12:31:16.428Z"
+last_activity: 2026-06-25
 progress:
   total_phases: 6
   completed_phases: 4
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 Phase: 17
 Plan: Not started
-Status: Milestone complete
+Status: Milestone v1.2 shipped — PR #2 (ship/v1.2-live-verification)
 Last activity: 2026-06-25
 
 **Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
