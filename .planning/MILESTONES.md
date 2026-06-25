@@ -1,5 +1,23 @@
 # Milestones
 
+## v1.2 Architecture + Auth/Ergonomics Carry-forwards (Shipped: 2026-06-25)
+
+**Phases completed:** 5 phases (12-15, 17; Phase 16 dropped), 18 plans, 40 tasks
+**Git range:** `74b22bf` (docs(12): capture phase context) → `a7dbc8f` (ship v1.2 — PR #2), 2026-06-14 → 2026-06-25
+**Source delta:** 43 files changed, +3,364 / −531 LOC (packages + drivers + pyproject)
+
+**Key accomplishments:**
+
+- **Phase 12 — Codegen tool-choice spike (REFAC-06, NO-GO):** SPIKE-005 ran unasync round-trip on the ámbito canary + a matriz worst-case construct audit (109 rows, 0 unresolved); the strict D-RIGOR-01 8-item evidence checklist returned **3/8 FAIL — all tracing to a single root cause (source-shape asymmetry between v1.1 sync-first `aio.py` and async-first codegen), 0 unfixable hunks** — so the operator signed NO-GO and REFAC-06 was cleanly deferred to v1.3 with a libcst handoff scope + auto-loaded findings skill.
+- **Phase 13 — `client.with_options(max_retries=N)` × 4 packages (ERG-01):** a shallow-clone Client view that shares the underlying `httpx.Client` + `_ClientState` (no resource leak, no re-auth) and threads the override via `request.extensions['max_attempts']` mirroring the v1.1 mutation-gate pattern; the CRITICAL merge gate proves matriz `new_order` under 503 executes **EXACTLY 1 outgoing request regardless of `max_retries=10`** (anti-Pitfall 14, duplicate-order money-on-the-line).
+- **Phase 14 — IOL refresh_token disk persistence (SEC-01):** `iol_client/_token_cache.py` with atomic write-then-rename, `fcntl.flock` inter-process locking, 0600 perms, `platformdirs` default path (iol-client only), and CI-refuses-default-path; the three CRITICAL gates land GREEN across sync + async — caplog no-leak sentinel, 20-thread concurrent-write race, and failed-refresh disk cleanup — with `asyncio.to_thread` dispatch for the async mirror.
+- **Phase 15 — Driver migration × 4 (REFAC-05):** every `main_*.py` now constructs **exactly one `Client()` / `AsyncClient()` per `main()` run** with all probes threaded through that single instance (ámbito → iol → higyrus → matriz), guarded by a RED-first AST single-Client regression test per driver; probe names / finding titles stay byte-stable vs the v1.1 LIVE-01 baseline `71bf201`, closing the v1.1 iol/matriz LOC-drop residual.
+- **Phase 17 — Final live re-verification × 4 (LIVE-03):** operator dispositions captured for ambito/iol/higyrus/matriz, schema snapshot vs baseline `verification-cycle-2026-Q2` clean, `verify_cycle_closure × 4` PASS (iol F-02 FIXED→regression-linked), REQUIREMENTS.md traceability flipped to Complete for REFAC-05/SEC-01/ERG-01/LIVE-03, 0-BLOCKER integration audit, pytest final ≥989 / CI matrix green on Python 3.12 + 3.13.
+
+**Known deferred items at close:** 6 (see STATE.md Deferred Items — 4 stale v1.1-era quick-task status files, the intentional REFAC-06→v1.3 libcst spike todo, and the Phase 15 operator UAT gap superseded by the Phase 17 LIVE-03 gate). REFAC-06 deferred to v1.3.
+
+---
+
 ## v1.1 Tech Debt Cleanup (Shipped: 2026-06-14)
 
 **Phases completed:** 6 phases, 30 plans, 52 tasks

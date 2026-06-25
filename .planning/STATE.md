@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: verifying
+status: Awaiting next milestone
 stopped_at: Phase 17 context gathered (assumptions mode)
-last_updated: "2026-06-25T12:31:16.428Z"
-last_activity: 2026-06-25
+last_updated: "2026-06-25T23:09:36.483Z"
+last_activity: 2026-06-25 — Milestone v1.2 completed and archived
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
   completed_plans: 20
-  percent: 67
+  percent: 83
 ---
 
 # Project State
@@ -22,16 +22,14 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
 
-**Current focus:** Milestone complete
+**Current focus:** v1.2 shipped + archived (2026-06-25). Planning next milestone (v1.3 — REFAC-06 libcst codegen spike + carry-forwards). Run `/gsd:new-milestone`.
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-Status: Milestone v1.2 shipped — PR #2 (ship/v1.2-live-verification)
-Last activity: 2026-06-25
-
-**Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-25 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -157,6 +155,21 @@ Cleaned up inline before milestone close:
 - Pending todo `matriz-driver-findings-file-handling.md` moved to `.planning/todos/completed/` (resolved by Phase 11 HARN-07/08/10).
 - Phase 07 UAT test 2 (SC#3 LOC drop disposition) flipped from `[pending]` to `[accepted]` (operator signoff captured in 07-VERIFICATION.md frontmatter on 2026-06-14).
 
+### Acknowledged at v1.2 close on 2026-06-25
+
+Items surfaced by `gsd-sdk query audit-open` (6 total) and acknowledged by operator at v1.2 milestone close ("Acknowledge & proceed"). All are intentional deferrals or stale history — none are real blockers:
+
+| Category | Item | Status | Carry-forward |
+|----------|------|--------|---------------|
+| quick_task | 260611-u0v-fix-ci-failures-on-phase-06-compat-safet | SDK reports "missing" — v1.1-era task, SUMMARY `status: complete`, commits in git history | False-positive (SDK parser heuristic) — no action |
+| quick_task | 260613-nwb-fix-int-01-main-iol-py-crashea-con-attri | SDK reports "missing" — v1.1-era task, work landed | False-positive (SDK parser heuristic) — no action |
+| quick_task | 260614-de5-fix-doc-01-04-before-completing-mileston | SDK reports "missing" — v1.1-era task, work landed | False-positive (SDK parser heuristic) — no action |
+| quick_task | 260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl | SDK reports "missing" — v1.1-era task, work landed | False-positive (SDK parser heuristic) — no action |
+| todo | spike-codegen-libcst-v1.3.md | pending (high) | **Intentional** — REFAC-06 deferred to v1.3 per Phase 12 NO-GO (D-NOGO-01); becomes the v1.3 codegen spike |
+| uat_gap | 15-HUMAN-UAT.md | partial — 4 operator-driven live scenarios | Superseded by Phase 17 LIVE-03 final gate (operator dispositions × 4 captured in 17-VALIDATION.md) |
+
+See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for full close context.
+
 ## Session Continuity
 
 Last session: 2026-06-24T17:47:20.157Z
@@ -165,6 +178,4 @@ Resume file: .planning/phases/17-final-live-re-verification-4-live-03/17-CONTEXT
 
 ## Operator Next Steps
 
-1. **Pre-Phase-12 operational gate:** push v1.1 head `71bf201` to remote (if not already) and confirm GitHub Actions matrix green on Python 3.12 + 3.13. If red, file as quick-task before Phase 12.
-2. **Start Phase 12 discussion:** `/gsd-discuss-phase 12` — codegen tool-choice spike (unasync vs libcst on ámbito canary + matriz worst case). RESEARCH FLAG active.
-3. **Phase 12 output gates Phase 16:** if NO-GO, REFAC-06 defers to v1.3 and Phase 16 is DROPPED from the schedule; Phase 17 (LIVE-03) runs directly after Phase 14 + 15.
+- Start the next milestone with /gsd-new-milestone
