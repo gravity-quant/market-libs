@@ -216,7 +216,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
   4. Milestone audit `passed`: all v1.2 requirements (REFAC-05, SEC-01, ERG-01, LIVE-03, plus REFAC-06 if GO) reflected as Complete in REQUIREMENTS.md traceability table; integration audit reports 0 BLOCKER.
   5. `pytest` final count is ≥ Phase 16 baseline (or Phase 15 baseline if Phase 16 dropped); CI matrix green on Python 3.12 + 3.13.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 **Wave 1**
 
@@ -224,7 +224,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 
 **Wave 2** *(blocked on Wave 1; operator-driven)*
 
-- [ ] 17-02-PLAN.md — Operator live gate × 4 + `17-VALIDATION.md` pre-fill/approval handshake + per-package RAN/SKIPPED-EXPECTED dispositions (D-02) + iol F-01 re-confirm OPEN (D-05) + conditional D-07 new-finding disposition + regression (`autonomous: false`)
+- [x] 17-02-PLAN.md — Operator live gate × 4 + `17-VALIDATION.md` pre-fill/approval handshake + per-package RAN/SKIPPED-EXPECTED dispositions (D-02) + iol F-01 re-confirm OPEN (D-05) + conditional D-07 new-finding disposition + regression (`autonomous: false`)
 
 **Wave 3** *(blocked on Wave 2 operator approval)*
 
@@ -250,7 +250,7 @@ file (`aio.py`), pre-commit regenerates `client.py`, CI verifies idempotency.
 | 14. IOL Disk Persistence                                    | v1.2      | 3/3 | Complete    | 2026-06-24 |
 | 15. Driver Migration × 4                                    | v1.2      | 5/4 | Complete    | 2026-06-24 |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
-| 17. Final Live Re-verification × 4                          | v1.2      | 1/3 | In Progress|  |
+| 17. Final Live Re-verification × 4                          | v1.2      | 2/3 | In Progress|  |
 
 ## Backlog
 
