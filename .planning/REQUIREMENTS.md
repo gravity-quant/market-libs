@@ -100,17 +100,17 @@ append-only si aplica.
 
 ## Traceability
 
-*Filled by roadmap (see `ROADMAP.md`). Phase numbering continues from v1.2 (last phase = 17).*
+*Filled by roadmap (see `ROADMAP.md`). Phase numbering continues from v1.2 (last phase = 17); v1.3 starts at Phase 18.*
 
-| REQ-ID     | Phase                          | Status  |
-|------------|--------------------------------|---------|
-| CODEGEN-01 | Phase [N] (SPIKE-006)          | Pending |
-| REFAC-06   | Phase [N+1] (CONDITIONAL on GO)| Pending |
+| REQ-ID     | Phase                                      | Status  |
+|------------|--------------------------------------------|---------|
+| CODEGEN-01 | Phase 18 (SPIKE-006 — spike-before-plan)   | Pending |
+| REFAC-06   | Phase 19 (CONDITIONAL on Phase 18 GO)      | Pending |
 
 **Coverage:**
 - v1.3 requirements: 2 total (1 spike + 1 conditional implementation)
-- Mapped to phases: filled by roadmap
-- REFAC-06 shippability is gated by CODEGEN-01's GO/NO-GO output.
+- Mapped to phases: 2/2 ✓ (CODEGEN-01 → Phase 18; REFAC-06 → Phase 19) — no orphans, no duplicates
+- REFAC-06 shippability is gated by CODEGEN-01's GO/NO-GO output: Phase 19 is DROPPED if Phase 18 returns NO-GO, in which case REFAC-06 is shelved permanently and the milestone closes on the signed NO-GO.
 
 ---
 

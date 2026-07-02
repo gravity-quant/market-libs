@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Codegen Single-Source (libcst)
 status: planning
-last_updated: "2026-07-02T22:47:33.101Z"
+last_updated: "2026-07-02T23:10:00.000Z"
 last_activity: 2026-07-02
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,18 +17,18 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
+See: .planning/PROJECT.md (updated 2026-07-02 for v1.3)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 layer: cerrar el único unknown arquitectónico residual — eliminar la duplicación estructural sync/async de los transport shells `client.py`/`aio.py` × 4 paquetes vía codegen single-source con `libcst`, resolviendo o descartando definitivamente el NO-GO de unasync de v1.2 Phase 12.)
 
-**Current focus:** v1.2 shipped + archived (2026-06-25). Planning next milestone (v1.3 — REFAC-06 libcst codegen spike + carry-forwards). Run `/gsd:new-milestone`.
+**Current focus:** v1.3 roadmap created (2026-07-02). 2 phases: Phase 18 (SPIKE-006 libcst spike, ALWAYS runs → signed GO/NO-GO) + Phase 19 (REFAC-06 codegen single-source × 4, CONDITIONAL on Phase 18 GO — DROPPED if NO-GO). Next: plan Phase 18 via `/gsd-plan-phase 18`.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 18 (libcst Codegen Tool-Choice Spike — SPIKE-006) — Not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-02 — Milestone v1.3 started
+Status: Roadmap created, awaiting phase planning
+Last activity: 2026-07-02 — v1.3 roadmap created (Phases 18-19, spike-gated REFAC-06)
 
 ## Performance Metrics
 
@@ -64,16 +64,26 @@ Last activity: 2026-07-02 — Milestone v1.3 started
 - Test suite: 277 (v1.0 close) → 907/908 (v1.1 close) on Python 3.12 local
 - Quick tasks: 3 (260611-u0v, 260613-nwb, 260614-de5)
 
-**By Phase (v1.2 planned):**
+**By Phase (v1.2 shipped 2026-06-25):**
+
+| Phase | Plans | Status   | Notes |
+|-------|-------|----------|-------|
+| 12    | 4/3   | Complete | Codegen tool-choice spike (unasync vs libcst) — **NO-GO** (3/8 D-RIGOR-01 FAIL, source-shape asymmetry); REFAC-06 → v1.3; REFAC-06 (spike) |
+| 13    | 5     | Complete | `with_options(max_retries=N)` × 4 packages; CRITICAL matriz mutation-gate merge gate (new_order under 503 = exactly 1 request); ERG-01 |
+| 14    | 3     | Complete | IOL `_token_cache.py` + platformdirs + fcntl.flock + 0600 + caplog no-leak + failed-refresh cleanup; SEC-01 |
+| 15    | 5/4   | Complete | Driver migration × 4; ONE Client per main() AST guard; probe-name stability vs LIVE-01 71bf201; REFAC-05 |
+| 16    | -     | Dropped  | Codegen Single-Source — DROPPED per Phase 12 NO-GO; REFAC-06 → v1.3 |
+| 17    | 3     | Complete | Final LIVE-01-equivalent gate × 4 packages; cycle closure × 4 PASS; 0-BLOCKER audit; LIVE-03 |
+
+- v1.2 duration: 2026-06-14 → 2026-06-25 (5 phases, 18 plans, 40 tasks); shipped via PR #2
+- Test suite: 907 (v1.1 close) → ≥989 (v1.2 close) on Python 3.12 + 3.13
+
+**By Phase (v1.3 planned):**
 
 | Phase | Plans | Status      | Requirements | Notes |
 |-------|-------|-------------|--------------|-------|
-| 12    | ?     | Not started | REFAC-06 (spike) | Codegen tool-choice spike (unasync vs libcst); go/no-go output for Phase 16 — RESEARCH FLAG |
-| 13    | ?     | Not started | ERG-01 | `with_options(max_retries=N)` × 4 packages; mutation-gate invariant preserved (CRITICAL test: matriz new_order under 503 exactly 1 request) |
-| 14    | ?     | Not started | SEC-01 | IOL `_token_cache.py` + platformdirs + fcntl.flock + 0600 + caplog no-leak + failed-refresh cleanup — parallel-eligible with Phase 15 |
-| 15    | ?     | Not started | REFAC-05 | Driver migration × 4 (ámbito → iol → higyrus → matriz); ONE Client per main() AST guard; probe-name stability vs LIVE-01 71bf201 |
-| 16    | ?     | Not started | REFAC-06 | CONDITIONAL — DROPPED if Phase 12 NO-GO; otherwise unasync codegen × 4 transport shells with @generated marker + CI verify-clean |
-| 17    | ?     | Not started | LIVE-03 | Final LIVE-01-equivalent gate × 4 packages; milestone audit |
+| 18    | ?     | Not started | CODEGEN-01 (spike) | **RESEARCH FLAG / spike-before-plan.** SPIKE-006 evaluates `libcst >=1.8.0,<2` against the D-RIGOR-02 10-item gate on the ámbito v1.2-head canary (NOT migrated) + matriz audit/deny-list inheritance → signed GO/NO-GO. ALWAYS runs; guaranteed milestone deliverable. Items 1/4/6 are GO-determining. |
+| 19    | ?     | Not started | REFAC-06 | **CONDITIONAL — DROPPED if Phase 18 NO-GO.** Single-source `client.py`/`aio.py` shells × 4 (ámbito → iol → higyrus → matriz) via libcst; `@generated` marker + CI `lint-codegen` verify-clean + B8 identity + mocked suites green vs generated + deny-list intact. |
 
 ## Accumulated Context
 
@@ -82,32 +92,27 @@ Last activity: 2026-07-02 — Milestone v1.3 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [v1.2 Roadmap]: Phase order derived from research SUMMARY.md dependency DAG: Phase 12 spike-before-plan → Phase 13 ergonomics (drivers consume `with_options` in Phase 15) → Phase 14 IOL disk + Phase 15 driver migration in parallel waves → Phase 16 codegen (CONDITIONAL on Phase 12) → Phase 17 LIVE-03 final gate.
-- [v1.2 Roadmap]: REFAC-06 is mapped to Phase 16 as CONDITIONAL — DROPPED entirely if Phase 12 spike returns NO-GO; defers REFAC-06 to v1.3 in that case. All other 4 requirements (REFAC-05, SEC-01, ERG-01, LIVE-03) are mandatory.
-- [v1.2 Roadmap]: Driver migration (REFAC-05, Phase 15) MUST run BEFORE codegen (REFAC-06, Phase 16) — driver migration surfaces public method surface gaps locally; codegen-after would mask them cross-phase. Per ARCHITECTURE §2.6 reason #4.
-- [v1.2 Roadmap]: Per-package serial ordering within phases: ámbito → iol → higyrus → matriz (REFAC-05, SEC-01, LIVE-03 follow this); ERG-01 (Phase 13) uses ámbito → higyrus → matriz → iol (iol LAST because it interacts with SEC-01 disk cache in Phase 14).
-- [v1.2 Roadmap]: HIGHEST-RISK pitfall test gates encoded as merge-gate success criteria — Phase 13 anti-Pitfall 14 (matriz `new_order` exactly 1 request under 503); Phase 14 anti-Pitfall 7/8/9 (caplog no-leak + failed-refresh cleanup + fcntl race); Phase 15 anti-Pitfall 1/15 (AST single-Client guard + probe-name stability); Phase 16 anti-Pitfall 4/5 (B8 identity + @generated marker verify-clean).
-- [v1.2 Roadmap]: Operational pre-gate — v1.1 head `71bf201` confirmed CI-green on Python 3.13 BEFORE Phase 12 starts; anti-Pitfall 17 (prevents v1.1-vs-v1.2 attribution ambiguity).
+- [v1.3 Roadmap]: Phase numbering CONTINUES from v1.2 (last phase = 17) — v1.3 starts at Phase 18 (does NOT reset). Sequential `phase_naming` per config.json.
+- [v1.3 Roadmap]: Spike-gated conditional structure mirrors v1.2 (Phase 12 spike + conditional Phase 16). Phase 18 (SPIKE-006) is spike-before-plan and the guaranteed deliverable; Phase 19 (REFAC-06) is CONDITIONAL — DROPPED entirely if Phase 18 returns NO-GO, in which case REFAC-06 is shelved permanently per D-NOGO-01 and the milestone closes on the signed NO-GO.
+- [v1.3 Roadmap]: The 3 GO-determining gate items are D-RIGOR-02 item 1 (byte-identical round-trip, no source migration), item 4 (ruff check clean incl. single-line import-order), item 6 (mocked suite green vs generated, no circular self-import) — all trace to the single unasync root cause (source-shape asymmetry). libcst must close all 3 for GO.
+- [v1.3 Roadmap]: No standalone milestone-close / live re-verification phase. Per the in-cycle verification convention, byte-identical generated output means wire behavior is unchanged by construction; the D-RIGOR-02 item-1 + item-6 gates fold verification into Phase 19. Milestone kept tight (REFAC-06-only) — other v1.3 candidates (prod-vs-remarkets, ws_client live, token encryption) stay in backlog.
+- [v1.3 Roadmap]: Matriz deny-list (`_token_store.py`/`_refresh_policy.py`/`_refresh.py`/`ws_client.py`) is OUT of codegen scope in BOTH phases — the spike CONFIRMS (sha256-byte-identical under MetadataWrapper), it does NOT renegotiate. Codegen applies ONLY to `client.py`/`aio.py` transport shells.
 
 ### Pending Todos
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-- matriz-driver-findings-file-handling (deferred from v1.0 — addressed in Phase 11 via HARN-07/HARN-08/HARN-10)
+- spike-codegen-libcst-v1.3.md — the fully-scoped SPIKE-006 spec + D-RIGOR-02 10-item gate; consumed by Phase 18 planning.
 
 ### Blockers/Concerns
 
 [Issues that affect future work]
 
-- [Phase 12]: Codegen tool choice (unasync vs libcst) is the single architectural unknown in v1.2; spike-before-plan flag activated per PROJECT.md and SUMMARY.md. Phase 12 GO/NO-GO output gates Phase 16.
-- [Phase 13]: Pitfall 14 (`with_options(max_retries=10).new_order(...)` bypassing mutation gate) — duplicate-order money-on-the-line; the CRITICAL test must land BEFORE Phase 13 merge — matriz Primary `new_order` under 503 mock must execute EXACTLY 1 outgoing request.
-- [Phase 14]: Pitfall 7 (new disk log sites bypass `RedactingFilter`) — token-write logger MUST be under `iol_client.*` namespace; `caplog` regression test required.
-- [Phase 14]: Pitfall 8 (stale-token-after-OOB-rotation) — failed-refresh path MUST delete disk token before password fallback; regression test required.
-- [Phase 14]: Pitfall 9 (multi-process race) — `fcntl.flock` required around disk writes; regression test with 20 concurrent threads required.
-- [Phase 15]: Pitfall 1 (state leak between probes / per-instance state defeats singleton expectation) — ONE Client per main() run invariant enforced by AST regression-guard per driver.
-- [Phase 15]: Pitfall 15 (probe-name stability) — finding IDs/titles MUST stay constant vs LIVE-01 baseline `71bf201`; only probe BODIES change.
-- [Phase 16]: Pitfall 4 (codegen breaks B8 identity) — `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` MUST survive codegen; test runs FIRST in CI.
-- [Phase 16]: Pitfall 5 (codegen overwrites hand-edit) — `@generated` marker + CI `lint-codegen` verify-clean job mandatory.
+- [Phase 18]: SPIKE-006 is the single architectural unknown remaining in the codebase; spike-before-plan flag active. Its GO/NO-GO output gates Phase 19. Inherits the 8 SPIKE-005 PASS/FAIL learnings via `Skill("spike-findings-codegen-market-libs")` — items 2/3/5/7/8 expected-PASS; items 1/4/6 are the gap libcst must close.
+- [Phase 18]: If items 1/4/6 FAIL again under libcst, REFAC-06 is shelved PERMANENTLY (duplicate shells accepted as structural feature) and the milestone closes on the signed NO-GO — this is a valid, guaranteed milestone outcome, not a failure.
+- [Phase 19]: Pitfall 4 (codegen breaks B8 identity) — `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` MUST survive codegen; test runs FIRST in CI (no thunk-wrapper).
+- [Phase 19]: Pitfall 5 (codegen overwrites hand-edit) — `@generated` marker + CI `lint-codegen` verify-clean (`git diff --exit-code`) mandatory.
+- [Phase 19]: Matriz deny-list intactness — the 4 concurrency-primitive files must stay sha256-identical; only `client.py`/`aio.py` are regenerated.
 
 ### Quick Tasks Completed
 
@@ -116,7 +121,7 @@ Recent decisions affecting current work:
 | 260611-u0v | Fix CI failures on phase-06-compat-safety-net (snapshot trailing whitespace + iol tests mypy strict + v1.0 archive whitespace) | 2026-06-11 | bc16e26, 2be4e90, 9360cf5 | [260611-u0v-fix-ci-failures-on-phase-06-compat-safet](./quick/260611-u0v-fix-ci-failures-on-phase-06-compat-safet/) |
 | 260613-nwb | Fix INT-01: replace denied `_base_url` with `_get_default()._state.base_url` in main_iol.py (15 probes) — closes INT-01, unblocks LIVE-01 (Phase 11) | 2026-06-13 | 3de1940 | [260613-nwb-fix-int-01-main-iol-py-crashea-con-attri](./quick/260613-nwb-fix-int-01-main-iol-py-crashea-con-attri/) |
 | 260614-de5 | Fix DOC-01..04 before completing milestone v1.1 — backfill 4 SUMMARY frontmatters + flip REQUIREMENTS.md traceability table 18 rows Open→Complete + emit Phase 10/11 VERIFICATION shims + remove ORP-01 dead `account_id` field from matriz `_state.py` | 2026-06-14 | 9d01d7f, cd946a3 | [260614-de5-fix-doc-01-04-before-completing-mileston](./quick/260614-de5-fix-doc-01-04-before-completing-mileston/) |
-| 260614-r1x | Fix v1.1 CI mypy + pre-commit tech debt (mypy-precommit-v1.1-techdebt) — Bucket A: 4 unused `# type: ignore` dropped + `_raise_for_response` added to `aio.__all__` (B8 identity test mypy-clean); Bucket B+C: bump `ruff-pre-commit` v0.7.4→v0.15.12 to resolve workspace vs hook drift; Bucket D: add `tenacity>=9.1.0,<10` to pre-commit mypy `additional_dependencies`. Final: `pre-commit run --all-files` exits 0 idempotently | 2026-06-14 | e5ad1c1, 73cb578, c7bf9e9, 2b8ec4a | [260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl](./quick/260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl/) |
+| 260614-r1x | Fix v1.1 CI mypy + pre-commit tech debt (mypy-precommit-v1.1-techdebt) — Bucket A: 4 unused `# type: ignore` dropped + `_raise_for_response` added to `aio.__all__`; Bucket B+C: bump `ruff-pre-commit` v0.7.4→v0.15.12; Bucket D: add `tenacity>=9.1.0,<10` to pre-commit mypy `additional_dependencies` | 2026-06-14 | e5ad1c1, 73cb578, c7bf9e9, 2b8ec4a | [260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl](./quick/260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl/) |
 
 ## Deferred Items
 
@@ -131,28 +136,10 @@ Items acknowledged and carried forward from v1.0 milestone close on 2026-06-10:
 | verification_gap | 05-VERIFICATION.md | human_needed — operator-driven validation satisfied via re-run | N/A — archived under v1.0 |
 | deferred_bug | F-09 matriz ERROR-MAP | DEFERRED in v1.0 Phase 5 | Resolved in Phase 9 (BUG-01) |
 | deferred_bug | F-02 higyrus get_listado_cuentas=0 | DEFERRED in v1.0 Phase 4 | Resolved in Phase 9 (BUG-02) |
-| deferred_cap | IOL refresh_token persistence | DEFERRED in v1.0 Phase 3 | Resolved in Phase 9 (BUG-03, in-instance only; disk persistence deferred to v1.2 — now Phase 14 SEC-01) |
+| deferred_cap | IOL refresh_token persistence | DEFERRED in v1.0 Phase 3 | Resolved in Phase 9 (BUG-03, in-instance only; disk persistence Phase 14 SEC-01) |
 | deferred_cap | HIGY multi-account iteration | DEFERRED in v1.0 Phase 4 | Resolved in Phase 9 (BUG-04) |
 
 See `.planning/milestones/v1.0-MILESTONE-AUDIT.md` for the full v1.0 audit context.
-
-### Acknowledged at v1.1 close on 2026-06-14
-
-Items surfaced by `gsd-sdk query audit-open` and acknowledged by operator at milestone close (per v1.1-MILESTONE-AUDIT.md `human_verification_pending:` block):
-
-| Category | Item | Status | Carry-forward |
-|----------|------|--------|---------------|
-| uat_gap | 07-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation); test 2 accepted 2026-06-14 (SC#3 LOC drop disposition signed off) | Human-only — requires push + observe GitHub Actions matrix; **PRE-PHASE-12 OPERATIONAL GATE** |
-| uat_gap | 08-HUMAN-UAT.md | partial — 4 pending: live retry smoke under real transients, log legibility subjective UX, CI 3.13 matrix, deferred review-item tracking | Human-only; deferred-review-tracking actually closed by Phase 11 (HARN scope), other 3 remain operator-confirm; **CI 3.13 matrix is PRE-PHASE-12 OPERATIONAL GATE** |
-| uat_gap | 09-HUMAN-UAT.md | partial — test 1 pending (CI matrix Python 3.13 remote confirmation) | Human-only — same as Phase 07 test 1; **PRE-PHASE-12 OPERATIONAL GATE** |
-| quick_task | 260611-u0v-fix-ci-failures-on-phase-06-compat-safet | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 3 commits in git history | False-positive (SDK parser heuristic) |
-| quick_task | 260613-nwb-fix-int-01-main-iol-py-crashea-con-attri | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 1 commit in git history | False-positive (SDK parser heuristic) |
-| quick_task | 260614-de5-fix-doc-01-04-before-completing-mileston | SDK reports "missing" — SUMMARY frontmatter `status: complete`, 2 commits in git history | False-positive (SDK parser heuristic) |
-
-Cleaned up inline before milestone close:
-
-- Pending todo `matriz-driver-findings-file-handling.md` moved to `.planning/todos/completed/` (resolved by Phase 11 HARN-07/08/10).
-- Phase 07 UAT test 2 (SC#3 LOC drop disposition) flipped from `[pending]` to `[accepted]` (operator signoff captured in 07-VERIFICATION.md frontmatter on 2026-06-14).
 
 ### Acknowledged at v1.2 close on 2026-06-25
 
@@ -160,21 +147,18 @@ Items surfaced by `gsd-sdk query audit-open` (6 total) and acknowledged by opera
 
 | Category | Item | Status | Carry-forward |
 |----------|------|--------|---------------|
-| quick_task | 260611-u0v-fix-ci-failures-on-phase-06-compat-safet | SDK reports "missing" — v1.1-era task, SUMMARY `status: complete`, commits in git history | False-positive (SDK parser heuristic) — no action |
-| quick_task | 260613-nwb-fix-int-01-main-iol-py-crashea-con-attri | SDK reports "missing" — v1.1-era task, work landed | False-positive (SDK parser heuristic) — no action |
-| quick_task | 260614-de5-fix-doc-01-04-before-completing-mileston | SDK reports "missing" — v1.1-era task, work landed | False-positive (SDK parser heuristic) — no action |
-| quick_task | 260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl | SDK reports "missing" — v1.1-era task, work landed | False-positive (SDK parser heuristic) — no action |
-| todo | spike-codegen-libcst-v1.3.md | pending (high) | **Intentional** — REFAC-06 deferred to v1.3 per Phase 12 NO-GO (D-NOGO-01); becomes the v1.3 codegen spike |
-| uat_gap | 15-HUMAN-UAT.md | partial — 4 operator-driven live scenarios | Superseded by Phase 17 LIVE-03 final gate (operator dispositions × 4 captured in 17-VALIDATION.md) |
+| quick_task | 260611-u0v / 260613-nwb / 260614-de5 / 260614-r1x | SDK reports "missing" — v1.1-era tasks, work landed in git history | False-positive (SDK parser heuristic) — no action |
+| todo | spike-codegen-libcst-v1.3.md | pending (high) → **now active** | Became the v1.3 codegen spike (Phase 18 SPIKE-006) per Phase 12 NO-GO (D-NOGO-01) |
+| uat_gap | 15-HUMAN-UAT.md | partial — 4 operator-driven live scenarios | Superseded by Phase 17 LIVE-03 final gate (dispositions × 4 in 17-VALIDATION.md) |
 
 See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for full close context.
 
 ## Session Continuity
 
-Last session: 2026-06-24T17:47:20.157Z
-Stopped at: Phase 17 context gathered (assumptions mode)
-Resume file: .planning/phases/17-final-live-re-verification-4-live-03/17-CONTEXT.md
+Last session: 2026-07-02T23:10:00.000Z
+Stopped at: v1.3 roadmap created (Phases 18-19, spike-gated REFAC-06)
+Resume file: .planning/ROADMAP.md §"v1.3 Codegen Single-Source (libcst)"
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.3 phase with `/gsd-plan-phase 18` (SPIKE-006 libcst codegen spike — spike-before-plan / RESEARCH FLAG).
