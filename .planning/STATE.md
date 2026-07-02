@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: Awaiting next milestone
-stopped_at: Phase 17 context gathered (assumptions mode)
-last_updated: "2026-06-25T23:09:36.483Z"
-last_activity: 2026-06-25 — Milestone v1.2 completed and archived
+milestone: v1.3
+milestone_name: Codegen Single-Source (libcst)
+status: planning
+last_updated: "2026-07-02T22:47:33.101Z"
+last_activity: 2026-07-02
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 18
-  completed_plans: 20
-  percent: 83
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -26,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-25 — Milestone v1.2 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-02 — Milestone v1.3 started
 
 ## Performance Metrics
 
