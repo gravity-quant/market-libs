@@ -164,33 +164,51 @@ Verdict: **PASS** (4/4 deny-list byte-identical pre/post; aio.py transformed; sc
 
 === TIMEBOX CHECK ===  [P03]
 
-Method: stat mtime on README.md (Plan 01 created it) vs time.time(); cap 24h.
+Method: stat mtime on README.md (Plan 01 created it) vs time.time(); cap 24h (D-07 / D-SCOPE-03).
 
-Status: TBD (Plan 03)
+Plan 03 run (2026-07-02):
+  README.md mtime (spike start):  2026-07-02 22:26 (local, UTC-3)
+  Plan 03 aggregate timestamp:    2026-07-03 01:54 UTC (~28m after README; same calendar spike)
+  Cumulative wall-clock across Plans 01 (~22m) + 02 (~33m) + 03: well under the 24h cap.
+
+Status: WITHIN-CAP  (no AUTO-NO-GO from D-07; the NO-GO below is evidence-driven, not timebox-driven)
 
 
 === AGGREGATE VERDICT ===  [P03]
 
-Per-item summary (filled by Plan 03):
-  Item 1  (byte-identical, GO-det.):     TBD
-  Item 2  (B8 identity):                 TBD
-  Item 3  (ruff format --check):         TBD
-  Item 4  (ruff check, GO-det.):         TBD
-  Item 5  (mypy --strict):               TBD
-  Item 6  (ámbito pytest, GO-det.):      TBD
-  Item 7  (lint-imports 4 contracts):    TBD
-  Item 8  (marker × future-compat):      TBD  (Plan 01)
-  Item 9  (CSTTransformer purity):       TBD
-  Item 10a (matriz audit 0 unresolved):  TBD  (Plan 01)
-  Item 10b (matriz deny-list sha256):    TBD  (Plan 01)
+Per-item summary (filled by Plan 03 from the four sub-experiment FINDINGs):
+  Item 1  (byte-identical, GO-det.):     FAIL  (001a — 13 hunks / 383 lines vs CURRENT client.py)
+  Item 2  (B8 identity):                 PASS  (001a — same object id across mod/aio/_core)
+  Item 3  (ruff format --check):         FAIL  (001a — length-changing swap left aio.py multi-line wrapping)
+  Item 4  (ruff check, GO-det.):         PASS  (001a — All checks passed! — the item unasync FAILED)
+  Item 5  (mypy --strict):               PASS  (001a — Success: no issues found)
+  Item 6  (ámbito pytest, GO-det.):      FAIL  (001a — circular self-import _validate_max_retries)
+  Item 7  (lint-imports 4 contracts):    PASS  (001a — 4 kept, 0 broken)
+  Item 8  (marker × future-compat):      PASS  (001b — STRICT, all 4 commands exit 0; Plan 01)
+  Item 9  (CSTTransformer purity):       PASS  (001a — class-level; vars(t) unchanged across visit; 14/14)
+  Item 10a (matriz audit 0 unresolved):  PASS  (001c — 110 rows, 0 unresolved; Plan 01)
+  Item 10b (matriz deny-list sha256):    PASS  (001d — 4/4 byte-identical pre/post; aio.py transformed; Plan 01)
 
-Items PASS: TBD / 10
-Items FAIL: TBD / 10
-Matriz audit unresolved rows: TBD  (D-SCOPE-02 gate: must be 0)
-Timebox status: TBD
+Items PASS: 7 / 10   (items 2, 4, 5, 7, 8, 9, 10 — where item 10 = 10a AND 10b both PASS)
+Items FAIL: 3 / 10   (items 1, 3, 6)
+Matriz audit unresolved rows: 0  (D-SCOPE-02 gate satisfied)
+Timebox status: WITHIN-CAP
 
-Strict D-RIGOR-02 verdict: TBD  (GO requires 10/10 PASS + unresolved == 0 + WITHIN-CAP;
-                                 NO-GO triggered by ANY item FAIL.)
+Strict D-RIGOR-02 verdict: NO-GO  (GO requires 10/10 PASS + unresolved == 0 + WITHIN-CAP;
+                                 items 1/3/6 FAIL → ANY FAIL → NO-GO.)
+
+Root cause (parallels SPIKE-005): items 1 and 6 trace to content ABSENT from aio.py that no pure
+single-file transform can synthesize — the `_validate_max_retries` def (defined only in client.py:41-62,
+imported at aio.py:34) and the `load_dotenv()` bootstrap (absent from aio.py per D-19). item 3 is the
+length-changing docstring/TypeError-string divergence from the AmbitoFinancieroAsyncClient→...Client
+swap. Item 4 (the item unasync FAILED) IMPROVED to PASS under libcst — a genuine capability gain — but
+does not change the content-absence-driven aggregate. This is the same source-shape root cause as
+SPIKE-005; per D-04/D-08 the signed NO-GO for the same root cause is an explicitly valid, guaranteed
+milestone deliverable and was NOT softened (no aio.py edit, no client.py-donor read).
+
+Recipe-2 informative note (alongside, never replacing the strict verdict): as in SPIKE-005, the FAILs
+are source-shape asymmetries, not tool defects — libcst closes the mechanical asymmetries (items 4/5/7/9
+PASS, labels localized) but cannot cross the content-absence boundary under the un-migrated D-03 constraint.
 
 
-=== END EVIDENCE CHECKLIST (skeleton) ===
+=== END EVIDENCE CHECKLIST (aggregated — Plan 03) ===
