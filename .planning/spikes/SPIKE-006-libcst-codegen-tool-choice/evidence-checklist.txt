@@ -100,7 +100,14 @@ Automated command (on the marked file, all 4 must exit 0):
 
   Marker inserted via libcst Module.header (NEVER str.replace — Anti-Pitfall 6).
 
-Verdict: <FILLED BY PLAN 01 Task 3 — see 001b/FINDING.md>
+Plan 01 run (2026-07-02, target = current clean ámbito client.py):
+  ruff check:          marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (All checks passed)
+  ruff format --check: marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (1 file already formatted)
+  mypy --strict:       marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (Success: no issues found)
+  ast.parse:           marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (AST OK)
+  libcst lossless round-trip on client.py: PASS  (A2 confirmed empirically)
+
+Verdict: **PASS** (STRICT — all 4 exit 0 on the marked file AND marker-neutral vs baseline)
 
 
 === D-RIGOR-02 item 9: CSTTransformer purity (pure CSTNode → CSTNode) ===  [P02]
@@ -144,7 +151,15 @@ Automated command:
   #       sha256-byte-identical pre/post AND sandbox aio.py sha256 differs (transformed).
   #       Only aio.py is ever handed to libcst (per-module scope = unasync fpath_list equivalent).
 
-Verdict: <FILLED BY PLAN 01 Task 3 — see 001d/FINDING.md>
+Plan 01 run (2026-07-02):
+  _token_store.py:    sha256 pre == post  (intact PASS)
+  _refresh_policy.py: sha256 pre == post  (intact PASS)
+  _refresh.py:        sha256 pre == post  (intact PASS)
+  ws_client.py:       sha256 pre == post  (intact PASS)
+  aio.py:             sha256 pre != post  (transformed PASS — minimal AsyncToSync pass)
+  uv.lock: unchanged after ephemeral libcst run (D-05); packages/ clean (sandbox only)
+
+Verdict: **PASS** (4/4 deny-list byte-identical pre/post; aio.py transformed; scope sufficient)
 
 
 === TIMEBOX CHECK ===  [P03]
