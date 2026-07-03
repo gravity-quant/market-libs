@@ -1,0 +1,8 @@
+Audit written to /Users/admin/development/market-libs/.planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001c-matriz-construct-audit/matriz-aio-constructs.md
+Total rows: 110
+Unresolved (REVIEW/TBD/DENY-LIST-VIOLATION): 0
+Deny-list imports detected in aio.py (re-exports): ['build_token_store']
+
+=== merge-gate result (from matriz-aio-constructs.md) ===
+## Unresolved rows: 0
+**MERGE GATE PASS:** zero unresolved rows.
