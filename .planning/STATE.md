@@ -6,14 +6,14 @@ current_phase: 18
 current_phase_name: libcst-codegen-tool-choice-spike-spike-006
 status: executing
 stopped_at: Phase 18 context gathered (assumptions mode)
-last_updated: "2026-07-03T01:35:44.990Z"
+last_updated: "2026-07-03T01:51:50.393Z"
 last_activity: 2026-07-03
 last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 for v1.3)
 ## Current Position
 
 Phase: 18 (libcst-codegen-tool-choice-spike-spike-006) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-03 — Phase 18 execution started
 
@@ -89,6 +89,7 @@ Last activity: 2026-07-03 — Phase 18 execution started
 | 18    | ?     | Not started | CODEGEN-01 (spike) | **RESEARCH FLAG / spike-before-plan.** SPIKE-006 evaluates `libcst >=1.8.0,<2` against the D-RIGOR-02 10-item gate on the ámbito v1.2-head canary (NOT migrated) + matriz audit/deny-list inheritance → signed GO/NO-GO. ALWAYS runs; guaranteed milestone deliverable. Items 1/4/6 are GO-determining. |
 | 19    | ?     | Not started | REFAC-06 | **CONDITIONAL — DROPPED if Phase 18 NO-GO.** Single-source `client.py`/`aio.py` shells × 4 (ámbito → iol → higyrus → matriz) via libcst; `@generated` marker + CI `lint-codegen` verify-clean + B8 identity + mocked suites green vs generated + deny-list intact. |
 | Phase 18 P01 | 22min | 3 tasks | 15 files |
+| Phase 18 P02 | 33min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,8 @@ Recent decisions affecting current work:
 - [v1.3 Roadmap]: The 3 GO-determining gate items are D-RIGOR-02 item 1 (byte-identical round-trip, no source migration), item 4 (ruff check clean incl. single-line import-order), item 6 (mocked suite green vs generated, no circular self-import) — all trace to the single unasync root cause (source-shape asymmetry). libcst must close all 3 for GO.
 - [v1.3 Roadmap]: No standalone milestone-close / live re-verification phase. Per the in-cycle verification convention, byte-identical generated output means wire behavior is unchanged by construction; the D-RIGOR-02 item-1 + item-6 gates fold verification into Phase 19. Milestone kept tight (REFAC-06-only) — other v1.3 candidates (prod-vs-remarkets, ws_client live, token encryption) stay in backlog.
 - [v1.3 Roadmap]: Matriz deny-list (`_token_store.py`/`_refresh_policy.py`/`_refresh.py`/`ws_client.py`) is OUT of codegen scope in BOTH phases — the spike CONFIRMS (sha256-byte-identical under MetadataWrapper), it does NOT renegotiate. Codegen applies ONLY to `client.py`/`aio.py` transport shells.
+- [Phase 18]: SPIKE-006 001a: libcst closes mechanical asymmetries (items 4/5/7/9 PASS) but items 1/6 FAIL on content-absence (_validate_max_retries def + dotenv bootstrap absent from aio.py) — same SPIKE-005 root cause; aggregate NO-GO
+- [Phase 18]: Item-9 purity scoped to transformer CLASSES; impure driver owns cross-module/scope orchestration (flagged for operator ratification in Plan 03 DECISION.md)
 
 ### Pending Todos
 
@@ -160,7 +163,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-03T01:35:25.766Z
+Last session: 2026-07-03T01:51:50.389Z
 Stopped at: Phase 18 context gathered (assumptions mode)
 Resume file: .planning/phases/18-libcst-codegen-tool-choice-spike-spike-006/18-CONTEXT.md
 

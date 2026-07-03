@@ -78,14 +78,14 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
   4. The matriz deny-list files (`_token_store.py`, `_refresh_policy.py`, `_refresh.py`, `ws_client.py`) are re-verified sha256-byte-identical pre/post — confirmed OUT of codegen scope (spike CONFIRMS, does not renegotiate).
   5. On **GO**: per-package CSTTransformer drafts (import-direction normalizer, single-line import-order normalizer, docstring localizer) exist as the Phase 19 handoff artifact. On **NO-GO**: REFAC-06 is marked permanently shelved and the milestone closes on the signed NO-GO.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 **Wave 1**
 
 - [x] 18-01-PLAN.md — Spike scaffold + inherited harness (item 8 marker / item 10a matriz audit / item 10b deny-list sha256) + libcst legitimacy gate + decision skeletons
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-02-PLAN.md — 001a CSTTransformer suite + 3 GO-determining items (1 byte-identical, 4 ruff-check, 6 mocked-suite) + items 2/3/5/7 + item 9 purity; Q1 content-absence instrumented honestly
+- [x] 18-02-PLAN.md — 001a CSTTransformer suite + 3 GO-determining items (1 byte-identical, 4 ruff-check, 6 mocked-suite) + items 2/3/5/7 + item 9 purity; Q1 content-absence instrumented honestly
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -127,7 +127,7 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
 | 15. Driver Migration × 4                                    | v1.2      | 5/4   | Complete    | 2026-06-24 |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
 | 17. Final Live Re-verification × 4                          | v1.2      | 3/3   | Complete    | 2026-06-25 |
-| 18. libcst Codegen Tool-Choice Spike (SPIKE-006)            | v1.3      | 1/3 | In Progress|  |
+| 18. libcst Codegen Tool-Choice Spike (SPIKE-006)            | v1.3      | 2/3 | In Progress|  |
 | 19. Codegen Single-Source × 4 (CONDITIONAL on Phase 18 GO)  | v1.3      | 0/?   | Not started | -          |
 
 ## Backlog
