@@ -1,8 +1,8 @@
 ---
 spike: 006
-decision: TBD
-signoff_date: TBD
-signoff_by: TBD
+decision: NO-GO
+signoff_date: 2026-07-03
+signoff_by: sebadlf
 evidence_checklist:
   item_1_byte_identical_ambito: FAIL
   item_2_b8_identity: PASS
@@ -23,12 +23,13 @@ recommended_verdict: NO-GO
 
 # SPIKE-006 — libcst Codegen Tool Choice Decision (v1.3)
 
-> **STATUS: DRAFT — awaiting operator signoff (Task 18-03-02).**
+> **STATUS: SIGNED — operator signed NO-GO on 2026-07-03 (Task 18-03-02, D-06 / T-18-07).**
 > The 10-item verdict map, the strict D-04 aggregate, and the D-07 timebox status below are
 > mechanically computed from the four sub-experiment FINDINGs and are final as evidence. The
-> frontmatter `decision:` + `signoff_by`/`signoff_date` are intentionally left `TBD` — the operator
-> signs the binary GO/NO-GO here (D-06 / T-18-07 repudiation mitigation). The executor does NOT
-> self-sign.
+> operator (`sebadlf`) has signed the binary GO/NO-GO in the frontmatter (`decision: NO-GO`,
+> `signoff_by: sebadlf`, `signoff_date: 2026-07-03`) and the Operator Signoff section below. The
+> executor did NOT self-sign; the operator ratified the strict D-04 aggregate, the item-9
+> class-level purity reading (Q2), and the residual docstring-divergence disposition (Q3).
 
 This decision artifact is the merge gate for Phase 18. It records the binary GO/NO-GO on
 whether `libcst >=1.8.0,<2` is the right tool for REFAC-06 (single-source sync/async transport
@@ -141,14 +142,17 @@ as **item-1 FAIL** under the strict D-02 reading (→ NO-GO), consistent with th
 
 ## Operator Signoff
 
-**Verdict:** TBD (operator sets GO or NO-GO)
-**Date:** TBD
-**Operator:** TBD
+**Verdict:** NO-GO
+**Date:** 2026-07-03
+**Operator:** sebadlf
 
-**Rationale:** TBD — operator ratifies the strict D-04 aggregate (recommended NO-GO), the item-9
-class-level purity reading (Q2), and the residual docstring-divergence disposition (Q3). To sign:
-set frontmatter `decision:` + `signoff_by` + `signoff_date`, fill this section, and (on NO-GO) the
-drafted `NO-GO.md` close-out becomes effective.
+**Rationale:** Signed. The operator reviewed the 10-item evidence transcripts and ratifies the strict
+D-04 aggregate (7 PASS / 3 FAIL — items 1/3/6 FAIL → NO-GO), the item-9 class-level purity reading
+(Q2), and the residual docstring-divergence disposition (Q3, item-1 FAIL under strict D-02). No FAIL is
+softened into a GO. The drafted `NO-GO.md` close-out is now effective: REFAC-06 is PERMANENTLY shelved,
+Phase 19 (GO-branch) is DROPPED, and the duplicate `client.py`/`aio.py` shells are accepted as a
+structural feature. Two independent tools (unasync SPIKE-005, libcst SPIKE-006) now reach the same
+NO-GO for the same content-absence root cause under the un-migrated D-02 bar.
 
 ## Routing After Signoff
 

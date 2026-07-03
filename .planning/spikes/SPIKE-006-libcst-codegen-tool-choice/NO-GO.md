@@ -1,22 +1,22 @@
 ---
 spike: 006
-status: NO-GO (RECOMMENDED — effective on operator signoff of DECISION.md)
-signed: PENDING-OPERATOR
-signed_by: PENDING-OPERATOR
+status: NO-GO (SIGNED — effective 2026-07-03)
+signed: 2026-07-03
+signed_by: sebadlf
 tool: libcst
 prior_spike: SPIKE-005 (unasync NO-GO, 2026-06-14)
 related: [REFAC-06]
-phase_19_status: DROPPED_on_signoff
-refac_06_status: PERMANENTLY_SHELVED_on_signoff
+phase_19_status: DROPPED
+refac_06_status: PERMANENTLY_SHELVED
 tags: [spike, codegen, libcst, NO-GO, REFAC-06, v1.3, content-absence]
 ---
 
 # SPIKE-006 — NO-GO Decision (libcst, v1.3)
 
-> **DRAFT CLOSE-OUT — becomes effective when the operator signs `DECISION.md`.** The verdict below
-> is the mechanically-computed strict D-04 aggregate; the executor does not self-sign (D-06 /
-> T-18-07). Project-state governance edits (REQUIREMENTS/ROADMAP/CLAUDE/Skill/18-SUMMARY) land in the
-> post-signoff continuation.
+> **EFFECTIVE CLOSE-OUT — the operator signed `DECISION.md` on 2026-07-03 (`sebadlf`).** The verdict
+> below is the mechanically-computed strict D-04 aggregate, now ratified by operator signature (D-06 /
+> T-18-07). Project-state governance edits (REQUIREMENTS/ROADMAP/18-03-SUMMARY) are applied in the
+> post-signoff continuation of Plan 18-03.
 
 **Tool evaluated:** `libcst >=1.8.0,<2` (Meta/Instagram AST-level CST codemod), ephemeral (D-05).
 **Bar:** STRICT un-migrated D-02 — no `aio.py` source edits; consumed as-is.
