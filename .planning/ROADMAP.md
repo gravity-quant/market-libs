@@ -5,7 +5,7 @@
 - ✅ **v1.0 Verification cycle** — Phases 1-5 (shipped 2026-06-10) — see [`milestones/v1.0-ROADMAP.md`](./milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 Tech Debt Cleanup** — Phases 6-11 (shipped 2026-06-14) — see [`milestones/v1.1-ROADMAP.md`](./milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 Architecture + Auth/Ergonomics Carry-forwards** — Phases 12-17 (shipped 2026-06-25) — see [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md)
-- 🚧 **v1.3 Codegen Single-Source (libcst)** — Phases 18-19 (in progress) — spike-gated REFAC-06 (SPIKE-006 GO/NO-GO)
+- 🏁 **v1.3 Codegen Single-Source (libcst)** — Phases 18-19 — Phase 18 SPIKE-006 **NO-GO signed 2026-07-03**; Phase 19 (REFAC-06) DROPPED; milestone closes on the signed NO-GO (awaiting `/gsd-complete-milestone`)
 
 ## Phases
 
@@ -56,10 +56,10 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
 
 </details>
 
-### 🚧 v1.3 Codegen Single-Source (libcst) — Phases 18-19 (in progress)
+### 🏁 v1.3 Codegen Single-Source (libcst) — Phases 18-19 (closing on signed NO-GO)
 
-- [ ] **Phase 18: libcst Codegen Tool-Choice Spike (SPIKE-006)** — RESEARCH FLAG / spike-before-plan; evaluate `libcst >=1.8.0,<2` against the `D-RIGOR-02` 10-item gate on the ámbito v1.2-head canary + matriz audit/deny-list inheritance → signed **GO/NO-GO** (CODEGEN-01). ALWAYS runs; guaranteed milestone deliverable.
-- [ ] **Phase 19: Codegen Single-Source × 4 Packages (REFAC-06)** — **CONDITIONAL on Phase 18 GO — DROPPED if NO-GO**; single-source `client.py`/`aio.py` transport shells (ámbito → iol → higyrus → matriz) via libcst with `@generated` marker + CI `lint-codegen` verify-clean + B8 identity preserved.
+- [x] **Phase 18: libcst Codegen Tool-Choice Spike (SPIKE-006)** — RESEARCH FLAG / spike-before-plan; evaluated `libcst >=1.8.0,<2` against the `D-RIGOR-02` 10-item gate on the ámbito v1.2-head canary + matriz audit/deny-list inheritance → **signed NO-GO** (CODEGEN-01, `sebadlf` 2026-07-03; 7 PASS / 3 FAIL, items 1/3/6). Guaranteed milestone deliverable — completed 2026-07-03.
+- ~~**Phase 19: Codegen Single-Source × 4 Packages (REFAC-06)**~~ — **DROPPED 2026-07-03** (Phase 18 NO-GO). REFAC-06 permanently shelved; duplicate `client.py`/`aio.py` shells accepted as a structural feature. Mirrors the v1.2 Phase 16 "DROPPED if Phase 12 NO-GO" precedent.
 
 > **Milestone note — spike-gated conditional structure.** v1.3 honors locked decision **D-NOGO-01** (v1.2 Phase 12 NO-GO). Phase 18 (SPIKE-006) runs FIRST and is the milestone's *guaranteed* deliverable: it produces a signed GO/NO-GO regardless of outcome. Phase 19 (REFAC-06) is implemented **only if** Phase 18 returns GO. If the 3 previously-failing gate items (1 byte-identical, 4 ruff-check import-order, 6 mocked-suite-green) FAIL again under libcst, **REFAC-06 is shelved permanently** — the duplicate `client.py`/`aio.py` shells become an accepted structural feature and the milestone closes on the signed NO-GO. This mirrors the v1.2 Phase 16 "DROPPED if Phase 12 NO-GO" precedent exactly. Per the in-cycle verification convention (REQUIREMENTS.md), no full live re-run × 4 is planned: byte-identical generated output means wire behavior is unchanged by construction, so the D-RIGOR-02 item-1 (byte-identical) + item-6 (mocked suite green) gates fold milestone-close verification into Phase 19.
 
@@ -78,7 +78,7 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
   4. The matriz deny-list files (`_token_store.py`, `_refresh_policy.py`, `_refresh.py`, `ws_client.py`) are re-verified sha256-byte-identical pre/post — confirmed OUT of codegen scope (spike CONFIRMS, does not renegotiate).
   5. On **GO**: per-package CSTTransformer drafts (import-direction normalizer, single-line import-order normalizer, docstring localizer) exist as the Phase 19 handoff artifact. On **NO-GO**: REFAC-06 is marked permanently shelved and the milestone closes on the signed NO-GO.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 18-01-PLAN.md — Spike scaffold + inherited harness (item 8 marker / item 10a matriz audit / item 10b deny-list sha256) + libcst legitimacy gate + decision skeletons
@@ -89,13 +89,15 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 18-03-PLAN.md — Aggregate 10-item verdict map, apply strict D-04, sign DECISION.md (GO/NO-GO), write close-out (GO-handoff.md drafts / NO-GO.md REFAC-06 shelved)
+- [x] 18-03-PLAN.md — Aggregated 10-item verdict map, applied strict D-04, **operator-signed NO-GO** in DECISION.md (`sebadlf` 2026-07-03), wrote NO-GO.md close-out (REFAC-06 permanently shelved)
 
-### Phase 19: Codegen Single-Source × 4 Packages (REFAC-06)
+### Phase 19: Codegen Single-Source × 4 Packages (REFAC-06) — DROPPED
+
+**Status**: **DROPPED 2026-07-03** — Phase 18 SPIKE-006 returned a signed NO-GO, so this conditional phase does not run. REFAC-06 is permanently shelved; the duplicate `client.py`/`aio.py` shells are accepted as a structural feature. Details below preserved for the record.
 
 **Goal**: **CONDITIONAL on Phase 18 GO.** If SPIKE-006 returns GO, single-source the `client.py`/`aio.py` transport shells of the 4 verifiable packages (ámbito → iol → higyrus → matriz) via libcst codegen — with a `@generated` marker, a CI `lint-codegen` verify-clean job, and B8 identity preserved — so the structural sync/async duplication is eliminated without changing observable wire behavior. **DROPPED entirely if Phase 18 returns NO-GO**: REFAC-06 is shelved permanently, the duplicate shells are accepted as a structural feature, and the milestone closes on the signed NO-GO.
-**Depends on**: Phase 18 (GO decision)
-**Requirements**: REFAC-06
+**Depends on**: Phase 18 (GO decision) — returned NO-GO → phase dropped
+**Requirements**: REFAC-06 (permanently shelved)
 **Success Criteria** (what must be TRUE):
 
   1. Running the codegen entrypoint (`make codegen` / `uv run --with libcst scripts/codegen.py` or equivalent) regenerates all 8 transport shells **byte-identically**; `make codegen-check` → `git diff --exit-code` passes clean in CI (a hand-edit over a generated file FAILS CI — anti-Pitfall 5).
@@ -127,8 +129,8 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
 | 15. Driver Migration × 4                                    | v1.2      | 5/4   | Complete    | 2026-06-24 |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
 | 17. Final Live Re-verification × 4                          | v1.2      | 3/3   | Complete    | 2026-06-25 |
-| 18. libcst Codegen Tool-Choice Spike (SPIKE-006)            | v1.3      | 2/3 | In Progress|  |
-| 19. Codegen Single-Source × 4 (CONDITIONAL on Phase 18 GO)  | v1.3      | 0/?   | Not started | -          |
+| 18. libcst Codegen Tool-Choice Spike (SPIKE-006)            | v1.3      | 3/3 | Complete   | 2026-07-03 |
+| 19. Codegen Single-Source × 4 (DROPPED — Phase 18 NO-GO)    | v1.3      | -     | Dropped     | 2026-07-03 |
 
 ## Backlog
 

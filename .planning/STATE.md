@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Codegen Single-Source
 current_phase: 18
 current_phase_name: libcst-codegen-tool-choice-spike-spike-006
-status: executing
-stopped_at: Phase 18 context gathered (assumptions mode)
-last_updated: "2026-07-03T01:51:50.393Z"
+status: verifying
+stopped_at: Phase 18 complete — SPIKE-006 NO-GO signed (18-03 done, 3/3)
+last_updated: "2026-07-03T12:10:13.596Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 18 execution started
+last_activity_desc: Phase 18 execution finished — operator-signed NO-GO (CODEGEN-01); REFAC-06 shelved, Phase 19 dropped
 progress:
   total_phases: 2
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-02 for v1.3)
 
 ## Current Position
 
-Phase: 18 (libcst-codegen-tool-choice-spike-spike-006) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-07-03 — Phase 18 execution started
+Phase: 18 (libcst-codegen-tool-choice-spike-spike-006) — EXECUTION FINISHED (3/3 plans)
+Plan: 3 of 3 — complete
+Status: Phase complete — SPIKE-006 NO-GO signed (sebadlf, 2026-07-03); milestone closes on the signed NO-GO (run `/gsd-complete-milestone`)
+Last activity: 2026-07-03 — operator-signed NO-GO; REFAC-06 permanently shelved, Phase 19 dropped
 
 ## Performance Metrics
 
@@ -90,6 +90,7 @@ Last activity: 2026-07-03 — Phase 18 execution started
 | 19    | ?     | Not started | REFAC-06 | **CONDITIONAL — DROPPED if Phase 18 NO-GO.** Single-source `client.py`/`aio.py` shells × 4 (ámbito → iol → higyrus → matriz) via libcst; `@generated` marker + CI `lint-codegen` verify-clean + B8 identity + mocked suites green vs generated + deny-list intact. |
 | Phase 18 P01 | 22min | 3 tasks | 15 files |
 | Phase 18 P02 | 33min | 2 tasks | 12 files |
+| Phase 18 P18-03 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Recent decisions affecting current work:
 - [v1.3 Roadmap]: Matriz deny-list (`_token_store.py`/`_refresh_policy.py`/`_refresh.py`/`ws_client.py`) is OUT of codegen scope in BOTH phases — the spike CONFIRMS (sha256-byte-identical under MetadataWrapper), it does NOT renegotiate. Codegen applies ONLY to `client.py`/`aio.py` transport shells.
 - [Phase 18]: SPIKE-006 001a: libcst closes mechanical asymmetries (items 4/5/7/9 PASS) but items 1/6 FAIL on content-absence (_validate_max_retries def + dotenv bootstrap absent from aio.py) — same SPIKE-005 root cause; aggregate NO-GO
 - [Phase 18]: Item-9 purity scoped to transformer CLASSES; impure driver owns cross-module/scope orchestration (flagged for operator ratification in Plan 03 DECISION.md)
+- [Phase 18 / 18-03]: SPIKE-006 **signed NO-GO** (sebadlf, 2026-07-03) — 7 PASS / 3 FAIL (items 1/3/6) → strict D-04 NO-GO. libcst is a partial gain over unasync (closes item 4 `ruff check` / ASYNC1xx) but cannot cross the content-absence boundary without a forbidden source migration (D-02). Two independent tools now reach the same NO-GO for the same root cause.
+- [Phase 18 / 18-03]: **REFAC-06 PERMANENTLY shelved; Phase 19 DROPPED**; duplicate `client.py`/`aio.py` transport shells accepted as a structural feature. v1.3 milestone closes on the signed NO-GO (run `/gsd-complete-milestone`).
 
 ### Pending Todos
 
@@ -163,7 +166,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-03T01:51:50.389Z
+Last session: 2026-07-03T12:10:01.862Z
 Stopped at: Phase 18 context gathered (assumptions mode)
 Resume file: .planning/phases/18-libcst-codegen-tool-choice-spike-spike-006/18-CONTEXT.md
 
