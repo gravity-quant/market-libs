@@ -1,8 +1,8 @@
 SPIKE-006 — D-RIGOR-02 Evidence Checklist (10 items)
 ====================================================
 
-Status: SKELETON (Plan 01 scaffolds; Plan 02 fills items 1-6/9; Plan 03 re-runs the full
-        10-item checklist end-to-end and computes the aggregate verdict).
+Status: AGGREGATED + SIGNED (Plan 03). Per-item verdicts below are synced to the
+        === AGGREGATE VERDICT === block and the signed DECISION.md (decision: NO-GO).
 Spike directory: .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/
 
 Reference:
@@ -24,7 +24,7 @@ Automated command (18-RESEARCH.md Test Map):
 
 NOTE: baseline is the CURRENT v1.2-head client.py (Pitfall 1 — do NOT reuse SPIKE-005's stale diff).
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **FAIL** (001a — 13 hunks / 383 lines vs CURRENT client.py; content-absence of _validate_max_retries def + load_dotenv bootstrap)
 
 
 === D-RIGOR-02 item 2: B8 identity preserved on generated ===  [P02]
@@ -34,7 +34,7 @@ Automated command:
     mod._raise_for_response is aio._raise_for_response is _core.raise_for_response
   (Pitfall 4 — the alias node must be emitted verbatim, not a rebuilt thunk.)
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **PASS** (001a — same object id across mod/aio/_core; B8 alias emitted verbatim)
 
 
 === D-RIGOR-02 item 3: `uv run ruff format --check` clean ===  [P02]
@@ -45,7 +45,7 @@ Automated command:
 
   (libcst lossless round-trip → no ruff format post-pass needed for untouched trivia; Pitfall 3.)
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **FAIL** (001a — length-changing Async→sync swap left aio.py multi-line wrapping)
 
 
 === D-RIGOR-02 item 4: `uv run ruff check` clean incl. I001 + ASYNC1xx (GO-det.) ===  [P02]
@@ -54,7 +54,7 @@ Automated command:
   uv run ruff check \
     .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
 
-Verdict: TBD (Plan 02 — 001a; ImportNormalizer targets the single-line import-order I001)
+Verdict: **PASS** (001a — All checks passed! — the one GO-det item unasync FAILED; libcst closes it via ImportNormalizer single-line I001 fix)
 
 
 === D-RIGOR-02 item 5: `uv run mypy --strict` clean ===  [P02]
@@ -63,7 +63,7 @@ Automated command:
   uv run mypy --strict \
     .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **PASS** (001a — Success: no issues found)
 
 
 === D-RIGOR-02 item 6: Ámbito mocked suite green vs generated (GO-det.) ===  [P02]
@@ -78,7 +78,7 @@ Automated command (sandbox recipe — Anti-Pitfall 2, never mutate packages/):
   Watch: circular self-import of _validate_max_retries (SPIKE-005 item-6 FAIL root cause);
   ImportDirectionNormalizer + def synthesis must eliminate it.
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **FAIL** (001a — circular self-import _validate_max_retries; exact SPIKE-005 item-6 root cause)
 
 
 === D-RIGOR-02 item 7: `uv run lint-imports` 4 contracts intact ===  [P02]
@@ -87,7 +87,7 @@ Automated command:
   uv run lint-imports
   (runs against production packages/, NOT spike artifacts — confirms existing contracts hold.)
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **PASS** (001a — 4 kept, 0 broken)
 
 
 === D-RIGOR-02 item 8: `@generated` marker × `from __future__ import annotations` ===  [P01]
@@ -117,7 +117,7 @@ Automated command:
   no I/O, no self-accumulation (Pitfall 5 — cross-module state lives in the impure driver,
   not the CSTTransformer subclasses).
 
-Verdict: TBD (Plan 02 — 001a)
+Verdict: **PASS** (001a — class-level purity; vars(t) unchanged across visit; 14/14 assertions)
 
 
 === D-RIGOR-02 item 10a: matriz construct audit — 0 unresolved rows ===  [P01]
@@ -211,4 +211,4 @@ are source-shape asymmetries, not tool defects — libcst closes the mechanical 
 PASS, labels localized) but cannot cross the content-absence boundary under the un-migrated D-03 constraint.
 
 
-=== END EVIDENCE CHECKLIST (aggregated — Plan 03) ===
+=== END EVIDENCE CHECKLIST (aggregated + signed — Plan 03) ===

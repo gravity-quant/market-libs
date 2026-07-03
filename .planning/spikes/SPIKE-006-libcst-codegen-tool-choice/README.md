@@ -4,8 +4,8 @@ name: libcst-codegen-tool-choice
 type: standard
 validates: "Given the CURRENT v1.2-head hand-written packages/ambito-financiero-client/.../client.py + matriz aio.py 959 LOC, when libcst CSTTransformers run against aio.py (async→sync, import-direction normalize, docstring localize, single-line import-order, suppressors) WITHOUT any source migration, then byte-identical round-trip + B8 identity preserved + ruff/mypy clean + mocked suite green + matriz construct audit zero unresolved + deny-list sha256 intact + marker grammar-neutral"
 verdict: NO-GO
-signoff_date: TBD
-signoff_by: TBD
+signoff_date: 2026-07-03
+signoff_by: sebadlf
 related: [001a, 001b, 001c, 001d]
 tags: [codegen, libcst, ambito, matriz, B8-identity, phase-18, v1.3]
 created: 2026-07-02
