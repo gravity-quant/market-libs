@@ -129,7 +129,7 @@ Requirements archive: [`milestones/v1.2-REQUIREMENTS.md`](./milestones/v1.2-REQU
 | 15. Driver Migration × 4                                    | v1.2      | 5/4   | Complete    | 2026-06-24 |
 | 16. Codegen Single-Source (DROPPED — Phase 12 NO-GO)        | v1.2      | -     | Dropped     | 2026-06-14 |
 | 17. Final Live Re-verification × 4                          | v1.2      | 3/3   | Complete    | 2026-06-25 |
-| 18. libcst Codegen Tool-Choice Spike (SPIKE-006)            | v1.3      | 3/3 | Complete   | 2026-07-03 |
+| 18. libcst Codegen Tool-Choice Spike (SPIKE-006)            | v1.3      | 3/3 | Complete    | 2026-07-03 |
 | 19. Codegen Single-Source × 4 (DROPPED — Phase 18 NO-GO)    | v1.3      | -     | Dropped     | 2026-07-03 |
 
 ## Backlog
