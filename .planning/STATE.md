@@ -2,37 +2,37 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Codegen Single-Source
-current_phase: 19
-current_phase_name: REFAC-06
-status: completed
+current_phase: 3
+status: Awaiting next milestone
 stopped_at: Phase 18 context gathered (assumptions mode)
-last_updated: "2026-07-03T12:22:17.022Z"
+last_updated: "2026-07-03T18:15:08.396Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 18 complete, transitioned to Phase 19
+last_activity_desc: Milestone v1.3 completed and archived
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 3
   completed_plans: 3
   percent: 50
+current_phase_name: REFAC-06
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-02 for v1.3)
+See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 layer: cerrar el único unknown arquitectónico residual — eliminar la duplicación estructural sync/async de los transport shells `client.py`/`aio.py` × 4 paquetes vía codegen single-source con `libcst`, resolviendo o descartando definitivamente el NO-GO de unasync de v1.2 Phase 12.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Phase 18 — libcst-codegen-tool-choice-spike-spike-006
+**Current focus:** Planning next milestone — v1.3 closed 2026-07-03 on the signed SPIKE-006 NO-GO. No forced next milestone; candidate v1.4+ work (prod-vs-remarkets D-MATZ-27, ws_client live verification, token encryption at-rest) lives in the ROADMAP Backlog. Start with `/gsd-new-milestone`.
 
 ## Current Position
 
-Phase: 19 — Codegen Single-Source × 4 Packages (REFAC-06) — DROPPED
-Plan: Not started
-Status: Phase complete — SPIKE-006 NO-GO signed (sebadlf, 2026-07-03); milestone closes on the signed NO-GO (run `/gsd-complete-milestone`)
-Last activity: 2026-07-03 — Phase 18 complete, transitioned to Phase 19
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-03 — Milestone v1.3 completed and archived
 
 ## Performance Metrics
 
@@ -172,4 +172,4 @@ Resume file: .planning/phases/18-libcst-codegen-tool-choice-spike-spike-006/18-C
 
 ## Operator Next Steps
 
-- Plan the first v1.3 phase with `/gsd-plan-phase 18` (SPIKE-006 libcst codegen spike — spike-before-plan / RESEARCH FLAG).
+- Start the next milestone with /gsd-new-milestone

@@ -1,5 +1,23 @@
 # Milestones
 
+## v1.3 Codegen Single-Source (libcst) (Closed: 2026-07-03 — signed NO-GO)
+
+**Phases completed:** 1 phase (18; Phase 19 REFAC-06 DROPPED), 3 plans, 7 tasks
+**Git range:** `6d3b749` (docs: start milestone v1.3) → `1333d5f` (docs(phase-18): auto-close todo), 2026-07-02 → 2026-07-03 (23 commits)
+**Source delta:** 0 production files — **zero footprint**. The entire milestone lived under `.planning/spikes/SPIKE-006-libcst-codegen-tool-choice/` with `libcst` invoked ephemerally (`uv run --with libcst`, never added to dev deps per D-05).
+
+**Outcome:** Signed **NO-GO** (`sebadlf`, 2026-07-03). CODEGEN-01 resolved; REFAC-06 permanently shelved; Phase 19 dropped; duplicate `client.py`/`aio.py` transport shells accepted as a structural feature. A valid, guaranteed milestone deliverable per D-08 (the milestone delivered a signed architectural decision, not code). libcst is a partial gain over unasync — it closes item 4 (`ruff check` I001 + ASYNC1xx) that SPIKE-005 could not — but two independent tools now reach the same strict-D-04 NO-GO for the same content-absence / source-shape-asymmetry root cause.
+
+**Key accomplishments:**
+
+- Stood up the SPIKE-006 libcst spike tree and landed the ~60% inherited D-RIGOR-02 harness — item 10a matriz construct audit (0 unresolved / 959 LOC, verbatim audit.py), item 8 @generated marker via libcst Module.header (STRICT PASS, all 4 commands exit 0), and item 10b matriz 4-file deny-list sha256 byte-identity under per-module libcst scope — with the libcst supply-chain gate operator-approved and libcst kept ephemeral.
+- Authored the genuinely-new core of SPIKE-006 — five pure libcst `CSTTransformer` subclasses + an impure driver that transform the un-migrated ámbito `aio.py` into a candidate sync `client.py` — and captured the honest D-RIGOR-02 gate transcript: item 4 (GO-det, `ruff check`) now PASSES (the item unasync failed), but items 1 and 6 (GO-det) FAIL for the exact SPIKE-005 source-shape root cause — `_validate_max_retries` def + `load_dotenv` bootstrap are content-absent from `aio.py` and cannot be synthesized by any pure transform — a signed same-root-cause NO-GO that is a valid, guaranteed deliverable (D-04/D-08), reached without editing `aio.py` or reading `client.py` as a donor.
+- Operator-signed SPIKE-006 NO-GO (sebadlf, 2026-07-03) — 7 PASS / 3 FAIL on the 10-item D-RIGOR-02 gate (items 1/3/6 FAIL, same content-absence root cause as SPIKE-005) → REFAC-06 permanently shelved, Phase 19 dropped, zero production footprint.
+
+**Known deferred items at close:** 0 (pre-close artifact audit clear — all artifact types clean). No milestone audit was run: with 2/2 requirements resolved and a spike-only milestone that shipped no code, the signed NO-GO is itself the complete deliverable.
+
+---
+
 ## v1.2 Architecture + Auth/Ergonomics Carry-forwards (Shipped: 2026-06-25)
 
 **Phases completed:** 5 phases (12-15, 17; Phase 16 dropped), 18 plans, 40 tasks

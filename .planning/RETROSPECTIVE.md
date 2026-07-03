@@ -114,6 +114,47 @@
 
 ---
 
+## Milestone: v1.3 — Codegen Single-Source (libcst)
+
+**Closed:** 2026-07-03 (on a signed NO-GO)
+**Phases:** 1 (Phase 18; Phase 19 REFAC-06 dropped) | **Plans:** 3 | **Tasks:** 7
+
+### What Was Built
+
+Nothing shipped to production — and that was a valid, guaranteed milestone outcome. v1.3 was a single spike-before-plan phase (SPIKE-006) that evaluated `libcst >=1.8.0,<2` as an AST-level codemod for single-sourcing the sync/async transport shells, against a 10-item `D-RIGOR-02` evidence gate. It produced: (1) a spike tree inheriting ~60% of the SPIKE-005 harness — matriz construct audit (item 10a, 0 unresolved), `@generated` marker via `libcst.Module.header` (item 8, STRICT PASS), 4-file deny-list sha256 byte-identity (item 10b); (2) five pure `CSTTransformer` subclasses + an impure driver transforming the un-migrated ámbito `aio.py` into a candidate `client.py`; (3) an honest gate transcript — 7 PASS / 3 FAIL; and (4) an operator-signed NO-GO decision + close-out. REFAC-06 is permanently shelved; the duplicate shells are accepted as a structural feature.
+
+### What Worked
+
+- **Two-tool convergence as strong evidence.** unasync (SPIKE-005) and libcst (SPIKE-006) are architecturally different codemod tools, yet both hit the same strict-D-04 NO-GO for the same root cause (content-absence: `_validate_max_retries` def + `load_dotenv` bootstrap live only in `client.py`). Reaching the same answer twice, from two directions, turns "this tool can't do it" into "the source-shape asymmetry is intrinsic" — a far more durable decision.
+- **Honest transcript discipline.** The executor never synthesized the content-absent constructs from a `client.py` donor or by editing `aio.py` (D-02). It let items 1/6 FAIL truthfully rather than manufacturing a GO. The NO-GO is trustworthy precisely because the harness refused to cheat.
+- **Inheritance from the prior spike.** ~60% of the harness (marker design, audit.py, deny-list sha256 skeleton) carried over verbatim from SPIKE-005 via the auto-loaded findings skill — the second spike was cheap because the first one's learnings were captured as a reusable artifact.
+- **Zero production footprint by construction.** libcst stayed ephemeral (`uv run --with libcst`, never added to dev deps per D-05); the whole milestone lived under `.planning/spikes/`. A NO-GO milestone left the codebase byte-identical.
+
+### What Was Inefficient
+
+- **The outcome was ~70% predictable going in.** The v1.2 Phase 12 NO-GO analysis already identified the content-absence root cause and flagged items 1/4/6 as the gap libcst would have to close. libcst closed item 4 (the mechanical `ruff check` asymmetry) but items 1/6 were always going to hinge on synthesizing absent content — which no pure transform can do. The spike was still worth running (it converted a strong hypothesis into signed evidence, and item 4 was a genuine unknown), but the dominant result was foreseeable.
+- **Single-phase milestone overhead.** Wrapping one spike phase in a full milestone (requirements → roadmap → discuss → plan → execute → close) is heavy ceremony for a binary decision. The structure paid off in traceability but the process-to-payload ratio was the highest of any milestone.
+
+### Patterns Established
+
+- **CONDITIONAL-phase drop on NO-GO, milestone-scale.** v1.2 dropped a single phase (16) on a spike NO-GO; v1.3 closed an *entire milestone* on one — Phase 19 dropped, milestone closes on the signed decision. The "spike is the guaranteed deliverable; implementation is CONDITIONAL" model scales up cleanly to a whole milestone.
+- **`--force` milestone close for by-design dropped phases.** `milestone.complete` treats a dropped conditional phase as "unstarted" and blocks; `--force` is the correct override when the drop is intentional and recorded. Worth remembering for any future spike-gated milestone.
+- **Two independent tools before shelving permanently.** Before accepting an architectural limitation as permanent, prove it with two genuinely different tools. One NO-GO is "maybe the tool"; two is "the source."
+
+### Key Lessons
+
+1. **A NO-GO milestone is a real deliverable.** v1.3 shipped no code and that's a success, not a failure — the operator now has a signed, evidence-backed decision that the sync/async duplication is intrinsic and REFAC-06 should never be re-opened without a new tool class or relaxing D-02. That decision has lasting value: it stops future cycles from re-litigating the same question.
+2. **Capture spike learnings as reusable skills.** The `spike-findings-codegen-market-libs` skill made SPIKE-006 ~60% cheaper than SPIKE-005. The discipline of writing findings to an auto-loaded artifact compounds across milestones.
+3. **Predictable spikes still earn their cost when they convert hypothesis → signed evidence.** The result was ~70% foreseeable, but the 30% (does libcst close item 4?) was a genuine unknown, and turning "we think unasync's failure generalizes" into "two tools prove it does" is what lets you shelve permanently with confidence.
+
+### Cost Observations
+
+- Model mix (estimated): ~55% opus (planner + executor authoring the CSTTransformer suite), ~40% sonnet (the mechanical audit / diff / transcript-capture work, well-suited to the honest-evidence collection), ~5% haiku (utility). The genuinely-new work (Plan 18-02's transformer suite) was the opus-heavy slice.
+- Sessions: ~1 elapsed day (2026-07-02 → 2026-07-03), the tightest milestone — a single spike with three sequential plan waves.
+- Notable: the highest process-to-payload ratio of any milestone (full milestone ceremony around one binary decision), offset by ~60% harness inheritance from SPIKE-005 and zero production risk.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -123,6 +164,7 @@
 | v1.0 | ~13 days | 5 | 18 (37 closed-out) | Established the verification cycle (drivers + harness + DRIFT-02 baseline) |
 | v1.1 | ~3.5 days | 6 | 30 | Architectural refactor + spike-before-plan + per-phase VALIDATION.md operator signoff |
 | v1.2 | ~11 days | 5 (Phase 16 dropped) | 18 | CONDITIONAL phase modeling + spike NO-GO honored + per-request `extensions` override channel |
+| v1.3 | ~1 day | 1 (Phase 19 dropped) | 3 | Milestone-scale spike-gate: entire milestone closes on a signed NO-GO; two-tool convergence before permanent shelving |
 
 ### Cumulative Quality
 
@@ -131,6 +173,7 @@
 | v1.0 | 277 | +227 from baseline ~50 | 35/35 | (none — verification cycle) |
 | v1.1 | 907/908 | +630 (vs v1.0 close) / +122 (vs Phase 9 baseline) | 29/29 | tenacity 9.1.4 (Apache-2.0, zero deps, py.typed) |
 | v1.2 | ≥989 | +82 (vs v1.1 close) | 4/4 (REFAC-06 → v1.3) | platformdirs >=4.0,<5 (iol-client only) |
+| v1.3 | ≥989 (unchanged) | 0 (spike-only, zero production footprint) | 2/2 (CODEGEN-01 resolved NO-GO; REFAC-06 shelved) | (none — libcst ephemeral, never added to deps) |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -140,3 +183,4 @@
 4. **DRIFT-02 cycle closure as a signal, not a failure.** v1.0 Phase 5 deferred F-09 deliberately and used `cycle_closure FAIL` as the explicit DRIFT-02 signal that the cycle detects its own gap. v1.1 Phase 9 BUG-01 closed F-09 + flipped that FAIL to PASS, validating the convention. Future cycles inherit the same pattern.
 5. **Spike-before-plan works in both directions.** v1.1 Phase 10 spiked the TokenStore concurrency primitive → GO, and the validated recipe dropped straight into the plan with zero design surprises. v1.2 Phase 12 spiked unasync codegen → NO-GO, and the failure analysis became the v1.3 libcst spike scope. The flag earns its cost whether the answer is yes or no — model the dependent work as CONDITIONAL so a NO-GO drops cleanly (Phase 16 cost nothing to absorb).
 6. **The per-request `request.extensions[...]` channel is the decoupling pattern.** v1.1 introduced it for the `idempotent` mutation gate; v1.2 reused it for `max_attempts`. The transport stays ignorant of domain types while callers thread per-call knobs through the httpx request object. Default to this for any future per-call override.
+7. **Two independent tools before shelving an architectural limitation permanently.** v1.2 Phase 12 (unasync) and v1.3 Phase 18 (libcst) both returned a signed NO-GO on codegen single-source for the same content-absence root cause. One NO-GO says "maybe the tool"; two genuinely-different tools converging says "the source shape is intrinsic." That convergence is what let REFAC-06 be shelved *permanently* (accepted as a structural feature) rather than deferred a third time. A NO-GO milestone that produces a durable signed decision is a real deliverable — v1.3 shipped zero code and was a success.
