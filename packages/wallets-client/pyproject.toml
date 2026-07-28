@@ -1,6 +1,6 @@
 [project]
 name = "wallets-client"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cliente HTTP (sync y async) para la API de Wallets."
 readme = "README.md"
 requires-python = ">=3.12"
