@@ -18,7 +18,7 @@ members = [
 
 [[package]]
 name = "ambito-financiero-client"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "packages/ambito-financiero-client" }
 dependencies = [
     { name = "httpx" },
@@ -280,7 +280,7 @@ wheels = [
 
 [[package]]
 name = "higyrus-client"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "packages/higyrus-client" }
 dependencies = [
     { name = "httpx" },
@@ -380,7 +380,7 @@ wheels = [
 
 [[package]]
 name = "iol-client"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "packages/iol-client" }
 dependencies = [
     { name = "httpx" },
@@ -515,7 +515,7 @@ dev = [
 
 [[package]]
 name = "matriz-client"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "packages/matriz-client" }
 dependencies = [
     { name = "httpx" },
@@ -873,7 +873,7 @@ wheels = [
 
 [[package]]
 name = "wallets-client"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/wallets-client" }
 dependencies = [
     { name = "httpx" },
