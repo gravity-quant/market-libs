@@ -1,8 +1,8 @@
 # Findings: higyrus-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-14T05:12:51.484773+00:00
-- Resolved base URL / env: https://becerra.aunesa.com/Irmo
+- Timestamp: 2026-06-25T00:06:38.862104+00:00
+- Resolved base URL / env: https://cliente.aunesa.com/Irmo
 - Run params: `HIGYRUS_SAMPLE_CUENTA=5208`, `HIGYRUS_SAMPLE_TIPO_CUENTA="Comitentes y propias"`, `HIGYRUS_SAMPLE_NIVEL="Global"` (pasados explícito por CLI — ver setup gotcha en 04-02 SUMMARY)
 - Market hours note: <abierto|cerrado — no aplica a este run; ningún endpoint sesión-dependiente verificado>
 

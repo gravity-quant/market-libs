@@ -12,7 +12,7 @@
 
 ### Arquitectura sync/async dedup (REFAC)
 
-- [ ] **REFAC-05**: Driver migration × 4 packages — `main_ambito_financiero.py`, `main_iol.py`,
+- [x] **REFAC-05**: Driver migration × 4 packages — `main_ambito_financiero.py`, `main_iol.py`,
   `main_higyrus.py`, `main_matriz.py` consumen `Client`/`AsyncClient` instancias directamente
   (no más top-level `pkg.get_X(...)` ni `_get_default()._state.<attr>` patterns). **ONE Client
   per `main()` run** invariante (anti-Pitfall 1/2: evita OAuth churn IOL + TokenStore corruption
@@ -22,7 +22,7 @@
 
 ### Auth/Token persistence (SEC)
 
-- [ ] **SEC-01**: IOL refresh_token disk persistence (IOL only). `iol_client/_token_cache.py`
+- [x] **SEC-01**: IOL refresh_token disk persistence (IOL only). `iol_client/_token_cache.py`
   con read-on-init + write-on-rotate atómico (write-then-rename), `platformdirs >=4.0,<5`
   para `user_data_dir('iol-client')` default (`~/.local/share/iol-client/refresh_token.json` en
   Linux, `~/Library/Application Support/iol-client/refresh_token.json` en macOS), opt-in
@@ -52,7 +52,7 @@
 
 ### Live re-verification (LIVE)
 
-- [ ] **LIVE-03**: `main_*.py --live × 4 packages` final gate post-migration (LIVE-01-equivalent).
+- [x] **LIVE-03**: `main_*.py --live × 4 packages` final gate post-migration (LIVE-01-equivalent).
   Operator dispositions per package (ambito/iol/higyrus/matriz), no new findings outside in-cycle
   classified set vs baseline `verification-cycle-2026-Q2` + v1.1 LIVE-01 head `71bf201`. Schema
   snapshot comparison, cycle closure markers, milestone audit. Confirma que driver migration
@@ -138,13 +138,13 @@ PROBE_STALE fix inline). Tracking via `verification/findings.py` append-only con
 
 *Filled by roadmap (see `ROADMAP.md`)*
 
-| REQ-ID   | Phase                       | Status                                  |
-|----------|-----------------------------|-----------------------------------------|
-| REFAC-05 | Phase 15                    | Open                                    |
-| REFAC-06 | Defer to v1.3               | Deferred (Phase 12 NO-GO 2026-06-14)    |
-| SEC-01   | Phase 14                    | Open                                    |
-| ERG-01   | Phase 13                    | Open                                    |
-| LIVE-03  | Phase 17                    | Open (unblocked by Phase 16 DROP)       |
+| REQ-ID   | Phase                       | Status                                             |
+|----------|-----------------------------|----------------------------------------------------|
+| REFAC-05 | Phase 15                    | Complete (Phase 17 LIVE-03 gate, 17-VALIDATION.md) |
+| REFAC-06 | Defer to v1.3               | Deferred (Phase 12 NO-GO 2026-06-14)               |
+| SEC-01   | Phase 14                    | Complete (Phase 17 LIVE-03 gate, 17-VALIDATION.md) |
+| ERG-01   | Phase 13                    | Complete (Phase 17 LIVE-03 gate, 17-VALIDATION.md) |
+| LIVE-03  | Phase 17                    | Complete (Phase 17 LIVE-03 gate, 17-VALIDATION.md) |
 
 Phase 12 (Codegen Spike) was the spike-before-plan research flag for REFAC-06. It returned
 **NO-GO** on 2026-06-14 under strict D-RIGOR-01 reading (3 of 8 evidence items FAIL, all

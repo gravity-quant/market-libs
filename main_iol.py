@@ -75,7 +75,9 @@ from verification import require_env, safe_print, schema_of, write_findings
 from verification.findings import append_finding
 
 import iol_client
-from iol_client import IOLAPIError, IOLAuthError, aio
+from iol_client import AsyncClient, Client, IOLAPIError, IOLAuthError
+from iol_client._core import RequestSpec
+from iol_client.client import _raise_for_response
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -181,16 +183,16 @@ def _last_business_day(today: dt.date) -> dt.date:
 # ---------------------------------------------------------------------------
 
 
-def probe_login_sync() -> ProbeResult:
+def probe_login_sync(client: Client) -> ProbeResult:
     """Probe 1: ``iol_client.login()`` (IOL-01).
 
     Setea ``_auth_failed`` global si falla con ``IOLAuthError`` (D-IOL-3 cascade).
     Cualquier otra excepción propaga como crash inesperado (D-04 lo permite).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        iol_client.login()
+        client.login()
     except IOLAuthError as exc:
         _auth_failed = True
         _auth_failure_reason = f"sync login: {exc}"
@@ -208,7 +210,7 @@ def probe_login_sync() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN)")
-    refresh = iol_client.client._refresh_token
+    refresh = client._state.refresh_token
     return ProbeResult(
         "login_sync",
         "PASS",
@@ -216,16 +218,16 @@ def probe_login_sync() -> ProbeResult:
     )
 
 
-async def probe_login_async() -> ProbeResult:
-    """Probe 2: ``await aio.login()`` (IOL-01).
+async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
+    """Probe 2: ``await aclient.login()`` (IOL-01).
 
     Setea el mismo ``_auth_failed`` global (Discretion: flag único compartido,
     no surface-segregated — D-IOL-3 Discretion).
     """
     global _auth_failed, _auth_failure_reason
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        await aio.login()
+        await aclient.login()
     except IOLAuthError as exc:
         _auth_failed = True
         _auth_failure_reason = f"async login: {exc}"
@@ -243,7 +245,7 @@ async def probe_login_async() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_async", "FINDING", f"{fid} (OPEN)")
-    refresh = aio._refresh_token
+    refresh = aclient._state.refresh_token
     return ProbeResult(
         "login_async",
         "PASS",
@@ -251,8 +253,8 @@ async def probe_login_async() -> ProbeResult:
     )
 
 
-def probe_get_quote_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 3: ``iol_client.get_quote(GGAL)`` (IOL-02).
+def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
+    """Probe 3: ``client.get_quote(GGAL)`` (IOL-02).
 
     WR-03: single HTTP call por probe. WR-01: ``exc.status_code`` typed directo.
     Sanity check de plausibility del precio (Discretion D-IOL-20).
@@ -262,9 +264,9 @@ def probe_get_quote_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
             ProbeResult("get_quote_sync", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        quote = iol_client.get_quote(_SAMPLE_SYMBOL)
+        quote = client.get_quote(_SAMPLE_SYMBOL)
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -333,16 +335,18 @@ def probe_get_quote_sync() -> tuple[ProbeResult, dict[str, Any] | None]:
     return (ProbeResult("get_quote_sync", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
 
 
-async def probe_get_quote_async() -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 4: ``await aio.get_quote(GGAL)`` (IOL-02). Espejo async del probe 3."""
+async def probe_get_quote_async(
+    aclient: AsyncClient,
+) -> tuple[ProbeResult, dict[str, Any] | None]:
+    """Probe 4: ``await aclient.get_quote(GGAL)`` (IOL-02). Espejo async del probe 3."""
     if _auth_failed:
         return (
             ProbeResult("get_quote_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        quote = await aio.get_quote(_SAMPLE_SYMBOL)
+        quote = await aclient.get_quote(_SAMPLE_SYMBOL)
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -393,6 +397,7 @@ async def probe_get_quote_async() -> tuple[ProbeResult, dict[str, Any] | None]:
 
 
 def probe_get_historical_quotes_sync(
+    client: Client,
     today: dt.date,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 5: serie histórica de GGAL (IOL-02, D-IOL-19)."""
@@ -405,12 +410,12 @@ def probe_get_historical_quotes_sync(
             ),
             None,
         )
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     # D-IOL-19: ~5 días hábiles back desde el último hábil (7 calendario ≈ 5 hábiles).
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
     try:
-        serie = iol_client.get_historical_quotes(_SAMPLE_SYMBOL, desde, hasta)
+        serie = client.get_historical_quotes(_SAMPLE_SYMBOL, desde, hasta)
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -472,6 +477,7 @@ def probe_get_historical_quotes_sync(
 
 
 async def probe_get_historical_quotes_async(
+    aclient: AsyncClient,
     today: dt.date,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 6: serie histórica de GGAL — espejo async (IOL-02, D-IOL-19)."""
@@ -484,11 +490,11 @@ async def probe_get_historical_quotes_async(
             ),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
     try:
-        serie = await aio.get_historical_quotes(_SAMPLE_SYMBOL, desde, hasta)
+        serie = await aclient.get_historical_quotes(_SAMPLE_SYMBOL, desde, hasta)
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -549,16 +555,16 @@ async def probe_get_historical_quotes_async(
     )
 
 
-def probe_get_instruments_sync() -> tuple[ProbeResult, Any]:
-    """Probe 7: ``iol_client.get_instruments("argentina")`` (IOL-02)."""
+def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
+    """Probe 7: ``client.get_instruments("argentina")`` (IOL-02)."""
     if _auth_failed:
         return (
             ProbeResult("get_instruments_sync", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        data = iol_client.get_instruments("argentina")
+        data = client.get_instruments("argentina")
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -610,16 +616,16 @@ def probe_get_instruments_sync() -> tuple[ProbeResult, Any]:
     )
 
 
-async def probe_get_instruments_async() -> tuple[ProbeResult, Any]:
-    """Probe 8: ``await aio.get_instruments("argentina")`` (IOL-02). Espejo async."""
+async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult, Any]:
+    """Probe 8: ``await aclient.get_instruments("argentina")`` (IOL-02). Espejo async."""
     if _auth_failed:
         return (
             ProbeResult("get_instruments_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        data = await aio.get_instruments("argentina")
+        data = await aclient.get_instruments("argentina")
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -671,8 +677,10 @@ async def probe_get_instruments_async() -> tuple[ProbeResult, Any]:
     )
 
 
-def probe_get_instruments_by_type_sync() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
-    """Probe 9: ``iol_client.get_instruments_by_type("acciones")`` + sanity 6 (IOL-02/17).
+def probe_get_instruments_by_type_sync(
+    client: Client,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+    """Probe 9: ``client.get_instruments_by_type("acciones")`` + sanity 6 (IOL-02/17).
 
     Discretion: el sanity check de los 6 ``InstrumentType`` (type-only assertion)
     se incluye en este probe — los 6 HTTP calls extra son verificación del MISMO
@@ -692,9 +700,9 @@ def probe_get_instruments_by_type_sync() -> tuple[ProbeResult, list[dict[str, An
             ),
             None,
         )
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     try:
-        wrapper_result = iol_client.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
+        wrapper_result = client.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -754,7 +762,7 @@ def probe_get_instruments_by_type_sync() -> tuple[ProbeResult, list[dict[str, An
     bad_types: list[str] = []
     for itype in _ALL_INSTRUMENT_TYPES:
         try:
-            titulos = iol_client.get_instruments_by_type(itype)
+            titulos = client.get_instruments_by_type(itype)
         except Exception as exc:
             # Sanity gate cubre cualquier excepción del cliente o transporte:
             # cualquiera de los 6 types que falle se registra para el finding.
@@ -791,7 +799,9 @@ def probe_get_instruments_by_type_sync() -> tuple[ProbeResult, list[dict[str, An
     )
 
 
-async def probe_get_instruments_by_type_async() -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+async def probe_get_instruments_by_type_async(
+    aclient: AsyncClient,
+) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 10: espejo async (solo sample principal — sanity 6 vive en sync, probe 9)."""
     if _auth_failed:
         return (
@@ -802,9 +812,9 @@ async def probe_get_instruments_by_type_async() -> tuple[ProbeResult, list[dict[
             ),
             None,
         )
-    base_url = aio._get_default()._state.base_url
+    base_url = aclient._state.base_url
     try:
-        wrapper_result = await aio.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
+        wrapper_result = await aclient.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -875,6 +885,7 @@ async def probe_get_instruments_by_type_async() -> tuple[ProbeResult, list[dict[
 
 
 def probe_parity_sync_async(
+    client: Client,
     quote_sync: dict[str, Any] | None,
     quote_async: dict[str, Any] | None,
     historical_sync: list[dict[str, Any]] | None,
@@ -891,7 +902,7 @@ def probe_parity_sync_async(
     """
     if _auth_failed:
         return ProbeResult("parity_sync_async", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     pairs: list[tuple[str, Any, Any]] = [
         ("get_quote", quote_sync, quote_async),
         ("get_historical_quotes", historical_sync, historical_async),
@@ -938,6 +949,7 @@ def probe_parity_sync_async(
 
 
 def probe_field_type_map(
+    client: Client,
     quote: dict[str, Any] | None,
     historical: list[dict[str, Any]] | None,
     instruments_by_type_envelope: dict[str, Any] | None,
@@ -948,8 +960,8 @@ def probe_field_type_map(
     capturar el payload CRUDO con ``_request`` directo — el wrapper público
     silenciosamente devuelve ``[]`` si falta la clave ``"titulos"``, ocultando
     el drift. Por eso este probe hace una HTTP call adicional al endpoint
-    by_type vía ``iol_client.client._request``; el resultado es el ÚNICO caso
-    permitido de duplicación (documentado en Pitfall 2).
+    by_type vía ``client._request(RequestSpec(...))``; el resultado es el ÚNICO
+    caso permitido de duplicación (documentado en Pitfall 2).
 
     Devuelve el envelope capturado además del ProbeResult, para que el probe 13
     (schema_snapshot) lo reuse sin volver a llamar.
@@ -959,7 +971,7 @@ def probe_field_type_map(
             ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
             instruments_by_type_envelope,
         )
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     finding_fids: list[str] = []
     envelope: dict[str, Any] | None = instruments_by_type_envelope
 
@@ -968,11 +980,18 @@ def probe_field_type_map(
         try:
             # ÚNICA HTTP call duplicada permitida (Pitfall 2): capturamos el
             # payload crudo del wrapper de by_type para verificar la clave
-            # "titulos" sin que el wrapper la silencie.
-            resp = iol_client.client._request(
-                "GET",
-                f"/api/v2/Cotizaciones/{_SAMPLE_INSTRUMENT_TYPE}/argentina/Todos",
+            # "titulos" sin que el wrapper la silencie. Usamos la instancia
+            # threaded ``client`` (D-03): construimos el ``RequestSpec`` y
+            # replicamos el raise-on-error del shim module-level legacy, ya que
+            # ``Client._request`` (D-03) devuelve el response crudo sin levantar.
+            resp = client._request(
+                RequestSpec(
+                    method="GET",
+                    path=f"/api/v2/Cotizaciones/{_SAMPLE_INSTRUMENT_TYPE}/argentina/Todos",
+                )
             )
+            if resp.is_error:
+                _raise_for_response(resp)
             envelope = resp.json()
         except Exception as exc:
             # Cualquier excepción del transporte o del cliente al pegarle al
@@ -1179,6 +1198,7 @@ def _write_or_check_schema(
 
 
 def probe_schema_snapshot(
+    client: Client,
     today: dt.date,
     quote: dict[str, Any] | None,
     historical: list[dict[str, Any]] | None,
@@ -1192,7 +1212,7 @@ def probe_schema_snapshot(
     """
     if _auth_failed:
         return ProbeResult("schema_snapshot", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
     targets: list[tuple[str, Any, dict[str, Any]]] = [
@@ -1258,7 +1278,7 @@ def probe_schema_snapshot(
     )
 
 
-def probe_refresh_token() -> ProbeResult:
+def probe_refresh_token(client: Client) -> ProbeResult:
     """Probe 14: verifica el fix IOL-07 in-vivo (D-IOL-11).
 
     Lee ``_refresh_token``, ``_token``, ``_token_expires_at`` antes/después de
@@ -1267,8 +1287,8 @@ def probe_refresh_token() -> ProbeResult:
     """
     if _auth_failed:
         return ProbeResult("refresh_token", "SKIPPED", f"auth failed: {_auth_failure_reason}")
-    base_url = iol_client.client._get_default()._state.base_url
-    refresh_before = iol_client.client._refresh_token
+    base_url = client._state.base_url
+    refresh_before = client._state.refresh_token
     if refresh_before is None:
         fid = _next_fid()
         append_finding(
@@ -1284,16 +1304,15 @@ def probe_refresh_token() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
-    token_before = iol_client.client._token
+    token_before = client._state.token
     # Simulación in-vivo de expiry para forzar el branch refresh.
-    # INT-01 idiom (quick task 260613-nwb): write via _get_default()._state.X
-    # NOT via PEP 562 module attribute (que sombrearía el __getattr__ forward).
-    # El bug previo: `iol_client.client._token_expires_at = 0.0` creaba un
-    # atributo en el módulo que sombreaba la lectura forwarded a state, y la
-    # lectura post-_refresh() devolvía 0.0 cacheado en vez del state value.
-    iol_client.client._get_default()._state.token_expires_at = 0.0
+    # D-03 (Phase 15): write directly to the threaded ``client`` instance's
+    # ``_state`` so the forced-expiry write is observed by the SAME object the
+    # subsequent authenticated read uses. Writing to any other instance (e.g. a
+    # throwaway default) would silently no-op the forced-refresh check.
+    client._state.token_expires_at = 0.0
     try:
-        iol_client.get_instruments("argentina")
+        client.get_instruments("argentina")
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -1324,9 +1343,9 @@ def probe_refresh_token() -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
-    token_after = iol_client.client._token
-    refresh_after = iol_client.client._refresh_token
-    expires_at_after = iol_client.client._token_expires_at
+    token_after = client._state.token
+    refresh_after = client._state.refresh_token
+    expires_at_after = client._state.token_expires_at
 
     if refresh_after is None:
         # CR-02 + CR-01: tras CR-01, login() preserva el cached cuando el server
@@ -1394,39 +1413,40 @@ def probe_refresh_token() -> ProbeResult:
     )
 
 
-def probe_auth_401() -> ProbeResult:
+def probe_auth_401(client: Client) -> ProbeResult:
     """Probe 15: 401 con credenciales inválidas (IOL-05, D-IOL-1/2/4).
 
     Opt-in vía ``VERIFY_IOL_BAD_CREDS=1``. Single-shot, sin retry, sin sleep.
     try/finally SIEMPRE restaura ``IOL_PASSWORD`` original.
 
-    CR-03: NO usar ``iol_client.configure(password=...)`` porque ``configure()``
-    resetea ``_token``, ``_refresh_token`` y ``_token_expires_at`` — esto
-    leakearía el ``_refresh_token`` capturado por el primer ``login()`` fuera
-    de la lista ``secrets`` del summary. En vez, mutar ``_password`` y
-    ``_token``/``_token_expires_at`` directamente (preservando
-    ``_refresh_token`` para redaction) y restaurar también de forma directa.
+    CR-03: NO usar ``client.configure(...)``/``configure()`` porque resetearía
+    ``token``, ``refresh_token`` y ``token_expires_at`` — esto leakearía el
+    ``refresh_token`` capturado por el primer ``login()`` fuera de la lista
+    ``secrets`` del summary. En vez, mutar ``client._state.password`` y
+    ``client._state.token``/``token_expires_at`` directamente (preservando
+    ``client._state.refresh_token`` para redaction) y restaurar también de
+    forma directa.
     """
     if os.getenv("VERIFY_IOL_BAD_CREDS") != "1":
         return ProbeResult("auth_401", "SKIPPED", "(opt-in via VERIFY_IOL_BAD_CREDS=1)")
     if _auth_failed:
         return ProbeResult("auth_401", "SKIPPED", f"auth failed: {_auth_failure_reason}")
 
-    base_url = iol_client.client._get_default()._state.base_url
+    base_url = client._state.base_url
     # D-IOL-2: lee del env, no del state cacheado del cliente (podría haberse
     # sobreescrito por otro probe).
     original_password = os.getenv("IOL_PASSWORD", "")
     bad_password = original_password + "_INVALID"
     try:
         # CR-03: mutación directa en vez de configure() — preserva
-        # _refresh_token (necesario para redaction en SUMMARY) y _token cached.
-        # Forzamos _token=None + _token_expires_at=0.0 para que login()
+        # refresh_token (necesario para redaction en SUMMARY) y token cached.
+        # Forzamos token=None + token_expires_at=0.0 para que login()
         # explícito vuelva a hacer el password grant con la bad password.
-        iol_client.client._password = bad_password
-        iol_client.client._token = None
-        iol_client.client._token_expires_at = 0.0
+        client._state.password = bad_password
+        client._state.token = None
+        client._state.token_expires_at = 0.0
         try:
-            iol_client.login()  # D-IOL-1: ÚNICA llamada, sin retry/sleep/loop.
+            client.login()  # D-IOL-1: ÚNICA llamada, sin retry/sleep/loop.
         except IOLAuthError as exc:
             # WR-01: status_code typed directo, NUNCA via fallback a args.
             status_code = exc.status_code
@@ -1500,7 +1520,7 @@ def probe_auth_401() -> ProbeResult:
         # quedan en 0/None tras el bad-creds login fallido, lo cual es correcto
         # — el probe va último (D-IOL-4), no hay probes downstream que
         # necesiten el token cacheado.
-        iol_client.client._password = original_password
+        client._state.password = original_password
 
 
 # ---------------------------------------------------------------------------
@@ -1525,16 +1545,22 @@ async def _async_main(
 
     D-IOL-6 + IN-03: un único event loop; ``aclose`` envuelto en
     ``contextlib.suppress(Exception)`` para honrar D-04.
+
+    D-02 (Phase 15): construye UN único ``AsyncClient()`` y lo threadea como
+    parámetro a los 5 probes async; cierra esa misma instancia en el ``finally``.
     """
+    aclient = AsyncClient()
     try:
-        result_login_async = await probe_login_async()
-        result_quote_async, quote_async = await probe_get_quote_async()
-        result_historical_async, historical_async = await probe_get_historical_quotes_async(today)
-        result_instruments_async, instruments_async = await probe_get_instruments_async()
-        result_by_type_async, by_type_async = await probe_get_instruments_by_type_async()
+        result_login_async = await probe_login_async(aclient)
+        result_quote_async, quote_async = await probe_get_quote_async(aclient)
+        result_historical_async, historical_async = await probe_get_historical_quotes_async(
+            aclient, today
+        )
+        result_instruments_async, instruments_async = await probe_get_instruments_async(aclient)
+        result_by_type_async, by_type_async = await probe_get_instruments_by_type_async(aclient)
     finally:
         with contextlib.suppress(Exception):
-            await aio.aclose()
+            await aclient.aclose()
     return (
         result_login_async,
         result_quote_async,
@@ -1561,13 +1587,18 @@ def main() -> None:
 
     today = dt.date.today()
 
+    # D-01 (Phase 15): construye UN único sync ``Client()`` y lo threadea como
+    # parámetro a todos los probes sync. El async ``AsyncClient()`` se construye
+    # dentro de ``_async_main`` (D-02, instancias separadas).
+    client = Client()
+
     # D-03 mirror: idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
 
     results: list[ProbeResult] = []
 
     # Probe 1: login sync (puede setear _auth_failed).
-    result_login_sync = probe_login_sync()
+    result_login_sync = probe_login_sync(client)
     results.append(result_login_sync)
 
     # Probes 2 + 4 + 6 + 8 + 10: batch async en un único asyncio.run (D-IOL-6).
@@ -1585,26 +1616,27 @@ def main() -> None:
 
     # Probes 3 / 5 / 7 / 9 (sync); intercalamos con los async ya capturados
     # respetando el orden D-IOL-5 (sync N seguido del async N+1).
-    result_quote_sync, quote_sync = probe_get_quote_sync()
+    result_quote_sync, quote_sync = probe_get_quote_sync(client)
     results.append(result_login_async)
     results.append(result_quote_sync)
     results.append(result_quote_async)
 
-    result_historical_sync, historical_sync = probe_get_historical_quotes_sync(today)
+    result_historical_sync, historical_sync = probe_get_historical_quotes_sync(client, today)
     results.append(result_historical_sync)
     results.append(result_historical_async)
 
-    result_instruments_sync, instruments_sync = probe_get_instruments_sync()
+    result_instruments_sync, instruments_sync = probe_get_instruments_sync(client)
     results.append(result_instruments_sync)
     results.append(result_instruments_async)
 
-    result_by_type_sync, by_type_sync = probe_get_instruments_by_type_sync()
+    result_by_type_sync, by_type_sync = probe_get_instruments_by_type_sync(client)
     results.append(result_by_type_sync)
     results.append(result_by_type_async)
 
     # Probe 11: paridad estructural sync↔async.
     results.append(
         probe_parity_sync_async(
+            client,
             quote_sync,
             quote_async,
             historical_sync,
@@ -1618,13 +1650,14 @@ def main() -> None:
 
     # Probe 12: field→type map + envelope check (captura by_type_envelope).
     result_field_type_map, by_type_envelope = probe_field_type_map(
-        quote_sync, historical_sync, None
+        client, quote_sync, historical_sync, None
     )
     results.append(result_field_type_map)
 
     # Probe 13: schema snapshots (reusa by_type_envelope si fue capturado).
     results.append(
         probe_schema_snapshot(
+            client,
             today,
             quote_sync,
             historical_sync,
@@ -1634,16 +1667,16 @@ def main() -> None:
     )
 
     # Probe 14: refresh_token in-vivo.
-    results.append(probe_refresh_token())
+    results.append(probe_refresh_token(client))
 
     # CR-03: snapshot del _refresh_token cacheado ANTES de probe_auth_401, como
     # defense-in-depth — el fix de CR-03 ya preserva el cached usando mutación
     # directa en vez de configure(), pero capturar acá garantiza que aunque un
     # futuro cambio rompa esa invariante, el secret sigue redactado.
-    captured_refresh_token = iol_client.client._refresh_token
+    captured_refresh_token = client._state.refresh_token
 
     # Probe 15: auth_401 ÚLTIMO (D-IOL-4) — opt-in, single-shot.
-    results.append(probe_auth_401())
+    results.append(probe_auth_401(client))
 
     # safe_print con secrets dinámicos (D-IOL-7/22): el _refresh_token capturado
     # por login() se redacta vía snapshot capturado antes de probe_auth_401

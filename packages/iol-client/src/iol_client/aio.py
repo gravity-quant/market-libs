@@ -41,13 +41,16 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
+import time
 import uuid
 import warnings
+from pathlib import Path
 from typing import Any, Literal, Self
 
 import httpx
 
-from iol_client import _atransport, _core
+from iol_client import _atransport, _core, _token_cache
 from iol_client._core import RequestSpec
 
 # B8 (D-04): import the shared, stateless helper from _core (NOT from
@@ -99,6 +102,8 @@ class AsyncClient:
         password: str | None = None,
         token: str | None = None,
         token_expires_at: float | None = None,
+        refresh_token: str | None = None,
+        token_cache_path: Path | None = None,
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -115,6 +120,22 @@ class AsyncClient:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 14 BUG-03 (D-V3 sync mirror): seed in-memory refresh_token so a
+        # cold instance can take the refresh path before any disk read (test
+        # parity with the configure(refresh_token=...) surface).
+        if refresh_token is not None:
+            self._state.refresh_token = refresh_token
+        # Phase 14 SEC-01 (D-T4 / D-V3 sync mirror): resolve token_cache_path
+        # precedence — explicit kwarg > env-var override > platformdirs default
+        # (None on CI=true per anti-Pitfall 10). Result may be None (disk
+        # persistence disabled). Pure compute — NO async I/O in __init__.
+        _env_cache_path = os.environ.get("IOL_TOKEN_CACHE_PATH")
+        if token_cache_path is not None:
+            self._state.token_cache_path = token_cache_path
+        elif _env_cache_path:
+            self._state.token_cache_path = Path(_env_cache_path)
+        else:
+            self._state.token_cache_path = _token_cache._resolve_default_path()
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
         self._max_retries = max_retries
         # Phase 13 D-V1: normally-constructed AsyncClients are NOT views; with_options
@@ -325,12 +346,26 @@ class AsyncClient:
         # CR-01 mirror: condicional, preserva refresh cacheado si server omite.
         if refresh is not None:
             self._state.refresh_token = refresh
+        # Phase 14 SEC-01 (D-V3 sync mirror of Client.login): persist the fresh
+        # refresh_token after a password grant (anti-Pitfall 8 — the post-401
+        # fallback writes the FRESH token to disk in the same _aensure_token()
+        # call). D-A1: the blocking fcntl + JSON write runs in an executor thread
+        # via asyncio.to_thread; this call holds the token_lock (the caller's
+        # critical section) but does NOT deadlock — the executor thread is
+        # separate from the event loop and the awaiting coroutine is suspended.
+        if self._state.token_cache_path is not None and self._state.refresh_token is not None:
+            await asyncio.to_thread(
+                _token_cache.save,
+                self._state.token_cache_path,
+                self._state.refresh_token,
+                acquired_at=time.time(),
+            )
         return token
 
     async def _refresh_unlocked(self) -> str:
         """Caller MUST hold ``self._state.token_lock``.
 
-        Pitfall 6: NO llamar ``self._ensure_token()`` / ``self._login_unlocked()``
+        Pitfall 6: NO llamar ``self._aensure_token()`` / ``self._login_unlocked()``
         / ``self._request(...)`` adentro — re-adquirirían el lock y causarían
         deadlock. Solo httpx send directo. ``_ensure_http_client`` usa un
         lock separado (``self._state.client_lock`` — Phase 13 WR-01 fix
@@ -343,6 +378,19 @@ class AsyncClient:
         self._state.token_expires_at = expires_at
         if refresh is not None:
             self._state.refresh_token = refresh
+        # Phase 14 SEC-01 (D-V3 sync mirror of Client._refresh): persist the
+        # refresh_token after a successful refresh (rotated value or the
+        # preserved cached one — both written so disk stays in sync with memory).
+        # D-A1: blocking write dispatched via asyncio.to_thread; runs INSIDE the
+        # token_lock critical section without deadlock (executor thread is
+        # distinct from the event loop; the lock-holding coroutine suspends).
+        if self._state.token_cache_path is not None and self._state.refresh_token is not None:
+            await asyncio.to_thread(
+                _token_cache.save,
+                self._state.token_cache_path,
+                self._state.refresh_token,
+                acquired_at=time.time(),
+            )
         return token
 
     async def login(self) -> str:
@@ -350,7 +398,17 @@ class AsyncClient:
         async with lock:
             return await self._login_unlocked()
 
-    async def _ensure_token(self) -> None:
+    async def _aensure_token(self) -> None:
+        # Phase 14 SEC-01 (D-V3 sync mirror of Client._ensure_token): cold-start
+        # disk load. Runs once per cold instance — subsequent calls see
+        # state.refresh_token non-None and skip the read. Placed OUTSIDE the
+        # token_lock: the disk read is per-cold-instance one-time work that does
+        # not need the lock. D-A1: blocking fcntl + JSON read dispatched via
+        # asyncio.to_thread.
+        if self._state.refresh_token is None and self._state.token_cache_path is not None:
+            loaded = await asyncio.to_thread(_token_cache.load, self._state.token_cache_path)
+            if loaded is not None:
+                self._state.refresh_token = loaded["refresh_token"]
         if _core.token_is_fresh(self._state):
             return
         lock = self._ensure_token_lock()
@@ -361,7 +419,14 @@ class AsyncClient:
                 try:
                     await self._refresh_unlocked()
                 except IOLAuthError:
-                    pass
+                    # Phase 14 SEC-01 (anti-Pitfall 8, D-V3 sync mirror): the
+                    # stale refresh_token is invalid — delete it from disk and
+                    # clear in-memory BEFORE the password fallback so the disk
+                    # never retains the stale token. D-A1: delete dispatched via
+                    # asyncio.to_thread.
+                    if self._state.token_cache_path is not None:
+                        await asyncio.to_thread(_token_cache.delete, self._state.token_cache_path)
+                    self._state.refresh_token = None
                 else:
                     return
             await self._login_unlocked()
@@ -372,13 +437,13 @@ class AsyncClient:
         Phase 8 D-02 + D-30 + RELY-04 async mirror: per-business-call UUID4
         ``request_id`` + extensions propagation; on 401 (``IOLAuthError`` from
         ``_raise_for_response``), the shell clears ``state.token``, calls
-        ``_ensure_token()`` (which re-runs the login/refresh flow via the
+        ``_aensure_token()`` (which re-runs the login/refresh flow via the
         ``token_lock`` double-checked locking), then retries the request ONCE
         with the refreshed Authorization header. Second 401 raises directly
         (Pitfall 1 — no infinite loop). All non-401 error statuses raise their
         typed exceptions directly without re-auth.
         """
-        await self._ensure_token()
+        await self._aensure_token()
         lock = self._ensure_token_lock()
         async with lock:
             token = self._state.token

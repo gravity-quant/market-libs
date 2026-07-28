@@ -1,7 +1,7 @@
 # Findings: iol-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-14T10:56:00.496319+00:00
+- Timestamp: 2026-06-25T00:06:30.440087+00:00
 - Resolved base URL / env: https://api.invertironline.com
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -47,8 +47,29 @@ Plan 11-03 Task 3 operator disposition (2026-06-14).
 **Regression:** `main_iol.py` re-run post-fix reporta
 `PROBE refresh_token: PASS refresh path verified — token rotated`
 (SUMMARY: PASS=13 FAIL=0 SKIPPED=1 FINDING=1; F-02 ya no surgió).
+- **Regression:** packages/iol-client/tests/test_refresh_token_lifecycle.py::test_refresh_token_success_path_rotates
 **Operator signoff:** sebadlf, 2026-06-14, via /gsd-execute-phase 11 Task 3 checkpoint
 disposition "Fix inline ahora y cerrar Phase 11".
+**Phase 17 link (operator):** la línea `Regression:` resoluble arriba enlaza el guarantee de
+cliente subyacente a F-02 (que `_refresh()` actualiza `_state.token_expires_at` tras un refresh
+exitoso) con la cobertura in-tree existente
+`test_refresh_token_success_path_rotates`. Cierra el gap prose-only-Regression que dejaba
+`verify_cycle_closure("iol-client")` en FAIL tras Phase 11. Provenance aditiva: F-02 sigue FIXED,
+sin re-apertura ni cambio de status (D-05 / HARN-09).
+
+**Phase 17 — F-01 re-confirmado OPEN (operator, baseline carry-forward, D-05):** La
+re-verificación en vivo LIVE-03 posterior a las migraciones v1.2 (REFAC-05 driver migration /
+SEC-01 IOL disk persistence / ERG-01 `with_options`) NO resolvió F-01
+(`missing assumed key 'simbolo' in get_quote`, SHAPE/both). Se re-confirma **OPEN** como
+divergencia documentada de baseline `verification-cycle-2026-Q2`; la investigación de root-cause
+de la forma del payload de `get_quote` queda fuera de alcance (17-CONTEXT Deferred Ideas). OPEN es
+no-gating para `verify_cycle_closure`. NO es un cambio de status ni una nueva entrada
+AUTO-GENERATED; no se re-abrió ningún finding terminal (D-05 / HARN-09). Nota: en la corrida en
+vivo LIVE-03 (2026-06-25, credenciales provisionadas por el operador) el driver iol **RAN** y
+re-emitió F-01 (`field_type_map: FINDING F-01 (OPEN)`, SUMMARY `PASS=13 FAIL=0 SKIPPED=1 FINDING=1`);
+la zona AUTO-GENERATED quedó byte-idéntica (dedupe content-addressed) y F-01 se mantiene OPEN. No
+surgió ningún fid nuevo.
+**Operator signoff:** sebadlf, 2026-06-25, via /gsd-execute-phase 17 (LIVE-03 gate, iol RAN en vivo).
 
 ## Cycle Closure
 

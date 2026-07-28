@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Architecture + Auth/Ergonomics Carry-forwards
-status: executing
-last_updated: "2026-06-15T19:26:20.123Z"
-last_activity: 2026-06-15 -- Phase 14 planning complete
+status: verifying
+stopped_at: Phase 17 context gathered (assumptions mode)
+last_updated: "2026-06-25T12:31:16.428Z"
+last_activity: 2026-06-25
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 11
-  completed_plans: 9
-  percent: 33
+  completed_phases: 4
+  total_plans: 18
+  completed_plans: 20
+  percent: 67
 ---
 
 # Project State
@@ -21,14 +22,14 @@ See: .planning/PROJECT.md (updated 2026-06-14 for v1.2)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.2 layer: cerrar la deuda arquitectónica residual de v1.1 — driver migration × 4 a `Client`/`AsyncClient` directos + unasync/codegen single-source sync/async [spike-gated] + IOL refresh_token disk persistence + `client.with_options(max_retries=N)` × 4.)
 
-**Current focus:** Phase 14 — iol disk persistence (sec 01)
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 14
+Phase: 17
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-15 -- Phase 14 planning complete
+Status: Milestone v1.2 shipped — PR #2 (ship/v1.2-live-verification)
+Last activity: 2026-06-25
 
 **Operational gate before Phase 12 starts:** v1.1 head `71bf201` MUST be confirmed CI-green on Python 3.13 (closes 3 deferred human-verification items from v1.1 Phases 7/8/9; anti-Pitfall 17). If CI red, fix lands as quick-task before Phase 12 planning commits.
 
@@ -36,7 +37,7 @@ Last activity: 2026-06-15 -- Phase 14 planning complete
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 46 (v1.0)
+- Total plans completed: 57 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -158,9 +159,9 @@ Cleaned up inline before milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T15:38:20.307Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-iol-disk-persistence-sec-01/14-CONTEXT.md
+Last session: 2026-06-24T17:47:20.157Z
+Stopped at: Phase 17 context gathered (assumptions mode)
+Resume file: .planning/phases/17-final-live-re-verification-4-live-03/17-CONTEXT.md
 
 ## Operator Next Steps
 
