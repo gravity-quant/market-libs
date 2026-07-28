@@ -5,7 +5,7 @@
 +# To modify, edit aio.py and run `make codegen` (Phase 19).
 +
  """Cliente HTTP sincrónico para Ámbito Financiero — transport shell.
- 
+
 -Phase 07 Plan 07-02 (REFAC-03): consume ``_core`` (puros). Skeleton Phase 6
 -preservado; sólo cambian endpoints (3-liner), ``_request(spec)`` (D-03) y
 -``_raise_for_response = _core.raise_for_response`` (D-04 alias, B8 identity)::
@@ -14,18 +14,18 @@
 +``_raise_for_response = _core.raise_for_response`` (D-04 mirror — identidad
 +``aio._raise_for_response is client._raise_for_response`` preservada). ``__all__``
 +lista el alias para satisfacer mypy strict ``implicit_reexport=False``::
- 
+
 -    import ambito_financiero_client as ambito
 -    precio = ambito.get_dollar_banco_nacion(date)
 +    from ambito_financiero_client import aio
 +    precio = aio.get_dollar_banco_nacion(date)
 +    aio.aclose()
- 
+
      from ambito_financiero_client import Client
 -    with Client() as c:
 +    async with Client() as c:
          precio = c.get_dollar_banco_nacion(date)
- 
+
 -Env: ``AMBITO_BASE_URL`` (default ``https://mercados.ambito.com``). ``load_dotenv()``
 -sólo aquí (D-19). PEP 562 shim (D-01/D-02): sólo ``_client`` forward (T-06-01).
 +**B7 divergence:** ámbito sin auth → ``__slots__ = ("_state",)`` (sin
@@ -33,18 +33,18 @@
 +por proceso (T-06-13), aceptable para FX-rate polling. PEP 562 shim
 +(D-01/D-02): sólo ``_client`` es forward.
  """
- 
+
  from __future__ import annotations
 @@ -22,46 +30,15 @@
  from typing import Any, Self
- 
+
  import httpx
 -from dotenv import load_dotenv
- 
+
  from ambito_financiero_client import _core, _transport
  from ambito_financiero_client._state import _ClientState
 +from ambito_financiero_client.client import _validate_max_retries
- 
+
 -load_dotenv()
 -
 -_REQUEST_TIMEOUT = 30.0
@@ -54,7 +54,7 @@
 +# D-04 mirror alias — identidad B8 preservada vía shared _core source.
 +# Listado en __all__ para satisfacer mypy strict implicit_reexport=False.
  _raise_for_response = _core.raise_for_response
- 
+
 -
 -# WR-06 Phase 8 review fix: validate max_retries kwarg early. Duplicated 4x
 -# across packages per the "no shared internals" project constraint.
@@ -88,25 +88,25 @@
 @@ -70,15 +47,18 @@
      "get_dollar_banco_nacion",
  ]
- 
+
 +_REQUEST_TIMEOUT = 30.0
- 
+
 -# --- Sync Client class (Phase 6 skeleton preserved; endpoint bodies collapse) ---
- 
+
 +# --- Async Client class (Phase 6 skeleton preserved; endpoint bodies collapse) ---
- 
+
 +
  class Client:
 -    """Sync client para Ámbito Financiero (estado per-instancia ``_ClientState``).
 +    """Async client para Ámbito Financiero (estado per-instancia ``_ClientState``).
- 
+
 -    ``close()`` idempotente (T-06-04); pickle/deepcopy raise ``TypeError``
 -    (D-23). Instancias explícitas NO afectadas por ``configure()`` (D-14).
 +    ``aclose()`` idempotente (T-06-04); pickle/deepcopy raise ``TypeError`` (D-23).
 +    Instancias explícitas NO afectadas por ``configure()`` (D-14). B7: ``__slots__
 +    = ("_state",)`` — sin ``_client_lock``.
      """
- 
+
      __slots__ = ("_is_view", "_max_retries", "_state")
 @@ -91,8 +71,7 @@
          max_retries: int = 2,
@@ -133,10 +133,10 @@
 +        # Phase 8 D-16: caller-supplied http_client used AS-IS (no auto-wrap).
          if http_client is not None:
              self._state.http_client = http_client
- 
+
 @@ -117,10 +93,7 @@
          self.close()
- 
+
      def close(self) -> None:
 -        # Phase 13 D-V1: views don't own the http_client (shared _state with parent);
 -        # short-circuit so view.close()/__exit__ never tear down the parent's TCP pool
@@ -148,7 +148,7 @@
          if self._state.http_client is not None:
 @@ -129,27 +102,29 @@
              self._state.http_client = None
- 
+
      def __repr__(self) -> str:
 -        # D-18: ambito has no credentials; repr exposes only non-secret state.
 -        # Phase 13: views surface a "view of " prefix for debug ergonomics
@@ -163,20 +163,20 @@
              f"user_agent={self._state.user_agent!r}, "
              f"client_open={self._state.http_client is not None})"
          )
- 
+
 -    def __reduce__(self) -> Any:  # D-23 — httpx.Client owns TCP pool + SSL context
 -        raise TypeError("AmbitoFinancieroClient is not picklable; recreate via Client(...)")
 +    def __reduce__(self) -> Any:  # D-23 — httpx.AsyncClient owns TCP pool + SSL context
 +        raise TypeError(
 +            "AmbitoFinancieroClient is not picklable; recreate via Client(...)"
 +        )
- 
+
      def __deepcopy__(self, memo: Any) -> Any:  # D-23
 -        raise TypeError("AmbitoFinancieroClient is not deepcopy-safe (httpx.Client TCP pool)")
 +        raise TypeError(
 +            "AmbitoFinancieroClient is not deepcopy-safe (httpx.Client TCP pool)"
 +        )
- 
+
      def _ensure_http_client(self) -> httpx.Client:
          if self._state.http_client is None:
 -            # Phase 8 D-15 / D-19: wrap with RetryTransport.
@@ -188,7 +188,7 @@
 @@ -161,62 +136,35 @@
      def with_options(self, *, max_retries: int) -> Self:
          """Return a new Client view with overridden ``max_retries``.
- 
+
 -        The view shares this Client's ``_state`` and underlying ``httpx.Client``
 -        (no re-auth, no connection pool fragmentation — Phase 13 D-V1, anti-
 -        Pitfall 13). Only the per-call ``max_retries`` differs; the parent's
@@ -198,17 +198,17 @@
 +        ``httpx.Client`` with the parent (anti-Pitfall 13; no second TCP
 +        pool); only ``_max_retries`` differs. Lifecycle ``aclose()`` /
 +        ``__aexit__`` are no-op on views.
- 
+
 -        Use for one-off requests that need different retry behavior::
 +        NOTE: ``with_options`` itself is SYNC even on ``Client`` — it
 +        constructs the view in-memory only. The subsequent endpoint call is
 +        the async one::
- 
+
 -            # Bump retries for a flaky symbol (idempotent GET):
 -            precio = client.with_options(max_retries=5).get_dollar_banco_nacion(date)
 +            view = client.with_options(max_retries=5)
 +            precio = view.get_dollar_banco_nacion(date)
- 
+
 -            # Disable retries entirely for debug iteration:
 -            precio = client.with_options(max_retries=0).get_dollar_banco_nacion(date)
 -
@@ -251,11 +251,11 @@
 -        view._is_view = True  # FLAG for close()/__exit__ no-op (D-V1)
 +        view._is_view = True  # FLAG for aclose()/__aexit__ no-op (D-V1)
          return view
- 
+
      def _request(self, spec: _core.RequestSpec) -> httpx.Response:
 -        """Transport shell — dispatch HTTP only (D-03). Status / body handled by ``_core``.
 +        """Transport shell async — dispatch HTTP only (D-03 mirror).
- 
+
 -        Phase 8 D-30: generates a per-business-call ``request_id`` (UUID4) and
 -        propagates ``idempotent`` + ``endpoint_name`` via ``request.extensions``
 -        so the ``RetryTransport`` mutation gate (D-01) + structured logs (D-09)
@@ -276,7 +276,7 @@
 +        # _max_retries (Phase 8 D-19 N→N+1). Uniform path.
          req.extensions["max_attempts"] = self._max_retries + 1
          return http.send(req)
- 
+
      def get_dollar_banco_nacion(self, date: dt.date) -> float:
 -        """Cotización vendedor del dólar Banco Nación para ``date``.
 -
@@ -286,16 +286,16 @@
          spec = _core.build_get_dollar_banco_nacion_request(self._state, date)
          resp = self._request(spec)
          return _core.parse_get_dollar_banco_nacion_response(resp)
- 
- 
+
+
 -# --- Default Client + module-level delegators (back-compat con v1.0) ---
 +# --- Default AsyncClient + module-level delegators (back-compat con v1.0) ---
- 
- 
+
+
 -_default_client: Client | None = None
 +_default_async_client: Client | None = None
- 
- 
+
+
  def _get_default() -> Client:
      """Lazy default ``Client`` (D-15)."""
 -    global _default_client
@@ -306,17 +306,17 @@
 +    if _default_async_client is None:
 +        _default_async_client = Client()
 +    return _default_async_client
- 
- 
+
+
  def configure(
 @@ -268,24 +212,28 @@
  ) -> None:
      """Sobrescribe URL base / User-Agent runtime (carry-forward, D-14).
- 
+
 -    Reemplaza ``_default_client``. Instancias ``Client()`` explícitas NO se afectan.
 +    Reemplaza ``_default_async_client``. Instancias explícitas NO se afectan.
 +    D-19: NO llama ``load_dotenv()``.
- 
+
 -    Phase 8 D-15: ``max_retries`` (default 2; ``0`` disables retries entirely
 -    per D-19; subject to tuning in future minor versions per D-20) and
 -    ``http_client`` (used AS-IS without auto-wrapping with ``RetryTransport``
@@ -349,8 +349,8 @@
          user_agent=new_user_agent,
          max_retries=max_retries,
 @@ -294,9 +242,7 @@
- 
- 
+
+
  def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
 -    """Module-level delegator back-compat: retorna ``httpx.Response`` con
 -    ``_raise_for_response`` ya aplicado. NO consume body (mocks del driver
@@ -360,8 +360,8 @@
          method=method,
          path=path,
 @@ -309,11 +255,7 @@
- 
- 
+
+
  def get_dollar_banco_nacion(date: dt.date) -> float:
 -    """Cotización vendedor del dólar Banco Nación (delegador top-level).
 -
@@ -370,11 +370,11 @@
 -    """
 +    """Cotización vendedor del dólar Banco Nación (async delegador top-level)."""
      return _get_default().get_dollar_banco_nacion(date)
- 
- 
+
+
 @@ -323,7 +265,7 @@
- 
- 
+
+
  def __getattr__(name: str) -> Any:
 -    """PEP 562 shim — forwards ``_client``; otherwise ``AttributeError`` (T-06-01)."""
 +    """PEP 562 shim — forwards ``_client``; otherwise ``AttributeError``."""
