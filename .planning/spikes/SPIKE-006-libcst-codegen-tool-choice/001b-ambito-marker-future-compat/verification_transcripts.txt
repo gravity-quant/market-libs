@@ -1,0 +1,38 @@
+# Spike 001b (SPIKE-006) — @generated marker × from __future__ compatibility
+# Marker inserted via libcst Module.header (EmptyLine/Comment), NOT str.replace.
+# Target: current v1.2-head ámbito client.py (clean production file).
+# Acceptance: all 4 commands exit 0 on the MARKED file (strict) AND marker-neutral
+#   (marked exit code == baseline exit code for each command; zero new diagnostics).
+# Verification subprocesses use the workspace .venv (VIRTUAL_ENV/UV_* sanitized).
+
+=== ruff check ===
+exit 0
+All checks passed!
+
+=== ruff format --check ===
+exit 0
+1 file already formatted
+
+=== mypy --strict ===
+exit 0
+Success: no issues found in 1 source file
+
+=== ast.parse ===
+exit 0
+
+# --- Baseline (no marker) results, for delta comparison -----------
+
+=== baseline ruff check ===
+exit 0
+All checks passed!
+
+=== baseline ruff format --check ===
+exit 0
+1 file already formatted
+
+=== baseline mypy --strict ===
+exit 0
+Success: no issues found in 1 source file
+
+=== baseline ast.parse ===
+exit 0

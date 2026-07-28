@@ -1,5 +1,41 @@
 # Milestones
 
+## v1.3 Codegen Single-Source (libcst) (Closed: 2026-07-03 — signed NO-GO)
+
+**Phases completed:** 1 phase (18; Phase 19 REFAC-06 DROPPED), 3 plans, 7 tasks
+**Git range:** `6d3b749` (docs: start milestone v1.3) → `1333d5f` (docs(phase-18): auto-close todo), 2026-07-02 → 2026-07-03 (23 commits)
+**Source delta:** 0 production files — **zero footprint**. The entire milestone lived under `.planning/spikes/SPIKE-006-libcst-codegen-tool-choice/` with `libcst` invoked ephemerally (`uv run --with libcst`, never added to dev deps per D-05).
+
+**Outcome:** Signed **NO-GO** (`sebadlf`, 2026-07-03). CODEGEN-01 resolved; REFAC-06 permanently shelved; Phase 19 dropped; duplicate `client.py`/`aio.py` transport shells accepted as a structural feature. A valid, guaranteed milestone deliverable per D-08 (the milestone delivered a signed architectural decision, not code). libcst is a partial gain over unasync — it closes item 4 (`ruff check` I001 + ASYNC1xx) that SPIKE-005 could not — but two independent tools now reach the same strict-D-04 NO-GO for the same content-absence / source-shape-asymmetry root cause.
+
+**Key accomplishments:**
+
+- Stood up the SPIKE-006 libcst spike tree and landed the ~60% inherited D-RIGOR-02 harness — item 10a matriz construct audit (0 unresolved / 959 LOC, verbatim audit.py), item 8 @generated marker via libcst Module.header (STRICT PASS, all 4 commands exit 0), and item 10b matriz 4-file deny-list sha256 byte-identity under per-module libcst scope — with the libcst supply-chain gate operator-approved and libcst kept ephemeral.
+- Authored the genuinely-new core of SPIKE-006 — five pure libcst `CSTTransformer` subclasses + an impure driver that transform the un-migrated ámbito `aio.py` into a candidate sync `client.py` — and captured the honest D-RIGOR-02 gate transcript: item 4 (GO-det, `ruff check`) now PASSES (the item unasync failed), but items 1 and 6 (GO-det) FAIL for the exact SPIKE-005 source-shape root cause — `_validate_max_retries` def + `load_dotenv` bootstrap are content-absent from `aio.py` and cannot be synthesized by any pure transform — a signed same-root-cause NO-GO that is a valid, guaranteed deliverable (D-04/D-08), reached without editing `aio.py` or reading `client.py` as a donor.
+- Operator-signed SPIKE-006 NO-GO (sebadlf, 2026-07-03) — 7 PASS / 3 FAIL on the 10-item D-RIGOR-02 gate (items 1/3/6 FAIL, same content-absence root cause as SPIKE-005) → REFAC-06 permanently shelved, Phase 19 dropped, zero production footprint.
+
+**Known deferred items at close:** 0 (pre-close artifact audit clear — all artifact types clean). No milestone audit was run: with 2/2 requirements resolved and a spike-only milestone that shipped no code, the signed NO-GO is itself the complete deliverable.
+
+---
+
+## v1.2 Architecture + Auth/Ergonomics Carry-forwards (Shipped: 2026-06-25)
+
+**Phases completed:** 5 phases (12-15, 17; Phase 16 dropped), 18 plans, 40 tasks
+**Git range:** `74b22bf` (docs(12): capture phase context) → `a7dbc8f` (ship v1.2 — PR #2), 2026-06-14 → 2026-06-25
+**Source delta:** 43 files changed, +3,364 / −531 LOC (packages + drivers + pyproject)
+
+**Key accomplishments:**
+
+- **Phase 12 — Codegen tool-choice spike (REFAC-06, NO-GO):** SPIKE-005 ran unasync round-trip on the ámbito canary + a matriz worst-case construct audit (109 rows, 0 unresolved); the strict D-RIGOR-01 8-item evidence checklist returned **3/8 FAIL — all tracing to a single root cause (source-shape asymmetry between v1.1 sync-first `aio.py` and async-first codegen), 0 unfixable hunks** — so the operator signed NO-GO and REFAC-06 was cleanly deferred to v1.3 with a libcst handoff scope + auto-loaded findings skill.
+- **Phase 13 — `client.with_options(max_retries=N)` × 4 packages (ERG-01):** a shallow-clone Client view that shares the underlying `httpx.Client` + `_ClientState` (no resource leak, no re-auth) and threads the override via `request.extensions['max_attempts']` mirroring the v1.1 mutation-gate pattern; the CRITICAL merge gate proves matriz `new_order` under 503 executes **EXACTLY 1 outgoing request regardless of `max_retries=10`** (anti-Pitfall 14, duplicate-order money-on-the-line).
+- **Phase 14 — IOL refresh_token disk persistence (SEC-01):** `iol_client/_token_cache.py` with atomic write-then-rename, `fcntl.flock` inter-process locking, 0600 perms, `platformdirs` default path (iol-client only), and CI-refuses-default-path; the three CRITICAL gates land GREEN across sync + async — caplog no-leak sentinel, 20-thread concurrent-write race, and failed-refresh disk cleanup — with `asyncio.to_thread` dispatch for the async mirror.
+- **Phase 15 — Driver migration × 4 (REFAC-05):** every `main_*.py` now constructs **exactly one `Client()` / `AsyncClient()` per `main()` run** with all probes threaded through that single instance (ámbito → iol → higyrus → matriz), guarded by a RED-first AST single-Client regression test per driver; probe names / finding titles stay byte-stable vs the v1.1 LIVE-01 baseline `71bf201`, closing the v1.1 iol/matriz LOC-drop residual.
+- **Phase 17 — Final live re-verification × 4 (LIVE-03):** operator dispositions captured for ambito/iol/higyrus/matriz, schema snapshot vs baseline `verification-cycle-2026-Q2` clean, `verify_cycle_closure × 4` PASS (iol F-02 FIXED→regression-linked), REQUIREMENTS.md traceability flipped to Complete for REFAC-05/SEC-01/ERG-01/LIVE-03, 0-BLOCKER integration audit, pytest final ≥989 / CI matrix green on Python 3.12 + 3.13.
+
+**Known deferred items at close:** 6 (see STATE.md Deferred Items — 4 stale v1.1-era quick-task status files, the intentional REFAC-06→v1.3 libcst spike todo, and the Phase 15 operator UAT gap superseded by the Phase 17 LIVE-03 gate). REFAC-06 deferred to v1.3.
+
+---
+
 ## v1.1 Tech Debt Cleanup (Shipped: 2026-06-14)
 
 **Phases completed:** 6 phases, 30 plans, 52 tasks

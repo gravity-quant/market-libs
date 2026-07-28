@@ -1,0 +1,214 @@
+SPIKE-006 — D-RIGOR-02 Evidence Checklist (10 items)
+====================================================
+
+Status: AGGREGATED + SIGNED (Plan 03). Per-item verdicts below are synced to the
+        === AGGREGATE VERDICT === block and the signed DECISION.md (decision: NO-GO).
+Spike directory: .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/
+
+Reference:
+  - 18-CONTEXT.md — D-01 (inherit ~60% from SPIKE-005), D-02 (STRICT un-migrated bar),
+    D-05 (ephemeral libcst only), D-08 (NO-GO is a valid deliverable), D-09 (deny-list confirmed).
+  - 18-RESEARCH.md §"Phase Requirements → Test Map" — the automated commands (below, verbatim).
+  - 18-RESEARCH.md §Common Pitfalls — Pitfall 1 (stale baseline), Pitfall 2 (LOC/row drift),
+    Pitfall 3 (lossless != byte-identity), Pitfall 4 (B8 alias node), Pitfall 5 (item-9 purity).
+  - 001a/FINDING.md, 001b/FINDING.md, 001c/FINDING.md, 001d/FINDING.md — sub-experiment verdicts.
+
+Owner legend: [P01] = filled by Plan 01 (this plan)  ·  [P02] = Plan 02  ·  [P03] aggregate.
+
+
+=== D-RIGOR-02 item 1: Byte-identical round-trip ámbito (GO-det.) ===  [P02]
+
+Automated command (18-RESEARCH.md Test Map):
+  diff -u packages/ambito-financiero-client/src/ambito_financiero_client/client.py \
+          .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+
+NOTE: baseline is the CURRENT v1.2-head client.py (Pitfall 1 — do NOT reuse SPIKE-005's stale diff).
+
+Verdict: **FAIL** (001a — 13 hunks / 383 lines vs CURRENT client.py; content-absence of _validate_max_retries def + load_dotenv bootstrap)
+
+
+=== D-RIGOR-02 item 2: B8 identity preserved on generated ===  [P02]
+
+Automated command:
+  importlib load client_generated.py + assert
+    mod._raise_for_response is aio._raise_for_response is _core.raise_for_response
+  (Pitfall 4 — the alias node must be emitted verbatim, not a rebuilt thunk.)
+
+Verdict: **PASS** (001a — same object id across mod/aio/_core; B8 alias emitted verbatim)
+
+
+=== D-RIGOR-02 item 3: `uv run ruff format --check` clean ===  [P02]
+
+Automated command:
+  uv run ruff format --check \
+    .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+
+  (libcst lossless round-trip → no ruff format post-pass needed for untouched trivia; Pitfall 3.)
+
+Verdict: **FAIL** (001a — length-changing Async→sync swap left aio.py multi-line wrapping)
+
+
+=== D-RIGOR-02 item 4: `uv run ruff check` clean incl. I001 + ASYNC1xx (GO-det.) ===  [P02]
+
+Automated command:
+  uv run ruff check \
+    .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+
+Verdict: **PASS** (001a — All checks passed! — the one GO-det item unasync FAILED; libcst closes it via ImportNormalizer single-line I001 fix)
+
+
+=== D-RIGOR-02 item 5: `uv run mypy --strict` clean ===  [P02]
+
+Automated command:
+  uv run mypy --strict \
+    .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001a-ambito-round-trip/output/client_generated.py
+
+Verdict: **PASS** (001a — Success: no issues found)
+
+
+=== D-RIGOR-02 item 6: Ámbito mocked suite green vs generated (GO-det.) ===  [P02]
+
+Automated command (sandbox recipe — Anti-Pitfall 2, never mutate packages/):
+  TS=$(date +%s); SB=/tmp/spike-006-ambito-$TS
+  cp -r packages/ambito-financiero-client "$SB-pkg"
+  cp .../001a/output/client_generated.py "$SB-pkg/src/ambito_financiero_client/client.py"
+  uv run --package ambito-financiero-client pytest -q "$SB-pkg/tests"
+  rm -rf "$SB-pkg"
+
+  Watch: circular self-import of _validate_max_retries (SPIKE-005 item-6 FAIL root cause);
+  ImportDirectionNormalizer + def synthesis must eliminate it.
+
+Verdict: **FAIL** (001a — circular self-import _validate_max_retries; exact SPIKE-005 item-6 root cause)
+
+
+=== D-RIGOR-02 item 7: `uv run lint-imports` 4 contracts intact ===  [P02]
+
+Automated command:
+  uv run lint-imports
+  (runs against production packages/, NOT spike artifacts — confirms existing contracts hold.)
+
+Verdict: **PASS** (001a — 4 kept, 0 broken)
+
+
+=== D-RIGOR-02 item 8: `@generated` marker × `from __future__ import annotations` ===  [P01]
+
+Automated command (on the marked file, all 4 must exit 0):
+  uv run ruff check          001b/client_with_marker.py
+  uv run ruff format --check 001b/client_with_marker.py
+  uv run mypy --strict       001b/client_with_marker.py
+  uv run python -c "import ast; ast.parse(open('001b/client_with_marker.py').read())"
+
+  Marker inserted via libcst Module.header (NEVER str.replace — Anti-Pitfall 6).
+
+Plan 01 run (2026-07-02, target = current clean ámbito client.py):
+  ruff check:          marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (All checks passed)
+  ruff format --check: marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (1 file already formatted)
+  mypy --strict:       marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (Success: no issues found)
+  ast.parse:           marked_rc=0 baseline_rc=0  MARKER-NEUTRAL (AST OK)
+  libcst lossless round-trip on client.py: PASS  (A2 confirmed empirically)
+
+Verdict: **PASS** (STRICT — all 4 exit 0 on the marked file AND marker-neutral vs baseline)
+
+
+=== D-RIGOR-02 item 9: CSTTransformer purity (pure CSTNode → CSTNode) ===  [P02]
+
+Automated command:
+  runtime assertion in 001a/experiment.py: transformer instances hold no cross-module state,
+  no I/O, no self-accumulation (Pitfall 5 — cross-module state lives in the impure driver,
+  not the CSTTransformer subclasses).
+
+Verdict: **PASS** (001a — class-level purity; vars(t) unchanged across visit; 14/14 assertions)
+
+
+=== D-RIGOR-02 item 10a: matriz construct audit — 0 unresolved rows ===  [P01]
+
+Automated command (pure stdlib ast — NO libcst):
+  uv run python \
+    .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001c-matriz-construct-audit/audit.py
+  # gate: matriz-aio-constructs.md contains "**MERGE GATE PASS:** zero unresolved rows."
+  # (audit.py — copied VERBATIM from SPIKE-005 — writes the sentinel to its OUTPUT file
+  #  matriz-aio-constructs.md, not to stdout; grep that file for the sentinel.)
+
+  Pitfall 2: gate is "0 unresolved," NOT a fixed row count (aio.py grew 852→959 LOC).
+
+Plan 01 run (2026-07-02):
+  $ uv run python .../001c-matriz-construct-audit/audit.py
+  Total rows: 110
+  Unresolved (REVIEW/TBD/DENY-LIST-VIOLATION): 0
+  Deny-list imports detected in aio.py (re-exports): ['build_token_store']
+  matriz-aio-constructs.md tail: "**MERGE GATE PASS:** zero unresolved rows."
+  git diff --exit-code packages/: clean (read-only ast walk)
+
+Verdict: **PASS** (0 unresolved rows against current 959-LOC matriz aio.py; MERGE GATE PASS sentinel)
+
+
+=== D-RIGOR-02 item 10b: matriz deny-list sha256 intactness ===  [P01]
+
+Automated command:
+  uv run --with 'libcst>=1.8.0,<2' python \
+    .planning/spikes/SPIKE-006-libcst-codegen-tool-choice/001d-matriz-deny-list-config/experiment.py
+  # gate: 4 deny-list files (_token_store.py, _refresh_policy.py, _refresh.py, ws_client.py)
+  #       sha256-byte-identical pre/post AND sandbox aio.py sha256 differs (transformed).
+  #       Only aio.py is ever handed to libcst (per-module scope = unasync fpath_list equivalent).
+
+Plan 01 run (2026-07-02):
+  _token_store.py:    sha256 pre == post  (intact PASS)
+  _refresh_policy.py: sha256 pre == post  (intact PASS)
+  _refresh.py:        sha256 pre == post  (intact PASS)
+  ws_client.py:       sha256 pre == post  (intact PASS)
+  aio.py:             sha256 pre != post  (transformed PASS — minimal AsyncToSync pass)
+  uv.lock: unchanged after ephemeral libcst run (D-05); packages/ clean (sandbox only)
+
+Verdict: **PASS** (4/4 deny-list byte-identical pre/post; aio.py transformed; scope sufficient)
+
+
+=== TIMEBOX CHECK ===  [P03]
+
+Method: stat mtime on README.md (Plan 01 created it) vs time.time(); cap 24h (D-07 / D-SCOPE-03).
+
+Plan 03 run (2026-07-02):
+  README.md mtime (spike start):  2026-07-02 22:26 (local, UTC-3)
+  Plan 03 aggregate timestamp:    2026-07-03 01:54 UTC (~28m after README; same calendar spike)
+  Cumulative wall-clock across Plans 01 (~22m) + 02 (~33m) + 03: well under the 24h cap.
+
+Status: WITHIN-CAP  (no AUTO-NO-GO from D-07; the NO-GO below is evidence-driven, not timebox-driven)
+
+
+=== AGGREGATE VERDICT ===  [P03]
+
+Per-item summary (filled by Plan 03 from the four sub-experiment FINDINGs):
+  Item 1  (byte-identical, GO-det.):     FAIL  (001a — 13 hunks / 383 lines vs CURRENT client.py)
+  Item 2  (B8 identity):                 PASS  (001a — same object id across mod/aio/_core)
+  Item 3  (ruff format --check):         FAIL  (001a — length-changing swap left aio.py multi-line wrapping)
+  Item 4  (ruff check, GO-det.):         PASS  (001a — All checks passed! — the item unasync FAILED)
+  Item 5  (mypy --strict):               PASS  (001a — Success: no issues found)
+  Item 6  (ámbito pytest, GO-det.):      FAIL  (001a — circular self-import _validate_max_retries)
+  Item 7  (lint-imports 4 contracts):    PASS  (001a — 4 kept, 0 broken)
+  Item 8  (marker × future-compat):      PASS  (001b — STRICT, all 4 commands exit 0; Plan 01)
+  Item 9  (CSTTransformer purity):       PASS  (001a — class-level; vars(t) unchanged across visit; 14/14)
+  Item 10a (matriz audit 0 unresolved):  PASS  (001c — 110 rows, 0 unresolved; Plan 01)
+  Item 10b (matriz deny-list sha256):    PASS  (001d — 4/4 byte-identical pre/post; aio.py transformed; Plan 01)
+
+Items PASS: 7 / 10   (items 2, 4, 5, 7, 8, 9, 10 — where item 10 = 10a AND 10b both PASS)
+Items FAIL: 3 / 10   (items 1, 3, 6)
+Matriz audit unresolved rows: 0  (D-SCOPE-02 gate satisfied)
+Timebox status: WITHIN-CAP
+
+Strict D-RIGOR-02 verdict: NO-GO  (GO requires 10/10 PASS + unresolved == 0 + WITHIN-CAP;
+                                 items 1/3/6 FAIL → ANY FAIL → NO-GO.)
+
+Root cause (parallels SPIKE-005): items 1 and 6 trace to content ABSENT from aio.py that no pure
+single-file transform can synthesize — the `_validate_max_retries` def (defined only in client.py:41-62,
+imported at aio.py:34) and the `load_dotenv()` bootstrap (absent from aio.py per D-19). item 3 is the
+length-changing docstring/TypeError-string divergence from the AmbitoFinancieroAsyncClient→...Client
+swap. Item 4 (the item unasync FAILED) IMPROVED to PASS under libcst — a genuine capability gain — but
+does not change the content-absence-driven aggregate. This is the same source-shape root cause as
+SPIKE-005; per D-04/D-08 the signed NO-GO for the same root cause is an explicitly valid, guaranteed
+milestone deliverable and was NOT softened (no aio.py edit, no client.py-donor read).
+
+Recipe-2 informative note (alongside, never replacing the strict verdict): as in SPIKE-005, the FAILs
+are source-shape asymmetries, not tool defects — libcst closes the mechanical asymmetries (items 4/5/7/9
+PASS, labels localized) but cannot cross the content-absence boundary under the un-migrated D-03 constraint.
+
+
+=== END EVIDENCE CHECKLIST (aggregated + signed — Plan 03) ===

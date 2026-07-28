@@ -1,0 +1,138 @@
+SPIKE-006 001a — D-RIGOR-02 gate transcript (items 1/2/3/4/5/6/7/9)
+===================================================================
+
+Generated: 2026-07-02 (Phase 18 Plan 18-02 Task 2)
+Canary: ámbito aio.py @ v1.2-head (UN-migrated) → generated sync client.py
+Subject: 001a-ambito-round-trip/output/client_generated.py
+Oracle:  packages/ambito-financiero-client/src/ambito_financiero_client/client.py (READ-ONLY; diffed, never a donor)
+
+Aggregate (D-04, strict "any item FAIL → NO-GO"): NO-GO
+  GO-determining items: 1 FAIL · 4 PASS · 6 FAIL   (2 of 3 GO-det FAIL; item 4 improved to PASS vs SPIKE-005)
+  Other items:          2 PASS · 3 FAIL · 5 PASS · 7 PASS · 9 PASS
+  Root cause of 1/6 FAIL: content absent from aio.py source (_validate_max_retries def + dotenv bootstrap) — same source-shape
+  asymmetry SPIKE-005 found, relocated into libcst's node model, not eliminated by it (D-04/D-08: honest NO-GO is a valid deliverable).
+
+
+=== item-tool: libcst lossless round-trip on aio.py (validates the TOOL; Pitfall 3) ===
+  $ uv run --with 'libcst>=1.8.0,<2' python 001a/experiment.py   # (round-trip smoke)
+  cst.parse_module(aio_src).code == aio_src : PASS
+  Verdict: PASS  (distinct from the item-1 target diff — this only proves parse→emit reproduces the INPUT)
+
+
+=== D-RIGOR-02 item 1 (GO-DET): byte-identical vs CURRENT hand-written client.py ===
+  $ diff -u packages/ambito-financiero-client/src/ambito_financiero_client/client.py \
+           001a/output/client_generated.py > 001a/diff_vs_current_client.txt
+  exit code: 1
+  hunk count (^@@): 13
+  total diff lines: 383
+  Baseline: REGENERATED vs current v1.2-head client.py (SPIKE-005 diff_vs_v1.1_client.txt is STALE — Pitfall 1).
+            13 hunks / 383 lines (vs SPIKE-005's 10 hunks / 295 lines — MORE divergence, as RESEARCH predicted,
+            concentrated in the with_options docstring 43-vs-19-line region + the content-absent regions).
+  Decisive residual regions (see diff):
+    - client.py:25 `from dotenv import load_dotenv`  → ABSENT from generated (content-absent from aio.py)
+    - client.py:30 `load_dotenv()` bootstrap call    → ABSENT from generated (content-absent from aio.py)
+    - client.py:41-62 `def _validate_max_retries(...)` (22-line def) → ABSENT from generated; generated instead RETAINS
+      `from ambito_financiero_client.client import _validate_max_retries` (aio.py:34 self-import — Q1)
+    - module docstring + with_options/`_request`/`configure`/`get_dollar_banco_nacion` docstrings: hand-authored prose
+      divergence (Q3), NOT closed by mechanical sincrónico↔asincrónico / AsyncClient↔Client label swaps
+    - __reduce__/__deepcopy__ TypeError strings: line-length changed by the AmbitoFinancieroAsyncClient→…Client swap →
+      libcst preserved aio.py's multi-line wrapping (also drives item 3)
+  Verdict: **FAIL** (strict byte-identity not satisfied; honest, per D-02/D-04)
+
+
+=== D-RIGOR-02 item 2: B8 identity preserved on generated ===
+  $ uv run python <item2_b8.py>   # importlib load + is-triple
+  mod._raise_for_response  id=0x10af2dd00
+  aio._raise_for_response  id=0x10af2dd00
+  _core.raise_for_response id=0x10af2dd00
+  assert mod._raise_for_response is aio._raise_for_response is _core.raise_for_response : PASS
+  exit code: 0
+  Note: the alias `_raise_for_response = _core.raise_for_response` is emitted VERBATIM (no thunk wrapper — Pitfall 4).
+        Standalone load resolves the self-import against the REAL client.py, isolating B8 from the item-6 circular failure.
+  Verdict: **PASS**
+
+
+=== D-RIGOR-02 item 3: ruff format --check clean ===
+  $ uv run ruff format --check 001a/output/client_generated.py
+  Would reformat: 001a/output/client_generated.py
+  1 file would be reformatted
+  exit code: 1
+  Cause (honest finding): the DocstringLocalizer swap `AmbitoFinancieroAsyncClient`→`AmbitoFinancieroClient` SHORTENED the
+    __reduce__/__deepcopy__ TypeError strings; libcst's lossless round-trip PRESERVED aio.py's original multi-line call
+    wrapping, which no longer matches ruff's canonical single-line form for the shorter string. The "no ruff-format
+    post-pass needed" premise HOLDS for untouched trivia but BREAKS where a substring swap changes line length.
+  Verdict: **FAIL**
+
+
+=== D-RIGOR-02 item 4 (GO-DET): ruff check clean (I001 import-order + ASYNC1xx) ===
+  $ uv run ruff check 001a/output/client_generated.py
+  All checks passed!
+  exit code: 0
+  Note: I001 import-order is CLEAN — ImportNormalizer sorted the `from ambito_financiero_client import _core, _transport`
+        alias list; zero residual ASYNC1xx (async fully stripped). This is the item SPIKE-005 (unasync) FAILED — libcst
+        PASSES it. (Item 4 is the one GO-determining item that improved.)
+  Verdict: **PASS**
+
+
+=== D-RIGOR-02 item 5: mypy --strict clean ===
+  $ uv run mypy --strict 001a/output/client_generated.py
+  Success: no issues found in 1 source file
+  exit code: 0
+  Verdict: **PASS**
+
+
+=== D-RIGOR-02 item 6 (GO-DET): ámbito mocked suite green vs generated (no circular self-import) ===
+  $ TS=$(date +%s); SB=/tmp/spike-006-ambito-$TS
+  $ cp -r packages/ambito-financiero-client "$SB-pkg"                    # Anti-Pitfall 2: /tmp sandbox, never mutate packages/
+  $ cp 001a/output/client_generated.py "$SB-pkg/src/ambito_financiero_client/client.py"
+  $ PYTHONPATH="$SB-pkg/src" uv run pytest -q "$SB-pkg/tests/test_client.py" "$SB-pkg/tests/test_client_class.py"
+
+  ImportError while loading conftest '.../tests/conftest.py'.
+  conftest.py:9: import ambito_financiero_client as ambito
+  __init__.py:30: from ambito_financiero_client.aio import AsyncClient
+  aio.py:34: from ambito_financiero_client.client import _validate_max_retries
+  client.py:36: from ambito_financiero_client.client import _validate_max_retries
+  E   ImportError: cannot import name '_validate_max_retries' from partially initialized module
+      'ambito_financiero_client.client' (most likely due to a circular import)
+  exit code: non-zero (collection error)
+
+  This is the EXACT SPIKE-005 item-6 failure: the generated client.py imports `_validate_max_retries` FROM ITSELF
+  (client.py:36) because the def is content-absent from aio.py and cannot be synthesized under D-03. Circular self-import.
+  git diff --exit-code packages/ : CLEAN (no production mutation — sandbox removed).
+  Verdict: **FAIL** (circular self-import; same root cause SPIKE-005 found)
+
+
+=== D-RIGOR-02 item 7: lint-imports (4 _core-cannot-depend-on-transport contracts) intact ===
+  $ uv run lint-imports
+  ambito_financiero_client._core does not depend on transport modules KEPT
+  higyrus_client._core does not depend on transport modules KEPT
+  iol_client._core does not depend on transport modules KEPT
+  matriz_client._core does not depend on transport modules KEPT
+  Contracts: 4 kept, 0 broken.
+  exit code: 0
+  Verdict: **PASS** (runs against packages/; unaffected by the spike — architectural contracts intact)
+
+
+=== D-RIGOR-02 item 9 (new): CSTTransformer subclasses pure CSTNode→CSTNode ===
+  $ uv run --with 'libcst>=1.8.0,<2' python 001a/experiment.py    # driver purity assertion
+  [item-9] AsyncToSync pure (vars unchanged across visit): PASS
+  [item-9] ImportNormalizer pure (vars unchanged across visit): PASS
+  [item-9] DocstringLocalizer pure (vars unchanged across visit): PASS
+  [item-9] Suppressors pure (vars unchanged across visit): PASS
+  [item-9] ImportDirectionNormalizer pure (vars unchanged across visit): PASS
+  $ uv run --with 'libcst>=1.8.0,<2' python -m pytest 001a/transformers/test_transformers.py -q
+  14 passed
+  Method: for each transformer instance, vars() is byte-identical before/after module.visit() — no cross-node mutable
+    accumulation, no I/O, no global reads. ImportDirectionNormalizer takes an IMMUTABLE frozenset config at __init__
+    (read-only closed-over data, not accumulation). Cross-module/scope orchestration (module-level close-delegator drop,
+    locally-defined-name scan, marker insertion) lives ONLY in the impure driver.
+  Interpretation (Q2/A3): purity scoped to the transformer CLASSES, not the whole pipeline — flagged for operator
+    ratification in DECISION.md (Plan 03).
+  Verdict: **PASS** (class-level purity)
+
+
+=== integrity witnesses ===
+  git diff --exit-code packages/ambito-financiero-client/.../aio.py : CLEAN (aio.py NOT edited — D-03)
+  git diff --exit-code packages/                                    : CLEAN (no production mutation — T-18-02)
+  git diff --exit-code uv.lock                                      : CLEAN (libcst ephemeral only — D-05)
+  client.py used ONLY as diff oracle, never parsed as a content donor (D-02).

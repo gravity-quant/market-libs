@@ -4,7 +4,7 @@ captured_date: 2026-06-14
 triggering_decision: SPIKE-005 NO-GO (2026-06-14, sebadlf)
 priority: high
 target_milestone: v1.3
-resolves_phase: TBD
+resolves_phase: 18
 related: [REFAC-06]
 area: codegen
 title: "v1.3 spike — libcst AST-level codegen for sync/async parity"
