@@ -65,17 +65,17 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-MD-01 | Phase [N] | Pending |
-| CORE-MD-01 | Phase [N] | Pending |
-| MD-01 | Phase [N] | Pending |
-| REF-MD-01 | Phase [N] | Pending |
-| LIVE-MD-01 | Phase [N] | Pending |
-| PUB-MD-01 | Phase [N] | Pending |
+| AUTH-MD-01 | Phase 20 | Pending |
+| CORE-MD-01 | Phase 20 | Pending |
+| MD-01 | Phase 21 | Pending |
+| REF-MD-01 | Phase 22 | Pending |
+| LIVE-MD-01 | Phase 23 | Pending |
+| PUB-MD-01 | Phase 24 | Pending |
 
 **Coverage:**
 - v1 requirements: 6 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 6 ⚠️
+- Mapped to phases: 6
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-07-29*

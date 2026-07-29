@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-07-29T14:52:49.570Z"
 last_activity: 2026-07-29
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Planning next milestone — v1.3 closed 2026-07-03 on the signed SPIKE-006 NO-GO. No forced next milestone; candidate v1.4+ work (prod-vs-remarkets D-MATZ-27, ws_client live verification, token encryption at-rest) lives in the ROADMAP Backlog. Start with `/gsd-new-milestone`.
+**Current focus:** v1.4 market-data-client — nuevo paquete cliente (solo lectura) contra la API primary-extractor (`market-data-develop.bbsa.com.ar`, OpenAPI 3.1) con Auth0 client-credentials, verificado en vivo y publicado v0.1.0. Roadmap creado (5 fases, 20-24). Próximo: `/gsd-discuss-phase 20` o `/gsd-plan-phase 20`.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-29 — Milestone v1.4 started
+Phase: 20 (next up) — Scaffold + Auth0 client-credentials + fundaciones de transporte
+Plan: — (not yet planned)
+Status: Roadmap complete — ready to plan Phase 20
+Last activity: 2026-07-29 — Milestone v1.4 roadmap created (5 phases, 6 requirements mapped)
 
 ## Performance Metrics
 
@@ -95,6 +95,13 @@ Last activity: 2026-07-29 — Milestone v1.4 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.4 Roadmap]: Phase numbering CONTINUES from v1.3 — v1.3 allocated Phases 18-19 (19 dropped), so v1.4 starts at **Phase 20** (avoids collision with the dropped Phase 19 reference). Sequential `phase_naming`.
+- [v1.4 Scope]: Paquete `market-data-client` (import `market_data_client`) — nombre con sufijo `-client` OBLIGATORIO por el regex de `release.yml`. Solo lectura; mutaciones + streaming SSE + disk token cache + JWT signature validation diferidos a v1.5+ (REQUIREMENTS § v2). Auth = Auth0 client_credentials. Plan fuente: `.future_plans/market_data.md`.
+- [v1.4 Roadmap]: 5 fases lineales (20 scaffold+auth → 21 market data → 22 reference data → 23 live verification → 24 publish); Phases 21 y 22 pueden paralelizar (ambas dependen solo de 20). 6 requisitos, 1:1 con fases salvo Phase 20 (AUTH-MD-01 + CORE-MD-01).
+
+<details>
+<summary>v1.3 decisions (milestone closed 2026-07-03, archived for reference)</summary>
+
 - [v1.3 Roadmap]: Phase numbering CONTINUES from v1.2 (last phase = 17) — v1.3 starts at Phase 18 (does NOT reset). Sequential `phase_naming` per config.json.
 - [v1.3 Roadmap]: Spike-gated conditional structure mirrors v1.2 (Phase 12 spike + conditional Phase 16). Phase 18 (SPIKE-006) is spike-before-plan and the guaranteed deliverable; Phase 19 (REFAC-06) is CONDITIONAL — DROPPED entirely if Phase 18 returns NO-GO, in which case REFAC-06 is shelved permanently per D-NOGO-01 and the milestone closes on the signed NO-GO.
 - [v1.3 Roadmap]: The 3 GO-determining gate items are D-RIGOR-02 item 1 (byte-identical round-trip, no source migration), item 4 (ruff check clean incl. single-line import-order), item 6 (mocked suite green vs generated, no circular self-import) — all trace to the single unasync root cause (source-shape asymmetry). libcst must close all 3 for GO.
@@ -104,6 +111,8 @@ Recent decisions affecting current work:
 - [Phase 18]: Item-9 purity scoped to transformer CLASSES; impure driver owns cross-module/scope orchestration (flagged for operator ratification in Plan 03 DECISION.md)
 - [Phase 18 / 18-03]: SPIKE-006 **signed NO-GO** (sebadlf, 2026-07-03) — 7 PASS / 3 FAIL (items 1/3/6) → strict D-04 NO-GO. libcst is a partial gain over unasync (closes item 4 `ruff check` / ASYNC1xx) but cannot cross the content-absence boundary without a forbidden source migration (D-02). Two independent tools now reach the same NO-GO for the same root cause.
 - [Phase 18 / 18-03]: **REFAC-06 PERMANENTLY shelved; Phase 19 DROPPED**; duplicate `client.py`/`aio.py` transport shells accepted as a structural feature. v1.3 milestone closes on the signed NO-GO (run `/gsd-complete-milestone`).
+
+</details>
 
 ### Pending Todos
 
@@ -115,11 +124,9 @@ Recent decisions affecting current work:
 
 [Issues that affect future work]
 
-- [Phase 18]: SPIKE-006 is the single architectural unknown remaining in the codebase; spike-before-plan flag active. Its GO/NO-GO output gates Phase 19. Inherits the 8 SPIKE-005 PASS/FAIL learnings via `Skill("spike-findings-codegen-market-libs")` — items 2/3/5/7/8 expected-PASS; items 1/4/6 are the gap libcst must close.
-- [Phase 18]: If items 1/4/6 FAIL again under libcst, REFAC-06 is shelved PERMANENTLY (duplicate shells accepted as structural feature) and the milestone closes on the signed NO-GO — this is a valid, guaranteed milestone outcome, not a failure.
-- [Phase 19]: Pitfall 4 (codegen breaks B8 identity) — `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` MUST survive codegen; test runs FIRST in CI (no thunk-wrapper).
-- [Phase 19]: Pitfall 5 (codegen overwrites hand-edit) — `@generated` marker + CI `lint-codegen` verify-clean (`git diff --exit-code`) mandatory.
-- [Phase 19]: Matriz deny-list intactness — the 4 concurrency-primitive files must stay sha256-identical; only `client.py`/`aio.py` are regenerated.
+- [v1.4 / Phase 23 risk]: El entorno **develop** (`market-data-develop.bbsa.com.ar`) puede requerir VPN/allowlist de red o credenciales Auth0 (client_id/secret/audience) que aún no están disponibles. La verificación en vivo (Phase 23) depende de esto — confirmar acceso + credenciales antes de/ durante Phase 20. Las Fases 20-22 (build + tests mockeados) NO dependen del acceso live.
+- [v1.4 / Phases 21-22 risk]: Las respuestas de la API **no están tipadas** en el OpenAPI (solo hay schemas de request). Los modelos `SafeModel` se diseñan contra los ejemplos/inferencia en Fases 21-22 y se **afinan contra payloads reales en Phase 23** — esperar ida y vuelta (campos, `received_at`/staleness semantics).
+- [v1.4 / Phase 24]: El paquete debe agregarse a `matrix.package` en `ci.yml` (hardcodeada) para que el CI lo teste; el release es por tag (`market-data-client-v0.1.0`, automático). El workspace `packages/*` lo autodescubre.
 
 ### Quick Tasks Completed
 
@@ -162,10 +169,10 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-03T12:10:01.862Z
-Stopped at: Phase 18 context gathered (assumptions mode)
-Resume file: .planning/phases/18-libcst-codegen-tool-choice-spike-spike-006/18-CONTEXT.md
+Last session: 2026-07-29 — Milestone v1.4 kicked off (PROJECT.md + REQUIREMENTS.md + ROADMAP.md written, 5 phases 20-24)
+Stopped at: v1.4 roadmap complete — ready to plan Phase 20
+Resume file: —
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 20 with `/gsd-discuss-phase 20` (gather context) or `/gsd-plan-phase 20` (plan directly)

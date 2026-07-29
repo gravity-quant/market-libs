@@ -6,8 +6,66 @@
 - ✅ **v1.1 Tech Debt Cleanup** — Phases 6-11 (shipped 2026-06-14) — see [`milestones/v1.1-ROADMAP.md`](./milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 Architecture + Auth/Ergonomics Carry-forwards** — Phases 12-17 (shipped 2026-06-25) — see [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Codegen Single-Source (libcst)** — Phases 18-19 (closed 2026-07-03 on signed SPIKE-006 NO-GO; Phase 19 REFAC-06 dropped) — see [`milestones/v1.3-ROADMAP.md`](./milestones/v1.3-ROADMAP.md)
+- 🚧 **v1.4 market-data-client** — Phases 20-24 (in progress; started 2026-07-29) — nuevo paquete cliente (solo lectura) contra la API primary-extractor con Auth0 client-credentials, verificado en vivo y publicado v0.1.0
 
 ## Phases
+
+### 🚧 v1.4 market-data-client (Phases 20-24) — IN PROGRESS
+
+**Milestone goal:** Crear el paquete `market-data-client` (import `market_data_client`) que exponga la superficie de **lectura** de la API primary-extractor (`https://market-data-develop.bbsa.com.ar/api`, OpenAPI 3.1) con Auth0 client-credentials, replicando las decisiones arquitectónicas de los paquetes existentes, verificarlo en vivo contra develop y publicarlo como `v0.1.0` por el pipeline de tags. Plan fuente: [`.future_plans/market_data.md`](../../.future_plans/market_data.md).
+
+- [ ] **Phase 20: Scaffold + Auth0 client-credentials + fundaciones de transporte**
+  - **Goal:** Levantar el paquete `market-data-client` espejando la estructura de `iol-client`, con autenticación Auth0 client-credentials (token cache TTL + refresh, dual sync/async) y las fundaciones de transporte (retries, logging redactado, exceptions, `configure()`, health).
+  - **Requirements:** AUTH-MD-01, CORE-MD-01
+  - **Depends on:** — (primera fase del milestone)
+  - **Success criteria:**
+    1. `import market_data_client` y `from market_data_client import aio` funcionan; `__version__ == "0.1.0"`; `pyproject.toml` con hatchling + deps (httpx, python-dotenv, tenacity) y `py.typed`.
+    2. La autenticación client_credentials obtiene y cachea el token (mock) y lo refresca cuando expira el TTL, en sync y async (`asyncio.Lock` double-checked).
+    3. `GET /health` y `GET /health/feed` responden vía el transporte con retries; la jerarquía de excepciones tipadas mapea 401/403→Auth, 429→RateLimit, otros→APIError.
+    4. Cero fugas de credencial en logs (test caplog con `RedactingFilter`).
+    5. Los 4 gates (ruff, ruff format, mypy strict, pytest) verdes para el paquete.
+
+- [ ] **Phase 21: Market data (lectura) + modelos**
+  - **Goal:** Implementar la superficie de lectura de market data (`GET /marketdata`, `GET|POST /marketdata/latest`) con modelos `SafeModel` y paridad `with_options`.
+  - **Requirements:** MD-01
+  - **Depends on:** Phase 20
+  - **Success criteria:**
+    1. `get_market_data(...)`, `get_latest(...)` y `get_latest_batch(...)` (o nombres equivalentes) existen en sync y async, con todos los query params del OpenAPI serializados correctamente.
+    2. Las respuestas se deserializan a dataclasses `SafeModel` con `received_at` como campo de primera clase; `from_api` tolera payloads parciales/None sin romper.
+    3. `client.with_options(max_retries=N)` se propaga a estas llamadas como shared-view clone, sync y async.
+    4. Tests mockeados (pytest-httpx) cubren serialización de params + tolerancia de modelos, verdes.
+
+- [ ] **Phase 22: Instruments + symbols(read) + calendar(read) + modelos**
+  - **Goal:** Cubrir la superficie de datos de referencia de lectura (instruments, segments, symbols, calendar) con modelos tipados.
+  - **Requirements:** REF-MD-01
+  - **Depends on:** Phase 20 (paraleliza con Phase 21)
+  - **Success criteria:**
+    1. `GET /instruments` (con todos sus filtros), `GET /instruments/segments`, `GET /symbols`, `GET /calendar`, `GET /calendar/config` implementados en sync y async.
+    2. Cada endpoint devuelve modelos tipados adecuados (colecciones con guardas de 204/None → `[]`).
+    3. Tests mockeados verdes; paridad sync/async verificada.
+
+- [ ] **Phase 23: Verificación en vivo contra develop + fixes**
+  - **Goal:** Ejercitar toda la superficie pública (sync + async) en vivo contra develop, detectar divergencias cliente-vs-servicio y corregirlas en el ciclo.
+  - **Requirements:** LIVE-MD-01
+  - **Depends on:** Phases 21, 22
+  - **Success criteria:**
+    1. `main_market_data.py` construye una `Client()` + una `AsyncClient()` y threadea cada probe; ejercita health + market data + reference read contra develop con credenciales Auth0.
+    2. Reutiliza la infra `verification/` (split live/offline con `--live`, redacción de credenciales); sin mutating-gate (solo lectura).
+    3. Toda divergencia (campos de modelo, semántica de `received_at`/staleness, manejo de params) se documenta en `market-data-findings.md` y se corrige in-cycle, espejada sync/async.
+    4. Cycle closure PASS (patrón DRIFT); cada fix con test de regresión mockeado.
+
+- [ ] **Phase 24: Release prep + publish v0.1.0**
+  - **Goal:** Publicar `market-data-client-v0.1.0` por el mismo pipeline que el resto de los paquetes.
+  - **Requirements:** PUB-MD-01
+  - **Depends on:** Phase 23
+  - **Success criteria:**
+    1. README del paquete (uso, env vars, auth Auth0); `version="0.1.0"` + `__version__` alineados; `market-data-client` agregado a `matrix.package` en `ci.yml`; `uv.lock` regenerado.
+    2. CLAUDE.md (listado de paquetes + tablas de arquitectura) y MEMORY actualizados.
+    3. PR → CI verde (los 13 checks incluyendo el nuevo paquete) → merge → tag `market-data-client-v0.1.0`.
+    4. GitHub Release creado con wheel + sdist; el paquete es instalable vía git subdir / wheel.
+
+**Diferido a v1.5+ (no en este milestone):** mutaciones (symbols POST/PATCH/batch, calendar PUT/POST/DELETE), streaming SSE `GET /marketdata/stream`, cache de token en disco, validación de firma JWT. Ver REQUIREMENTS.md § v2.
+
 
 <details>
 <summary>✅ v1.0 Verification cycle (Phases 1-5) — SHIPPED 2026-06-10</summary>
