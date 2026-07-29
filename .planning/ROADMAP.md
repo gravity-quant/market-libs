@@ -88,7 +88,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 **Requirements:** AUTH-MD-01, CORE-MD-01
 **Depends on:** — (primera fase del milestone)
-**Plans:** 3/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -102,8 +102,8 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 20-04-PLAN.md — Wave 3: `client.py` sync shell (absolute token URL, single-grant lifecycle, anonymous health)
-- [ ] 20-05-PLAN.md — Wave 3: `aio.py` async shell (per-loop double-checked lock, single-grant lifecycle)
+- [x] 20-04-PLAN.md — Wave 3: `client.py` sync shell (absolute token URL, single-grant lifecycle, anonymous health)
+- [x] 20-05-PLAN.md — Wave 3: `aio.py` async shell (per-loop double-checked lock, single-grant lifecycle)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
