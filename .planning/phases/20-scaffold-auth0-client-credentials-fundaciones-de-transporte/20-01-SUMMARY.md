@@ -138,6 +138,10 @@ None — T-20-01 (`.env.example` placeholders only), T-20-SC (deps pinned/approv
 - Wave 2 (`_core.py`, `_logging.py`) can now import `market_data_client.exceptions`, `market_data_client._state`, and `market_data_client._transport`/`_atransport`.
 - **Flag for Phase 24 / PUB-MD-01:** commit the finalized `uv.lock` (workspace now references `market-data-client`) and add the `ci.yml` test-matrix entry. Until then, `uv sync --frozen` at workspace scope on `main` will need the lock update.
 
+## Self-Check: PASSED
+
+All 9 package files + SUMMARY.md verified present on disk; all 4 commit hashes (`0319bd2`, `2c65533`, `e913c30`, `2df9d8b`) verified in git log.
+
 ---
 *Phase: 20-scaffold-auth0-client-credentials-fundaciones-de-transporte*
 *Completed: 2026-07-29*
