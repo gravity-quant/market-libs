@@ -1,9 +1,9 @@
 ---
 phase: 20
 slug: scaffold-auth0-client-credentials-fundaciones-de-transporte
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: planned
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-29
 ---
 
@@ -40,9 +40,10 @@ created: 2026-07-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 20-XX-XX | XX | 1 | AUTH-MD-01 | T-20-01 / — | Token fetched via client_credentials grant, cached, and re-fetched only when stale (TTL buffer / 3600s fallback) — sync + async | unit | `uv run --package market-data-client pytest -k token` | ❌ W0 | ⬜ pending |
-| 20-XX-XX | XX | 1 | CORE-MD-01 | T-20-02 / — | Zero credential leakage: `client_secret` (form + JSON) and Bearer/access_token redacted in logs (caplog) | unit | `uv run --package market-data-client pytest -k redact` | ❌ W0 | ⬜ pending |
-| 20-XX-XX | XX | 1 | CORE-MD-01 | — | Health endpoints reach service via retry transport on an anonymous path (no Authorization, no `_ensure_token()`); exception mapping 401/403→Auth, 429→RateLimit, other→APIError | unit | `uv run --package market-data-client pytest -k "health or exception"` | ❌ W0 | ⬜ pending |
+| 20-02 core builders/parsers | 02 | 2 | AUTH-MD-01 | T-20-03 / T-20-02 | Pure grant builder (client_credentials form, authenticated=False) + parser (2-tuple, TTL buffer 60s / 3600s fallback) + token_is_fresh + raise_for_response mapping | unit (tdd) | `uv run --package market-data-client pytest packages/market-data-client/tests/test_core.py -x` | ✅ created by Plan 02 | ⬜ pending |
+| 20-03 redaction | 03 | 2 | CORE-MD-01 | T-20-02 / T-20-06 | Zero credential leakage: `client_secret` (form + JSON), Bearer, access_token redacted; attach() idempotent + package-logger-scoped | unit (tdd) | `uv run --package market-data-client pytest packages/market-data-client/tests/test_logging.py -x` | ✅ created by Plan 03 | ⬜ pending |
+| 20-06 token lifecycle | 06 | 4 | AUTH-MD-01 | T-20-03 | Token fetched via client_credentials grant, cached, re-fetched only when stale — sync + async (double-checked lock) | unit | `uv run --package market-data-client pytest -k token` | ✅ created by Plan 06 | ⬜ pending |
+| 20-06 health + exceptions | 06 | 4 | CORE-MD-01 | T-20-02 / T-20-08 | Health reaches service via retry transport on an anonymous path (no Authorization, no `_ensure_token()`, no re-auth on health 401); exception mapping at dispatch | unit | `uv run --package market-data-client pytest -k "health or client"` | ✅ created by Plan 06 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -50,9 +51,11 @@ created: 2026-07-29
 
 ## Wave 0 Requirements
 
-- [ ] `packages/market-data-client/tests/conftest.py` — shared pytest-httpx fixtures (Auth0 token endpoint stub for initial fetch + TTL-expiry refetch; `configure()` + state-reset fixture)
-- [ ] `packages/market-data-client/tests/` — test modules covering AUTH-MD-01 and CORE-MD-01 (token lifecycle sync+async, redaction, health/exception mapping)
-- [ ] pytest + pytest-asyncio + pytest-httpx already available at workspace root — no framework install needed
+- [x] `packages/market-data-client/tests/conftest.py` — shared pytest-httpx fixtures (Plan 06 Task 1: autouse `configure()` sync+async + state-reset + `NEVER_EXPIRES`)
+- [x] `packages/market-data-client/tests/` — test modules covering AUTH-MD-01 and CORE-MD-01 (Plan 02 `test_core.py`, Plan 03 `test_logging.py`, Plan 06 `test_token_lifecycle{,_async}.py` + `test_client.py`/`test_async_client.py`)
+- [x] pytest + pytest-asyncio + pytest-httpx already available at workspace root — no framework install needed
+
+> NOTE: `_core.py`/`_logging.py` tests (Plans 02/03) run standalone via namespace imports (no conftest/`__init__` needed). The shell behavioral tests (token lifecycle, health, 401) run in Plan 06 once `__init__.py` (attach-first) + `conftest.py` wire the full package — this is why they are Wave 4, not earlier.
 
 ---
 
@@ -68,11 +71,11 @@ created: 2026-07-29
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (test scaffolding authored within the plans that produce it)
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s (all HTTP mocked)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** planned — pending execution

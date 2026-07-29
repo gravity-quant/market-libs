@@ -89,6 +89,15 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 **Requirements:** AUTH-MD-01, CORE-MD-01
 **Depends on:** — (primera fase del milestone)
+**Plans:** 6 plans (4 waves)
+
+Plans:
+- [ ] 20-01-PLAN.md — Wave 1: package scaffold + exceptions + `_state` + transport pair (verbatim)
+- [ ] 20-02-PLAN.md — Wave 2 (tdd): `_core.py` pure Auth0 builders/parsers + `raise_for_response` + health builders
+- [ ] 20-03-PLAN.md — Wave 2 (tdd): `_logging.py` RedactingFilter + `attach()` (client_secret patterns)
+- [ ] 20-04-PLAN.md — Wave 3: `client.py` sync shell (absolute token URL, single-grant lifecycle, anonymous health)
+- [ ] 20-05-PLAN.md — Wave 3: `aio.py` async shell (per-loop double-checked lock, single-grant lifecycle)
+- [ ] 20-06-PLAN.md — Wave 4: `__init__.py` + `conftest.py` + lifecycle/health tests + 4-gate run
 
 **Success criteria:**
 1. `import market_data_client` y `from market_data_client import aio` funcionan; `__version__ == "0.1.0"`; `pyproject.toml` con hatchling + deps (httpx, python-dotenv, tenacity) y `py.typed`.
