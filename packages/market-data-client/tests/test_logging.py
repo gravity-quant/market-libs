@@ -91,8 +91,9 @@ def test_redact_scans_args_and_dict() -> None:
     assert isinstance(rec_tuple.args, tuple)
     assert rec_tuple.args[0] == "Bearer ***"
 
-    # Dict args
-    rec_dict = _make_record("auth: %(h)s", args={"h": "Bearer eyJtok.val"})
+    # Dict args — logging wraps a single mapping in a 1-tuple, then LogRecord
+    # unwraps it to record.args (the raw dict). Mirror that here.
+    rec_dict = _make_record("auth: %(h)s", args=({"h": "Bearer eyJtok.val"},))
     f.filter(rec_dict)
     assert isinstance(rec_dict.args, dict)
     assert rec_dict.args["h"] == "Bearer ***"
