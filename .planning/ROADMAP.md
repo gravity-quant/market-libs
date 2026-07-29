@@ -88,7 +88,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 **Requirements:** AUTH-MD-01, CORE-MD-01
 **Depends on:** — (primera fase del milestone)
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -107,7 +107,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 20-06-PLAN.md — Wave 4: `__init__.py` + `conftest.py` + lifecycle/health tests + 4-gate run
+- [x] 20-06-PLAN.md — Wave 4: `__init__.py` + `conftest.py` + lifecycle/health tests + 4-gate run
 
 **Success criteria:**
 
