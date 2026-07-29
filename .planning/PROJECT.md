@@ -21,7 +21,14 @@ corregida.
 
 ## Current State
 
+**v1.4 Phase 20 complete (2026-07-29)** — `market-data-client` scaffolded end-to-end: the 6th monorepo package now exists (`import market_data_client`, `__version__="0.1.0"`) mirroring `iol-client`, with Auth0 `client_credentials` auth (token cache TTL + refresh, dual sync `client.py` + async `aio.py` with independent per-instance state and per-loop double-checked locking), the pure `_core.py` (Auth0 builder/parser + `raise_for_response` + anonymous health builders), a credential-redaction `RedactingFilter` (scrubs `client_secret`/`Bearer`/`access_token`), the retry transport pair (full-jitter + Retry-After), `configure()`, and anonymous `get_health()`/`get_health_feed()`. **AUTH-MD-01 + CORE-MD-01 validated.** 6/6 plans, 56 package tests + 798 workspace tests green; all 4 CI gates pass. Deep code review (0 critical) plus a gap-closure cycle resolved 4 findings (WR-01 sync/async `configure()` alignment, WR-02 null `expires_in`, WR-03 `auth0_token_url` validation, WR-05 Retry-After double-wait); lower-priority items (WR-04, IN-01..04, 401 re-auth test gap) tracked as Phase 21 debt. `uv.lock` finalization + `ci.yml` matrix entry deferred to Phase 24 (PUB-MD-01). Next: Phase 21 (market data lectura + `SafeModel` models).
+
+<details>
+<summary>v1.3 Current State block (closed 2026-07-03, archived for reference)</summary>
+
 **v1.3 Codegen Single-Source (libcst) closed 2026-07-03 on a signed SPIKE-006 NO-GO** — 1 phase (18) / 3 plans / 7 tasks / CODEGEN-01 resolved, REFAC-06 permanently shelved, Phase 19 dropped; zero production footprint (no source touched — the entire milestone lived in `.planning/spikes/SPIKE-006-libcst-codegen-tool-choice/` under an ephemeral `uv run --with libcst`). SPIKE-006 evaluated `libcst >=1.8.0,<2` (AST-level codemod) against the `D-RIGOR-02` 10-item gate on the un-migrated ámbito v1.2-head canary plus the inherited matriz construct audit + deny-list intactness → **7 PASS / 3 FAIL** (items 1/3/6). libcst **closes item 4** (`ruff check` I001 + ASYNC1xx) that unasync/SPIKE-005 could not — a partial gain, not a regression — but it **cannot cross the content-absence boundary**: `_validate_max_retries` (defined only in `client.py`) and the `load_dotenv` bootstrap (absent from `aio.py`) cannot be synthesized by any pure `CSTNode → CSTNode` transform without a forbidden source migration (D-02). Two independent tools (unasync SPIKE-005 in v1.2 Phase 12, libcst SPIKE-006 here) now reach the same strict-D-04 NO-GO for the same source-shape-asymmetry root cause. **Decision: REFAC-06 permanently shelved** — the duplicate `client.py`/`aio.py` transport shells are accepted as a structural feature of the codebase (the known dual-surface duplication documented in CLAUDE.md). The v1.2 product state (4/5 packages verified end-to-end, single-Client drivers, `with_options`, IOL disk persistence, pytest ≥989 green on Python 3.12 + 3.13) is unchanged — v1.3 shipped no code, only a signed architectural decision.
+
+</details>
 
 <details>
 <summary>v1.2 Current State block (shipped 2026-06-25, archived for reference)</summary>
@@ -147,8 +154,8 @@ corregida.
 
 <!-- v1.4 market-data-client — nuevo paquete cliente (solo lectura) contra la API primary-extractor. Ver .planning/REQUIREMENTS.md + .future_plans/market_data.md. -->
 
-- [ ] **AUTH-MD-01**: El paquete autentica contra Auth0 vía grant client_credentials, cachea el token y lo refresca por TTL (`expires_in`), sync y async
-- [ ] **CORE-MD-01**: Fundaciones — transport con retries full-jitter, logging con redacción de credenciales, jerarquía de excepciones, `configure()`, endpoints de health
+- [x] **AUTH-MD-01**: El paquete autentica contra Auth0 vía grant client_credentials, cachea el token y lo refresca por TTL (`expires_in`), sync y async — *Validated in Phase 20*
+- [x] **CORE-MD-01**: Fundaciones — transport con retries full-jitter, logging con redacción de credenciales, jerarquía de excepciones, `configure()`, endpoints de health — *Validated in Phase 20*
 - [ ] **MD-01**: Superficie de lectura de market data (`GET /marketdata`, `GET|POST /marketdata/latest`) con modelos `SafeModel` y paridad `with_options`
 - [ ] **REF-MD-01**: Superficie de referencia de lectura (instruments, segments, symbols, calendar) con modelos
 - [ ] **LIVE-MD-01**: Verificación en vivo contra develop con fixes de divergencias in-cycle
@@ -241,6 +248,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
+*Last updated: 2026-07-29 after Phase 20 complete — **v1.4 Phase 20 (scaffold + Auth0 client-credentials + transport foundations) shipped**: `market-data-client` package stood up (6th monorepo package), AUTH-MD-01 + CORE-MD-01 validated, 6/6 plans, 56 package + 798 workspace tests green, 4 code-review findings closed in a gap cycle. Next: Phase 21 (market data lectura + models). Prior milestone-kickoff footer below for reference.*
+
 *Last updated: 2026-07-29 after starting milestone v1.4 — **v1.4 market-data-client** kicked off. Scope: nuevo paquete cliente `market-data-client` (solo lectura) contra la API primary-extractor (`market-data-develop.bbsa.com.ar`, OpenAPI 3.1) con Auth0 client-credentials, verificado en vivo y publicado como v0.1.0 por el pipeline de tags. Active reqs: AUTH-MD-01, CORE-MD-01, MD-01, REF-MD-01, LIVE-MD-01, PUB-MD-01. Deferred a v1.5+: mutaciones (symbols/calendar), streaming SSE, disk token cache, JWT signature validation. Plan fuente: `.future_plans/market_data.md`. Amplía el alcance del monorepo de 5 a 6 paquetes. Prior v1.3 footer below for reference.*
 
 *Last updated: 2026-07-03 after v1.3 milestone — **v1.3 Codegen Single-Source (libcst) closed on a signed SPIKE-006 NO-GO** (1 phase / 3 plans / 7 tasks; zero production footprint). `libcst >=1.8.0,<2` evaluated against the D-RIGOR-02 10-item gate → 7 PASS / 3 FAIL (items 1/3/6, content-absence root cause); libcst closes item 4 (`ruff check`) that unasync could not but cannot synthesize content-absent constructs without a forbidden source migration (D-02). Two independent tools (unasync SPIKE-005, libcst SPIKE-006) now reach the same NO-GO for the same source-shape-asymmetry root cause. **CODEGEN-01 resolved (NO-GO); REFAC-06 permanently shelved; Phase 19 dropped; duplicate `client.py`/`aio.py` shells accepted as a structural feature.** No code shipped — the v1.2 product state is unchanged. Next milestone not yet defined (candidate v1.4+ work in ROADMAP Backlog). Prior v1.3-kickoff footer below for reference.*
