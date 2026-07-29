@@ -83,3 +83,28 @@ async def test_async_authenticated_500_raises_api_error(httpx_mock: HTTPXMock) -
 
     with pytest.raises(MarketDataAPIError):
         await aio._get_default()._request(spec)
+
+
+async def test_async_configure_base_url_invalidates_cached_token() -> None:
+    """WR-01: rotating ``base_url`` alone invalidates the cached token (async).
+
+    Mirrors the sync surface (``client.configure``). Before the fix, async
+    ``configure(base_url=...)`` left the cached token intact — a dual sync/async
+    divergence. The conftest seeds a fresh token; a bare rotation must drop it.
+    """
+    client = aio._get_default()
+    assert client._state.token == "test-token"
+    aio.configure(base_url="https://market-data-other.test/api")
+    assert client._state.token is None
+    assert client._state.token_expires_at == 0.0
+
+
+async def test_async_configure_base_url_keeps_token_when_seeded() -> None:
+    """WR-01: an explicit ``token`` override survives a ``base_url`` rotation."""
+    client = aio._get_default()
+    aio.configure(
+        base_url="https://market-data-other.test/api",
+        token="seeded",
+        token_expires_at=9_999_999_999.0,
+    )
+    assert client._state.token == "seeded"

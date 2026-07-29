@@ -324,30 +324,37 @@ def configure(
 ) -> None:
     """Sobrescribe credenciales/URLs del default async en runtime.
 
-    Superficie async (estado singleton independiente). Rotar cualquier input
-    del grant (``client_id``/``client_secret``/``audience``/``auth0_token_url``)
-    resetea el token cacheado (``token=None`` + ``token_expires_at=0.0``) para
-    forzar un re-auth con las credenciales nuevas. Los kwargs ``None`` se
-    ignoran (carry-forward). No expone credenciales de usuario, rotación de
-    refresh ni override de reintentos (grant machine-to-machine, D-05).
+    Superficie async (estado singleton independiente). Rotar CUALQUIER
+    credencial/URL (``base_url``/``client_id``/``client_secret``/``audience``/
+    ``auth0_token_url``) resetea el token cacheado (``token=None`` +
+    ``token_expires_at=0.0``) para forzar un re-auth, salvo que
+    ``token``/``token_expires_at`` se pasen explícitamente (el conftest los
+    siembra para tests sin re-auth). Los kwargs ``None`` se ignoran
+    (carry-forward). Esta semántica ESPEJA exactamente la superficie sync
+    ``client.configure`` (WR-01 — el constraint dual sync/async exige que ambas
+    superficies invaliden en ``base_url``). No expone credenciales de usuario,
+    rotación de refresh ni override de reintentos (grant machine-to-machine, D-05).
     """
     client = _get_default()
-    credentials_rotated = False
+    rotated = False
     if client_id is not None:
         client._state.client_id = client_id
-        credentials_rotated = True
+        rotated = True
     if client_secret is not None:
         client._state.client_secret = client_secret
-        credentials_rotated = True
+        rotated = True
     if audience is not None:
         client._state.audience = audience
-        credentials_rotated = True
+        rotated = True
     if auth0_token_url is not None:
         client._state.auth0_token_url = auth0_token_url
-        credentials_rotated = True
+        rotated = True
     if base_url is not None:
         client._state.base_url = base_url.rstrip("/")
-    if credentials_rotated:
+        rotated = True
+    # Rotar credenciales/URL invalida el token cacheado, salvo que el caller
+    # siembre explícitamente token/token_expires_at (test seeding) — espeja sync.
+    if rotated and token is None and token_expires_at is None:
         client._state.token = None
         client._state.token_expires_at = 0.0
     # Overrides explícitos de token DESPUÉS del reset para que ganen.
