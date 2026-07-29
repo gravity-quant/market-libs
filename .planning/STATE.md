@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
-current_phase: 20
-current_phase_name: scaffold-auth0-client-credentials-fundaciones-de-transporte
+current_phase: 21
+current_phase_name: lectura
 status: executing
 stopped_at: Phase 20 context gathered (assumptions mode)
-last_updated: "2026-07-29T16:51:43.388Z"
+last_updated: "2026-07-29T18:50:54.596Z"
 last_activity: 2026-07-29
-last_activity_desc: Phase 20 execution started
+last_activity_desc: Phase 20 complete, transitioned to Phase 21
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
-  completed_plans: 0
-  percent: 0
+  completed_plans: 6
+  percent: 20
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 ## Current Position
 
-Phase: 20 (scaffold-auth0-client-credentials-fundaciones-de-transporte) — EXECUTING
-Plan: 1 of 6
+Phase: 21 — Market data (lectura) + modelos
+Plan: Not started
 Status: Executing Phase 20
-Last activity: 2026-07-29 — Phase 20 execution started
+Last activity: 2026-07-29 — Phase 20 complete, transitioned to Phase 21
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 60 (v1.0)
+- Total plans completed: 66 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 

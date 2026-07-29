@@ -9,8 +9,8 @@ Requisitos del milestone v1.4. Cada uno mapea a una fase del roadmap.
 
 ### Package Foundation
 
-- [ ] **AUTH-MD-01**: El paquete autentica contra Auth0 mediante el grant `client_credentials` (`client_id` + `client_secret` + `audience`), cachea el access token y lo refresca automáticamente cuando expira el TTL (derivado de `expires_in`), tanto en la superficie sync como async
-- [ ] **CORE-MD-01**: El paquete provee las fundaciones compartidas — transporte con retries full-jitter (mutación-gate-safe), logging estructurado con redacción de credenciales, jerarquía de excepciones tipadas (`MarketDataError → MarketDataAPIError → MarketDataAuthError`, `MarketDataRateLimitError`), `configure()` para override en runtime, y los endpoints de health (`GET /health`, `GET /health/feed`)
+- [x] **AUTH-MD-01**: El paquete autentica contra Auth0 mediante el grant `client_credentials` (`client_id` + `client_secret` + `audience`), cachea el access token y lo refresca automáticamente cuando expira el TTL (derivado de `expires_in`), tanto en la superficie sync como async
+- [x] **CORE-MD-01**: El paquete provee las fundaciones compartidas — transporte con retries full-jitter (mutación-gate-safe), logging estructurado con redacción de credenciales, jerarquía de excepciones tipadas (`MarketDataError → MarketDataAPIError → MarketDataAuthError`, `MarketDataRateLimitError`), `configure()` para override en runtime, y los endpoints de health (`GET /health`, `GET /health/feed`)
 
 ### Market Data (read)
 
@@ -65,14 +65,15 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-MD-01 | Phase 20 | Pending |
-| CORE-MD-01 | Phase 20 | Pending |
+| AUTH-MD-01 | Phase 20 | Complete |
+| CORE-MD-01 | Phase 20 | Complete |
 | MD-01 | Phase 21 | Pending |
 | REF-MD-01 | Phase 22 | Pending |
 | LIVE-MD-01 | Phase 23 | Pending |
 | PUB-MD-01 | Phase 24 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 6 total
 - Mapped to phases: 6
 - Unmapped: 0 ✓
