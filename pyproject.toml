@@ -17,6 +17,7 @@ wallets-client = { workspace = true }
 matriz-client = { workspace = true }
 iol-client = { workspace = true }
 ambito-financiero-client = { workspace = true }
+market-data-client = { workspace = true }
 
 # Dependencias de desarrollo compartidas por todo el workspace.
 # Se instalan con `uv sync` y aplican a cualquier paquete miembro.
