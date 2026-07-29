@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Self
+from typing import Any, Self
 
 import httpx
 from dotenv import load_dotenv
@@ -40,6 +40,7 @@ from dotenv import load_dotenv
 from market_data_client import _atransport, _core
 from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
+from market_data_client.exceptions import MarketDataAuthError
 
 load_dotenv()
 
@@ -48,8 +49,8 @@ load_dotenv()
 # _core.raise_for_response`` se preserva. Consumido por ``_request`` (Task 2).
 _raise_for_response = _core.raise_for_response
 
-# max_attempts fijo del AsyncRetryTransport (no hay ``with_options`` per-call en
-# esta superficie — D scope de Plan 05). ``max_attempts=3`` = 1 intento + 2 retries.
+# max_attempts fijo del AsyncRetryTransport (sin override per-call en esta
+# superficie — scope de Plan 05). ``max_attempts=3`` = 1 intento + 2 reintentos.
 _DEFAULT_MAX_ATTEMPTS = 3
 
 
@@ -210,3 +211,162 @@ class AsyncClient:
             if _core.token_is_fresh(self._state):
                 return
             await self._authenticate_unlocked()
+
+    # ------------------------------------------------------------------
+    # Request dispatch (authenticated branch + exactly-once 401 re-auth)
+    # ------------------------------------------------------------------
+
+    async def _request(self, spec: RequestSpec) -> httpx.Response:
+        """Despacha un request async ramificando sobre ``spec.authenticated``.
+
+        Autenticado (D-08/D-09): ``await self._aensure_token()`` + inyecta el
+        header ``Authorization: Bearer``. En el primer ``MarketDataAuthError``
+        limpia el token bajo el token lock, re-autentica EXACTAMENTE una vez,
+        reenvía una vez y re-levanta si el segundo response vuelve a dar 401
+        (sin recursión — Pitfall 4). Anónimo (health): sin ``_aensure_token`` ni
+        header ``Authorization``; un 401 levanta inmediatamente.
+        """
+        http = await self._ensure_http_client()
+        token_lock = self._ensure_token_lock()
+        if spec.authenticated:
+            await self._aensure_token()
+            async with token_lock:
+                token = self._state.token
+            assert token is not None
+            headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
+        else:
+            token = None
+            headers = dict(spec.headers or {})
+
+        request_id = uuid.uuid4().hex
+        url = f"{self._state.base_url}{spec.path}"
+        req = http.build_request(
+            spec.method,
+            url,
+            params=spec.params,
+            json=spec.json_body,
+            headers=headers,
+        )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        resp = await http.send(req)
+        try:
+            _raise_for_response(resp)
+        except MarketDataAuthError:
+            # Health (anónimo) NO re-autentica — un 401 es definitivo.
+            if not spec.authenticated:
+                raise
+            # body-consume antes del carve-out (D-06).
+            await resp.aread()
+            # Exactamente-un re-auth bajo el token lock (double-checked serializa
+            # el re-auth concurrente, T-20-08). Re-checkeo: otra corrutina pudo
+            # ya haber rotado el token — en ese caso sólo reintentamos.
+            async with token_lock:
+                if self._state.token is None or self._state.token == token:
+                    self._state.token = None
+                    await self._authenticate_unlocked()
+                new_token = self._state.token
+            assert new_token is not None
+            req.headers["Authorization"] = f"Bearer {new_token}"
+            resp = await http.send(req)
+            # body-consume del segundo response antes del segundo raise.
+            await resp.aread()
+            _raise_for_response(resp)
+        return resp
+
+    # ------------------------------------------------------------------
+    # Public health endpoints (anonymous)
+    # ------------------------------------------------------------------
+
+    async def get_health(self) -> dict[str, Any]:
+        """Estado de salud del servicio (anónimo, D-08/D-09)."""
+        spec = _core.build_health_request(self._state)
+        resp = await self._request(spec)
+        return _core.parse_health_response(resp)
+
+    async def get_health_feed(self) -> dict[str, Any]:
+        """Estado de salud del feed de datos (anónimo, D-08/D-09)."""
+        spec = _core.build_health_feed_request(self._state)
+        resp = await self._request(spec)
+        return _core.parse_health_response(resp)
+
+
+# ----------------------------------------------------------------------
+# Default-async-client lazy singleton + top-level module surface
+# ----------------------------------------------------------------------
+
+
+_default_async_client: AsyncClient | None = None
+
+
+def _get_default() -> AsyncClient:
+    """Acceso lazy al ``AsyncClient`` default a nivel módulo.
+
+    Singleton INDEPENDIENTE del default de la superficie sync (``client.py``):
+    no comparten estado por construcción.
+    """
+    global _default_async_client
+    if _default_async_client is None:
+        _default_async_client = AsyncClient()
+    return _default_async_client
+
+
+def configure(
+    *,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    audience: str | None = None,
+    auth0_token_url: str | None = None,
+    base_url: str | None = None,
+    token: str | None = None,
+    token_expires_at: float | None = None,
+) -> None:
+    """Sobrescribe credenciales/URLs del default async en runtime.
+
+    Superficie async (estado singleton independiente). Rotar cualquier input
+    del grant (``client_id``/``client_secret``/``audience``/``auth0_token_url``)
+    resetea el token cacheado (``token=None`` + ``token_expires_at=0.0``) para
+    forzar un re-auth con las credenciales nuevas. Los kwargs ``None`` se
+    ignoran (carry-forward). No expone credenciales de usuario, rotación de
+    refresh ni override de reintentos (grant machine-to-machine, D-05).
+    """
+    client = _get_default()
+    credentials_rotated = False
+    if client_id is not None:
+        client._state.client_id = client_id
+        credentials_rotated = True
+    if client_secret is not None:
+        client._state.client_secret = client_secret
+        credentials_rotated = True
+    if audience is not None:
+        client._state.audience = audience
+        credentials_rotated = True
+    if auth0_token_url is not None:
+        client._state.auth0_token_url = auth0_token_url
+        credentials_rotated = True
+    if base_url is not None:
+        client._state.base_url = base_url.rstrip("/")
+    if credentials_rotated:
+        client._state.token = None
+        client._state.token_expires_at = 0.0
+    # Overrides explícitos de token DESPUÉS del reset para que ganen.
+    if token is not None:
+        client._state.token = token
+    if token_expires_at is not None:
+        client._state.token_expires_at = token_expires_at
+
+
+async def get_health() -> dict[str, Any]:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_health()
+
+
+async def get_health_feed() -> dict[str, Any]:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_health_feed()
+
+
+async def aclose() -> None:
+    """Shim async top-level: cierra el default AsyncClient (idempotente)."""
+    await _get_default().aclose()
