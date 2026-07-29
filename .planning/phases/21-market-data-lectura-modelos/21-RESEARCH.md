@@ -362,7 +362,9 @@ if raw is None:
 | A4 | Query-param names (`market_id, prefix, active, entries, max_staleness_seconds, with_data, order, limit, offset`; `symbol, market_id, entries`) are authoritative | Patterns §1 | LOW — transcribed from the OpenAPI into CONTEXT.md/ROADMAP/REQUIREMENTS, three concordant sources |
 | A5 | Adding `models.py` to a ruff `N815` per-file-ignore (D-04) is harmless but **not strictly required** — see Open Question 1 | Open Questions | LOW — cosmetic config only |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three questions carry an inline **Recommendation** that resolves them, and the Phase-21 plans incorporate those recommendations (e.g., gates run explicitly against the package path; the `N815` ignore is added per D-04 but treated as a no-op). Kept below for provenance.
 
 1. **Is the D-04 `N815` per-file-ignore actually needed?**
    - What we know: The ruff `select` list (`pyproject.toml:53-67`) does **NOT** include `N` (pep8-naming). So camelCase wire fields do not trigger `N815` today — higyrus's `models.py` carries camelCase fields with **no** N815 ignore and passes lint. The existing `"**/tests/**" = ["S101"]` ignore also references an *unselected* rule (`S`/bandit is not in select), so the repo already tolerates defensive ignores for unselected codes.
