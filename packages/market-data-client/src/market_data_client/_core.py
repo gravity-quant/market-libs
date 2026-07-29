@@ -149,11 +149,16 @@ def build_token_request(state: _ClientState) -> RequestSpec:
     reintentar; un re-issue exitoso sólo sobreescribe el access_token en state).
     ``authenticated=False`` — el grant nunca carga un Bearer previo.
     """
-    if not state.client_id or not state.client_secret or not state.audience:
+    if (
+        not state.client_id
+        or not state.client_secret
+        or not state.audience
+        or not state.auth0_token_url
+    ):
         raise MarketDataAuthError(
             0,
-            "MARKET_DATA_CLIENT_ID, MARKET_DATA_CLIENT_SECRET y "
-            "MARKET_DATA_AUDIENCE son requeridos",
+            "MARKET_DATA_CLIENT_ID, MARKET_DATA_CLIENT_SECRET, "
+            "MARKET_DATA_AUDIENCE y MARKET_DATA_AUTH0_TOKEN_URL son requeridos",
         )
     return RequestSpec(
         method="POST",
@@ -193,8 +198,18 @@ def parse_token_response(resp: httpx.Response) -> tuple[str, float]:
     access_token = data.get("access_token")
     if not isinstance(access_token, str) or not access_token:
         raise MarketDataAuthError(resp.status_code, "No access_token in response")
-    expires_in = data.get("expires_in", _TOKEN_TTL_FALLBACK_SECONDS)
-    expires_at = time.time() + float(expires_in) - _TOKEN_TTL_BUFFER_SECONDS
+    # D-07 fallback extended (WR-02): ``dict.get(k, default)`` only falls back on
+    # an ABSENT key — a present-but-null ``"expires_in": null`` returns None and
+    # ``float(None)`` would raise TypeError. Coerce None / non-numeric to the
+    # fallback TTL so a non-standard Auth0 response cannot crash the token cache.
+    expires_in_raw = data.get("expires_in")
+    try:
+        expires_in = (
+            float(_TOKEN_TTL_FALLBACK_SECONDS) if expires_in_raw is None else float(expires_in_raw)
+        )
+    except (TypeError, ValueError):
+        expires_in = float(_TOKEN_TTL_FALLBACK_SECONDS)
+    expires_at = time.time() + expires_in - _TOKEN_TTL_BUFFER_SECONDS
     return access_token, expires_at
 
 

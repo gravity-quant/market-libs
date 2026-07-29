@@ -77,7 +77,12 @@ def test_request_spec_is_frozen() -> None:
 
 def test_build_token_request_shape() -> None:
     """Auth0 client_credentials grant: form-encoded, anonymous, idempotent."""
-    state = _ClientState(client_id="cid", client_secret="csec", audience="aud")
+    state = _ClientState(
+        client_id="cid",
+        client_secret="csec",
+        audience="aud",
+        auth0_token_url="https://auth.test/oauth/token",
+    )
     spec = _core.build_token_request(state)
     assert spec.method == "POST"
     assert spec.data == {
@@ -95,19 +100,50 @@ def test_build_token_request_shape() -> None:
 
 
 def test_build_token_request_missing_client_id_raises() -> None:
-    state = _ClientState(client_id="", client_secret="csec", audience="aud")
+    state = _ClientState(
+        client_id="",
+        client_secret="csec",
+        audience="aud",
+        auth0_token_url="https://auth.test/oauth/token",
+    )
     with pytest.raises(MarketDataAuthError):
         _core.build_token_request(state)
 
 
 def test_build_token_request_missing_client_secret_raises() -> None:
-    state = _ClientState(client_id="cid", client_secret="", audience="aud")
+    state = _ClientState(
+        client_id="cid",
+        client_secret="",
+        audience="aud",
+        auth0_token_url="https://auth.test/oauth/token",
+    )
     with pytest.raises(MarketDataAuthError):
         _core.build_token_request(state)
 
 
 def test_build_token_request_missing_audience_raises() -> None:
-    state = _ClientState(client_id="cid", client_secret="csec", audience="")
+    state = _ClientState(
+        client_id="cid",
+        client_secret="csec",
+        audience="",
+        auth0_token_url="https://auth.test/oauth/token",
+    )
+    with pytest.raises(MarketDataAuthError):
+        _core.build_token_request(state)
+
+
+def test_build_token_request_missing_auth0_token_url_raises() -> None:
+    """WR-03: ``auth0_token_url`` is required alongside the three credentials.
+
+    Without it the grant would POST to an empty URL and surface a confusing deep
+    httpx error instead of a clean ``MarketDataAuthError``.
+    """
+    state = _ClientState(
+        client_id="cid",
+        client_secret="csec",
+        audience="aud",
+        auth0_token_url="",
+    )
     with pytest.raises(MarketDataAuthError):
         _core.build_token_request(state)
 
@@ -144,6 +180,31 @@ def test_parse_token_response_fallback_when_expires_in_absent() -> None:
     """No ``expires_in`` → derive from _TOKEN_TTL_FALLBACK_SECONDS (D-07)."""
     before = time.time()
     resp = _resp(200, json_body={"access_token": "TOK"})
+    _token, expires_at = _core.parse_token_response(resp)
+    after = time.time()
+    assert before + _TOKEN_TTL_FALLBACK_SECONDS - _TOKEN_TTL_BUFFER_SECONDS <= expires_at
+    assert expires_at <= after + _TOKEN_TTL_FALLBACK_SECONDS - _TOKEN_TTL_BUFFER_SECONDS
+
+
+def test_parse_token_response_null_expires_in_uses_fallback() -> None:
+    """WR-02: a present-but-null ``expires_in`` must fall back, not crash.
+
+    ``dict.get("expires_in", default)`` only substitutes the default on an ABSENT
+    key; ``{"expires_in": null}`` returns None and ``float(None)`` raised
+    TypeError before the fix. Now None coerces to the fallback TTL.
+    """
+    before = time.time()
+    resp = _resp(200, json_body={"access_token": "TOK", "expires_in": None})
+    _token, expires_at = _core.parse_token_response(resp)
+    after = time.time()
+    assert before + _TOKEN_TTL_FALLBACK_SECONDS - _TOKEN_TTL_BUFFER_SECONDS <= expires_at
+    assert expires_at <= after + _TOKEN_TTL_FALLBACK_SECONDS - _TOKEN_TTL_BUFFER_SECONDS
+
+
+def test_parse_token_response_non_numeric_expires_in_uses_fallback() -> None:
+    """WR-02: a non-numeric ``expires_in`` string coerces to the fallback TTL."""
+    before = time.time()
+    resp = _resp(200, json_body={"access_token": "TOK", "expires_in": "soon"})
     _token, expires_at = _core.parse_token_response(resp)
     after = time.time()
     assert before + _TOKEN_TTL_FALLBACK_SECONDS - _TOKEN_TTL_BUFFER_SECONDS <= expires_at
