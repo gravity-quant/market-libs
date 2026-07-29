@@ -43,13 +43,14 @@ un host distinto (Auth0) que la API de market data.
 from __future__ import annotations
 
 import uuid
-from typing import Self
+from typing import Any, Self
 
 import httpx
 from dotenv import load_dotenv
 
 from market_data_client import _core, _transport
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
+from market_data_client.exceptions import MarketDataAuthError
 
 load_dotenv()
 
@@ -64,8 +65,9 @@ load_dotenv()
 _raise_for_response = _core.raise_for_response
 
 # Total de requests salientes cuando los retries se agotan (1 inicial + 2
-# retries). ``with_options(max_retries=N)`` se difiere a Phase 21 — de ahí que
-# no exista un kwarg ``max_retries`` ni una extensión ``max_attempts``.
+# retries). El override de retries per-call (una vista con cap propio) se
+# difiere a Phase 21 — de ahí que no exista un kwarg de retries ni una
+# extensión ``max_attempts`` en este shell.
 _DEFAULT_MAX_ATTEMPTS = 3
 
 
@@ -210,3 +212,160 @@ class Client:
         if _core.token_is_fresh(self._state):
             return
         self._authenticate()
+
+    def _request(self, spec: _core.RequestSpec) -> httpx.Response:
+        """Dispatch a request against ``base_url`` with per-spec auth branching.
+
+        Two branches gated on ``spec.authenticated`` (D-08/D-09, Pitfall 4):
+
+        - ``authenticated is True``: ensure a fresh token, inject
+          ``Authorization: Bearer <token>``; on a first ``MarketDataAuthError``
+          (401/403) clear the cached token, re-auth ONCE, retry the SAME request
+          once, and re-raise on a second 401 (no recursion/infinite loop).
+        - ``authenticated is False`` (health): NO ``_ensure_token()``, NO
+          ``Authorization`` header; a 401 raises immediately (the ``if not
+          spec.authenticated: raise`` carve-out fires FIRST — a health 401 is a
+          real error, never a stale-token signal).
+
+        Body-consume-then-raise (Phase 7 D-06): ``resp.read()`` precedes every
+        ``_raise_for_response`` in the re-auth carve-out so the surfacing error
+        already has a fully-consumed body (HTTP/2-safe).
+        """
+        headers = dict(spec.headers or {})
+        if spec.authenticated:
+            self._ensure_token()
+            assert self._state.token is not None
+            headers["Authorization"] = f"Bearer {self._state.token}"
+
+        request_id = uuid.uuid4().hex
+        http = self._ensure_http_client()
+        url = f"{self._state.base_url}{spec.path}"
+        req = http.build_request(
+            spec.method,
+            url,
+            params=spec.params,
+            json=spec.json_body,
+            headers=headers,
+        )
+        req.extensions["idempotent"] = spec.idempotent
+        req.extensions["request_id"] = request_id
+        req.extensions["endpoint_name"] = spec.endpoint_name
+        resp = http.send(req)
+        try:
+            _raise_for_response(resp)
+        except MarketDataAuthError:
+            # Pitfall 4: an anonymous (health) 401 is a REAL error — raise before
+            # any re-auth carve-out. There is no token to refresh.
+            if not spec.authenticated:
+                raise
+            # Exactly-one re-auth: consume body, clear token, re-authenticate,
+            # retry the SAME request once. A persistent 401 re-raises below.
+            resp.read()
+            self._state.token = None
+            self._ensure_token()
+            assert self._state.token is not None
+            req.headers["Authorization"] = f"Bearer {self._state.token}"
+            resp = http.send(req)
+            resp.read()
+            _raise_for_response(resp)
+        return resp
+
+    # ------------------------------------------------------------------
+    # Public endpoint methods — health (anonymous, CORE-MD-01)
+    # ------------------------------------------------------------------
+
+    def get_health(self) -> dict[str, Any]:
+        """Reach ``GET {base_url}/health`` anonymously via the retry transport."""
+        spec = _core.build_health_request(self._state)
+        resp = self._request(spec)
+        return _core.parse_health_response(resp)
+
+    def get_health_feed(self) -> dict[str, Any]:
+        """Reach ``GET {base_url}/health/feed`` anonymously via the retry transport."""
+        spec = _core.build_health_feed_request(self._state)
+        resp = self._request(spec)
+        return _core.parse_health_response(resp)
+
+
+# ----------------------------------------------------------------------
+# Default-client lazy singleton + top-level shims
+# ----------------------------------------------------------------------
+
+
+_default_client: Client | None = None
+
+
+def _get_default() -> Client:
+    """Lazy access to the module-level default Client (env-var constructed)."""
+    global _default_client
+    if _default_client is None:
+        _default_client = Client()
+    return _default_client
+
+
+def configure(
+    *,
+    base_url: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    audience: str | None = None,
+    auth0_token_url: str | None = None,
+    token: str | None = None,
+    token_expires_at: float | None = None,
+    http_client: httpx.Client | None = None,
+) -> None:
+    """Sobrescribe credenciales/URLs en runtime con semántica carry-forward.
+
+    Carry-forward: los campos ``None`` se ignoran; los demás sobrescriben en el
+    ``_default_client._state``. ``configure()`` es el ÚNICO punto de mutación
+    controlada (CORE-MD-01). Rotar cualquier credencial/URL (``base_url``,
+    ``client_id``, ``client_secret``, ``audience``, ``auth0_token_url``)
+    invalida el token cacheado (``token=None`` + ``token_expires_at=0.0``), a
+    menos que ``token``/``token_expires_at`` se pasen explícitamente (el conftest
+    los siembra para tests sin re-auth) — T-20-03.
+
+    ``http_client`` se usa AS-IS (sin auto-wrap con ``RetryTransport``); el
+    cliente cacheado previo se cierra antes de reemplazarlo.
+    """
+    client = _get_default()
+    state = client._state
+    rotated = False
+    if base_url is not None:
+        state.base_url = base_url.rstrip("/")
+        rotated = True
+    if client_id is not None:
+        state.client_id = client_id
+        rotated = True
+    if client_secret is not None:
+        state.client_secret = client_secret
+        rotated = True
+    if audience is not None:
+        state.audience = audience
+        rotated = True
+    if auth0_token_url is not None:
+        state.auth0_token_url = auth0_token_url
+        rotated = True
+    # Rotar credenciales invalida el token cacheado, salvo que el caller siembre
+    # explícitamente token/token_expires_at (test seeding).
+    if rotated and token is None and token_expires_at is None:
+        state.token = None
+        state.token_expires_at = 0.0
+    if token is not None:
+        state.token = token
+    if token_expires_at is not None:
+        state.token_expires_at = token_expires_at
+    if http_client is not None:
+        if state.http_client is not None:
+            assert isinstance(state.http_client, httpx.Client)
+            state.http_client.close()
+        state.http_client = http_client
+
+
+def get_health() -> dict[str, Any]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_health()
+
+
+def get_health_feed() -> dict[str, Any]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_health_feed()
