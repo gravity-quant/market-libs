@@ -99,9 +99,7 @@ def test_redact_scans_args_and_dict() -> None:
     assert rec_dict.args["h"] == "Bearer ***"
 
     # record.__dict__ extra field
-    rec_extra = _make_record(
-        "ok", extra={"weird": "client_secret=leaky-xxx", "safe": "ok"}
-    )
+    rec_extra = _make_record("ok", extra={"weird": "client_secret=leaky-xxx", "safe": "ok"})
     f.filter(rec_extra)
     assert rec_extra.__dict__["weird"] == "client_secret=***"
     assert rec_extra.__dict__["safe"] == "ok"
