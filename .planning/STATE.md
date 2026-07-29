@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Codegen Single-Source
-current_phase: 3
-status: Awaiting next milestone
-stopped_at: Phase 18 context gathered (assumptions mode)
-last_updated: "2026-07-03T18:15:08.396Z"
-last_activity: 2026-07-03
-last_activity_desc: Milestone v1.3 completed and archived
+milestone: v1.4
+milestone_name: market-data-client
+status: planning
+last_updated: "2026-07-29T14:52:49.570Z"
+last_activity: 2026-07-29
 progress:
-  total_phases: 2
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 50
-current_phase_name: REFAC-06
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.3 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-03 — Milestone v1.3 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-29 — Milestone v1.4 started
 
 ## Performance Metrics
 

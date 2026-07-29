@@ -30,9 +30,20 @@ corregida.
 
 </details>
 
-## Next Milestone
+## Current Milestone: v1.4 market-data-client
 
-**Not yet defined.** The single residual architectural unknown (codegen single-source, REFAC-06) is now permanently resolved as a NO-GO, so there is no forced next milestone. Candidate v1.4+ work lives in the ROADMAP Backlog — the strongest deferred items are **prod-vs-remarkets verification** (D-MATZ-27 REQUIRED handoff, deferred through v1.0–v1.3), **`matriz_client.ws_client` live verification** (WebSocket streaming in a daemon thread), and **`cryptography.fernet` token encryption at-rest** (requires explicit operator authorization / threat-boundary expansion). Start the next cycle with `/gsd-new-milestone`.
+**Goal:** Crear un nuevo paquete cliente `market-data-client` en el monorepo que exponga la superficie de **lectura** de la API primary-extractor (`https://market-data-develop.bbsa.com.ar/api`, OpenAPI 3.1) con autenticación **Auth0 client-credentials**, replicando todas las decisiones arquitectónicas de los paquetes existentes, verificarlo en vivo contra develop y **publicarlo como v0.1.0** por el mismo pipeline de tags que el resto.
+
+**Target features:**
+- Scaffold del paquete `market-data-client` (import `market_data_client`) espejando la estructura de `iol-client` + Auth0 client-credentials (token cache TTL/refresh, dual sync/async) + fundaciones de transporte (retries full-jitter, logging redactado, exceptions, `configure()`, health).
+- Superficie de lectura de market data: `GET /marketdata` (list), `GET|POST /marketdata/latest` (single + batch) con modelos `SafeModel` (`received_at` de primera clase) + paridad `with_options(max_retries=N)`.
+- Superficie de referencia (lectura): `GET /instruments`, `/instruments/segments`, `GET /symbols`, `GET /calendar`, `GET /calendar/config` + modelos.
+- Verificación en vivo contra develop (driver `main_market_data.py`, reutiliza `verification/`) + fixes de divergencias en el mismo ciclo.
+- Release prep + publish `market-data-client-v0.1.0` (README, `market-data-client` en la matriz de `ci.yml`, `uv.lock`, PR → tag → GitHub Release).
+
+**Key context:** Alcance **solo lectura** — mutaciones (symbols POST/PATCH/batch, calendar PUT/POST/DELETE), streaming SSE `GET /marketdata/stream`, token cache en disco y validación de firma JWT quedan diferidos a v1.5+. El nombre debe terminar en `-client` (regex de `release.yml`). Plan fuente: `.future_plans/market_data.md`. Riesgo: el entorno develop puede requerir VPN/allowlist o credenciales aún no disponibles para la Fase 4 (verificación en vivo); las respuestas no están tipadas en el OpenAPI, así que los modelos se afinan contra payloads reales.
+
+**Backlog no incluido en v1.4:** prod-vs-remarkets verification (D-MATZ-27), `matriz_client.ws_client` live verification, `cryptography.fernet` token encryption at-rest — siguen en el ROADMAP Backlog.
 
 <details>
 <summary>v1.3 Current Milestone block (closed 2026-07-03 on signed NO-GO, archived for reference)</summary>
@@ -134,9 +145,14 @@ corregida.
 
 ### Active
 
-<!-- Ninguno. v1.3 cerró en NO-GO firmado; el único unknown arquitectónico residual (REFAC-06) queda permanentemente resuelto. Próximo milestone sin definir — ver ROADMAP Backlog + `/gsd-new-milestone`. -->
+<!-- v1.4 market-data-client — nuevo paquete cliente (solo lectura) contra la API primary-extractor. Ver .planning/REQUIREMENTS.md + .future_plans/market_data.md. -->
 
-_(none — next milestone not yet defined; candidate work in ROADMAP Backlog)_
+- [ ] **AUTH-MD-01**: El paquete autentica contra Auth0 vía grant client_credentials, cachea el token y lo refresca por TTL (`expires_in`), sync y async
+- [ ] **CORE-MD-01**: Fundaciones — transport con retries full-jitter, logging con redacción de credenciales, jerarquía de excepciones, `configure()`, endpoints de health
+- [ ] **MD-01**: Superficie de lectura de market data (`GET /marketdata`, `GET|POST /marketdata/latest`) con modelos `SafeModel` y paridad `with_options`
+- [ ] **REF-MD-01**: Superficie de referencia de lectura (instruments, segments, symbols, calendar) con modelos
+- [ ] **LIVE-MD-01**: Verificación en vivo contra develop con fixes de divergencias in-cycle
+- [ ] **PUB-MD-01**: Publicación de `market-data-client-v0.1.0` por el pipeline de tags (README, CI matrix, PR, tag, GitHub Release)
 
 ### Out of Scope
 
@@ -225,6 +241,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
+*Last updated: 2026-07-29 after starting milestone v1.4 — **v1.4 market-data-client** kicked off. Scope: nuevo paquete cliente `market-data-client` (solo lectura) contra la API primary-extractor (`market-data-develop.bbsa.com.ar`, OpenAPI 3.1) con Auth0 client-credentials, verificado en vivo y publicado como v0.1.0 por el pipeline de tags. Active reqs: AUTH-MD-01, CORE-MD-01, MD-01, REF-MD-01, LIVE-MD-01, PUB-MD-01. Deferred a v1.5+: mutaciones (symbols/calendar), streaming SSE, disk token cache, JWT signature validation. Plan fuente: `.future_plans/market_data.md`. Amplía el alcance del monorepo de 5 a 6 paquetes. Prior v1.3 footer below for reference.*
+
 *Last updated: 2026-07-03 after v1.3 milestone — **v1.3 Codegen Single-Source (libcst) closed on a signed SPIKE-006 NO-GO** (1 phase / 3 plans / 7 tasks; zero production footprint). `libcst >=1.8.0,<2` evaluated against the D-RIGOR-02 10-item gate → 7 PASS / 3 FAIL (items 1/3/6, content-absence root cause); libcst closes item 4 (`ruff check`) that unasync could not but cannot synthesize content-absent constructs without a forbidden source migration (D-02). Two independent tools (unasync SPIKE-005, libcst SPIKE-006) now reach the same NO-GO for the same source-shape-asymmetry root cause. **CODEGEN-01 resolved (NO-GO); REFAC-06 permanently shelved; Phase 19 dropped; duplicate `client.py`/`aio.py` shells accepted as a structural feature.** No code shipped — the v1.2 product state is unchanged. Next milestone not yet defined (candidate v1.4+ work in ROADMAP Backlog). Prior v1.3-kickoff footer below for reference.*
 
 *Last updated: 2026-07-02 after starting milestone v1.3 — **v1.3 Codegen Single-Source (libcst)** kicked off. Scope: spike-gated REFAC-06 — SPIKE-006 evaluates `libcst >=1.8.0,<2` (AST-level codemod) against a `D-RIGOR-02` 10-item gate to close the 3 unasync FAIL items (source-shape asymmetry); REFAC-06 codegen single-source × 4 packages is CONDITIONAL on GO, else shelved permanently. Honors locked decision D-NOGO-01. Active reqs: CODEGEN-01 (spike) + REFAC-06 (conditional). Prior v1.2 footer below for reference.*
