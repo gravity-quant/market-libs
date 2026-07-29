@@ -34,11 +34,13 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
 from tenacity import (
+    RetryCallState,
     Retrying,
     retry_if_exception_type,
     stop_after_attempt,
@@ -74,11 +76,17 @@ class _RetryableStatus(Exception):
     exceptions never in ``retry_on=``). Carries the ``response`` so the outer
     ``except _RetryableStatus`` block can return the final response unmolested
     when retries exhaust (D-05).
+
+    ``retry_after`` carries the server-directed delay (seconds, already parsed
+    and ``> 0``) or ``None``. It is read by ``_retry_after_or_jitter_wait`` so
+    the wait is honored via tenacity's inter-attempt sleep INSTEAD OF the
+    exponential-jitter backoff — the two never stack (WR-05).
     """
 
-    def __init__(self, response: httpx.Response) -> None:
+    def __init__(self, response: httpx.Response, retry_after: float | None = None) -> None:
         super().__init__(f"retryable status: {response.status_code}")
         self.response = response
+        self.retry_after = retry_after
 
 
 def _is_retryable_status(response: httpx.Response | None) -> bool:
@@ -100,6 +108,31 @@ def _parse_retry_after(value: str) -> float | None:
             return max(0.0, target - time.time())
         except (TypeError, ValueError):
             return None
+
+
+def _retry_after_or_jitter_wait() -> Callable[[RetryCallState], float]:
+    """Build a tenacity ``wait`` that honors ``Retry-After`` OR jitter, never both.
+
+    WR-05: previously the transport slept for ``Retry-After`` INSIDE the attempt
+    and THEN tenacity applied its own ``wait_exponential_jitter`` before the next
+    attempt — the two delays stacked. Folding the server-directed delay into the
+    tenacity wait strategy means exactly one sleep happens between attempts:
+    ``min(retry_after, cap)`` when the last failure carried a usable
+    ``Retry-After`` (via ``_RetryableStatus.retry_after``), else the full-jitter
+    exponential backoff. Shared by both the sync and async transports so the two
+    surfaces stay mirrored.
+    """
+    jitter = wait_exponential_jitter(initial=1.0, max=30.0, exp_base=2, jitter=1.0)
+
+    def _wait(retry_state: RetryCallState) -> float:
+        outcome = retry_state.outcome
+        if outcome is not None and outcome.failed:
+            exc = outcome.exception()
+            if isinstance(exc, _RetryableStatus) and exc.retry_after is not None:
+                return min(exc.retry_after, _RETRY_AFTER_CAP_S)
+        return float(jitter(retry_state))
+
+    return _wait
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +173,7 @@ class RetryTransport(httpx.HTTPTransport):
         try:
             for attempt in Retrying(
                 stop=stop_after_attempt(effective_max_attempts),
-                wait=wait_exponential_jitter(initial=1.0, max=30.0, exp_base=2, jitter=1.0),
+                wait=_retry_after_or_jitter_wait(),
                 retry=(
                     retry_if_exception_type(_RETRYABLE_EXC)
                     | retry_if_exception_type(_RetryableStatus)
@@ -152,11 +185,14 @@ class RetryTransport(httpx.HTTPTransport):
                     response = super().handle_request(request)
                     response.read()  # body-consume before status check (Phase 7 D-06)
                     if _is_retryable_status(response):
-                        retry_after = response.headers.get("Retry-After")
-                        if retry_after is not None:
-                            delay = _parse_retry_after(retry_after)
+                        # WR-05: parse Retry-After and hand it to the sentinel so the
+                        # wait strategy honors it INSTEAD OF jitter — no double sleep.
+                        retry_after_header = response.headers.get("Retry-After")
+                        retry_after_s: float | None = None
+                        if retry_after_header is not None:
+                            delay = _parse_retry_after(retry_after_header)
                             if delay is not None and delay > 0:
-                                time.sleep(min(delay, _RETRY_AFTER_CAP_S))
+                                retry_after_s = delay
                         extra: dict[str, Any] = {
                             "package": _LOGGER_NAME,
                             "method": request.method,
@@ -170,7 +206,7 @@ class RetryTransport(httpx.HTTPTransport):
                         if account_id:
                             extra["account_id"] = account_id
                         self._logger.warning("retry attempt", extra=extra)
-                        raise _RetryableStatus(response)
+                        raise _RetryableStatus(response, retry_after=retry_after_s)
                     return response
         except _RetryableStatus as exc:
             # Retry exhausted on status — return last response unmolested (D-05).
