@@ -22,7 +22,6 @@
 
 Detalle por fase: ver **## Phase Details (v1.4)** más abajo. **Diferido a v1.5+:** mutaciones (symbols/calendar), streaming SSE `GET /marketdata/stream`, cache de token en disco, validación de firma JWT (REQUIREMENTS.md § v2).
 
-
 <details>
 <summary>✅ v1.0 Verification cycle (Phases 1-5) — SHIPPED 2026-06-10</summary>
 
@@ -92,14 +91,26 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 **Plans:** 6 plans (4 waves)
 
 Plans:
+**Wave 1**
+
 - [ ] 20-01-PLAN.md — Wave 1: package scaffold + exceptions + `_state` + transport pair (verbatim)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 20-02-PLAN.md — Wave 2 (tdd): `_core.py` pure Auth0 builders/parsers + `raise_for_response` + health builders
 - [ ] 20-03-PLAN.md — Wave 2 (tdd): `_logging.py` RedactingFilter + `attach()` (client_secret patterns)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 20-04-PLAN.md — Wave 3: `client.py` sync shell (absolute token URL, single-grant lifecycle, anonymous health)
 - [ ] 20-05-PLAN.md — Wave 3: `aio.py` async shell (per-loop double-checked lock, single-grant lifecycle)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 20-06-PLAN.md — Wave 4: `__init__.py` + `conftest.py` + lifecycle/health tests + 4-gate run
 
 **Success criteria:**
+
 1. `import market_data_client` y `from market_data_client import aio` funcionan; `__version__ == "0.1.0"`; `pyproject.toml` con hatchling + deps (httpx, python-dotenv, tenacity) y `py.typed`.
 2. La autenticación client_credentials obtiene y cachea el token (mock) y lo refresca cuando expira el TTL, en sync y async (`asyncio.Lock` double-checked).
 3. `GET /health` y `GET /health/feed` responden vía el transporte con retries; la jerarquía de excepciones tipadas mapea 401/403→Auth, 429→RateLimit, otros→APIError.
@@ -114,6 +125,7 @@ Plans:
 **Depends on:** Phase 20
 
 **Success criteria:**
+
 1. `get_market_data(...)`, `get_latest(...)` y `get_latest_batch(...)` (o nombres equivalentes) existen en sync y async, con todos los query params del OpenAPI serializados correctamente.
 2. Las respuestas se deserializan a dataclasses `SafeModel` con `received_at` como campo de primera clase; `from_api` tolera payloads parciales/None sin romper.
 3. `client.with_options(max_retries=N)` se propaga a estas llamadas como shared-view clone, sync y async.
@@ -127,6 +139,7 @@ Plans:
 **Depends on:** Phase 20 (paraleliza con Phase 21)
 
 **Success criteria:**
+
 1. `GET /instruments` (con todos sus filtros), `GET /instruments/segments`, `GET /symbols`, `GET /calendar`, `GET /calendar/config` implementados en sync y async.
 2. Cada endpoint devuelve modelos tipados adecuados (colecciones con guardas de 204/None → `[]`).
 3. Tests mockeados verdes; paridad sync/async verificada.
@@ -139,6 +152,7 @@ Plans:
 **Depends on:** Phases 21, 22
 
 **Success criteria:**
+
 1. `main_market_data.py` construye una `Client()` + una `AsyncClient()` y threadea cada probe; ejercita health + market data + reference read contra develop con credenciales Auth0.
 2. Reutiliza la infra `verification/` (split live/offline con `--live`, redacción de credenciales); sin mutating-gate (solo lectura).
 3. Toda divergencia (campos de modelo, semántica de `received_at`/staleness, manejo de params) se documenta en `market-data-findings.md` y se corrige in-cycle, espejada sync/async.
@@ -152,6 +166,7 @@ Plans:
 **Depends on:** Phase 23
 
 **Success criteria:**
+
 1. README del paquete (uso, env vars, auth Auth0); `version="0.1.0"` + `__version__` alineados; `market-data-client` agregado a `matrix.package` en `ci.yml`; `uv.lock` regenerado.
 2. CLAUDE.md (listado de paquetes + tablas de arquitectura) y MEMORY actualizados.
 3. PR → CI verde (los 13 checks incluyendo el nuevo paquete) → merge → tag `market-data-client-v0.1.0`.
