@@ -88,12 +88,12 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 **Requirements:** AUTH-MD-01, CORE-MD-01
 **Depends on:** — (primera fase del milestone)
-**Plans:** 6 plans (4 waves)
+**Plans:** 1/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 20-01-PLAN.md — Wave 1: package scaffold + exceptions + `_state` + transport pair (verbatim)
+- [x] 20-01-PLAN.md — Wave 1: package scaffold + exceptions + `_state` + transport pair (verbatim)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

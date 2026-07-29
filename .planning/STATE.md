@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
 current_phase: 20
-current_phase_name: next up
-status: planning
+current_phase_name: scaffold-auth0-client-credentials-fundaciones-de-transporte
+status: executing
 stopped_at: Phase 20 context gathered (assumptions mode)
-last_updated: "2026-07-29T15:20:10.146Z"
+last_updated: "2026-07-29T16:51:43.388Z"
 last_activity: 2026-07-29
-last_activity_desc: Milestone v1.4 roadmap created (5 phases, 6 requirements mapped)
+last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** v1.4 market-data-client — nuevo paquete cliente (solo lectura) contra la API primary-extractor (`market-data-develop.bbsa.com.ar`, OpenAPI 3.1) con Auth0 client-credentials, verificado en vivo y publicado v0.1.0. Roadmap creado (5 fases, 20-24). Próximo: `/gsd-discuss-phase 20` o `/gsd-plan-phase 20`.
+**Current focus:** Phase 20 — scaffold-auth0-client-credentials-fundaciones-de-transporte
 
 ## Current Position
 
-Phase: 20 (next up) — Scaffold + Auth0 client-credentials + fundaciones de transporte
-Plan: — (not yet planned)
-Status: Roadmap complete — ready to plan Phase 20
-Last activity: 2026-07-29 — Milestone v1.4 roadmap created (5 phases, 6 requirements mapped)
+Phase: 20 (scaffold-auth0-client-credentials-fundaciones-de-transporte) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 20
+Last activity: 2026-07-29 — Phase 20 execution started
 
 ## Performance Metrics
 
