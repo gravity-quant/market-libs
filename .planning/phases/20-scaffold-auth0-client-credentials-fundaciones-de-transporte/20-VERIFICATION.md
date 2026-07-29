@@ -1,140 +1,120 @@
 ---
 phase: 20-scaffold-auth0-client-credentials-fundaciones-de-transporte
-verified: 2026-07-29T15:10:00Z
-status: human_needed
+verified: 2026-07-29T18:20:00Z
+status: passed
 score: 9/9 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-behavior_unverified_items: []
-human_verification:
-  - test: "Confirm the sync/async `configure()` semantic divergence on `base_url` rotation (REVIEW.md WR-01) is acceptable, or decide which behavior is authoritative and file a follow-up to align both surfaces."
-    expected: "A human product/engineering decision on whether `configure(base_url=...)` should invalidate the cached Auth0 token (sync currently does; async currently does not) — this is a judgment call, not a mechanical check."
-    why_human: "Both behaviors are internally self-consistent and defensible (REVIEW.md recommends the async behavior as more correct); resolving it requires a design decision, not a grep/test."
-  - test: "Confirm whether WR-02 (`parse_token_response` crashes with `TypeError` on `{\"expires_in\": null}`), WR-03 (missing `auth0_token_url` validation), WR-05 (double-wait Retry-After + tenacity backoff) should be fixed now or tracked as follow-up debt before Phase 21 builds on this foundation."
-    expected: "A human decision on whether these three REVIEW.md WARNING-severity findings block phase completion or are accepted as known, tracked debt."
-    why_human: "All three are narrow edge cases (non-standard Auth0 response, misconfiguration, retry-timing precision) that the code reviewer classified as WARNING not BLOCKER; whether to gate the phase on them is a project-priority judgment call, not a correctness question — the verifier's own behavioral spot-check (below) proves the core AUTH-MD-01/CORE-MD-01 paths work end-to-end."
+re_verification:
+  previous_status: human_needed
+  previous_score: 9/9
+  gaps_closed:
+    - "WR-01: sync/async configure() base_url token-invalidation divergence — resolved by human decision (align async to sync); implemented + tested."
+    - "WR-02: parse_token_response TypeError on null/non-numeric expires_in — fixed with fallback-TTL coercion; regression tests added."
+    - "WR-03: build_token_request missing auth0_token_url validation — fixed, now validated alongside the other 3 credentials; regression test added."
+    - "WR-05: Retry-After double-wait with tenacity backoff — fixed via shared _retry_after_or_jitter_wait strategy (sync + async); unit + integration tests added."
+  gaps_remaining: []
+  regressions: []
 ---
 
-# Phase 20: Scaffold + Auth0 client-credentials + fundaciones de transporte Verification Report
+# Phase 20: Scaffold + Auth0 client-credentials + fundaciones de transporte Verification Report (Re-Verification)
 
 **Phase Goal:** Levantar el paquete `market-data-client` espejando la estructura de `iol-client`, con autenticación Auth0 client-credentials (token cache TTL + refresh, dual sync/async) y las fundaciones de transporte (retries, logging redactado, exceptions, `configure()`, health).
-**Verified:** 2026-07-29T15:10:00Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-07-29T18:20:00Z
+**Status:** passed
+**Re-verification:** Yes — after gap closure (human_needed gate resolved)
+
+## Context
+
+The initial verification (2026-07-29T15:10:00Z) scored **9/9 must-haves verified** with **zero BLOCKER-level gaps**. The only reason the phase was not `passed` was two human-decision items gating on judgment calls, not code correctness:
+
+1. WR-01 — sync/async `configure()` divergence on `base_url` token invalidation (a real hand-mirroring bug requiring a design decision on which behavior is authoritative).
+2. Whether WR-02/WR-03/WR-05 (REVIEW.md WARNING-severity findings) should be fixed now or tracked as debt.
+
+Both decisions were made by the user (recorded in `20-UAT.md`, both items `passed`) and implemented across 3 commits (`efd7db8`, `43da829`, `dab8aea`), with the remaining lower-priority review items (WR-04, IN-01..04, the 401 re-auth test-coverage gap) explicitly tracked as debt in `.planning/todos/pending/market-data-client-review-debt.md` (commit `a1b814d`, scoped to `resolves_phase: 21`).
+
+This re-verification independently re-confirms: (a) each of the four fixes is actually present and correct in the codebase — not just claimed in commit messages, (b) the package's 4 CI gates still pass with the expanded test count, and (c) no regression was introduced in any of the original 9 must-haves.
 
 ## Goal Achievement
 
-### Observable Truths
+### Fix Verification (the 4 items closed this cycle)
 
-All 5 ROADMAP success criteria plus the plan-level must-haves were checked directly against the codebase (not inferred from SUMMARY.md claims). Where a truth asserted a runtime state-transition/retry invariant that the phase's own committed test suite did not exercise, I ran an independent, throwaway behavioral spot-check (via `pytest-httpx`) against the actual code, then deleted it — see "Behavioral Spot-Checks" below.
+| # | Item | Status | Evidence |
+|---|------|--------|----------|
+| 1 | WR-01: `aio.configure(base_url=...)` now invalidates the cached token, mirroring `client.configure()` | ✓ VERIFIED | Read `aio.py:352-354` — `base_url is not None` branch now sets `rotated = True` (previously it did not), and the docstring (`aio.py:333-335`) explicitly states this now "ESPEJA exactamente la superficie sync." Read `client.py:333-335` — unchanged, still rotates on `base_url`. Both surfaces now agree. Confirmed via commit `efd7db8` diff (aio.py: 31 lines changed) and by direct file read post-merge. |
+| 2 | WR-01 regression tests | ✓ VERIFIED | `test_client.py::test_configure_base_url_invalidates_cached_token` + `test_configure_base_url_keeps_token_when_seeded` (sync); `test_async_client.py::test_async_configure_base_url_invalidates_cached_token` + `test_async_configure_base_url_keeps_token_when_seeded` (async) — all 4 read directly; each asserts `client._state.token is None` after a bare `base_url` rotation and `token == "seeded"` when explicitly overridden. Substantive, not smoke-only. |
+| 3 | WR-02: `parse_token_response` no longer raises `TypeError`/`ValueError` on `{"expires_in": null}` or a non-numeric value | ✓ VERIFIED | Read `_core.py:205-211` — `expires_in_raw = data.get("expires_in")` followed by a `try/except (TypeError, ValueError)` around `float(...)` that falls back to `_TOKEN_TTL_FALLBACK_SECONDS` on any coercion failure (covers both the `None` and non-numeric-string cases the review flagged). |
+| 4 | WR-02 regression tests | ✓ VERIFIED | `test_core.py::test_parse_token_response_null_expires_in_uses_fallback` and `test_parse_token_response_non_numeric_expires_in_uses_fallback` — both read directly, assert the fallback TTL is applied instead of crashing. |
+| 5 | WR-03: `build_token_request` validates `auth0_token_url` alongside the other 3 credentials | ✓ VERIFIED | Read `_core.py:152-162` — the guard now checks `not state.client_id or not state.client_secret or not state.audience or not state.auth0_token_url`, raising `MarketDataAuthError` before any HTTP dispatch. |
+| 6 | WR-03 regression test | ✓ VERIFIED | `test_core.py::test_build_token_request_missing_auth0_token_url_raises` — read directly, asserts `MarketDataAuthError` is raised when only `auth0_token_url` is missing. |
+| 7 | WR-05: Retry-After no longer stacks with tenacity's exponential-jitter backoff | ✓ VERIFIED | Read `_transport.py::_retry_after_or_jitter_wait` (new shared wait-strategy factory) — the manual in-attempt `time.sleep`/inline wait was removed; `Retry-After` is now carried on the `_RetryableStatus` sentinel (`retry_after` attr) and consumed by the tenacity `wait=` callable, which returns `min(exc.retry_after, cap)` when present, else the jitter backoff — the two paths are now mutually exclusive, never additive. `_atransport.py` imports and reuses the *same* `_retry_after_or_jitter_wait` function (intra-package import, not a re-implementation) — sync and async are provably mirrored (identical function object). |
+| 8 | WR-05 regression tests | ✓ VERIFIED | `test_transport.py` (new file, 106 lines) — unit tests on `_retry_after_or_jitter_wait` directly (`test_wait_returns_retry_after_when_present`, `test_wait_caps_retry_after`, `test_wait_falls_back_to_jitter_when_no_retry_after`, `test_wait_falls_back_to_jitter_on_non_status_exception`) plus an integration test (`test_retry_after_honored_once_not_stacked_sync`) exercising the full transport with a mocked 503+Retry-After response, confirming exactly one honored delay. |
 
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 1 | SC1: `import market_data_client` + `from market_data_client import aio` work; `__version__ == "0.1.0"`; `pyproject.toml` has hatchling + httpx/python-dotenv/tenacity + `py.typed` | ✓ VERIFIED | Ran `uv run python -c "import market_data_client as m; from market_data_client import aio; ..."` directly — `m.__version__ == "0.1.0"`, `Client`/`AsyncClient`/`configure`/`get_health`/`MarketDataAuthError` all present. `pyproject.toml` confirmed (httpx, python-dotenv, tenacity; no platformdirs). `py.typed` exists (0 bytes). |
-| 2 | SC2: client_credentials token fetched, cached, refreshed on TTL expiry, sync AND async (`asyncio.Lock` double-checked) | ✓ VERIFIED | Read `client.py::_authenticate/_ensure_token` and `aio.py::_authenticate_unlocked/_aensure_token` (double-checked re-check of `token_is_fresh` inside the lazy per-loop lock, confirmed present, not created in `__init__`). Ran `test_token_lifecycle.py` + `test_token_lifecycle_async.py` directly — both assert fetch→cache (1 POST) then forced-TTL-expiry→refetch (2nd POST), by COUNT not ordering. |
-| 3 | SC3: `GET /health` + `GET /health/feed` respond via the retry transport; exception hierarchy maps 401/403→Auth, 429→RateLimit, other→APIError | ✓ VERIFIED | Read `_core.py::raise_for_response` (401/403/429/other branches) and `client.py`/`aio.py::get_health`/`get_health_feed`. Ran `test_client.py` + `test_async_client.py` directly — anonymous dispatch (no `Authorization` header, zero token-URL requests), 429→`MarketDataRateLimitError`, 500→`MarketDataAPIError` all pass. |
-| 4 | SC4: zero credential leakage in logs (`RedactingFilter`) | ✓ VERIFIED | Independently ran `RedactingFilter().filter()` outside the test suite against a record embedding `client_secret`, `access_token`, and `Bearer` substrings — all three were scrubbed, confirmed via `assert` (not trusting the test suite alone). |
-| 5 | SC5: all 4 CI gates green (ruff check, ruff format --check, mypy strict, pytest) for the package | ✓ VERIFIED | Ran all 4 myself: `ruff check packages/market-data-client` → all checks passed; `ruff format --check` → 16 files already formatted; `mypy packages/market-data-client/src` → no issues in 9 source files; `pytest packages/market-data-client/tests -q` → 44 passed. CI LOG-01 grep gate also re-run: clean. |
-| 6 | `_send_auth_request` dispatches to the ABSOLUTE `state.auth0_token_url`, never `base_url + path` (Pitfall 1) — sync AND async | ✓ VERIFIED | Read both `client.py::_send_auth_request` and `aio.py::_send_auth_request` — both build the request against `self._state.auth0_token_url` directly, not `base_url`. `build_token_request` sets `path=""` confirming intent. |
-| 7 | `_request` gates Bearer injection on `spec.authenticated`; health (authenticated=False) never fetches a token and a health 401 never triggers re-auth | ✓ VERIFIED | Read both `_request` implementations — `if not spec.authenticated: raise` fires before any re-auth carve-out. `test_health_401_raises_auth_without_reauth` (sync) and `test_async_health_401_raises_auth_without_reauth` (async) both assert `MarketDataAuthError` with zero token POSTs. |
-| 8 | `_request` on an AUTHENTICATED endpoint performs exactly-once 401 re-auth then retries, and re-raises on a persistent second 401 (no recursion) — sync AND async | ✓ VERIFIED (via verifier spot-check, not phase's own tests — see note) | **Gap found:** the phase's own committed test suite (`test_client.py`, `test_async_client.py`) never constructs a 401→re-auth→200 sequence, nor a persistent-401 sequence, for an `authenticated=True` spec — only the anonymous-health-401 (no-reauth) path is tested. I wrote a throwaway pytest file exercising both sequences directly against `Client._request`/`AsyncClient._request`, ran it (4/4 passed: exactly-one token POST + successful retry, and exactly-one token POST + persistent-401 re-raise, both surfaces), then deleted it — `git status` confirms no residue. The code is correct; the regression-locking test coverage for it is missing. |
-| 9 | `configure()` is the sole controlled mutation entry and resets the cached token on credential rotation | ✓ VERIFIED, with a noted cross-surface divergence | `client_id`/`client_secret`/`audience`/`auth0_token_url` rotation correctly resets the token on BOTH surfaces (confirmed by direct read of both `configure()` implementations). **However**, `base_url`-only rotation resets the token in sync `configure()` but NOT in async `configure()` — a real, confirmed hand-mirroring divergence (REVIEW.md WR-01, independently re-confirmed by reading `client.py:333-335` vs `aio.py:348-349`). This violates the project's explicit "dual sync/async logic must be mirrored" constraint. Routed to human verification below (judgment call on which behavior is correct). |
+**All 4 fixes are present, correct, and independently regression-tested — not merely claimed in commit messages.**
 
-**Score:** 9/9 truths verified (0 present-but-behaviorally-unverified — truth #8's gap was closed by the verifier's own spot-check, not left open)
+### Original 9 Observable Truths — Regression Check
 
-### Required Artifacts
+All 9 truths from the initial verification were re-checked for regression (not re-derived from scratch, since the initial verification's evidence and reasoning were independently confirmed as sound on first pass):
 
-| Artifact | Expected | Status | Details |
-|----------|----------|--------|---------|
-| `packages/market-data-client/pyproject.toml` | hatchling + httpx/python-dotenv/tenacity deps, no platformdirs | ✓ VERIFIED | Confirmed via direct read; `name = "market-data-client"`, `version = "0.1.0"`. |
-| `packages/market-data-client/src/market_data_client/py.typed` | PEP 561 marker | ✓ VERIFIED | Exists, 0 bytes. |
-| `packages/market-data-client/.env.example` | 5 `MARKET_DATA_*` vars, placeholders only | ✓ VERIFIED | `git show HEAD:.../.env.example` — all 5 vars present, no real credentials. |
-| `packages/market-data-client/README.md` | usage note | ✓ VERIFIED (minor info finding) | Exists. Contains a forward-reference to `get_marketdata()` which does not exist yet (Phase 21 / MD-01 scope) — documentation is aspirational for the full package, not misleading about Phase 20's actual surface. Info-level only. |
-| `exceptions.py` | 4-class hierarchy | ✓ VERIFIED | `MarketDataError → MarketDataAPIError → {MarketDataAuthError, MarketDataRateLimitError}`, `(status_code, message)` attrs confirmed by read. |
-| `_state.py` | `_ClientState` + TTL constants | ✓ VERIFIED | `_TOKEN_TTL_BUFFER_SECONDS=60`, `_TOKEN_TTL_FALLBACK_SECONDS=3600`, `DEFAULT_BASE_URL` ends in `/api`; no `username`/`password`/`refresh_token`/`token_cache_path`. |
-| `_transport.py` / `_atransport.py` | RetryTransport pair, `_LOGGER_NAME="market_data_client"` | ✓ VERIFIED | Confirmed via read + ruff/mypy pass. |
-| `_core.py` | pure builders/parsers, `RequestSpec.authenticated` | ✓ VERIFIED | 236 lines, all functions IO-free, no `client`/`aio` imports. |
-| `_logging.py` | `RedactingFilter` + `attach()` | ✓ VERIFIED | 101 lines; independently re-ran the redaction logic outside pytest. |
-| `client.py` | sync `Client` shell | ✓ VERIFIED | 372 lines; full read confirms absolute-token-URL dispatch, `authenticated` branching, `configure()`. |
-| `aio.py` | async `AsyncClient` shell | ✓ VERIFIED | 373 lines; full read confirms lazy per-loop locks, double-checked `_aensure_token`, mirrors sync shell. |
-| `__init__.py` | attach-first + re-exports + `__version__` | ✓ VERIFIED | `attach()` called and `del`eted before the `# noqa: E402` imports of `.aio`/`.client`/`.exceptions`. |
-| `tests/conftest.py` + 4 test modules | autouse fixtures + behavioral suite | ✓ VERIFIED | 44 tests, all substantive (state-transition and count-based assertions, not smoke-only). |
+| # | Truth | Status | Regression Check |
+|---|-------|--------|-------------------|
+| 1 | SC1: package scaffold (imports, version, pyproject, py.typed) | ✓ VERIFIED (no change) | Not touched by any of the 4 fix commits — confirmed via `git show --stat` on all 4 commits (only `aio.py`, `_core.py`, `_transport.py`, `_atransport.py`, and test files touched). |
+| 2 | SC2: token cache TTL + refresh, sync+async double-checked locking | ✓ VERIFIED (no regression) | `_ensure_token`/`_aensure_token` and `_authenticate`/`_authenticate_unlocked` unchanged; `test_token_lifecycle.py` + `test_token_lifecycle_async.py` still pass (part of the 56). |
+| 3 | SC3: health endpoints via retry transport + exception mapping | ✓ VERIFIED (no regression) | `raise_for_response` unchanged; retry-transport control flow (mutation gate, `_is_retryable_status`, exhaustion handling) unchanged apart from the wait-strategy swap (WR-05) — re-confirmed still returns the last response unmolested on exhaustion (`except _RetryableStatus as exc: return exc.response`). |
+| 4 | SC4: zero credential leakage (`RedactingFilter`) | ✓ VERIFIED (no change) | `_logging.py` not touched by any fix commit. |
+| 5 | SC5: 4 CI gates green | ✓ VERIFIED (re-run, now 56 tests) | Ran all 4 myself this cycle — see "CI Gates" below. |
+| 6 | Auth grant dispatches to absolute `auth0_token_url`, never `base_url + path` | ✓ VERIFIED (no regression) | `_send_auth_request` in both `client.py` and `aio.py` unchanged. |
+| 7 | `_request` gates Bearer injection on `spec.authenticated`; anonymous 401 never re-auths | ✓ VERIFIED (no regression) | Both `_request` implementations re-read in full — the `if not spec.authenticated: raise` carve-out is unchanged; only the async header-merge line (`headers = {"Authorization": ..., **(spec.headers or {})}`) is unchanged from before (WR-04 was explicitly NOT fixed this cycle — correctly tracked as debt, not silently dropped). |
+| 8 | Authenticated 401 → exactly-once re-auth → retry, persistent-401 re-raises, no recursion | ✓ VERIFIED (no regression) | Both `_request` re-auth carve-outs re-read in full — logic unchanged from the initially-verified version (sync: `client.py:254-271`; async: `aio.py:254-276`). The test-coverage gap noted in the initial verification (this invariant not covered by the phase's own committed suite) remains open and is correctly tracked in `market-data-client-review-debt.md` — not silently dropped, not claimed as fixed. |
+| 9 | `configure()` is the sole controlled mutation entry, resets token on credential rotation | ✓ VERIFIED — **divergence closed** | `client_id`/`client_secret`/`audience`/`auth0_token_url` rotation behavior unchanged (still resets both surfaces). The one confirmed asymmetry (`base_url` rotation) is now closed — this is the WR-01 fix already detailed above. |
 
-### Key Link Verification
+**Score:** 9/9 truths verified, 0 present-but-behavior-unverified, 0 regressions found.
 
-| From | To | Via | Status | Details |
-|------|-----|-----|--------|---------|
-| `_atransport.py` | `_transport.py` | intra-package import of retry constants | ✓ WIRED | `from market_data_client._transport import ...` confirmed. |
-| `client.py` | `_core.py` | `_raise_for_response = _core.raise_for_response` (B8 identity) | ✓ WIRED | Confirmed same-object alias, both `client.py` and `aio.py` reference `_core.raise_for_response`. |
-| `client.py::_send_auth_request` | `state.auth0_token_url` | absolute-URL dispatch | ✓ WIRED | Confirmed (Pitfall 1 correctly implemented). |
-| `aio.py::_send_auth_request` | `state.auth0_token_url` | absolute-URL dispatch | ✓ WIRED | Confirmed (mirrors sync). |
-| `__init__.py` | `_logging.py` | `attach()` before any other import | ✓ WIRED | Confirmed ordering by direct read. |
-| `client.py` / `aio.py` | `_transport.py` / `_atransport.py` | `_ensure_http_client` wraps `RetryTransport`/`AsyncRetryTransport` | ✓ WIRED | Confirmed. |
+### CI Gates (re-run independently)
 
-### Behavioral Spot-Checks
-
-| Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| Package imports + version | `uv run python -c "import market_data_client..."` | `version: 0.1.0`, all symbols present | ✓ PASS |
-| Redaction (`RedactingFilter`, run outside pytest) | ad hoc `logging.LogRecord` + `.filter()` | `client_secret`/`access_token`/Bearer all scrubbed | ✓ PASS |
-| ruff check | `uv run ruff check packages/market-data-client` | All checks passed | ✓ PASS |
-| ruff format --check | `uv run ruff format --check packages/market-data-client` | 16 files already formatted | ✓ PASS |
+| Gate | Command | Result | Status |
+|------|---------|--------|--------|
+| ruff check | `uv run ruff check packages/market-data-client` | All checks passed! | ✓ PASS |
+| ruff format --check | `uv run ruff format --check packages/market-data-client` | 17 files already formatted | ✓ PASS |
 | mypy strict | `uv run mypy packages/market-data-client/src` | Success: no issues in 9 source files | ✓ PASS |
-| Package pytest suite | `uv run --package market-data-client pytest packages/market-data-client/tests -q` | 44 passed in 0.06s | ✓ PASS |
-| LOG-01 grep gate | `grep -rnE 'logging\.basicConfig\s*\(\|logging\.root\.\w' packages/market-data-client/src/` | no matches (clean) | ✓ PASS |
-| **Authenticated 401 → exactly-once re-auth → 200 (sync + async)** — NOT covered by phase's own tests | throwaway pytest file, deleted after run | 200 returned, exactly 1 token POST, both surfaces | ✓ PASS (verifier-authored spot-check) |
-| **Authenticated persistent 401 → re-raise after 1 retry, no infinite loop (sync + async)** — NOT covered by phase's own tests | throwaway pytest file, deleted after run | `MarketDataAuthError` raised, exactly 1 token POST (no retry loop), both surfaces | ✓ PASS (verifier-authored spot-check) |
-| Full monorepo `uv run pytest -q` (all 6 packages combined in one process) | direct execution | Failures/errors clustered at ~83-95% completion, then process stalls with no active CPU | ⚠️ Investigated — see note below |
+| pytest | `uv run --package market-data-client pytest packages/market-data-client/tests -q` | **56 passed** (up from 44 — 12 new regression tests: 4 WR-01, 3 WR-02/WR-03, 5 WR-05) | ✓ PASS |
 
-**Note on the full-workspace combined pytest run:** Running `uv run pytest -q` from the repo root (all 6 packages in a single pytest session) showed clustered `F`/`E` marks and then stalled. I isolated the cause: **the same failure/stall pattern reproduces when `market-data-client` is excluded entirely** (`--ignore=packages/market-data-client`), and **every package passes cleanly when run individually** (iol-client 137, higyrus-client 160, ambito-financiero-client 131+1 deselected, wallets-client 4, matriz-client 322, market-data-client 44 — sum 798, matching the context notes' "798 tests" figure). This confirms the combined-run issue is a **pre-existing cross-package test-isolation problem, not caused by Phase 20**. It is also consistent with `ci.yml`, which runs `pytest` **per package** in a matrix (never a single combined invocation) — `market-data-client` is correctly NOT yet in that CI matrix (deferred to Phase 24 / PUB-MD-01 per `deferred-items.md` and ROADMAP). Not a Phase 20 gap.
+All 4 gates green, matching the count claimed in the task brief (56 tests).
+
+### Anti-Pattern / Debt-Marker Scan (re-run on the 4 fix commits' touched files)
+
+```
+grep -rn -E "TBD|FIXME|XXX" packages/market-data-client/src/ packages/market-data-client/tests/
+```
+No matches. No debt markers introduced.
 
 ### Requirements Coverage
 
-| Requirement | Source Plans | Description | Status | Evidence |
-|-------------|-------------|--------------|--------|----------|
-| AUTH-MD-01 | 20-01, 20-02, 20-04, 20-05, 20-06 | Auth0 `client_credentials` grant, token cache + TTL refresh, sync+async | ✓ SATISFIED | Truths #2, #6, #8 above; `REQUIREMENTS.md` checkbox is unchecked (`- [ ]`) — this is a tracking-doc bookkeeping item, not a code gap; typically updated at milestone close, not phase verification. |
-| CORE-MD-01 | 20-01, 20-02, 20-03, 20-04, 20-05, 20-06 | Retry transport, redacted logging, typed exceptions, `configure()`, health endpoints | ✓ SATISFIED | Truths #3, #4, #7, #9 above. Same `REQUIREMENTS.md` checkbox caveat as above. |
-
-No orphaned requirements found — `REQUIREMENTS.md` maps exactly AUTH-MD-01 and CORE-MD-01 to Phase 20, and both are claimed by all 6 plans' `requirements:` frontmatter.
-
-### Anti-Patterns Found
-
-| File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| `client.py` vs `aio.py` | `client.py:333-335` / `aio.py:348-349` | `configure(base_url=...)` invalidates the cached token in sync but not async | ⚠️ Warning | Real hand-mirroring divergence (REVIEW.md WR-01); violates the project's dual-sync/async-mirroring constraint. Human decision requested below. |
-| `_core.py` | 196-197 | `parse_token_response` raises unhandled `TypeError`/`ValueError` if Auth0 returns `"expires_in": null` or a non-numeric string (only the *absent*-key case falls back to `_TOKEN_TTL_FALLBACK_SECONDS`) | ⚠️ Warning | Confirmed present by direct read (REVIEW.md WR-02). Edge case, not exercised by the current test suite. |
-| `_core.py` | 152-157 | `build_token_request` validates `client_id`/`client_secret`/`audience` but not `auth0_token_url` (defaults to `""`) | ⚠️ Warning | Confirmed present by direct read (REVIEW.md WR-03). A misconfigured deployment gets a confusing httpx error instead of a clean `MarketDataAuthError`. |
-| `client.py:234-238` vs `aio.py:236` | — | `Authorization` header precedence differs: sync lets the injected Bearer win over `spec.headers`, async lets `spec.headers` win over the injected Bearer | ℹ️ Info | Confirmed present by direct read (REVIEW.md WR-04). Currently latent — no spec sets its own `Authorization`. |
-| `_transport.py` / `_atransport.py` | — | `Retry-After` sleep stacks with tenacity's own exponential backoff (double wait) | ℹ️ Info | Not independently re-verified line-by-line by this verifier (trusting REVIEW.md WR-05 — inherited largely verbatim from `iol-client`'s existing, previously-reviewed transport per D-10). |
-| `README.md` | — | References `market_data_client.get_marketdata()` which does not exist yet | ℹ️ Info | Phase 21 (MD-01) scope; forward-looking README, not misleading about what Phase 20 delivers. |
-
-No `TBD`/`FIXME`/`XXX` debt markers found in any Phase-20-modified file. No blocker-level anti-patterns found.
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| AUTH-MD-01 | ✓ SATISFIED | Truths #2, #6, #8, #9 (WR-01 fix). `REQUIREMENTS.md` checkbox remains `- [ ]` — unchanged bookkeeping caveat noted in the initial verification (typically updated at milestone close). |
+| CORE-MD-01 | ✓ SATISFIED | Truths #3, #4, #7, #9, plus the WR-05 transport fix (retry foundation correctness). Same bookkeeping caveat. |
 
 ### Human Verification Required
 
-### 1. `configure()` sync/async divergence on `base_url` rotation (REVIEW.md WR-01)
+**None.** Both items from the initial verification's human-verification gate are now resolved:
 
-**Test:** Decide whether `configure(base_url=...)` should invalidate the cached Auth0 token. Currently sync does; async does not (both are internally consistent and separately documented in their own docstrings, but they disagree with each other).
-**Expected:** A single, mirrored contract on both surfaces, consistent with the project's "dual sync/async logic must be mirrored" constraint (CLAUDE.md).
-**Why human:** This is a design/judgment call (is `base_url` a "credential" whose rotation should force re-auth, or an independent API-host setting?), not something a grep or test can resolve on its own — REVIEW.md recommends the async behavior as the more defensible one, but a human owner should confirm and then a follow-up fix should mirror it to the other surface.
-
-### 2. Whether WR-02/WR-03/WR-05 (REVIEW.md warnings) block phase completion or are accepted as tracked debt
-
-**Test:** Review REVIEW.md's WR-02 (`expires_in: null` crash), WR-03 (missing `auth0_token_url` required-field validation), WR-05 (Retry-After double-wait) and decide fix-now vs. track-for-later.
-**Expected:** All three are narrow edge cases classified WARNING (not CRITICAL/BLOCKER) by the code reviewer; the verifier's own spot-check independently confirms the core AUTH-MD-01/CORE-MD-01 paths (token fetch/cache/refresh, health anonymous dispatch, exactly-once 401 re-auth, redaction) work correctly end-to-end.
-**Why human:** Whether to gate phase completion on non-blocking code-quality warnings is a project-priority decision, not a correctness question this verifier can resolve unilaterally.
+1. WR-01 sync/async `configure()` divergence — decision made (align async to sync), implemented, tested. Confirmed above.
+2. WR-02/WR-03/WR-05 fix-now-vs-debt decision — decision made (fix all three now), implemented, tested. Confirmed above. Remaining lower-priority items (WR-04, IN-01..04, 401 re-auth test-coverage gap) correctly tracked as debt for Phase 21 rather than silently dropped.
 
 ### Gaps Summary
 
-No BLOCKER-level gaps found — the phase's core deliverable (package scaffold mirroring `iol-client`, Auth0 `client_credentials` auth with TTL cache/refresh in both sync and async, retry transport, redacted logging, typed exceptions, `configure()`, health endpoints) is present, correctly wired, and behaviorally proven, including the one invariant (exactly-once 401 re-auth then re-raise) whose regression-test coverage was missing from the phase's own test suite — I independently proved it correct via a throwaway spot-check and then removed the spot-check file, leaving the git tree unchanged.
+No gaps. No regressions. Phase goal fully achieved:
 
-Two items are routed to human verification (not phase-blocking, but requiring a project-owner decision before Phase 21 builds further on this foundation):
-1. The sync/async `configure()` divergence on `base_url` token invalidation (a real, confirmed mirroring bug — REVIEW.md WR-01).
-2. Whether the three REVIEW.md WARNING-severity findings (WR-02/WR-03/WR-05) should be fixed now or tracked as deferred debt.
+- Package scaffold mirrors `iol-client` structure (SC1).
+- Auth0 `client_credentials` grant with TTL cache/refresh, sync AND async, double-checked locking (SC2), including the now-mirrored `configure()` invalidation contract (WR-01 closed).
+- Retry transport, redacted logging, typed exceptions, `configure()`, health endpoints (SC3-SC5), including the corrected Retry-After honoring (WR-05 closed) and the hardened Auth0 grant builder/parser (WR-02, WR-03 closed).
+- All 4 CI gates green with 56 passing tests (12 new regression tests directly covering the 4 fixes).
+- The two remaining lower-severity review items (WR-04 latent header-precedence divergence, and the 401 re-auth test-coverage gap) are explicitly and traceably deferred to Phase 21 via `.planning/todos/pending/market-data-client-review-debt.md` — not silently abandoned.
 
-Recommendation: given these are pre-existing, already-documented findings in `20-REVIEW.md` (0 critical / 5 warning / 4 info) that a human has not yet acted on, and Phase 21 depends on this package, it would be prudent to resolve at least WR-01 (the mirroring-constraint violation) before or during Phase 21's kickoff — but this does not block the Phase 20 gate itself, since Phase 20's explicit success criteria (SC1-SC5) are all met and independently re-verified.
+Phase 20 is **passed**. Ready to proceed to Phase 21.
 
 ---
 
-_Verified: 2026-07-29T15:10:00Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-07-29T18:20:00Z_
+_Verifier: Claude (gsd-verifier, re-verification pass)_
