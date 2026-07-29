@@ -88,7 +88,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 **Requirements:** AUTH-MD-01, CORE-MD-01
 **Depends on:** — (primera fase del milestone)
-**Plans:** 1/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -97,8 +97,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 20-02-PLAN.md — Wave 2 (tdd): `_core.py` pure Auth0 builders/parsers + `raise_for_response` + health builders
-- [ ] 20-03-PLAN.md — Wave 2 (tdd): `_logging.py` RedactingFilter + `attach()` (client_secret patterns)
+- [x] 20-02-PLAN.md — Wave 2 (tdd): `_core.py` pure Auth0 builders/parsers + `raise_for_response` + health builders
+- [x] 20-03-PLAN.md — Wave 2 (tdd): `_logging.py` RedactingFilter + `attach()` (client_secret patterns)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
