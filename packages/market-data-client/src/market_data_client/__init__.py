@@ -1,12 +1,72 @@
-"""market-data-client — cliente HTTP (sync y async) para la API de market data.
+"""Cliente HTTP (sync y async) para la API de market-data (primary-extractor).
 
-Wave 1 scaffold: este ``__init__`` es un placeholder mínimo que hace de
-``market_data_client`` un paquete resoluble (necesario para que mypy strict
-ancle la base del paquete sobre ``_transport``/``_atransport``). Las
-re-exportaciones públicas (``Client``, ``AsyncClient``, modelos, excepciones)
-las agrega la Wave 4 junto con ``client.py``/``aio.py``.
+Auth0 ``client_credentials`` (machine-to-machine): el cliente cachea el
+``access_token`` y lo refresca re-corriendo el mismo grant antes del
+vencimiento — re-autenticar ES el refresh, sin token de rotación (D-05).
+
+Sync (API a nivel módulo — delega al default Client)::
+
+    import market_data_client
+
+    health = market_data_client.get_health()
+
+Sync (API basada en clase)::
+
+    from market_data_client import Client
+
+    with Client() as client:
+        health = client.get_health()
+
+Async::
+
+    from market_data_client import aio
+
+    async with aio.AsyncClient() as client:
+        health = await client.get_health()
 """
 
-from __future__ import annotations
+# Phase 20 CORE-MD-01 / LOG-01: attach NullHandler + RedactingFilter to the
+# package logger BEFORE any other import — library convention per Python Logging
+# HOWTO. So no credential (Bearer / client_secret / access_token) can reach a
+# downstream handler before the redaction filter is installed. NEVER touches
+# logging.root. The ``del`` cleanup prevents ``_logging_attach`` from leaking as
+# a top-level package attribute.
+from market_data_client import _logging as _logging_attach
+
+_logging_attach.attach()
+del _logging_attach
+
+from market_data_client.aio import AsyncClient  # noqa: E402
+from market_data_client.client import (  # noqa: E402
+    Client,
+    _get_default,
+    configure,
+    get_health,
+    get_health_feed,
+)
+from market_data_client.exceptions import (  # noqa: E402
+    MarketDataAPIError,
+    MarketDataAuthError,
+    MarketDataError,
+    MarketDataRateLimitError,
+)
+
+# ``_get_default`` is intentionally re-exported (private name with leading
+# underscore — NOT in ``__all__``) so tests and helpers can access it via
+# ``market_data_client._get_default()`` without reaching into ``.client``.
+__all__ = [
+    "AsyncClient",
+    "Client",
+    "MarketDataAPIError",
+    "MarketDataAuthError",
+    "MarketDataError",
+    "MarketDataRateLimitError",
+    "configure",
+    "get_health",
+    "get_health_feed",
+]
+
+# Suppress ruff F401 for the deliberate private re-export.
+_ = _get_default
 
 __version__ = "0.1.0"
