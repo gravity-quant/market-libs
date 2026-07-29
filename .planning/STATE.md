@@ -5,8 +5,8 @@ milestone_name: market-data-client
 current_phase: 21
 current_phase_name: lectura
 status: executing
-stopped_at: Phase 20 context gathered (assumptions mode)
-last_updated: "2026-07-29T18:50:54.596Z"
+stopped_at: Phase 21 context gathered (assumptions mode)
+last_updated: "2026-07-29T19:25:43.443Z"
 last_activity: 2026-07-29
 last_activity_desc: Phase 20 complete, transitioned to Phase 21
 progress:
@@ -173,9 +173,9 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-29T15:20:10.143Z
-Stopped at: Phase 20 context gathered (assumptions mode)
-Resume file: .planning/phases/20-scaffold-auth0-client-credentials-fundaciones-de-transporte/20-CONTEXT.md
+Last session: 2026-07-29T19:25:43.440Z
+Stopped at: Phase 21 context gathered (assumptions mode)
+Resume file: .planning/phases/21-market-data-lectura-modelos/21-CONTEXT.md
 
 ## Operator Next Steps
 
