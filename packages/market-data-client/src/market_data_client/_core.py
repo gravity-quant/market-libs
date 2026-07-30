@@ -62,11 +62,16 @@ from market_data_client.models import LatestRequest, MarketDataSnapshot
 
 __all__ = [
     "RequestSpec",
+    "build_calendar_config_request",
+    "build_calendar_request",
     "build_health_feed_request",
     "build_health_request",
+    "build_instruments_request",
     "build_latest_batch_request",
     "build_latest_request",
     "build_market_data_request",
+    "build_segments_request",
+    "build_symbols_request",
     "build_token_request",
     "parse_health_response",
     "parse_latest_response",
@@ -353,6 +358,138 @@ def build_latest_batch_request(state: _ClientState, latest_request: LatestReques
         json_body=latest_request.to_dict(),
         idempotent=True,
         endpoint_name="latest_batch",
+        authenticated=True,
+    )
+
+
+# ----------------------------------------------------------------------
+# Reference-data read builders (D-01 / D-02 / D-03) — authenticated + idempotent
+# ----------------------------------------------------------------------
+
+
+def build_instruments_request(
+    state: _ClientState,
+    *,
+    q: str | None = None,
+    segment: str | None = None,
+    market_id: str | None = None,
+    include_expired: bool | None = None,
+    only_outright: bool | None = None,
+    subscribed: bool | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+    refresh: str | None = None,
+) -> RequestSpec:
+    """Pure: build spec for ``GET /instruments`` (D-01 / D-02 / D-03).
+
+    ``authenticated=True`` gates Bearer injection in the Wave 3 shells;
+    ``idempotent=True`` marks the GET read as retry-eligible. ``None`` optionals
+    are dropped via ``_params.drop_none`` (D-02) preserving legitimate falsy
+    filters (``include_expired=False`` / ``offset=0`` / ``""``); an empty dict
+    collapses to ``params=None``. Booleans ride httpx-native ``True → "true"``
+    encoding — explicit wire-encoding deferred to Phase 23 (D-03; no ``format_bool``).
+    """
+    del state  # state-independent (filters come via kwargs)
+    params = _params.drop_none(
+        {
+            "q": q,
+            "segment": segment,
+            "market_id": market_id,
+            "include_expired": include_expired,
+            "only_outright": only_outright,
+            "subscribed": subscribed,
+            "limit": limit,
+            "offset": offset,
+            "refresh": refresh,
+        }
+    )
+    return RequestSpec(
+        method="GET",
+        path="/instruments",
+        params=params or None,
+        idempotent=True,
+        endpoint_name="instruments",
+        authenticated=True,
+    )
+
+
+def build_segments_request(state: _ClientState) -> RequestSpec:
+    """Pure: build spec for ``GET /instruments/segments`` (D-01, no params).
+
+    Same authenticated/idempotent contract as ``build_instruments_request`` but
+    takes no filter kwargs — ``params`` stays ``None``.
+    """
+    del state  # state-independent
+    return RequestSpec(
+        method="GET",
+        path="/instruments/segments",
+        idempotent=True,
+        endpoint_name="segments",
+        authenticated=True,
+    )
+
+
+def build_symbols_request(
+    state: _ClientState,
+    *,
+    active: bool | None = None,
+    market_id: str | None = None,
+    prefix: str | None = None,
+) -> RequestSpec:
+    """Pure: build spec for ``GET /symbols`` (D-01 / D-02 / D-03).
+
+    ``None`` optionals dropped via ``_params.drop_none`` (D-02); a legit
+    ``active=False`` is preserved, empty dict → ``params=None``. Booleans ride
+    httpx-native encoding (D-03; no ``format_bool``).
+    """
+    del state  # state-independent (filters come via kwargs)
+    params = _params.drop_none(
+        {
+            "active": active,
+            "market_id": market_id,
+            "prefix": prefix,
+        }
+    )
+    return RequestSpec(
+        method="GET",
+        path="/symbols",
+        params=params or None,
+        idempotent=True,
+        endpoint_name="symbols",
+        authenticated=True,
+    )
+
+
+def build_calendar_request(state: _ClientState, *, year: int | None = None) -> RequestSpec:
+    """Pure: build spec for ``GET /calendar`` (D-01 / D-02).
+
+    Single ``year`` filter dropped via ``_params.drop_none`` when ``None``; an
+    empty dict collapses to ``params=None``.
+    """
+    del state  # state-independent (filter comes via kwarg)
+    params = _params.drop_none({"year": year})
+    return RequestSpec(
+        method="GET",
+        path="/calendar",
+        params=params or None,
+        idempotent=True,
+        endpoint_name="calendar",
+        authenticated=True,
+    )
+
+
+def build_calendar_config_request(state: _ClientState) -> RequestSpec:
+    """Pure: build spec for ``GET /calendar/config`` (D-01, no params).
+
+    Same authenticated/idempotent contract as the other reference reads but takes
+    no filter kwargs — ``params`` stays ``None``.
+    """
+    del state  # state-independent
+    return RequestSpec(
+        method="GET",
+        path="/calendar/config",
+        idempotent=True,
+        endpoint_name="calendar_config",
         authenticated=True,
     )
 
