@@ -4,17 +4,17 @@ milestone: v1.4
 milestone_name: market-data-client
 current_phase: 21
 current_phase_name: market-data-lectura-modelos
-status: executing
-stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-07-30T02:19:57.224Z"
+status: verifying
+stopped_at: Completed 21-04-PLAN.md (phase 21 ready_for_verification)
+last_updated: "2026-07-30T02:28:42.141Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
-  completed_plans: 9
-  percent: 20
+  completed_plans: 10
+  percent: 40
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 Phase: 21 (market-data-lectura-modelos) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-30 — Phase 21 execution started
 
 ## Performance Metrics
@@ -94,6 +94,7 @@ Last activity: 2026-07-30 — Phase 21 execution started
 | Phase 21 P01 | 1 | 3 tasks | 3 files |
 | Phase 21 P02 | 2min | 2 tasks | 3 files |
 | Phase 21 P03 | 4min | 3 tasks | 3 files |
+| Phase 21 P04 | 4min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Recent decisions affecting current work:
 - [Phase 21-02]: parse_latest_response retorna list[MarketDataSnapshot] (provisional) — el batch POST retorna varios simbolos; la forma single-snapshot del GET se reconcilia en Phase 23 via from_api tolerance.
 - [Phase ?]: [Phase 21-03]: with_options threads req.extensions['max_attempts']=_max_retries+1 in BOTH _request and _send_auth_request (D-08 load-bearing); mirrors iol, _validate_max_retries copied verbatim (no cross-package import).
 - [Phase ?]: [Phase 21-03]: sync read methods + module shims added in client.py only (__init__ re-export deferred to respect files_modified scope); retry count asserted by outgoing-request count, 401 re-auth by token-POST count.
+- [Phase 21]: Async with_options mirrors sync as a shared-view clone; per-call max_attempts threaded via req.extensions in both _request and _send_auth_request (load-bearing).
+- [Phase 21]: D-09: authenticated async header build spreads spec.headers first and Authorization token last so the fresh token always wins over a decoy spec header.
 
 ### Pending Todos
 
@@ -181,8 +184,8 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-30T02:19:27.705Z
-Stopped at: Completed 21-02-PLAN.md
+Last session: 2026-07-30T02:28:42.138Z
+Stopped at: Completed 21-04-PLAN.md (phase 21 ready_for_verification)
 Resume file: None
 
 ## Operator Next Steps

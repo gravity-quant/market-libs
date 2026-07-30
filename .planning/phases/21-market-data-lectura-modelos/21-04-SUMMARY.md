@@ -116,6 +116,17 @@ None - no external service configuration required.
 - Dual sync/async parity for MD-01 is complete; both surfaces expose `with_options`, the three read methods, and identical D-09/D-10 semantics.
 - Phase 21 (all four plans) is done. Wire field names remain PROVISIONAL (A1/A2) — Phase 23 reconciles model shapes against real payloads; `SafeModel.from_api` tolerance bounds the blast radius until then.
 
+## Self-Check: PASSED
+
+- Created files verified on disk: `tests/test_with_options_async.py`, `21-04-SUMMARY.md`.
+- Task commits verified in git history: `0456981` (test), `d6e3c50` (feat), `2501291` (feat).
+
+## TDD Gate Compliance
+
+- RED gate: `0456981` (`test(21-04): add failing async ... tests`) — confirmed failing against the un-extended async surface (ImportError on `LatestRequest` + missing async `with_options`/`get_market_data`).
+- GREEN gate: `d6e3c50` + `2501291` (`feat(21-04): ...`) after the RED commit.
+- REFACTOR gate: not needed (no cleanup-only changes).
+
 ---
 *Phase: 21-market-data-lectura-modelos*
 *Completed: 2026-07-30*
