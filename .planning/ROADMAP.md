@@ -15,7 +15,7 @@
 **Milestone goal:** Crear el paquete `market-data-client` (import `market_data_client`) que exponga la superficie de **lectura** de la API primary-extractor (`https://market-data-develop.bbsa.com.ar/api`, OpenAPI 3.1) con Auth0 client-credentials, replicando las decisiones arquitectónicas de los paquetes existentes, verificarlo en vivo contra develop y publicarlo como `v0.1.0` por el pipeline de tags. Plan fuente: [`.future_plans/market_data.md`](../../.future_plans/market_data.md).
 
 - [x] Phase 20: Scaffold + Auth0 client-credentials + fundaciones de transporte (AUTH-MD-01, CORE-MD-01) (completed 2026-07-29)
-- [ ] Phase 21: Market data (lectura) + modelos (MD-01)
+- [x] Phase 21: Market data (lectura) + modelos (MD-01) (completed 2026-07-30)
 - [ ] Phase 22: Instruments + symbols(read) + calendar(read) + modelos (REF-MD-01)
 - [ ] Phase 23: Verificación en vivo contra develop + fixes (LIVE-MD-01)
 - [ ] Phase 24: Release prep + publish v0.1.0 (PUB-MD-01)

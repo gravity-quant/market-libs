@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
-current_phase: 21
-current_phase_name: market-data-lectura-modelos
+current_phase: 22
+current_phase_name: read
 status: verifying
 stopped_at: Completed 21-04-PLAN.md (phase 21 ready_for_verification)
-last_updated: "2026-07-30T02:28:42.141Z"
+last_updated: "2026-07-30T02:35:32.050Z"
 last_activity: 2026-07-30
-last_activity_desc: Phase 21 execution started
+last_activity_desc: Phase 21 complete, transitioned to Phase 22
 progress:
   total_phases: 5
   completed_phases: 2
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 ## Current Position
 
-Phase: 21 (market-data-lectura-modelos) — EXECUTING
-Plan: 4 of 4
+Phase: 22 — Instruments + symbols(read) + calendar(read) + modelos
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-30 — Phase 21 execution started
+Last activity: 2026-07-30 — Phase 21 complete, transitioned to Phase 22
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 66 (v1.0)
+- Total plans completed: 70 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
