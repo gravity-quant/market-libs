@@ -141,7 +141,12 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 22-01-PLAN.md — Reference models + builders + parsers (pure data layer, TDD, wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 22-02-PLAN.md — Sync + async public surface + re-exports + parity tests (wave 2)
 
 **Success criteria:**
