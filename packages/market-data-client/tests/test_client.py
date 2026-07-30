@@ -21,6 +21,8 @@ from __future__ import annotations
 import pytest
 from pytest_httpx import HTTPXMock
 
+import json as _json
+
 import market_data_client
 from market_data_client import (
     MarketDataAPIError,
@@ -28,6 +30,7 @@ from market_data_client import (
     MarketDataRateLimitError,
     _core,
 )
+from market_data_client.models import LatestRequest, MarketDataSnapshot
 
 _BASE = "https://market-data-develop.test/api"
 _TOKEN_URL = "https://auth.test/oauth/token"
@@ -126,3 +129,121 @@ def test_configure_base_url_keeps_token_when_seeded() -> None:
         token_expires_at=9_999_999_999.0,
     )
     assert client._state.token == "seeded"
+
+
+# ----------------------------------------------------------------------
+# D-10 authenticated 401 re-auth sequences (Plan 03) — assert by token-POST count
+# ----------------------------------------------------------------------
+
+
+def test_authenticated_401_reauths_once_then_succeeds(httpx_mock: HTTPXMock) -> None:
+    """D-10: authenticated 401 → clear token → re-auth ONCE → retry → 200.
+
+    The conftest seeds a fresh token, so the FIRST ``GET /marketdata`` dispatches
+    with that Bearer and receives a 401. The shell's carve-out clears the cached
+    token, re-runs the Auth0 grant exactly ONCE (one token POST), then retries the
+    SAME request with the fresh Bearer and gets the 200. Assert by COUNT
+    (Pitfall 5): exactly ONE token POST fires after the 401.
+    """
+    httpx_mock.add_response(url=f"{_BASE}/marketdata", method="GET", status_code=401, text="stale")
+    httpx_mock.add_response(
+        url=_TOKEN_URL, method="POST", json={"access_token": "fresh-token", "expires_in": 3600}
+    )
+    httpx_mock.add_response(
+        url=f"{_BASE}/marketdata",
+        method="GET",
+        json=[{"symbol": "GGAL", "marketId": "ROFX", "entries": []}],
+    )
+
+    result = market_data_client.client._get_default().get_market_data()
+
+    assert len(result) == 1
+    assert isinstance(result[0], MarketDataSnapshot)
+    assert result[0].symbol == "GGAL"
+    # Exactly one re-auth — no infinite loop, no double grant.
+    assert len(_token_posts(httpx_mock)) == 1
+
+
+def test_authenticated_persistent_401_reraises_with_single_reauth(httpx_mock: HTTPXMock) -> None:
+    """D-10: a second consecutive 401 re-raises ``MarketDataAuthError`` (no loop).
+
+    Two 401s in a row: the first triggers the exactly-once re-auth (one token
+    POST); the retry also yields 401, so ``_raise_for_response`` on the second
+    response re-raises — NO recursion, NO infinite re-auth (Pitfall). Assert the
+    grant fired exactly once.
+    """
+    httpx_mock.add_response(url=f"{_BASE}/marketdata", method="GET", status_code=401, text="stale")
+    httpx_mock.add_response(
+        url=_TOKEN_URL, method="POST", json={"access_token": "fresh-token", "expires_in": 3600}
+    )
+    httpx_mock.add_response(url=f"{_BASE}/marketdata", method="GET", status_code=401, text="still")
+
+    with pytest.raises(MarketDataAuthError):
+        market_data_client.client._get_default().get_market_data()
+
+    assert len(_token_posts(httpx_mock)) == 1
+
+
+# ----------------------------------------------------------------------
+# End-to-end read serialization (Plan 03) — Bearer + param/body encoding
+# ----------------------------------------------------------------------
+
+
+def test_get_market_data_sends_bearer_and_encodes_params(httpx_mock: HTTPXMock) -> None:
+    """``get_market_data`` injects ``Authorization: Bearer`` and encodes filters.
+
+    The fresh conftest token dispatches with no grant. Bool filters are encoded
+    with httpx's native ``True → "true"`` / ``False → "false"``; ``None``
+    optionals are dropped from the query string.
+    """
+    httpx_mock.add_response(
+        method="GET", json=[{"symbol": "GGAL", "marketId": "ROFX", "entries": []}]
+    )
+
+    result = market_data_client.client._get_default().get_market_data(
+        market_id="ROFX", active=False, with_data=True, limit=10, prefix=None
+    )
+
+    assert len(result) == 1
+    assert result[0].symbol == "GGAL"
+    req = httpx_mock.get_requests()[0]
+    assert req.headers["Authorization"] == "Bearer test-token"
+    assert req.url.path == "/api/marketdata"
+    assert req.url.params.get("market_id") == "ROFX"
+    assert req.url.params.get("active") == "false"
+    assert req.url.params.get("with_data") == "true"
+    assert req.url.params.get("limit") == "10"
+    assert "prefix" not in req.url.params
+
+
+def test_get_latest_sends_bearer_and_params(httpx_mock: HTTPXMock) -> None:
+    """``get_latest`` dispatches an authenticated ``GET /marketdata/latest``."""
+    httpx_mock.add_response(
+        method="GET", json=[{"symbol": "GGAL", "marketId": "ROFX", "entries": []}]
+    )
+
+    result = market_data_client.client._get_default().get_latest(symbol="GGAL")
+
+    assert len(result) == 1
+    assert result[0].symbol == "GGAL"
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/marketdata/latest"
+    assert req.headers["Authorization"] == "Bearer test-token"
+    assert req.url.params.get("symbol") == "GGAL"
+
+
+def test_get_latest_batch_sends_bearer_and_body(httpx_mock: HTTPXMock) -> None:
+    """``get_latest_batch`` POSTs the serialized ``LatestRequest`` body with the Bearer."""
+    httpx_mock.add_response(
+        method="POST", json=[{"symbol": "GGAL", "marketId": "ROFX", "entries": []}]
+    )
+
+    latest_request = LatestRequest(symbols=["GGAL", "YPFD"], marketId="ROFX")
+    result = market_data_client.client._get_default().get_latest_batch(latest_request)
+
+    assert len(result) == 1
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "POST"
+    assert req.url.path == "/api/marketdata/latest"
+    assert req.headers["Authorization"] == "Bearer test-token"
+    assert _json.loads(req.content) == {"symbols": ["GGAL", "YPFD"], "marketId": "ROFX"}
