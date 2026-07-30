@@ -165,7 +165,12 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 23-01-PLAN.md — `main_market_data.py` driver (all 10 endpoints × sync/async) + AST single-Client guard + `main_verify.py` runner append + findings bootstrap (wave 1, execute)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 23-02-PLAN.md — in-cycle divergence fix loop (RED mocked regression → GREEN mirrored fix) + cycle-closure PASS gate (wave 2, tdd)
 
 **Success criteria:**
