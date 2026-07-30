@@ -51,7 +51,15 @@ from dotenv import load_dotenv
 from market_data_client import _core, _transport
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import MarketDataAuthError
-from market_data_client.models import LatestRequest, MarketDataSnapshot
+from market_data_client.models import (
+    CalendarConfig,
+    CalendarDay,
+    Instrument,
+    LatestRequest,
+    MarketDataSnapshot,
+    Segment,
+    Symbol,
+)
 
 load_dotenv()
 
@@ -420,6 +428,74 @@ class Client:
         resp = self._request(spec)
         return _core.parse_latest_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — reference-data reads (authenticated, D-06/D-07)
+    # ------------------------------------------------------------------
+
+    def get_instruments(
+        self,
+        *,
+        q: str | None = None,
+        segment: str | None = None,
+        market_id: str | None = None,
+        include_expired: bool | None = None,
+        only_outright: bool | None = None,
+        subscribed: bool | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        refresh: str | None = None,
+    ) -> list[Instrument]:
+        """Authenticated ``GET {base_url}/instruments`` → list of instruments (D-06)."""
+        spec = _core.build_instruments_request(
+            self._state,
+            q=q,
+            segment=segment,
+            market_id=market_id,
+            include_expired=include_expired,
+            only_outright=only_outright,
+            subscribed=subscribed,
+            limit=limit,
+            offset=offset,
+            refresh=refresh,
+        )
+        resp = self._request(spec)
+        return _core.parse_instruments_response(resp)
+
+    def get_segments(self) -> list[Segment]:
+        """Authenticated ``GET {base_url}/instruments/segments`` → list of segments (D-06)."""
+        spec = _core.build_segments_request(self._state)
+        resp = self._request(spec)
+        return _core.parse_segments_response(resp)
+
+    def get_symbols(
+        self,
+        *,
+        active: bool | None = None,
+        market_id: str | None = None,
+        prefix: str | None = None,
+    ) -> list[Symbol]:
+        """Authenticated ``GET {base_url}/symbols`` → list of symbols (D-06)."""
+        spec = _core.build_symbols_request(
+            self._state,
+            active=active,
+            market_id=market_id,
+            prefix=prefix,
+        )
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    def get_calendar(self, *, year: int | None = None) -> list[CalendarDay]:
+        """Authenticated ``GET {base_url}/calendar`` → list of calendar days (D-06)."""
+        spec = _core.build_calendar_request(self._state, year=year)
+        resp = self._request(spec)
+        return _core.parse_calendar_response(resp)
+
+    def get_calendar_config(self) -> CalendarConfig:
+        """Authenticated ``GET {base_url}/calendar/config`` → single config object (D-07)."""
+        spec = _core.build_calendar_config_request(self._state)
+        resp = self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-client lazy singleton + top-level shims
@@ -544,3 +620,54 @@ def get_latest(
 def get_latest_batch(latest_request: LatestRequest) -> list[MarketDataSnapshot]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_latest_batch(latest_request)
+
+
+def get_instruments(
+    *,
+    q: str | None = None,
+    segment: str | None = None,
+    market_id: str | None = None,
+    include_expired: bool | None = None,
+    only_outright: bool | None = None,
+    subscribed: bool | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+    refresh: str | None = None,
+) -> list[Instrument]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_instruments(
+        q=q,
+        segment=segment,
+        market_id=market_id,
+        include_expired=include_expired,
+        only_outright=only_outright,
+        subscribed=subscribed,
+        limit=limit,
+        offset=offset,
+        refresh=refresh,
+    )
+
+
+def get_segments() -> list[Segment]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_segments()
+
+
+def get_symbols(
+    *,
+    active: bool | None = None,
+    market_id: str | None = None,
+    prefix: str | None = None,
+) -> list[Symbol]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_symbols(active=active, market_id=market_id, prefix=prefix)
+
+
+def get_calendar(*, year: int | None = None) -> list[CalendarDay]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_calendar(year=year)
+
+
+def get_calendar_config() -> CalendarConfig:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_calendar_config()
