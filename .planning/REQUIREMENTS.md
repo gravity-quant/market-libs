@@ -14,7 +14,7 @@ Requisitos del milestone v1.4. Cada uno mapea a una fase del roadmap.
 
 ### Market Data (read)
 
-- [ ] **MD-01**: El consumidor puede leer market data en vivo — `GET /marketdata` (con filtros: market_id, prefix, active, entries, max_staleness_seconds, with_data, order, limit, offset), `GET /marketdata/latest` (symbol, market_id, entries) y `POST /marketdata/latest` (batch vía `LatestRequest`) — devuelto como dataclasses `SafeModel` con `received_at` de primera clase, con paridad `with_options(max_retries=N)` sync y async
+- [x] **MD-01**: El consumidor puede leer market data en vivo — `GET /marketdata` (con filtros: market_id, prefix, active, entries, max_staleness_seconds, with_data, order, limit, offset), `GET /marketdata/latest` (symbol, market_id, entries) y `POST /marketdata/latest` (batch vía `LatestRequest`) — devuelto como dataclasses `SafeModel` con `received_at` de primera clase, con paridad `with_options(max_retries=N)` sync y async
 
 ### Reference Data (read)
 
@@ -67,7 +67,7 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 |-------------|-------|--------|
 | AUTH-MD-01 | Phase 20 | Complete |
 | CORE-MD-01 | Phase 20 | Complete |
-| MD-01 | Phase 21 | Pending |
+| MD-01 | Phase 21 | Complete |
 | REF-MD-01 | Phase 22 | Pending |
 | LIVE-MD-01 | Phase 23 | Pending |
 | PUB-MD-01 | Phase 24 | Pending |

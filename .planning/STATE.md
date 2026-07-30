@@ -5,15 +5,15 @@ milestone_name: market-data-client
 current_phase: 21
 current_phase_name: market-data-lectura-modelos
 status: executing
-stopped_at: Phase 21 context gathered (assumptions mode)
-last_updated: "2026-07-30T02:03:05.650Z"
+stopped_at: Completed 21-02-PLAN.md
+last_updated: "2026-07-30T02:09:31.298Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 ## Current Position
 
 Phase: 21 (market-data-lectura-modelos) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-30 — Phase 21 execution started
 
@@ -92,6 +92,7 @@ Last activity: 2026-07-30 — Phase 21 execution started
 | Phase 18 P02 | 33min | 2 tasks | 12 files |
 | Phase 18 P18-03 | 9min | 2 tasks | 6 files |
 | Phase 21 P01 | 1 | 3 tasks | 3 files |
+| Phase 21 P02 | 2min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,9 @@ Recent decisions affecting current work:
 - [Phase 18 / 18-03]: **REFAC-06 PERMANENTLY shelved; Phase 19 DROPPED**; duplicate `client.py`/`aio.py` transport shells accepted as a structural feature. v1.3 milestone closes on the signed NO-GO (run `/gsd-complete-milestone`).
 
 </details>
+
+- [Phase 21-02]: drop_none copiado verbatim en un _params.py nuevo (sin import cross-package); format_date/format_bool omitidos (bool wire-encoding diferido a Phase 23, D-07).
+- [Phase 21-02]: parse_latest_response retorna list[MarketDataSnapshot] (provisional) — el batch POST retorna varios simbolos; la forma single-snapshot del GET se reconcilia en Phase 23 via from_api tolerance.
 
 ### Pending Todos
 
@@ -174,9 +178,9 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-30T02:02:53.894Z
-Stopped at: Phase 21 context gathered (assumptions mode)
-Resume file: .planning/phases/21-market-data-lectura-modelos/21-CONTEXT.md
+Last session: 2026-07-30T02:09:31.294Z
+Stopped at: Completed 21-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
