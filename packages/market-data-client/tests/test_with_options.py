@@ -52,9 +52,7 @@ def test_with_options_retry_count_equals_max_retries_plus_one(
     with pytest.raises(MarketDataAPIError):
         view.get_market_data()
 
-    marketdata_requests = [
-        r for r in httpx_mock.get_requests() if r.url.path == "/api/marketdata"
-    ]
+    marketdata_requests = [r for r in httpx_mock.get_requests() if r.url.path == "/api/marketdata"]
     assert len(marketdata_requests) == 6
 
 
@@ -66,9 +64,7 @@ def test_with_options_max_retries_zero_issues_single_request(httpx_mock: HTTPXMo
     with pytest.raises(MarketDataAPIError):
         view.get_market_data()
 
-    marketdata_requests = [
-        r for r in httpx_mock.get_requests() if r.url.path == "/api/marketdata"
-    ]
+    marketdata_requests = [r for r in httpx_mock.get_requests() if r.url.path == "/api/marketdata"]
     assert len(marketdata_requests) == 1
 
 

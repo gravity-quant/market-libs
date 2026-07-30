@@ -51,6 +51,7 @@ from dotenv import load_dotenv
 from market_data_client import _core, _transport
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import MarketDataAuthError
+from market_data_client.models import LatestRequest, MarketDataSnapshot
 
 load_dotenv()
 
@@ -352,6 +353,73 @@ class Client:
         resp = self._request(spec)
         return _core.parse_health_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — market-data reads (authenticated, D-06)
+    # ------------------------------------------------------------------
+
+    def get_market_data(
+        self,
+        *,
+        market_id: str | None = None,
+        prefix: str | None = None,
+        active: bool | None = None,
+        entries: str | None = None,
+        max_staleness_seconds: int | None = None,
+        with_data: bool | None = None,
+        order: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[MarketDataSnapshot]:
+        """Authenticated ``GET {base_url}/marketdata`` → list of snapshots (D-06).
+
+        Optional filters are dropped when ``None`` (``_params.drop_none`` in the
+        builder); bools ride httpx's native ``True → "true"`` encoding. The
+        Bearer is injected by ``_request`` (authenticated spec) and the per-call
+        retry cap is threaded via ``with_options`` when used.
+        """
+        spec = _core.build_market_data_request(
+            self._state,
+            market_id=market_id,
+            prefix=prefix,
+            active=active,
+            entries=entries,
+            max_staleness_seconds=max_staleness_seconds,
+            with_data=with_data,
+            order=order,
+            limit=limit,
+            offset=offset,
+        )
+        resp = self._request(spec)
+        return _core.parse_market_data_response(resp)
+
+    def get_latest(
+        self,
+        *,
+        symbol: str | None = None,
+        market_id: str | None = None,
+        entries: str | None = None,
+    ) -> list[MarketDataSnapshot]:
+        """Authenticated ``GET {base_url}/marketdata/latest`` → list of snapshots (D-06)."""
+        spec = _core.build_latest_request(
+            self._state,
+            symbol=symbol,
+            market_id=market_id,
+            entries=entries,
+        )
+        resp = self._request(spec)
+        return _core.parse_latest_response(resp)
+
+    def get_latest_batch(self, latest_request: LatestRequest) -> list[MarketDataSnapshot]:
+        """Authenticated batch ``POST {base_url}/marketdata/latest`` → list of snapshots.
+
+        A read expressed as POST (the batch body doesn't fit a query string); the
+        builder marks it ``idempotent=True`` so it is replay-safe. The typed
+        :class:`LatestRequest` serializes to the wire body via ``to_dict``.
+        """
+        spec = _core.build_latest_batch_request(self._state, latest_request)
+        resp = self._request(spec)
+        return _core.parse_latest_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-client lazy singleton + top-level shims
@@ -435,3 +503,44 @@ def get_health() -> dict[str, Any]:
 def get_health_feed() -> dict[str, Any]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_health_feed()
+
+
+def get_market_data(
+    *,
+    market_id: str | None = None,
+    prefix: str | None = None,
+    active: bool | None = None,
+    entries: str | None = None,
+    max_staleness_seconds: int | None = None,
+    with_data: bool | None = None,
+    order: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[MarketDataSnapshot]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_market_data(
+        market_id=market_id,
+        prefix=prefix,
+        active=active,
+        entries=entries,
+        max_staleness_seconds=max_staleness_seconds,
+        with_data=with_data,
+        order=order,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def get_latest(
+    *,
+    symbol: str | None = None,
+    market_id: str | None = None,
+    entries: str | None = None,
+) -> list[MarketDataSnapshot]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_latest(symbol=symbol, market_id=market_id, entries=entries)
+
+
+def get_latest_batch(latest_request: LatestRequest) -> list[MarketDataSnapshot]:
+    """Top-level shim: delega al default Client."""
+    return _get_default().get_latest_batch(latest_request)

@@ -18,10 +18,10 @@ mapping de status al nivel de dispatch (``_request``):
 
 from __future__ import annotations
 
+import json as _json
+
 import pytest
 from pytest_httpx import HTTPXMock
-
-import json as _json
 
 import market_data_client
 from market_data_client import (
