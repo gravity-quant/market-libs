@@ -40,7 +40,17 @@ from dataclasses import dataclass, fields
 from types import NoneType, UnionType
 from typing import Any, Self, Union, cast, get_args, get_origin, get_type_hints
 
-__all__ = ["LatestRequest", "MarketDataEntry", "MarketDataSnapshot", "SafeModel"]
+__all__ = [
+    "CalendarConfig",
+    "CalendarDay",
+    "Instrument",
+    "LatestRequest",
+    "MarketDataEntry",
+    "MarketDataSnapshot",
+    "SafeModel",
+    "Segment",
+    "Symbol",
+]
 
 
 class SafeModel:
@@ -176,3 +186,89 @@ class LatestRequest:
         if self.entries is not None:
             out["entries"] = self.entries
         return out
+
+
+# ----------------------------------------------------------------------
+# Reference-data models (D-04 / D-05) — plain SafeModel, no received_at
+# ----------------------------------------------------------------------
+#
+# These five catalog models mirror the ``MarketDataEntry`` precedent: they are
+# built via the INHERITED ``SafeModel.from_api`` (no override) and carry NO
+# client-stamped ``received_at`` (D-05) — reference data is slow-moving with no
+# ``max_staleness_seconds`` companion to justify a receipt-time stamp. Shapes
+# are PROVISIONAL (A1/A2 — OpenAPI not vendored); Phase 23 reconciles field
+# names/types against real develop payloads, and ``from_api`` tolerance bounds
+# the blast radius of a wrong guess.
+
+
+@dataclass(frozen=True, slots=True)
+class Instrument(SafeModel):
+    """An instrument row from ``GET /instruments``.
+
+    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
+    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
+    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    """
+
+    symbol: str
+    marketId: str
+    segment: str
+    instrumentType: str
+    expired: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Segment(SafeModel):
+    """A market segment row from ``GET /instruments/segments``.
+
+    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
+    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
+    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    """
+
+    marketSegmentId: str
+    marketId: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class Symbol(SafeModel):
+    """A symbol row from ``GET /symbols``.
+
+    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
+    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
+    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    """
+
+    symbol: str
+    marketId: str
+    active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarDay(SafeModel):
+    """A calendar day row from ``GET /calendar`` (flat list item, D-06).
+
+    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
+    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
+    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    """
+
+    date: str
+    marketId: str
+    isBusinessDay: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarConfig(SafeModel):
+    """The single calendar configuration object from ``GET /calendar/config`` (D-07).
+
+    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). The
+    ONE non-collection reference model (D-07): an empty/None body collapses to
+    ``CalendarConfig.from_api(None)`` (tolerant default), never a raise. A plain
+    :class:`SafeModel` subclass built via the inherited ``from_api``: it carries
+    NO ``received_at`` (D-05 — reference data is unstamped).
+    """
+
+    timezone: str
+    businessDays: list[str]
