@@ -16,7 +16,7 @@
 
 - [x] Phase 20: Scaffold + Auth0 client-credentials + fundaciones de transporte (AUTH-MD-01, CORE-MD-01) (completed 2026-07-29)
 - [x] Phase 21: Market data (lectura) + modelos (MD-01) (completed 2026-07-30)
-- [ ] Phase 22: Instruments + symbols(read) + calendar(read) + modelos (REF-MD-01)
+- [x] Phase 22: Instruments + symbols(read) + calendar(read) + modelos (REF-MD-01) (completed 2026-07-30)
 - [ ] Phase 23: Verificación en vivo contra develop + fixes (LIVE-MD-01)
 - [ ] Phase 24: Release prep + publish v0.1.0 (PUB-MD-01)
 
@@ -138,7 +138,7 @@ Plans:
 **Requirements:** REF-MD-01
 **Depends on:** Phase 20 (paraleliza con Phase 21)
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -147,7 +147,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 22-02-PLAN.md — Sync + async public surface + re-exports + parity tests (wave 2)
+- [x] 22-02-PLAN.md — Sync + async public surface + re-exports + parity tests (wave 2)
 
 **Success criteria:**
 
