@@ -49,9 +49,27 @@ load_dotenv()
 # _core.raise_for_response`` se preserva. Consumido por ``_request`` (Task 2).
 _raise_for_response = _core.raise_for_response
 
-# max_attempts fijo del AsyncRetryTransport (sin override per-call en esta
-# superficie — scope de Plan 05). ``max_attempts=3`` = 1 intento + 2 reintentos.
-_DEFAULT_MAX_ATTEMPTS = 3
+
+# WR-06 carry-forward: valida el kwarg ``max_retries`` temprano. Duplicado por
+# paquete por el constraint "no shared internals" (NO se importa de client.py ni
+# de iol). Espeja verbatim ``client._validate_max_retries``.
+def _validate_max_retries(value: int) -> None:
+    """Valida el kwarg ``max_retries``.
+
+    ``max_retries`` debe ser un ``int`` no-negativo. Valores negativos y tipos
+    no-int (incl. ``float``, ``bool``) se rechazan temprano con ``ValueError`` en
+    vez de crashear más tarde dentro de tenacity (mitigación T-21-03-01).
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} (bool not accepted)"
+        )
+    if not isinstance(value, int):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} (type={type(value).__name__})"
+        )
+    if value < 0:
+        raise ValueError(f"max_retries must be a non-negative int, got {value!r}")
 
 
 class AsyncClient:
@@ -64,7 +82,7 @@ class AsyncClient:
     contexto SSL atados a un event loop específico).
     """
 
-    __slots__ = ("_state",)
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -77,7 +95,10 @@ class AsyncClient:
         token: str | None = None,
         token_expires_at: float | None = None,
         http_client: httpx.AsyncClient | None = None,
+        max_retries: int = 2,
     ) -> None:
+        # WR-06: valida max_retries temprano (antes de mutar estado).
+        _validate_max_retries(max_retries)
         # NO se crea ningún asyncio.Lock acá (Pitfall 2 — se bindearía al loop
         # vivo en construcción). Los locks se crean lazy en el primer uso async.
         self._state = _ClientState()
@@ -97,6 +118,11 @@ class AsyncClient:
             self._state.token_expires_at = token_expires_at
         if http_client is not None:
             self._state.http_client = http_client
+        # D-08: max_retries=N → max_attempts=N+1 (1 intento inicial + N reintentos).
+        self._max_retries = max_retries
+        # D-08: los AsyncClient construidos normalmente NO son views; with_options
+        # setea esto en True sobre el shared-view clone que retorna.
+        self._is_view = False
 
     async def __aenter__(self) -> Self:
         return self
@@ -110,12 +136,52 @@ class AsyncClient:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Libera el ``httpx.AsyncClient`` subyacente (idempotente)."""
+        """Libera el ``httpx.AsyncClient`` subyacente (idempotente).
+
+        D-08: los views (construidos vía ``with_options``) short-circuitan acá,
+        así ``view.aclose()`` / ``view.__aexit__`` NUNCA cierran el transport
+        compartido del parent ni invalidan su token cacheado (anti-Pitfall 13).
+        ``getattr`` defensivo para instancias parcialmente inicializadas.
+        """
+        if getattr(self, "_is_view", False):
+            return
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.AsyncClient)
             await http_client.aclose()
             self._state.http_client = None
+
+    def with_options(self, *, max_retries: int) -> Self:
+        """Retorna un shared-view clone con un ``max_retries`` sobrescrito.
+
+        D-08 (patrón iol Phase-13, espejado — NO importado): el view comparte el
+        ``_state`` de este AsyncClient (incl. token cacheado, ``token_expires_at``,
+        el ``httpx.AsyncClient`` subyacente Y los ``asyncio.Lock`` per-loop que ya
+        viven en ``_state`` — el view hereda LOS MISMOS locks, sin lock-hoisting).
+        Sin re-auth, sin segundo pool TCP (anti-Pitfall 13). Sólo difiere el
+        ``max_retries`` per-call; el ``_max_retries`` del parent queda en su valor
+        de constructor.
+
+        El ``_max_retries`` del view se thread-ea al shell (``_request`` y
+        ``_send_auth_request``) vía ``request.extensions["max_attempts"]`` para que
+        el ``AsyncRetryTransport`` lo honre per-call (LOAD-BEARING — sin el
+        threading ``with_options`` es un no-op silencioso). El mapeo es
+        ``max_retries=N → max_attempts=N+1``.
+
+        ``view.aclose()`` / ``view.__aexit__`` son no-ops así el view nunca cierra
+        el transport compartido del parent; el parent es dueño del pool.
+
+            data = await client.with_options(max_retries=5).get_market_data(...)
+            data = await client.with_options(max_retries=0).get_latest(...)  # sin reintentos
+        """
+        # WR-06 carry-forward: valida temprano así el error es un ValueError limpio
+        # antes de construir el view.
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._max_retries = max_retries  # OVERRIDE
+        view._is_view = True  # FLAG para el no-op de aclose()/__aexit__ (D-08)
+        return view
 
     # ------------------------------------------------------------------
     # HTTP transport + lazy per-loop locks
@@ -152,7 +218,7 @@ class AsyncClient:
                 return http_client
             new_client = httpx.AsyncClient(
                 timeout=_REQUEST_TIMEOUT,
-                transport=_atransport.AsyncRetryTransport(max_attempts=_DEFAULT_MAX_ATTEMPTS),
+                transport=_atransport.AsyncRetryTransport(max_attempts=self._max_retries + 1),
             )
             self._state.http_client = new_client
             return new_client
@@ -180,6 +246,9 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # D-08 LOAD-BEARING: cap de reintentos per-call; parent o view lo setean.
+        # Los specs de auth-flow son idempotent=True, así el cap del view aplica acá.
+        req.extensions["max_attempts"] = self._max_retries + 1
         return await http.send(req)
 
     async def _authenticate_unlocked(self) -> str:
@@ -233,7 +302,10 @@ class AsyncClient:
             async with token_lock:
                 token = self._state.token
             assert token is not None
-            headers = {"Authorization": f"Bearer {token}", **(spec.headers or {})}
+            # D-09 (Pitfall 3): el token se spread-ea AL FINAL así SIEMPRE gana —
+            # un ``Authorization`` en ``spec.headers`` nunca puede shadow-ear el
+            # token fresco (T-21-04-01, alto). Alineado a la superficie sync.
+            headers = {**(spec.headers or {}), "Authorization": f"Bearer {token}"}
         else:
             token = None
             headers = dict(spec.headers or {})
@@ -250,6 +322,8 @@ class AsyncClient:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # D-08 LOAD-BEARING: cap de reintentos per-call; parent o view lo setean.
+        req.extensions["max_attempts"] = self._max_retries + 1
         resp = await http.send(req)
         try:
             _raise_for_response(resp)
