@@ -46,9 +46,7 @@ def test_from_api_extra_keys_ignored() -> None:
 def test_received_at_injected_wins_over_decoy_payload_key() -> None:
     # D-01: the client-supplied stamp is injected as a kwarg and MUST bypass
     # _coerce; a decoy "received_at" in the payload is ignored entirely.
-    snap = MarketDataSnapshot.from_api(
-        {"symbol": "GGAL", "received_at": 999.0}, received_at=1234.5
-    )
+    snap = MarketDataSnapshot.from_api({"symbol": "GGAL", "received_at": 999.0}, received_at=1234.5)
     assert snap.received_at == 1234.5
     assert snap.received_at != 999.0
     assert snap.received_at != 0.0
