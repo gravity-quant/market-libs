@@ -6,14 +6,14 @@ current_phase: 21
 current_phase_name: market-data-lectura-modelos
 status: executing
 stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-07-30T02:09:31.298Z"
+last_updated: "2026-07-30T02:19:57.224Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 ## Current Position
 
 Phase: 21 (market-data-lectura-modelos) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-30 — Phase 21 execution started
 
@@ -93,6 +93,7 @@ Last activity: 2026-07-30 — Phase 21 execution started
 | Phase 18 P18-03 | 9min | 2 tasks | 6 files |
 | Phase 21 P01 | 1 | 3 tasks | 3 files |
 | Phase 21 P02 | 2min | 2 tasks | 3 files |
+| Phase 21 P03 | 4min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,8 @@ Recent decisions affecting current work:
 
 - [Phase 21-02]: drop_none copiado verbatim en un _params.py nuevo (sin import cross-package); format_date/format_bool omitidos (bool wire-encoding diferido a Phase 23, D-07).
 - [Phase 21-02]: parse_latest_response retorna list[MarketDataSnapshot] (provisional) — el batch POST retorna varios simbolos; la forma single-snapshot del GET se reconcilia en Phase 23 via from_api tolerance.
+- [Phase ?]: [Phase 21-03]: with_options threads req.extensions['max_attempts']=_max_retries+1 in BOTH _request and _send_auth_request (D-08 load-bearing); mirrors iol, _validate_max_retries copied verbatim (no cross-package import).
+- [Phase ?]: [Phase 21-03]: sync read methods + module shims added in client.py only (__init__ re-export deferred to respect files_modified scope); retry count asserted by outgoing-request count, 401 re-auth by token-POST count.
 
 ### Pending Todos
 
@@ -178,7 +181,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-30T02:09:31.294Z
+Last session: 2026-07-30T02:19:27.705Z
 Stopped at: Completed 21-02-PLAN.md
 Resume file: None
 
