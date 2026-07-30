@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
 current_phase: 21
-current_phase_name: lectura
+current_phase_name: market-data-lectura-modelos
 status: executing
 stopped_at: Phase 21 context gathered (assumptions mode)
-last_updated: "2026-07-29T20:00:21.137Z"
-last_activity: 2026-07-29
-last_activity_desc: Phase 20 complete, transitioned to Phase 21
+last_updated: "2026-07-30T02:03:05.650Z"
+last_activity: 2026-07-30
+last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 10
+  completed_plans: 7
   percent: 20
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Phase 20 — scaffold-auth0-client-credentials-fundaciones-de-transporte
+**Current focus:** Phase 21 — market-data-lectura-modelos
 
 ## Current Position
 
-Phase: 21 — Market data (lectura) + modelos
-Plan: Not started
+Phase: 21 (market-data-lectura-modelos) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-29 — Phase 20 complete, transitioned to Phase 21
+Last activity: 2026-07-30 — Phase 21 execution started
 
 ## Performance Metrics
 
@@ -91,6 +91,7 @@ Last activity: 2026-07-29 — Phase 20 complete, transitioned to Phase 21
 | Phase 18 P01 | 22min | 3 tasks | 15 files |
 | Phase 18 P02 | 33min | 2 tasks | 12 files |
 | Phase 18 P18-03 | 9min | 2 tasks | 6 files |
+| Phase 21 P01 | 1 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -173,7 +174,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-29T19:25:43.440Z
+Last session: 2026-07-30T02:02:53.894Z
 Stopped at: Phase 21 context gathered (assumptions mode)
 Resume file: .planning/phases/21-market-data-lectura-modelos/21-CONTEXT.md
 
