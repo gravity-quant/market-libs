@@ -162,6 +162,12 @@ Plans:
 **Requirements:** LIVE-MD-01
 **Depends on:** Phases 21, 22
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — `main_market_data.py` driver (all 10 endpoints × sync/async) + AST single-Client guard + `main_verify.py` runner append + findings bootstrap (wave 1, execute)
+- [ ] 23-02-PLAN.md — in-cycle divergence fix loop (RED mocked regression → GREEN mirrored fix) + cycle-closure PASS gate (wave 2, tdd)
+
 **Success criteria:**
 
 1. `main_market_data.py` construye una `Client()` + una `AsyncClient()` y threadea cada probe; ejercita health + market data + reference read contra develop con credenciales Auth0.
