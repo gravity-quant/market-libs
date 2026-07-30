@@ -41,7 +41,15 @@ from market_data_client import _atransport, _core
 from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import MarketDataAuthError
-from market_data_client.models import LatestRequest, MarketDataSnapshot
+from market_data_client.models import (
+    CalendarConfig,
+    CalendarDay,
+    Instrument,
+    LatestRequest,
+    MarketDataSnapshot,
+    Segment,
+    Symbol,
+)
 
 load_dotenv()
 
@@ -434,6 +442,74 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_latest_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — reference-data reads (authenticated, D-06/D-07)
+    # ------------------------------------------------------------------
+
+    async def get_instruments(
+        self,
+        *,
+        q: str | None = None,
+        segment: str | None = None,
+        market_id: str | None = None,
+        include_expired: bool | None = None,
+        only_outright: bool | None = None,
+        subscribed: bool | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        refresh: str | None = None,
+    ) -> list[Instrument]:
+        """Autenticado ``GET {base_url}/instruments`` → lista de instrumentos (D-06)."""
+        spec = _core.build_instruments_request(
+            self._state,
+            q=q,
+            segment=segment,
+            market_id=market_id,
+            include_expired=include_expired,
+            only_outright=only_outright,
+            subscribed=subscribed,
+            limit=limit,
+            offset=offset,
+            refresh=refresh,
+        )
+        resp = await self._request(spec)
+        return _core.parse_instruments_response(resp)
+
+    async def get_segments(self) -> list[Segment]:
+        """Autenticado ``GET {base_url}/instruments/segments`` → lista de segmentos (D-06)."""
+        spec = _core.build_segments_request(self._state)
+        resp = await self._request(spec)
+        return _core.parse_segments_response(resp)
+
+    async def get_symbols(
+        self,
+        *,
+        active: bool | None = None,
+        market_id: str | None = None,
+        prefix: str | None = None,
+    ) -> list[Symbol]:
+        """Autenticado ``GET {base_url}/symbols`` → lista de símbolos (D-06)."""
+        spec = _core.build_symbols_request(
+            self._state,
+            active=active,
+            market_id=market_id,
+            prefix=prefix,
+        )
+        resp = await self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    async def get_calendar(self, *, year: int | None = None) -> list[CalendarDay]:
+        """Autenticado ``GET {base_url}/calendar`` → lista de días de calendario (D-06)."""
+        spec = _core.build_calendar_request(self._state, year=year)
+        resp = await self._request(spec)
+        return _core.parse_calendar_response(resp)
+
+    async def get_calendar_config(self) -> CalendarConfig:
+        """Autenticado ``GET {base_url}/calendar/config`` → objeto config único (D-07)."""
+        spec = _core.build_calendar_config_request(self._state)
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-async-client lazy singleton + top-level module surface
@@ -556,6 +632,57 @@ async def get_latest(
 async def get_latest_batch(latest_request: LatestRequest) -> list[MarketDataSnapshot]:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_latest_batch(latest_request)
+
+
+async def get_instruments(
+    *,
+    q: str | None = None,
+    segment: str | None = None,
+    market_id: str | None = None,
+    include_expired: bool | None = None,
+    only_outright: bool | None = None,
+    subscribed: bool | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+    refresh: str | None = None,
+) -> list[Instrument]:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_instruments(
+        q=q,
+        segment=segment,
+        market_id=market_id,
+        include_expired=include_expired,
+        only_outright=only_outright,
+        subscribed=subscribed,
+        limit=limit,
+        offset=offset,
+        refresh=refresh,
+    )
+
+
+async def get_segments() -> list[Segment]:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_segments()
+
+
+async def get_symbols(
+    *,
+    active: bool | None = None,
+    market_id: str | None = None,
+    prefix: str | None = None,
+) -> list[Symbol]:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_symbols(active=active, market_id=market_id, prefix=prefix)
+
+
+async def get_calendar(*, year: int | None = None) -> list[CalendarDay]:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_calendar(year=year)
+
+
+async def get_calendar_config() -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient."""
+    return await _get_default().get_calendar_config()
 
 
 async def aclose() -> None:
