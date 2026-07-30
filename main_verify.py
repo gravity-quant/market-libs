@@ -31,6 +31,7 @@ _DRIVERS: list[tuple[str, str]] = [
     ("matriz-client", "main_matriz.py"),
     ("ambito-financiero-client", "main_ambito_financiero.py"),
     ("wallets-client", "main_wallets.py"),
+    ("market-data-client", "main_market_data.py"),
 ]
 
 # La línea del env-gate tiene forma `SKIPPED <pkg>: missing ...` (con dos puntos);
