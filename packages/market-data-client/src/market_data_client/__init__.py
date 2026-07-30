@@ -43,12 +43,20 @@ from market_data_client.client import (  # noqa: E402
     configure,
     get_health,
     get_health_feed,
+    get_latest,
+    get_latest_batch,
+    get_market_data,
 )
 from market_data_client.exceptions import (  # noqa: E402
     MarketDataAPIError,
     MarketDataAuthError,
     MarketDataError,
     MarketDataRateLimitError,
+)
+from market_data_client.models import (  # noqa: E402
+    LatestRequest,
+    MarketDataEntry,
+    MarketDataSnapshot,
 )
 
 # ``_get_default`` is intentionally re-exported (private name with leading
@@ -57,13 +65,19 @@ from market_data_client.exceptions import (  # noqa: E402
 __all__ = [
     "AsyncClient",
     "Client",
+    "LatestRequest",
     "MarketDataAPIError",
     "MarketDataAuthError",
+    "MarketDataEntry",
     "MarketDataError",
     "MarketDataRateLimitError",
+    "MarketDataSnapshot",
     "configure",
     "get_health",
     "get_health_feed",
+    "get_latest",
+    "get_latest_batch",
+    "get_market_data",
 ]
 
 # Suppress ruff F401 for the deliberate private re-export.
