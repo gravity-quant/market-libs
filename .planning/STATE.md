@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
 current_phase: 23
-current_phase_name: Verificación en vivo contra develop + fixes
+current_phase_name: verificaci-n-en-vivo-contra-develop-fixes
 status: executing
 stopped_at: Phase 23 context gathered (assumptions mode)
-last_updated: "2026-07-30T17:51:23.541Z"
+last_updated: "2026-07-30T19:54:34.376Z"
 last_activity: 2026-07-30
-last_activity_desc: Phase 22 complete, transitioned to Phase 23
+last_activity_desc: Phase 23 execution started
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 12
+  total_plans: 14
   completed_plans: 12
   percent: 60
 ---
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Phase 22 — instruments-symbols-read-calendar-read-modelos
+**Current focus:** Phase 23 — verificaci-n-en-vivo-contra-develop-fixes
 
 ## Current Position
 
-Phase: 23 — Verificación en vivo contra develop + fixes
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-30 — Phase 22 complete, transitioned to Phase 23
+Phase: 23 (verificaci-n-en-vivo-contra-develop-fixes) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 23
+Last activity: 2026-07-30 — Phase 23 execution started
 
 ## Performance Metrics
 

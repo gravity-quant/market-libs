@@ -162,12 +162,12 @@ Plans:
 **Requirements:** LIVE-MD-01
 **Depends on:** Phases 21, 22
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 23-01-PLAN.md — `main_market_data.py` driver (all 10 endpoints × sync/async) + AST single-Client guard + `main_verify.py` runner append + findings bootstrap (wave 1, execute)
+- [x] 23-01-PLAN.md — `main_market_data.py` driver (all 10 endpoints × sync/async) + AST single-Client guard + `main_verify.py` runner append + findings bootstrap (wave 1, execute)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
