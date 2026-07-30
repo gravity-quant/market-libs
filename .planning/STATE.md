@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
 current_phase: 22
-current_phase_name: read
+current_phase_name: instruments-symbols-read-calendar-read-modelos
 status: executing
 stopped_at: Phase 22 context gathered (assumptions mode)
-last_updated: "2026-07-30T11:21:05.387Z"
+last_updated: "2026-07-30T11:32:04.557Z"
 last_activity: 2026-07-30
-last_activity_desc: Phase 21 complete, transitioned to Phase 22
+last_activity_desc: Phase 22 execution started
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 12
+  completed_plans: 11
   percent: 40
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Phase 21 — market-data-lectura-modelos
+**Current focus:** Phase 22 — instruments-symbols-read-calendar-read-modelos
 
 ## Current Position
 
-Phase: 22 — Instruments + symbols(read) + calendar(read) + modelos
-Plan: Not started
+Phase: 22 (instruments-symbols-read-calendar-read-modelos) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-07-30 — Phase 21 complete, transitioned to Phase 22
+Last activity: 2026-07-30 — Phase 22 execution started
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ Last activity: 2026-07-30 — Phase 21 complete, transitioned to Phase 22
 | Phase 21 P02 | 2min | 2 tasks | 3 files |
 | Phase 21 P03 | 4min | 3 tasks | 3 files |
 | Phase 21 P04 | 4min | 3 tasks | 4 files |
+| Phase 22 P01 | 5min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 21-03]: sync read methods + module shims added in client.py only (__init__ re-export deferred to respect files_modified scope); retry count asserted by outgoing-request count, 401 re-auth by token-POST count.
 - [Phase 21]: Async with_options mirrors sync as a shared-view clone; per-call max_attempts threaded via req.extensions in both _request and _send_auth_request (load-bearing).
 - [Phase 21]: D-09: authenticated async header build spreads spec.headers first and Authorization token last so the fresh token always wins over a decoy spec header.
+- [Phase ?]: Phase 22-01: reference SafeModels carry no received_at (D-05); calendar/config is the single non-collection parser with empty-body from_api(None) fallback (D-07)
 
 ### Pending Todos
 
@@ -184,7 +186,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-30T10:16:32.005Z
+Last session: 2026-07-30T11:31:35.566Z
 Stopped at: Phase 22 context gathered (assumptions mode)
 Resume file: .planning/phases/22-instruments-symbols-read-calendar-read-modelos/22-CONTEXT.md
 

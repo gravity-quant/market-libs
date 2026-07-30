@@ -138,12 +138,12 @@ Plans:
 **Requirements:** REF-MD-01
 **Depends on:** Phase 20 (paraleliza con Phase 21)
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 22-01-PLAN.md — Reference models + builders + parsers (pure data layer, TDD, wave 1)
+- [x] 22-01-PLAN.md — Reference models + builders + parsers (pure data layer, TDD, wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

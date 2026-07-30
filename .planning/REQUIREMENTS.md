@@ -18,7 +18,7 @@ Requisitos del milestone v1.4. Cada uno mapea a una fase del roadmap.
 
 ### Reference Data (read)
 
-- [ ] **REF-MD-01**: El consumidor puede leer datos de referencia — `GET /instruments` (q, segment, market_id, include_expired, only_outright, subscribed, limit, offset, refresh), `GET /instruments/segments`, `GET /symbols` (active, market_id, prefix), `GET /calendar` (year) y `GET /calendar/config` — devueltos como modelos tipados, sync y async
+- [x] **REF-MD-01**: El consumidor puede leer datos de referencia — `GET /instruments` (q, segment, market_id, include_expired, only_outright, subscribed, limit, offset, refresh), `GET /instruments/segments`, `GET /symbols` (active, market_id, prefix), `GET /calendar` (year) y `GET /calendar/config` — devueltos como modelos tipados, sync y async
 
 ### Verification
 
@@ -68,7 +68,7 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 | AUTH-MD-01 | Phase 20 | Complete |
 | CORE-MD-01 | Phase 20 | Complete |
 | MD-01 | Phase 21 | Complete |
-| REF-MD-01 | Phase 22 | Pending |
+| REF-MD-01 | Phase 22 | Complete |
 | LIVE-MD-01 | Phase 23 | Pending |
 | PUB-MD-01 | Phase 24 | Pending |
 
