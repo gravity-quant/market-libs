@@ -58,7 +58,15 @@ from market_data_client.exceptions import (
     MarketDataAuthError,
     MarketDataRateLimitError,
 )
-from market_data_client.models import LatestRequest, MarketDataSnapshot
+from market_data_client.models import (
+    CalendarConfig,
+    CalendarDay,
+    Instrument,
+    LatestRequest,
+    MarketDataSnapshot,
+    Segment,
+    Symbol,
+)
 
 __all__ = [
     "RequestSpec",
@@ -73,9 +81,14 @@ __all__ = [
     "build_segments_request",
     "build_symbols_request",
     "build_token_request",
+    "parse_calendar_config_response",
+    "parse_calendar_response",
     "parse_health_response",
+    "parse_instruments_response",
     "parse_latest_response",
     "parse_market_data_response",
+    "parse_segments_response",
+    "parse_symbols_response",
     "parse_token_response",
     "raise_for_response",
     "token_is_fresh",
@@ -387,7 +400,8 @@ def build_instruments_request(
     are dropped via ``_params.drop_none`` (D-02) preserving legitimate falsy
     filters (``include_expired=False`` / ``offset=0`` / ``""``); an empty dict
     collapses to ``params=None``. Booleans ride httpx-native ``True → "true"``
-    encoding — explicit wire-encoding deferred to Phase 23 (D-03; no ``format_bool``).
+    encoding — explicit wire-encoding deferred to Phase 23 (D-03; no bool
+    serializer copied from higyrus).
     """
     del state  # state-independent (filters come via kwargs)
     params = _params.drop_none(
@@ -440,7 +454,7 @@ def build_symbols_request(
 
     ``None`` optionals dropped via ``_params.drop_none`` (D-02); a legit
     ``active=False`` is preserved, empty dict → ``params=None``. Booleans ride
-    httpx-native encoding (D-03; no ``format_bool``).
+    httpx-native encoding (D-03; no bool serializer copied from higyrus).
     """
     del state  # state-independent (filters come via kwargs)
     params = _params.drop_none(
@@ -539,3 +553,96 @@ def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     if raw is None:
         return []
     return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in raw]
+
+
+# ----------------------------------------------------------------------
+# Reference-data read parsers (D-05 / D-06 / D-07) — NO received_at stamp
+# ----------------------------------------------------------------------
+#
+# The four collection parsers replicate ``parse_market_data_response`` EXACTLY
+# except they OMIT the ``received_at = time.time()`` stamp and call
+# ``Model.from_api(item)`` with no ``received_at`` kwarg (D-05/D-06): reference
+# data is unstamped. Body-consume-then-raise order is preserved; a ``null``/empty
+# body collapses to ``[]`` (collection guard). ``parse_calendar_config_response``
+# is the single-object exception (D-07).
+
+
+def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
+    """Pure: parse ``GET /instruments`` → ``list[Instrument]`` (D-05 / D-06).
+
+    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    ``received_at`` stamp — reference data is unstamped (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return []
+    raw = resp.json()
+    if raw is None:
+        return []
+    return [Instrument.from_api(item) for item in raw]
+
+
+def parse_segments_response(resp: httpx.Response) -> list[Segment]:
+    """Pure: parse ``GET /instruments/segments`` → ``list[Segment]`` (D-05 / D-06).
+
+    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    ``received_at`` stamp — reference data is unstamped (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return []
+    raw = resp.json()
+    if raw is None:
+        return []
+    return [Segment.from_api(item) for item in raw]
+
+
+def parse_symbols_response(resp: httpx.Response) -> list[Symbol]:
+    """Pure: parse ``GET /symbols`` → ``list[Symbol]`` (D-05 / D-06).
+
+    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    ``received_at`` stamp — reference data is unstamped (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return []
+    raw = resp.json()
+    if raw is None:
+        return []
+    return [Symbol.from_api(item) for item in raw]
+
+
+def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
+    """Pure: parse ``GET /calendar`` → ``list[CalendarDay]`` (D-05 / D-06).
+
+    ``CalendarDay`` is treated as a flat list item (D-06 collection), not a
+    wrapped object. Body-consume-then-raise order; a 204 / ``null`` body collapses
+    to ``[]``. No ``received_at`` stamp — reference data is unstamped (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return []
+    raw = resp.json()
+    if raw is None:
+        return []
+    return [CalendarDay.from_api(item) for item in raw]
+
+
+def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
+    """Pure: parse ``GET /calendar/config`` → a single ``CalendarConfig`` (D-07).
+
+    The ONE non-collection reference parser: returns a single typed object, NOT a
+    list. Uses the ``parse_health_response`` body-consume order but returns a
+    tolerant model — an empty/None body collapses to ``CalendarConfig.from_api(None)``
+    (the D-07 fallback), never a raise. No ``received_at`` stamp (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return CalendarConfig.from_api(None)
+    raw = resp.json()
+    return CalendarConfig.from_api(raw)
