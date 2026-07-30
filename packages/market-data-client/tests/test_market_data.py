@@ -151,9 +151,11 @@ def test_parse_market_data_response_stamps_received_at_once() -> None:
 
 
 def test_parse_market_data_response_null_body_returns_empty() -> None:
-    """A JSON ``null`` body → [] (collection guard)."""
-    resp = httpx.Response(200, json=None, request=_DUMMY_REQUEST)
-    assert _core.parse_market_data_response(resp) == []
+    """A JSON ``null`` body AND an empty body → [] (collection guard)."""
+    null_resp = httpx.Response(200, content=b"null", request=_DUMMY_REQUEST)
+    assert _core.parse_market_data_response(null_resp) == []
+    empty_resp = httpx.Response(204, request=_DUMMY_REQUEST)
+    assert _core.parse_market_data_response(empty_resp) == []
 
 
 def test_parse_market_data_response_401_raises_auth() -> None:
@@ -182,5 +184,7 @@ def test_parse_latest_response_stamps_received_at_once() -> None:
 
 
 def test_parse_latest_response_null_body_returns_empty() -> None:
-    resp = httpx.Response(200, json=None, request=_DUMMY_REQUEST)
-    assert _core.parse_latest_response(resp) == []
+    null_resp = httpx.Response(200, content=b"null", request=_DUMMY_REQUEST)
+    assert _core.parse_latest_response(null_resp) == []
+    empty_resp = httpx.Response(204, request=_DUMMY_REQUEST)
+    assert _core.parse_latest_response(empty_resp) == []

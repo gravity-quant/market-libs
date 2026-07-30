@@ -47,6 +47,7 @@ from typing import Any
 
 import httpx
 
+from market_data_client import _params
 from market_data_client._state import (
     _TOKEN_TTL_BUFFER_SECONDS,
     _TOKEN_TTL_FALLBACK_SECONDS,
@@ -57,13 +58,19 @@ from market_data_client.exceptions import (
     MarketDataAuthError,
     MarketDataRateLimitError,
 )
+from market_data_client.models import LatestRequest, MarketDataSnapshot
 
 __all__ = [
     "RequestSpec",
     "build_health_feed_request",
     "build_health_request",
+    "build_latest_batch_request",
+    "build_latest_request",
+    "build_market_data_request",
     "build_token_request",
     "parse_health_response",
+    "parse_latest_response",
+    "parse_market_data_response",
     "parse_token_response",
     "raise_for_response",
     "token_is_fresh",
@@ -248,3 +255,150 @@ def parse_health_response(resp: httpx.Response) -> dict[str, Any]:
     raise_for_response(resp)
     data: dict[str, Any] = resp.json()
     return data
+
+
+# ----------------------------------------------------------------------
+# Market-data read builders (D-06) — authenticated + idempotent
+# ----------------------------------------------------------------------
+
+
+def build_market_data_request(
+    state: _ClientState,
+    *,
+    market_id: str | None = None,
+    prefix: str | None = None,
+    active: bool | None = None,
+    entries: str | None = None,
+    max_staleness_seconds: int | None = None,
+    with_data: bool | None = None,
+    order: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> RequestSpec:
+    """Pure: build spec for ``GET /marketdata`` (D-06).
+
+    ``authenticated=True`` gatea la inyección del Bearer en los shells de Wave 3;
+    ``idempotent=True`` marca el GET como replay-safe (retry-eligible). Los
+    optionals ``None`` se dropean vía ``_params.drop_none`` (D-07) preservando los
+    falsy legítimos (``active=False`` / ``offset=0`` / ``""``); un dict vacío
+    colapsa a ``params=None``. Los booleans viajan con el encoding httpx-nativo
+    (``True → "true"``) — encoding explícito diferido a Phase 23 (D-07).
+    """
+    del state  # state-independent (filtros vienen por kwargs)
+    params = _params.drop_none(
+        {
+            "market_id": market_id,
+            "prefix": prefix,
+            "active": active,
+            "entries": entries,
+            "max_staleness_seconds": max_staleness_seconds,
+            "with_data": with_data,
+            "order": order,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+    return RequestSpec(
+        method="GET",
+        path="/marketdata",
+        params=params or None,
+        idempotent=True,
+        endpoint_name="market_data",
+        authenticated=True,
+    )
+
+
+def build_latest_request(
+    state: _ClientState,
+    *,
+    symbol: str | None = None,
+    market_id: str | None = None,
+    entries: str | None = None,
+) -> RequestSpec:
+    """Pure: build spec for ``GET /marketdata/latest`` (D-06).
+
+    Same authenticated/idempotent contract as ``build_market_data_request``;
+    ``None`` optionals dropped, empty dict → ``params=None``.
+    """
+    del state  # state-independent (filtros vienen por kwargs)
+    params = _params.drop_none(
+        {
+            "symbol": symbol,
+            "market_id": market_id,
+            "entries": entries,
+        }
+    )
+    return RequestSpec(
+        method="GET",
+        path="/marketdata/latest",
+        params=params or None,
+        idempotent=True,
+        endpoint_name="latest",
+        authenticated=True,
+    )
+
+
+def build_latest_batch_request(state: _ClientState, latest_request: LatestRequest) -> RequestSpec:
+    """Pure: build spec for the batch ``POST /marketdata/latest`` (D-05 / D-06).
+
+    A read expressed as POST (the batch body doesn't fit a query string). It is
+    replay-safe like ``build_token_request`` → ``idempotent=True``, so the
+    mutation-gate lets the transport retry it. The typed ``LatestRequest`` is
+    serialized to the wire body via ``to_dict`` (drops ``None`` optionals).
+    """
+    del state  # state-independent (payload viene en latest_request)
+    return RequestSpec(
+        method="POST",
+        path="/marketdata/latest",
+        json_body=latest_request.to_dict(),
+        idempotent=True,
+        endpoint_name="latest_batch",
+        authenticated=True,
+    )
+
+
+# ----------------------------------------------------------------------
+# Market-data read parsers (D-01) — client-stamped received_at
+# ----------------------------------------------------------------------
+
+
+def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
+    """Pure: parse a ``GET /marketdata`` response → list of snapshots (D-01).
+
+    Order mirrors ``parse_health_response`` (body-consume-then-raise) with the
+    ``received_at`` stamp captured ONCE, between ``resp.read()`` and
+    ``raise_for_response`` — the single wall-clock is threaded into EVERY
+    snapshot so all rows from one response share the same stamp (D-01/D-02: the
+    client owns the stamp; live-payload reconciliation is deferred to Phase 23).
+    A ``null``/empty body collapses to ``[]`` (collection guard).
+    """
+    resp.read()
+    received_at = time.time()
+    raise_for_response(resp)
+    if not resp.content:
+        return []
+    raw = resp.json()
+    if raw is None:
+        return []
+    return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in raw]
+
+
+def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
+    """Pure: parse a ``GET/POST /marketdata/latest`` response → list of snapshots.
+
+    Same one-stamp-per-response contract as ``parse_market_data_response``.
+    Return type is PROVISIONAL (A1/A2 — OpenAPI response shapes not vendored):
+    the batch ``POST`` naturally returns multiple symbols, so a ``list`` is the
+    common shape for both the single-symbol GET and the batch POST; Phase 23
+    reconciles against real develop payloads (a single-snapshot GET shape, if
+    confirmed, is a one-line adjustment absorbed by ``from_api`` tolerance).
+    """
+    resp.read()
+    received_at = time.time()
+    raise_for_response(resp)
+    if not resp.content:
+        return []
+    raw = resp.json()
+    if raw is None:
+        return []
+    return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in raw]
