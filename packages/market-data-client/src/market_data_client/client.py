@@ -64,11 +64,26 @@ load_dotenv()
 # el MISMO objeto (_core.raise_for_response).
 _raise_for_response = _core.raise_for_response
 
-# Total de requests salientes cuando los retries se agotan (1 inicial + 2
-# retries). El override de retries per-call (una vista con cap propio) se
-# difiere a Phase 21 — de ahí que no exista un kwarg de retries ni una
-# extensión ``max_attempts`` en este shell.
-_DEFAULT_MAX_ATTEMPTS = 3
+
+# WR-06 carry-forward: validate max_retries kwarg early. Duplicated per package
+# per the "no shared internals" project constraint (NOT imported from iol).
+def _validate_max_retries(value: int) -> None:
+    """Validate the ``max_retries`` kwarg.
+
+    ``max_retries`` must be a non-negative ``int``. Negative values and non-int
+    types (incl. ``float``, ``bool``) are rejected early with ``ValueError``
+    instead of crashing later inside tenacity (T-21-03-01 mitigation).
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} (bool not accepted)"
+        )
+    if not isinstance(value, int):
+        raise ValueError(
+            f"max_retries must be a non-negative int, got {value!r} (type={type(value).__name__})"
+        )
+    if value < 0:
+        raise ValueError(f"max_retries must be a non-negative int, got {value!r}")
 
 
 # ----------------------------------------------------------------------
@@ -88,7 +103,7 @@ class Client:
     ``close()`` is idempotent.
     """
 
-    __slots__ = ("_state",)
+    __slots__ = ("_is_view", "_max_retries", "_state")
 
     def __init__(
         self,
@@ -98,7 +113,10 @@ class Client:
         client_secret: str | None = None,
         audience: str | None = None,
         auth0_token_url: str | None = None,
+        max_retries: int = 2,
     ) -> None:
+        # WR-06: validate max_retries early (before any state mutation).
+        _validate_max_retries(max_retries)
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -110,6 +128,11 @@ class Client:
             self._state.audience = audience
         if auth0_token_url is not None:
             self._state.auth0_token_url = auth0_token_url
+        # D-08: max_retries=N → max_attempts=N+1 (1 initial + N retries).
+        self._max_retries = max_retries
+        # D-08: normally-constructed Clients are NOT views; with_options sets
+        # this to True on the returned shared-view clone.
+        self._is_view = False
 
     def __enter__(self) -> Self:
         return self
@@ -123,7 +146,15 @@ class Client:
         self.close()
 
     def close(self) -> None:
-        """Release the underlying ``httpx.Client`` (idempotent)."""
+        """Release the underlying ``httpx.Client`` (idempotent).
+
+        D-08: views (constructed via ``with_options``) short-circuit here so
+        ``view.close()`` / ``view.__exit__`` never tear down the parent's shared
+        transport nor invalidate the parent's cached token (anti-Pitfall 13).
+        ``getattr`` defensive for partially-initialized instances.
+        """
+        if getattr(self, "_is_view", False):
+            return
         http_client = self._state.http_client
         if http_client is not None:
             assert isinstance(http_client, httpx.Client)
@@ -159,10 +190,40 @@ class Client:
             return http_client
         new_client = httpx.Client(
             timeout=_REQUEST_TIMEOUT,
-            transport=_transport.RetryTransport(max_attempts=_DEFAULT_MAX_ATTEMPTS),
+            transport=_transport.RetryTransport(max_attempts=self._max_retries + 1),
         )
         self._state.http_client = new_client
         return new_client
+
+    def with_options(self, *, max_retries: int) -> Self:
+        """Return a shared-view clone with an overridden ``max_retries``.
+
+        D-08 (iol Phase-13 pattern, mirrored — NOT imported): the view shares
+        this Client's ``_state`` (incl. cached ``token``, ``token_expires_at``,
+        and the underlying ``httpx.Client``). No re-auth, no second TCP
+        connection pool (anti-Pitfall 13). Only the per-call ``max_retries``
+        differs; the parent's ``_max_retries`` stays at its constructor value.
+
+        The view's ``_max_retries`` is threaded into the shell's ``_request()``
+        and ``_send_auth_request()`` via ``request.extensions["max_attempts"]``
+        so the ``RetryTransport`` honors it per-call (LOAD-BEARING — without the
+        extension threading ``with_options`` is a silent no-op). The mapping is
+        ``max_retries=N → max_attempts=N+1`` (1 initial + N retries).
+
+        ``view.close()`` / ``view.__exit__`` are no-ops so the view never tears
+        down the parent's shared transport; the parent owns the pool.
+
+            data = client.with_options(max_retries=5).get_market_data(...)
+            data = client.with_options(max_retries=0).get_latest(...)  # no retries
+        """
+        # WR-06 carry-forward: validate early so the error is a clean ValueError
+        # before view construction.
+        _validate_max_retries(max_retries)
+        view = type(self).__new__(type(self))
+        view._state = self._state  # SHARE — anti-Pitfall 13
+        view._max_retries = max_retries  # OVERRIDE
+        view._is_view = True  # FLAG for close()/__exit__ no-op (D-08)
+        return view
 
     def _send_auth_request(self, spec: _core.RequestSpec) -> httpx.Response:
         """Dispatch the Auth0 grant to the ABSOLUTE ``auth0_token_url``.
@@ -185,6 +246,9 @@ class Client:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # D-08 LOAD-BEARING: per-call retry cap; parent or view path both set it.
+        # Auth-flow specs are idempotent=True so the view's cap applies here too.
+        req.extensions["max_attempts"] = self._max_retries + 1
         return http.send(req)
 
     def _authenticate(self) -> str:
@@ -250,6 +314,8 @@ class Client:
         req.extensions["idempotent"] = spec.idempotent
         req.extensions["request_id"] = request_id
         req.extensions["endpoint_name"] = spec.endpoint_name
+        # D-08 LOAD-BEARING: per-call retry cap; parent or view path both set it.
+        req.extensions["max_attempts"] = self._max_retries + 1
         resp = http.send(req)
         try:
             _raise_for_response(resp)
