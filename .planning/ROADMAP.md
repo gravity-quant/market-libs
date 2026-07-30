@@ -138,6 +138,12 @@ Plans:
 **Requirements:** REF-MD-01
 **Depends on:** Phase 20 (paraleliza con Phase 21)
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 22-01-PLAN.md — Reference models + builders + parsers (pure data layer, TDD, wave 1)
+- [ ] 22-02-PLAN.md — Sync + async public surface + re-exports + parity tests (wave 2)
+
 **Success criteria:**
 
 1. `GET /instruments` (con todos sus filtros), `GET /instruments/segments`, `GET /symbols`, `GET /calendar`, `GET /calendar/config` implementados en sync y async.
