@@ -5,8 +5,8 @@ milestone_name: market-data-client
 current_phase: 22
 current_phase_name: read
 status: verifying
-stopped_at: Completed 21-04-PLAN.md (phase 21 ready_for_verification)
-last_updated: "2026-07-30T02:35:32.050Z"
+stopped_at: Phase 22 context gathered (assumptions mode)
+last_updated: "2026-07-30T10:16:32.009Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 21 complete, transitioned to Phase 22
 progress:
@@ -184,9 +184,9 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-30T02:28:42.138Z
-Stopped at: Completed 21-04-PLAN.md (phase 21 ready_for_verification)
-Resume file: None
+Last session: 2026-07-30T10:16:32.005Z
+Stopped at: Phase 22 context gathered (assumptions mode)
+Resume file: .planning/phases/22-instruments-symbols-read-calendar-read-modelos/22-CONTEXT.md
 
 ## Operator Next Steps
 
