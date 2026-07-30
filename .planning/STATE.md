@@ -4,9 +4,9 @@ milestone: v1.4
 milestone_name: market-data-client
 current_phase: 22
 current_phase_name: instruments-symbols-read-calendar-read-modelos
-status: executing
+status: verifying
 stopped_at: Phase 22 context gathered (assumptions mode)
-last_updated: "2026-07-30T11:32:04.557Z"
+last_updated: "2026-07-30T11:38:37.097Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 22 execution started
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 Phase: 22 (instruments-symbols-read-calendar-read-modelos) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-30 — Phase 22 execution started
 
 ## Performance Metrics
@@ -96,6 +96,7 @@ Last activity: 2026-07-30 — Phase 22 execution started
 | Phase 21 P03 | 4min | 3 tasks | 3 files |
 | Phase 21 P04 | 4min | 3 tasks | 4 files |
 | Phase 22 P01 | 5min | 3 tasks | 4 files |
+| Phase 22 P02 | 3min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,7 @@ Recent decisions affecting current work:
 - [Phase 21]: Async with_options mirrors sync as a shared-view clone; per-call max_attempts threaded via req.extensions in both _request and _send_auth_request (load-bearing).
 - [Phase 21]: D-09: authenticated async header build spreads spec.headers first and Authorization token last so the fresh token always wins over a decoy spec header.
 - [Phase ?]: Phase 22-01: reference SafeModels carry no received_at (D-05); calendar/config is the single non-collection parser with empty-body from_api(None) fallback (D-07)
+- [Phase 22]: 22-02: 5 sync + 5 async reference methods dispatch through Plan 01 _core builders/parsers; get_calendar_config returns a single CalendarConfig (D-07), the other four return list[Model]
 
 ### Pending Todos
 
@@ -186,7 +188,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-30T11:31:35.566Z
+Last session: 2026-07-30T11:37:57.065Z
 Stopped at: Phase 22 context gathered (assumptions mode)
 Resume file: .planning/phases/22-instruments-symbols-read-calendar-read-modelos/22-CONTEXT.md
 
