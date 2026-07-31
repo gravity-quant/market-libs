@@ -72,6 +72,8 @@ __all__ = [
     "RequestSpec",
     "build_calendar_config_request",
     "build_calendar_request",
+    "build_create_symbol_request",
+    "build_create_symbols_request",
     "build_health_feed_request",
     "build_health_request",
     "build_instruments_request",
@@ -81,6 +83,7 @@ __all__ = [
     "build_segments_request",
     "build_symbols_request",
     "build_token_request",
+    "build_update_symbol_request",
     "parse_calendar_config_response",
     "parse_calendar_response",
     "parse_health_response",
@@ -373,6 +376,73 @@ def build_latest_batch_request(state: _ClientState, latest_request: LatestReques
         json_body=latest_request.to_dict(),
         idempotent=True,
         endpoint_name="latest_batch",
+        authenticated=True,
+    )
+
+
+# ----------------------------------------------------------------------
+# Symbols write builders (MUT-MD-01) — POST/PATCH, idempotent + authenticated
+# ----------------------------------------------------------------------
+#
+# Pure builders mirroring ``build_latest_batch_request`` (``del state``, no I/O):
+# each takes the already-serialized model dict as its ``json_body`` and stays
+# state-agnostic. All three are ``idempotent=True`` per DM-03 (retry-safe;
+# revalidated live in Phase 27). The mutation gate does NOT live here — the shell
+# checks it before calling these (D-05).
+
+
+def build_create_symbol_request(state: _ClientState, json_body: dict[str, Any]) -> RequestSpec:
+    """Pure: build spec for ``POST /symbols`` (single symbol create, MUT-MD-01).
+
+    ``idempotent=True`` (DM-03 — retry-safe per spec; revalidated live in
+    Phase 27); ``authenticated=True``. ``json_body`` is the already-serialized
+    ``NewSymbol.to_dict()`` (the payload, not state).
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="POST",
+        path="/symbols",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="create_symbol",
+        authenticated=True,
+    )
+
+
+def build_create_symbols_request(state: _ClientState, json_body: dict[str, Any]) -> RequestSpec:
+    """Pure: build spec for ``POST /symbols/batch`` (batch create, MUT-MD-01).
+
+    Same idempotent/authenticated contract as ``build_create_symbol_request``;
+    ``json_body`` is the already-serialized ``NewSymbols.to_dict()``.
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="POST",
+        path="/symbols/batch",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="create_symbols",
+        authenticated=True,
+    )
+
+
+def build_update_symbol_request(
+    state: _ClientState, symbol_id: str, json_body: dict[str, Any]
+) -> RequestSpec:
+    """Pure: build spec for ``PATCH /symbols/{symbol_id}`` (MUT-MD-01).
+
+    ``symbol_id`` is interpolated RAW into the path for Phase 25 — percent-encoding
+    for ids containing ``/`` (e.g. ``"DLR/DIC26"``) is D-08 / Pitfall 4, explicitly
+    deferred to Phase 27. ``idempotent=True`` (DM-03), ``authenticated=True``;
+    ``json_body`` is the already-serialized ``SymbolPatch.to_dict()``.
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="PATCH",
+        path=f"/symbols/{symbol_id}",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="update_symbol",
         authenticated=True,
     )
 
