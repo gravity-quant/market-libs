@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-07-31T19:22:56.326Z"
 last_activity: 2026-07-31
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,16 +19,16 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.4 amplió el monorepo de 5 a 6 paquetes: `market-data-client v0.1.0` publicado — solo lectura, Auth0 client-credentials — espejando cada decisión arquitectónica existente; el apparatus de verificación en vivo está verificado pero el barrido credencial-real contra develop sigue pendiente de creds Auth0 + VPN.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.5 extiende `market-data-client` v0.2.0 —solo lectura— con la superficie de **escritura** de la API primary-extractor: symbols + calendar, detrás de un mutating-gate de seguridad load-bearing, verificada en vivo de forma segura contra develop, y publicada v0.3.0.)
 
-**Current focus:** v1.4 shipped — awaiting next milestone (`/gsd-new-milestone` to scope v1.5)
+**Current focus:** v1.5 roadmap creado (Phases 25-28) — next: `/gsd-plan-phase 25` (Mutating-gate + Symbols write)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 25 (Mutating-gate + Symbols write) — Not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-31 — Milestone v1.5 started
+Status: Roadmap complete, awaiting phase planning
+Last activity: 2026-07-31 — v1.5 roadmap created (Phases 25-28, 5/5 requirements mapped)
 
 ## Performance Metrics
 
@@ -78,23 +78,26 @@ Last activity: 2026-07-31 — Milestone v1.5 started
 - v1.2 duration: 2026-06-14 → 2026-06-25 (5 phases, 18 plans, 40 tasks); shipped via PR #2
 - Test suite: 907 (v1.1 close) → ≥989 (v1.2 close) on Python 3.12 + 3.13
 
-**By Phase (v1.3 planned):**
+**By Phase (v1.4 shipped 2026-07-31):**
+
+| Phase | Plans | Status   | Notes |
+|-------|-------|----------|-------|
+| 20    | 6     | Complete | Scaffold + Auth0 client-credentials + transport foundations; AUTH-MD-01 + CORE-MD-01 |
+| 21    | 4     | Complete | Market data read surface + models (`received_at` client-stamped); MD-01 |
+| 22    | 2     | Complete | Reference-data read surface + 5 models; REF-MD-01 |
+| 23    | 2     | Complete | Live-verification apparatus (`main_market_data.py`) + D-09 hardening; LIVE-MD-01 |
+| 24    | 2     | Complete | Release prep + publish `market-data-client-v0.1.0`; PUB-MD-01 |
+
+- v1.4 duration: 2026-07-29 → 2026-07-31 (5 phases, 16 plans, 36 tasks); package released v0.1.0 → v0.2.0
+
+**By Phase (v1.5 planned):**
 
 | Phase | Plans | Status      | Requirements | Notes |
 |-------|-------|-------------|--------------|-------|
-| 18    | ?     | Not started | CODEGEN-01 (spike) | **RESEARCH FLAG / spike-before-plan.** SPIKE-006 evaluates `libcst >=1.8.0,<2` against the D-RIGOR-02 10-item gate on the ámbito v1.2-head canary (NOT migrated) + matriz audit/deny-list inheritance → signed GO/NO-GO. ALWAYS runs; guaranteed milestone deliverable. Items 1/4/6 are GO-determining. |
-| 19    | ?     | Not started | REFAC-06 | **CONDITIONAL — DROPPED if Phase 18 NO-GO.** Single-source `client.py`/`aio.py` shells × 4 (ámbito → iol → higyrus → matriz) via libcst; `@generated` marker + CI `lint-codegen` verify-clean + B8 identity + mocked suites green vs generated + deny-list intact. |
-| Phase 18 P01 | 22min | 3 tasks | 15 files |
-| Phase 18 P02 | 33min | 2 tasks | 12 files |
-| Phase 18 P18-03 | 9min | 2 tasks | 6 files |
-| Phase 21 P01 | 1 | 3 tasks | 3 files |
-| Phase 21 P02 | 2min | 2 tasks | 3 files |
-| Phase 21 P03 | 4min | 3 tasks | 3 files |
-| Phase 21 P04 | 4min | 3 tasks | 4 files |
-| Phase 22 P01 | 5min | 3 tasks | 4 files |
-| Phase 22 P02 | 3min | 3 tasks | 5 files |
-| Phase 24 P01 | 6min | 3 tasks | 5 files |
-| Phase 24 P02 | 8min | 3 tasks | 1 files |
+| 25    | ?     | Not started | GATE-MD-01 + MUT-MD-01 | Mutating-gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes, `MarketDataMutationNotAllowedError`) construido PRIMERO; symbols write (`POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}`) es la primera superficie que lo ejercita. Dual sync/async vía `_core.py`. |
+| 26    | ?     | Not started | MUT-MD-02 | Calendar write (`PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}`); `confirm` guardrail default False; depende del gate de Phase 25. |
+| 27    | ?     | Not started | LIVE-MUT-01 | Verificación en vivo destructiva-pero-segura contra develop (create→verify→revert, identificadores dedicados), revalida idempotencia DM-03, fixes in-cycle sync/async. Depende de 25 + 26. |
+| 28    | ?     | Not started | PUB-MUT-01 | Release prep + publish `market-data-client-v0.3.0` (minor bump no-breaking). Depende de 27. |
 
 ## Accumulated Context
 
@@ -103,6 +106,9 @@ Last activity: 2026-07-31 — Milestone v1.5 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.5 Roadmap]: Phase numbering CONTINUES from v1.4 (last phase = 24) — v1.5 starts at **Phase 25** (does NOT reset). Sequential `phase_naming` per config.json. Granularity `coarse` → 4 phases, 1:1 con requisitos salvo Phase 25 (GATE-MD-01 + MUT-MD-01 combinados: el gate es load-bearing y symbols es la primera superficie que lo ejercita end-to-end).
+- [v1.5 Roadmap]: 4 fases lineales (25 gate+symbols → 26 calendar → 27 live verification → 28 publish). Phase 25 construye el mutating-gate PRIMERO (mitigación primaria del riesgo central = mutación accidental); Phases 26 y 27 dependen del gate. NO paralelizan: 25 es prerequisito estricto de 26, y 27 necesita ambas superficies (25 + 26).
+- [v1.5 Roadmap]: Verificación en vivo (Phase 27) es **destructiva** a diferencia de v1.4 (solo lectura) → obligatorio cleanup + identificadores de prueba dedicados (DM-06); nunca toca config real sin `confirm`. La idempotencia por-endpoint (DM-03) se revalida en vivo antes de confiar el retry-behavior. Plan fuente: `.planning/future-plans/market_data_mutations.md`.
 - [v1.4 Roadmap]: Phase numbering CONTINUES from v1.3 — v1.3 allocated Phases 18-19 (19 dropped), so v1.4 starts at **Phase 20** (avoids collision with the dropped Phase 19 reference). Sequential `phase_naming`.
 - [v1.4 Scope]: Paquete `market-data-client` (import `market_data_client`) — nombre con sufijo `-client` OBLIGATORIO por el regex de `release.yml`. Solo lectura; mutaciones + streaming SSE + disk token cache + JWT signature validation diferidos a v1.5+ (REQUIREMENTS § v2). Auth = Auth0 client_credentials. Plan fuente: `.future_plans/market_data.md`.
 - [v1.4 Roadmap]: 5 fases lineales (20 scaffold+auth → 21 market data → 22 reference data → 23 live verification → 24 publish); Phases 21 y 22 pueden paralelizar (ambas dependen solo de 20). 6 requisitos, 1:1 con fases salvo Phase 20 (AUTH-MD-01 + CORE-MD-01).
@@ -138,15 +144,15 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-- spike-codegen-libcst-v1.3.md — the fully-scoped SPIKE-006 spec + D-RIGOR-02 10-item gate; consumed by Phase 18 planning.
+- spike-codegen-libcst-v1.3.md — the fully-scoped SPIKE-006 spec + D-RIGOR-02 10-item gate; consumed by Phase 18 planning (v1.3 closed).
 
 ### Blockers/Concerns
 
 [Issues that affect future work]
 
-- [v1.4 / Phase 23 risk]: El entorno **develop** (`market-data-develop.bbsa.com.ar`) puede requerir VPN/allowlist de red o credenciales Auth0 (client_id/secret/audience) que aún no están disponibles. La verificación en vivo (Phase 23) depende de esto — confirmar acceso + credenciales antes de/ durante Phase 20. Las Fases 20-22 (build + tests mockeados) NO dependen del acceso live.
-- [v1.4 / Phases 21-22 risk]: Las respuestas de la API **no están tipadas** en el OpenAPI (solo hay schemas de request). Los modelos `SafeModel` se diseñan contra los ejemplos/inferencia en Fases 21-22 y se **afinan contra payloads reales en Phase 23** — esperar ida y vuelta (campos, `received_at`/staleness semantics).
-- [v1.4 / Phase 24]: El paquete debe agregarse a `matrix.package` en `ci.yml` (hardcodeada) para que el CI lo teste; el release es por tag (`market-data-client-v0.1.0`, automático). El workspace `packages/*` lo autodescubre.
+- [v1.5 / Phase 27 risk]: La verificación en vivo es **destructiva** (crea/modifica estado en develop) — a diferencia de v1.4 (solo lectura). Requiere identificadores de prueba dedicados + cleanup obligatorio (crear→verificar→revertir, DM-06) y **confirmación del operator sobre qué es seguro tocar en develop** antes de Phase 27. El mutating-gate impide prod. Depende también de creds Auth0 + acceso a develop (mismo standing blocker que v1.4 Phase 23, ya resuelto post-close con creds provistas por el operator).
+- [v1.5 / Phase 27 risk]: La **idempotencia real** de los POST de symbols la declara el spec, pero un POST no idempotente reintentado duplicaría estado → se revalida en vivo (DM-03) antes de confiar el retry-behavior. `POST /calendar/holidays` se asume `idempotent=False` (no retry) salvo confirmación live.
+- [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
 
 ### Quick Tasks Completed
 
@@ -198,16 +204,16 @@ Items acknowledged and deferred by operator at v1.4 milestone close ("Proceed wi
 |----------|------|--------|---------------|
 | uat_gap | 20-UAT.md | passed — 0 pending scenarios | False-positive (open-artifact audit parser heuristic flags file presence) — no action |
 | verification_gap | LIVE-MD-01 real credentialed sweep | **RESOLVED post-close 2026-07-31** — operator supplied Auth0 creds; real sweep ran vs develop (PASS=17, snapshots=12), found+fixed 3 real divergences in-cycle (quick tasks 260731-j93 + 260731-jim), final re-run 0 real divergences | No longer deferred — LIVE-MD-01 satisfied with real live evidence; fixes on `release/v0.2.0-bump` (post-`v1.4`-tag) |
-| deferred_cap | MUT-MD-01/02, STREAM-MD-01, SEC-MD-01/02 | v2 requirements (market-data-client) | Deferred to v1.5+ — mutations, SSE streaming, disk token cache, JWT signature validation (see ROADMAP Backlog) |
+| deferred_cap | MUT-MD-01/02, STREAM-MD-01, SEC-MD-01/02 | v2 requirements (market-data-client) | MUT-MD-01/02 **now active in v1.5** (Phases 25-26); STREAM-MD-01 + SEC-MD-01/02 remain v1.6+ (see ROADMAP Backlog) |
 
 See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for full close context.
 
 ## Session Continuity
 
-Last session: 2026-07-31T15:03:22.086Z
-Stopped at: Phase 24 context gathered (assumptions mode)
-Resume file: .planning/phases/24-release-prep-publish-v0-1-0/24-CONTEXT.md
+Last session: 2026-07-31T19:22:56.326Z
+Stopped at: v1.5 roadmap created (Phases 25-28)
+Resume file: .planning/ROADMAP.md (Phase Details v1.5)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first phase with `/gsd-plan-phase 25` (Mutating-gate + Symbols write)

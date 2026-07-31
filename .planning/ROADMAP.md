@@ -7,8 +7,16 @@
 - ✅ **v1.2 Architecture + Auth/Ergonomics Carry-forwards** — Phases 12-17 (shipped 2026-06-25) — see [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Codegen Single-Source (libcst)** — Phases 18-19 (closed 2026-07-03 on signed SPIKE-006 NO-GO; Phase 19 REFAC-06 dropped) — see [`milestones/v1.3-ROADMAP.md`](./milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 market-data-client** — Phases 20-24 (shipped 2026-07-31) — nuevo paquete cliente (solo lectura) contra la API primary-extractor con Auth0 client-credentials, verificado en vivo y publicado v0.1.0 — see [`milestones/v1.4-ROADMAP.md`](./milestones/v1.4-ROADMAP.md)
+- 🚧 **v1.5 market-data-client · mutaciones** — Phases 25-28 (in progress) — extiende `market-data-client` (v0.2.0, lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad, verificada en vivo de forma segura, y publicada v0.3.0
 
 ## Phases
+
+### 🚧 v1.5 market-data-client · mutaciones (Phases 25-28) — IN PROGRESS
+
+- [ ] **Phase 25: Mutating-gate + Symbols write** — safety gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes) + `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}` — GATE-MD-01 + MUT-MD-01
+- [ ] **Phase 26: Calendar write** — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con `confirm` guardrail — MUT-MD-02
+- [ ] **Phase 27: Verificación en vivo segura + fixes** — probes de mutación detrás del gate contra develop (create→verify→revert), revalida idempotencia DM-03, fixes in-cycle — LIVE-MUT-01
+- [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release — PUB-MUT-01
 
 <details>
 <summary>✅ v1.4 market-data-client (Phases 20-24) — SHIPPED 2026-07-31</summary>
@@ -82,6 +90,55 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 </details>
 
+## Phase Details (v1.5)
+
+### Phase 25: Mutating-gate + Symbols write
+**Goal**: El consumidor puede crear/actualizar symbols detrás de un gate de seguridad opt-in que hace **imposible disparar una mutación por accidente** — el gate es load-bearing y se construye primero; symbols es la primera superficie de mutación que lo ejercita.
+**Depends on**: Phase 24 (v1.4 read surface v0.2.0 — el paquete base con `_core.py`, transporte, auth Auth0)
+**Requirements**: GATE-MD-01, MUT-MD-01
+**Success Criteria** (what must be TRUE):
+  1. Un `Client()` / `AsyncClient()` por default **rehúsa toda mutación** con un `MarketDataMutationNotAllowedError` tipado (⊂ `MarketDataError`) — no se emite request HTTP alguno.
+  2. Con `mutating_allowed=True` (constructor o `configure()`) **y** el host/base_url esperado, el consumidor puede `create_symbol` (`NewSymbol`), `create_symbols` (batch 1–500, `NewSymbols`) y `update_symbol` (`SymbolPatch`) en sync y async.
+  3. Los request-bodies serializan desde modelos tipados a JSON; las respuestas `201`/`200` parsean a `SafeModel` tolerantes y `422` levanta un error tipado.
+  4. Las operaciones no idempotentes se despachan con `request.extensions["idempotent"]=False` per DM-03, de modo que el transporte de retries **nunca** las reintenta.
+  5. Paridad sync/async: idéntico comportamiento en `client.py` y `aio.py`, dispatch vía builders `_core.py`; 4 gates verdes (ruff/format/mypy-strict/pytest).
+**Plans**: TBD
+
+### Phase 26: Calendar write
+**Goal**: El consumidor puede administrar la configuración de calendario y los feriados detrás del mismo mutating-gate, con el guardrail `confirm` del servidor expuesto explícitamente.
+**Depends on**: Phase 25 (necesita el mutating-gate; 25 es prerequisito — no paraleliza con nada antes del gate)
+**Requirements**: MUT-MD-02
+**Success Criteria** (what must be TRUE):
+  1. Detrás del gate, el consumidor puede `set_calendar_config` (`PUT`, `MarketHoursIn`), `delete_calendar_config` (`DELETE`), `preview_calendar_config` (`POST` preview), `add_holidays` (`POST`, `HolidaysIn`) y `delete_holiday(day)` (`DELETE`) en sync y async.
+  2. `set_calendar_config` expone `confirm` con **default `False`** (guardrail del servidor) y respeta el resto de defaults de `MarketHoursIn`.
+  3. Los request-models tipados `MarketHoursIn`/`HolidayIn`/`HolidaysIn` serializan a JSON reusando `_params.drop_none`; el `preview` pasa por el gate (es POST) pero **no persiste** — la excepción read-safe queda documentada.
+  4. La idempotencia por-endpoint se setea per DM-03 (`POST /calendar/holidays` con `idempotent=False` → no retry; el resto retry-safe).
+  5. Paridad sync/async y enforcement del gate idénticos a Phase 25; tests mockeados (gate, serialización, defaults, `confirm`, `422`, paridad) y 4 gates verdes.
+**Plans**: TBD
+
+### Phase 27: Verificación en vivo segura + fixes
+**Goal**: Toda la superficie de mutación (sync + async) se ejercita en vivo contra develop de forma **destructiva pero segura** (create→verify→revert), la idempotencia asumida se revalida, y toda divergencia se corrige en el mismo ciclo.
+**Depends on**: Phases 25 y 26 (necesita ambas superficies de mutación construidas)
+**Requirements**: LIVE-MUT-01
+**Success Criteria** (what must be TRUE):
+  1. `main_market_data.py` ejercita todas las mutaciones (symbols + calendar) sync+async **detrás del mutating-gate** (`mutating_allowed=True` sólo bajo env-gate explícito + host develop exacto, patrón `verification/mutation_gate.py`).
+  2. Cada probe destructivo usa **identificadores de prueba dedicados** y completa un ciclo de cleanup (crear→verificar→revertir con el DELETE/PATCH correspondiente); la config real de mercado **nunca** se toca sin `confirm`.
+  3. La idempotencia por-endpoint (DM-03) se **revalida contra el comportamiento en vivo** antes de confiar el retry-behavior; retry-safety confirmado o corregido.
+  4. Toda divergencia (shape de respuesta, códigos, idempotencia real) se documenta en findings y se corrige in-cycle, espejada sync/async, con un test de regresión mockeado por fix.
+  5. Cycle closure PASS.
+**Plans**: TBD
+
+### Phase 28: Release prep + publish v0.3.0
+**Goal**: `market-data-client` se publica como `v0.3.0` (minor bump, no breaking sobre la superficie de lectura v0.2.0) por el pipeline de tags.
+**Depends on**: Phase 27 (la superficie de mutación verificada en vivo)
+**Requirements**: PUB-MUT-01
+**Success Criteria** (what must be TRUE):
+  1. Versión bumpeada a `0.3.0` en `pyproject` + `__version__`; README changelog documenta las nuevas mutaciones + el opt-in del gate; `uv.lock` refrescado.
+  2. PR abierto; los 15 checks de CI verdes (incl. los jobs de `market-data-client` en la matrix py3.12 + py3.13).
+  3. Merge a `main`; tag `market-data-client-v0.3.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
+  4. El bump es minor no-breaking: la superficie de lectura v0.2.0 permanece 100% compatible.
+**Plans**: TBD
+
 ## Progress
 
 | Phase                                                       | Milestone | Plans | Status      | Completed  |
@@ -110,6 +167,10 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 | 22. Instruments/segments/symbols/calendar (read) + models   | v1.4      | 2/2   | Complete    | 2026-07-30 |
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
+| 25. Mutating-gate + Symbols write                           | v1.5      | 0/?   | Not started | -          |
+| 26. Calendar write                                          | v1.5      | 0/?   | Not started | -          |
+| 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
+| 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
 
 ## Backlog
 

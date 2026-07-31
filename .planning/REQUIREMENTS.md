@@ -54,7 +54,7 @@ Excluido explícitamente para prevenir scope creep.
 
 ## Traceability
 
-Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
+Qué fases cubren qué requisitos. Confirmado en la creación del roadmap (2026-07-31).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
@@ -67,9 +67,9 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 **Coverage:**
 
 - v1 requirements: 5 total
-- Mapped to phases: 5 (provisional — el roadmapper confirma)
+- Mapped to phases: 5 (confirmed — 100% coverage, sin orphans)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-31*
-*Last updated: 2026-07-31 after v1.5 milestone kickoff*
+*Last updated: 2026-07-31 after v1.5 roadmap creation (Phases 25-28)*
