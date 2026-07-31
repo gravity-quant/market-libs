@@ -200,7 +200,7 @@ Items acknowledged and deferred by operator at v1.4 milestone close ("Proceed wi
 | Category | Item | Status | Carry-forward |
 |----------|------|--------|---------------|
 | uat_gap | 20-UAT.md | passed — 0 pending scenarios | False-positive (open-artifact audit parser heuristic flags file presence) — no action |
-| verification_gap | LIVE-MD-01 real credentialed sweep | apparatus verified (verifier 12/12); real develop run pending Auth0 creds + VPN/allowlist | Carried to v1.5+ — independent of the v0.1.0 publish (PUB-MD-01 shipped) |
+| verification_gap | LIVE-MD-01 real credentialed sweep | **RESOLVED post-close 2026-07-31** — operator supplied Auth0 creds; real sweep ran vs develop (PASS=17, snapshots=12), found+fixed 3 real divergences in-cycle (quick tasks 260731-j93 + 260731-jim), final re-run 0 real divergences | No longer deferred — LIVE-MD-01 satisfied with real live evidence; fixes on `release/v0.2.0-bump` (post-`v1.4`-tag) |
 | deferred_cap | MUT-MD-01/02, STREAM-MD-01, SEC-MD-01/02 | v2 requirements (market-data-client) | Deferred to v1.5+ — mutations, SSE streaming, disk token cache, JWT signature validation (see ROADMAP Backlog) |
 
 See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for full close context.
