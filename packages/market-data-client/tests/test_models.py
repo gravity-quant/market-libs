@@ -17,9 +17,14 @@ Pins the D-01/D-04/D-05 behaviors:
 
 from __future__ import annotations
 
+import pytest
+
 from market_data_client.models import (
     LatestRequest,
     MarketDataSnapshot,
+    NewSymbol,
+    NewSymbols,
+    SymbolPatch,
 )
 
 
@@ -138,3 +143,67 @@ def test_latest_request_to_dict_keeps_supplied_optionals() -> None:
         "marketId": "BCBA",
         "entries": ["BID", "OFFER"],
     }
+
+
+# ----------------------------------------------------------------------
+# Serialize-OUT request models (Plan 25-02, MUT-MD-01): NewSymbol, NewSymbols,
+# SymbolPatch. NOT SafeModel subclasses — they serialize OUT via to_dict().
+# ----------------------------------------------------------------------
+
+
+def test_new_symbol_to_dict_defaults_market_id_rofx() -> None:
+    """market_id defaults to "ROFX" and is ALWAYS sent explicitly (D-10)."""
+    out = NewSymbol("DLR/DIC26").to_dict()
+    assert out == {"symbol": "DLR/DIC26", "market_id": "ROFX"}
+
+
+def test_new_symbol_to_dict_uses_snake_case_market_id_wire_key() -> None:
+    """Wire key is snake_case ``market_id`` per source-plan schema (Pitfall 3 / A2),
+    intentionally different from LatestRequest's camelCase ``marketId``."""
+    out = NewSymbol("DLR/DIC26").to_dict()
+    assert "market_id" in out
+    assert "marketId" not in out
+
+
+def test_new_symbol_to_dict_explicit_market_id() -> None:
+    out = NewSymbol("GGAL", market_id="ROFX").to_dict()
+    assert out == {"symbol": "GGAL", "market_id": "ROFX"}
+
+
+def test_new_symbols_to_dict_wraps_each_symbol() -> None:
+    out = NewSymbols([NewSymbol("A"), NewSymbol("B")]).to_dict()
+    assert out == {
+        "symbols": [
+            {"symbol": "A", "market_id": "ROFX"},
+            {"symbol": "B", "market_id": "ROFX"},
+        ]
+    }
+
+
+def test_symbol_patch_to_dict_active_false() -> None:
+    assert SymbolPatch(active=False).to_dict() == {"active": False}
+
+
+def test_symbol_patch_to_dict_active_true() -> None:
+    assert SymbolPatch(active=True).to_dict() == {"active": True}
+
+
+def test_new_symbols_empty_raises_value_error() -> None:
+    """Lower-bound guard: an empty batch raises a plain ValueError (NOT a
+    MarketData* error) before any dispatch (D-11)."""
+    with pytest.raises(ValueError, match="1-500"):
+        NewSymbols([])
+
+
+def test_new_symbols_over_500_raises_value_error() -> None:
+    """Upper-bound guard: 501 symbols raises a plain ValueError before dispatch."""
+    with pytest.raises(ValueError, match="1-500"):
+        NewSymbols([NewSymbol(f"S{i}") for i in range(501)])
+
+
+def test_new_symbols_boundary_1_and_500_construct() -> None:
+    """Exactly 1 and exactly 500 symbols construct successfully."""
+    one = NewSymbols([NewSymbol("ONLY")])
+    assert len(one.symbols) == 1
+    full = NewSymbols([NewSymbol(f"S{i}") for i in range(500)])
+    assert len(full.symbols) == 500
