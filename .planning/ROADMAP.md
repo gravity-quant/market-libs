@@ -186,7 +186,7 @@ Plans:
 
 **Requirements:** PUB-MD-01
 **Depends on:** Phase 23
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -195,7 +195,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 24-02-PLAN.md — Release execution: open PR → CI green → blocking go/no-go → merge → tag market-data-client-v0.1.0 → verify GitHub Release (wave 2, gated)
+- [x] 24-02-PLAN.md — Release execution: open PR → CI green → blocking go/no-go → merge → tag market-data-client-v0.1.0 → verify GitHub Release (wave 2, gated)
 
 **Success criteria:**
 

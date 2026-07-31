@@ -4,17 +4,17 @@ milestone: v1.4
 milestone_name: market-data-client
 current_phase: 24
 current_phase_name: release-prep-publish-v0-1-0
-status: executing
+status: verifying
 stopped_at: Phase 24 context gathered (assumptions mode)
-last_updated: "2026-07-31T14:50:22.661Z"
+last_updated: "2026-07-31T15:03:42.511Z"
 last_activity: 2026-07-31
 last_activity_desc: Phase 24 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
-  percent: 80
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 Phase: 24 (release-prep-publish-v0-1-0) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-31 — Phase 24 execution started
 
 ## Performance Metrics
@@ -98,6 +98,7 @@ Last activity: 2026-07-31 — Phase 24 execution started
 | Phase 22 P01 | 5min | 3 tasks | 4 files |
 | Phase 22 P02 | 3min | 3 tasks | 5 files |
 | Phase 24 P01 | 6min | 3 tasks | 5 files |
+| Phase 24 P02 | 8min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,7 @@ Recent decisions affecting current work:
 - [Phase 22]: 22-02: 5 sync + 5 async reference methods dispatch through Plan 01 _core builders/parsers; get_calendar_config returns a single CalendarConfig (D-07), the other four return list[Model]
 - [Phase ?]: [Phase 24-01]: Committed the pre-staged uv.lock market-data-client workspace-member registration (D-03/D-11), validated via uv sync --frozen + uv lock --check (both exit 0), not regenerated.
 - [Phase ?]: [Phase 24-01]: Left global mypy files, importlinter root_packages, and CI typecheck per-package loop untouched (scope_decisions deferrals) — coverage gaps not CI failures; new package pytest+coverage runs via the matrix edit so CI stays green.
+- [Phase ?]: [Phase 24-02]: Merged PR #5 with a true merge commit (gh pr merge --merge) so tag market-data-client-v0.1.0 sits on the distinct merge commit 1ea655d (D-10); release.yml unedited (D-02) matched the tag and published the GitHub Release with wheel + sdist (PUB-MD-01).
 
 ### Pending Todos
 
@@ -191,7 +193,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-31T14:49:56.277Z
+Last session: 2026-07-31T15:03:22.086Z
 Stopped at: Phase 24 context gathered (assumptions mode)
 Resume file: .planning/phases/24-release-prep-publish-v0-1-0/24-CONTEXT.md
 
