@@ -22,7 +22,7 @@ Requisitos del milestone v1.4. Cada uno mapea a una fase del roadmap.
 
 ### Verification
 
-- [ ] **LIVE-MD-01**: La superficie pública completa del paquete (sync + async) se ejercita en vivo contra `https://market-data-develop.bbsa.com.ar` con credenciales Auth0 a través del driver `main_market_data.py`, reutilizando la infra `verification/` (split live/offline, redacción); toda divergencia cliente-vs-servicio se documenta y se corrige en el mismo ciclo (espejada sync/async)
+- [x] **LIVE-MD-01**: La superficie pública completa del paquete (sync + async) se ejercita en vivo contra `https://market-data-develop.bbsa.com.ar` con credenciales Auth0 a través del driver `main_market_data.py`, reutilizando la infra `verification/` (split live/offline, redacción); toda divergencia cliente-vs-servicio se documenta y se corrige en el mismo ciclo (espejada sync/async)
 
 ### Release
 
@@ -69,7 +69,7 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 | CORE-MD-01 | Phase 20 | Complete |
 | MD-01 | Phase 21 | Complete |
 | REF-MD-01 | Phase 22 | Complete |
-| LIVE-MD-01 | Phase 23 | Pending |
+| LIVE-MD-01 | Phase 23 | Complete |
 | PUB-MD-01 | Phase 24 | Pending |
 
 **Coverage:**

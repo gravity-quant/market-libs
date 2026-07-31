@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
-current_phase: 23
-current_phase_name: verificaci-n-en-vivo-contra-develop-fixes
+current_phase: 24
+current_phase_name: Release prep + publish v0.1.0
 status: executing
 stopped_at: Phase 23 context gathered (assumptions mode)
-last_updated: "2026-07-30T21:19:14.920Z"
-last_activity: 2026-07-30
-last_activity_desc: Phase 23 execution resumed (wave continue)
+last_updated: "2026-07-31T00:05:29.473Z"
+last_activity: 2026-07-31
+last_activity_desc: Phase 23 complete, transitioned to Phase 24
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 14
-  completed_plans: 13
-  percent: 60
+  completed_plans: 14
+  percent: 80
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 ## Current Position
 
-Phase: 23 (verificaci-n-en-vivo-contra-develop-fixes) — EXECUTING
-Plan: 1 of 2
+Phase: 24 — Release prep + publish v0.1.0
+Plan: Not started
 Status: Executing Phase 23
-Last activity: 2026-07-30 — Phase 23 execution resumed (wave continue)
+Last activity: 2026-07-31 — Phase 23 complete, transitioned to Phase 24
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 72 (v1.0)
+- Total plans completed: 74 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
