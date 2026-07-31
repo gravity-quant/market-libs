@@ -107,6 +107,12 @@ def test_build_latest_request_shape() -> None:
     assert spec.params == {"symbol": "S", "market_id": "M"}
 
 
+def test_build_latest_request_requires_symbol() -> None:
+    """``build_latest_request`` raises ``TypeError`` when ``symbol`` is omitted (F-01/F-13)."""
+    with pytest.raises(TypeError):
+        _core.build_latest_request(_ClientState())  # type: ignore[call-arg]
+
+
 # ----------------------------------------------------------------------
 # build_latest_batch_request (D-05 / D-06)
 # ----------------------------------------------------------------------

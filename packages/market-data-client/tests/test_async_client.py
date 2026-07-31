@@ -256,6 +256,12 @@ async def test_async_get_latest_sends_bearer_and_params(httpx_mock: HTTPXMock) -
     assert req.url.params.get("symbol") == "GGAL"
 
 
+async def test_async_get_latest_requires_symbol() -> None:
+    """Async ``get_latest`` raises ``TypeError`` when ``symbol`` is omitted (F-13)."""
+    with pytest.raises(TypeError):
+        await aio._get_default().get_latest()  # type: ignore[call-arg]
+
+
 async def test_async_get_latest_batch_sends_bearer_and_body(httpx_mock: HTTPXMock) -> None:
     """Async ``get_latest_batch`` POSTs the serialized ``LatestRequest`` with the Bearer."""
     httpx_mock.add_response(
