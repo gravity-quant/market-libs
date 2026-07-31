@@ -1,10 +1,14 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.5
-milestone_name: market-data-client mutaciones
+milestone_name: market-data-client · mutaciones
+current_phase: 25
+current_phase_name: Mutating-gate + Symbols write
 status: planning
-last_updated: "2026-07-31T19:22:56.326Z"
+stopped_at: Phase 25 context gathered (assumptions mode)
+last_updated: "2026-07-31T19:48:15.363Z"
 last_activity: 2026-07-31
+last_activity_desc: v1.5 roadmap created (Phases 25-28, 5/5 requirements mapped)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -210,9 +214,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-31T19:22:56.326Z
-Stopped at: v1.5 roadmap created (Phases 25-28)
-Resume file: .planning/ROADMAP.md (Phase Details v1.5)
+Last session: 2026-07-31T19:48:15.356Z
+Stopped at: Phase 25 context gathered (assumptions mode)
+Resume file: .planning/phases/25-mutating-gate-symbols-write/25-CONTEXT.md
 
 ## Operator Next Steps
 
