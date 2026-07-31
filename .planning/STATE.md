@@ -2,43 +2,43 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
-current_phase: 24
-current_phase_name: release-prep-publish-v0-1-0
-status: executing
+current_phase: 4
+status: Awaiting next milestone
 stopped_at: Phase 24 context gathered (assumptions mode)
-last_updated: "2026-07-31T14:50:22.661Z"
+last_updated: "2026-07-31T15:39:22.485Z"
 last_activity: 2026-07-31
-last_activity_desc: Phase 24 execution started
+last_activity_desc: Milestone v1.4 completed and archived
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
-  percent: 80
+  completed_plans: 16
+  percent: 100
+current_phase_name: release-prep-publish-v0-1-0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.4 amplió el monorepo de 5 a 6 paquetes: `market-data-client v0.1.0` publicado — solo lectura, Auth0 client-credentials — espejando cada decisión arquitectónica existente; el apparatus de verificación en vivo está verificado pero el barrido credencial-real contra develop sigue pendiente de creds Auth0 + VPN.)
 
-**Current focus:** Phase 24 — release-prep-publish-v0-1-0
+**Current focus:** v1.4 shipped — awaiting next milestone (`/gsd-new-milestone` to scope v1.5)
 
 ## Current Position
 
-Phase: 24 (release-prep-publish-v0-1-0) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-07-31 — Phase 24 execution started
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-31 — Milestone v1.4 completed and archived
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 74 (v1.0)
+- Total plans completed: 76 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -98,6 +98,7 @@ Last activity: 2026-07-31 — Phase 24 execution started
 | Phase 22 P01 | 5min | 3 tasks | 4 files |
 | Phase 22 P02 | 3min | 3 tasks | 5 files |
 | Phase 24 P01 | 6min | 3 tasks | 5 files |
+| Phase 24 P02 | 8min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,7 @@ Recent decisions affecting current work:
 - [Phase 22]: 22-02: 5 sync + 5 async reference methods dispatch through Plan 01 _core builders/parsers; get_calendar_config returns a single CalendarConfig (D-07), the other four return list[Model]
 - [Phase ?]: [Phase 24-01]: Committed the pre-staged uv.lock market-data-client workspace-member registration (D-03/D-11), validated via uv sync --frozen + uv lock --check (both exit 0), not regenerated.
 - [Phase ?]: [Phase 24-01]: Left global mypy files, importlinter root_packages, and CI typecheck per-package loop untouched (scope_decisions deferrals) — coverage gaps not CI failures; new package pytest+coverage runs via the matrix edit so CI stays green.
+- [Phase ?]: [Phase 24-02]: Merged PR #5 with a true merge commit (gh pr merge --merge) so tag market-data-client-v0.1.0 sits on the distinct merge commit 1ea655d (D-10); release.yml unedited (D-02) matched the tag and published the GitHub Release with wheel + sdist (PUB-MD-01).
 
 ### Pending Todos
 
@@ -158,6 +160,8 @@ Recent decisions affecting current work:
 | 260613-nwb | Fix INT-01: replace denied `_base_url` with `_get_default()._state.base_url` in main_iol.py (15 probes) — closes INT-01, unblocks LIVE-01 (Phase 11) | 2026-06-13 | 3de1940 | [260613-nwb-fix-int-01-main-iol-py-crashea-con-attri](./quick/260613-nwb-fix-int-01-main-iol-py-crashea-con-attri/) |
 | 260614-de5 | Fix DOC-01..04 before completing milestone v1.1 — backfill 4 SUMMARY frontmatters + flip REQUIREMENTS.md traceability table 18 rows Open→Complete + emit Phase 10/11 VERIFICATION shims + remove ORP-01 dead `account_id` field from matriz `_state.py` | 2026-06-14 | 9d01d7f, cd946a3 | [260614-de5-fix-doc-01-04-before-completing-mileston](./quick/260614-de5-fix-doc-01-04-before-completing-mileston/) |
 | 260614-r1x | Fix v1.1 CI mypy + pre-commit tech debt (mypy-precommit-v1.1-techdebt) — Bucket A: 4 unused `# type: ignore` dropped + `_raise_for_response` added to `aio.__all__`; Bucket B+C: bump `ruff-pre-commit` v0.7.4→v0.15.12; Bucket D: add `tenacity>=9.1.0,<10` to pre-commit mypy `additional_dependencies` | 2026-06-14 | e5ad1c1, 73cb578, c7bf9e9, 2b8ec4a | [260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl](./quick/260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl/) |
+| 260731-j93 | Make `symbol` a required kwarg in market-data-client `get_latest` (5 sites: client.py method+shim, aio.py method+shim, `_core.build_latest_request`) + probe updates + sync/async/builder regression tests — closes v1.4 Phase-23 live findings F-01/F-13 (`GET /marketdata/latest` returns 422 without `symbol`; OpenAPI `required=True`). Verified live: driver re-run PASS=19 FINDING=0; 137 pkg tests green | 2026-07-31 | d062761, 36aa94b, 68092d7 | [260731-j93-make-symbol-a-required-kwarg-in-market-d](./quick/260731-j93-make-symbol-a-required-kwarg-in-market-d/) |
+| 260731-jim | Reconcile `MarketDataSnapshot` + `CalendarConfig` SafeModels against the real develop wire (LIVE-MD-01 schema snapshots): `marketId`→`market_id`, add `active`/`market_data`/`staleness_seconds`/`note`; drop invented `businessDays`+`MarketDataEntry`, add full `/calendar/config` field set; **fix `parse_market_data_response` envelope-unwrap bug** (iterated envelope keys instead of `items[]`). Closes the 36 live SHAPE findings. Verified live: `market_data snapshots=5→12`, SHAPE divergences gone (only 2 benign NO-DATA remain); 139 pkg tests green | 2026-07-31 | 0852d43, 45c1885, 8c8e494 | [260731-jim-reconcile-market-data-client-marketdatas](./quick/260731-jim-reconcile-market-data-client-marketdatas/) |
 
 ## Deferred Items
 
@@ -189,12 +193,24 @@ Items surfaced by `gsd-sdk query audit-open` (6 total) and acknowledged by opera
 
 See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for full close context.
 
+### Acknowledged at v1.4 close on 2026-07-31
+
+Items acknowledged and deferred by operator at v1.4 milestone close ("Proceed with close"). None are real blockers:
+
+| Category | Item | Status | Carry-forward |
+|----------|------|--------|---------------|
+| uat_gap | 20-UAT.md | passed — 0 pending scenarios | False-positive (open-artifact audit parser heuristic flags file presence) — no action |
+| verification_gap | LIVE-MD-01 real credentialed sweep | **RESOLVED post-close 2026-07-31** — operator supplied Auth0 creds; real sweep ran vs develop (PASS=17, snapshots=12), found+fixed 3 real divergences in-cycle (quick tasks 260731-j93 + 260731-jim), final re-run 0 real divergences | No longer deferred — LIVE-MD-01 satisfied with real live evidence; fixes on `release/v0.2.0-bump` (post-`v1.4`-tag) |
+| deferred_cap | MUT-MD-01/02, STREAM-MD-01, SEC-MD-01/02 | v2 requirements (market-data-client) | Deferred to v1.5+ — mutations, SSE streaming, disk token cache, JWT signature validation (see ROADMAP Backlog) |
+
+See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for full close context.
+
 ## Session Continuity
 
-Last session: 2026-07-31T14:49:56.277Z
+Last session: 2026-07-31T15:03:22.086Z
 Stopped at: Phase 24 context gathered (assumptions mode)
 Resume file: .planning/phases/24-release-prep-publish-v0-1-0/24-CONTEXT.md
 
 ## Operator Next Steps
 
-- Plan Phase 20 with `/gsd-discuss-phase 20` (gather context) or `/gsd-plan-phase 20` (plan directly)
+- Start the next milestone with /gsd-new-milestone

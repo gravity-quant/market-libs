@@ -403,7 +403,7 @@ class Client:
     def get_latest(
         self,
         *,
-        symbol: str | None = None,
+        symbol: str,
         market_id: str | None = None,
         entries: str | None = None,
     ) -> list[MarketDataSnapshot]:
@@ -609,7 +609,7 @@ def get_market_data(
 
 def get_latest(
     *,
-    symbol: str | None = None,
+    symbol: str,
     market_id: str | None = None,
     entries: str | None = None,
 ) -> list[MarketDataSnapshot]:

@@ -232,6 +232,12 @@ def test_get_latest_sends_bearer_and_params(httpx_mock: HTTPXMock) -> None:
     assert req.url.params.get("symbol") == "GGAL"
 
 
+def test_get_latest_requires_symbol() -> None:
+    """``get_latest`` raises ``TypeError`` at call time when ``symbol`` is omitted (F-01)."""
+    with pytest.raises(TypeError):
+        market_data_client.client._get_default().get_latest()  # type: ignore[call-arg]
+
+
 def test_get_latest_batch_sends_bearer_and_body(httpx_mock: HTTPXMock) -> None:
     """``get_latest_batch`` POSTs the serialized ``LatestRequest`` body with the Bearer."""
     httpx_mock.add_response(

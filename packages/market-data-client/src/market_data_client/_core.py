@@ -329,14 +329,16 @@ def build_market_data_request(
 def build_latest_request(
     state: _ClientState,
     *,
-    symbol: str | None = None,
+    symbol: str,
     market_id: str | None = None,
     entries: str | None = None,
 ) -> RequestSpec:
     """Pure: build spec for ``GET /marketdata/latest`` (D-06).
 
-    Same authenticated/idempotent contract as ``build_market_data_request``;
-    ``None`` optionals dropped, empty dict → ``params=None``.
+    Same authenticated/idempotent contract as ``build_market_data_request``.
+    ``symbol`` is required (the live OpenAPI marks the query param
+    ``required=True``; F-01/F-13); ``market_id`` and ``entries`` remain
+    droppable ``None`` optionals, empty dict → ``params=None``.
     """
     del state  # state-independent (filtros vienen por kwargs)
     params = _params.drop_none(
@@ -520,8 +522,10 @@ def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]
     ``received_at`` stamp captured ONCE, between ``resp.read()`` and
     ``raise_for_response`` — the single wall-clock is threaded into EVERY
     snapshot so all rows from one response share the same stamp (D-01/D-02: the
-    client owns the stamp; live-payload reconciliation is deferred to Phase 23).
-    A ``null``/empty body collapses to ``[]`` (collection guard).
+    client owns the stamp). The develop wire wraps the rows in an envelope
+    ``{count, items:[...], limit, offset, total}`` (LIVE-MD-01), so a dict body is
+    unwrapped via ``items``; a bare-list body is still accepted as-is; a
+    ``null``/empty/other body collapses to ``[]`` (collection guard).
     """
     resp.read()
     received_at = time.time()
@@ -531,7 +535,15 @@ def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]
     raw = resp.json()
     if raw is None:
         return []
-    return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in raw]
+    if isinstance(raw, dict):
+        rows = raw.get("items", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in rows]
 
 
 def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:

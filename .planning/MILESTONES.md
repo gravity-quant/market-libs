@@ -1,5 +1,27 @@
 # Milestones
 
+## v1.4 market-data-client (Shipped: 2026-07-31)
+
+**Phases completed:** 5 phases (20-24), 16 plans, 36 tasks
+**Milestone tag:** `v1.4` · **Package release:** `market-data-client-v0.1.0` (merge commit `1ea655d`, GitHub Release with wheel + sdist)
+**Source delta:** 31 files, +5,502 LOC (new package) · **Package tests:** 134 green + workspace suites; ruff + ruff-format + mypy-strict clean on py3.12 + py3.13
+
+**Key accomplishments:**
+
+- **Scaffold + Auth0 client-credentials foundations (Phase 20, AUTH-MD-01 + CORE-MD-01):** stood up the 6th monorepo package `market-data-client` mirroring `iol-client` — hatchling/uv metadata + `py.typed`, 4-class typed exception hierarchy, Auth0 `client_credentials` token lifecycle (TTL cache + refresh, `expires_in`) in both sync (`client.py`) and async (`aio.py`, per-loop double-checked `asyncio.Lock`), the pure IO-free `_core.py` (grant builder + token parser + status→exception map + anonymous `/health` builders), full-jitter retry transport pair, `RedactingFilter` credential scrubbing, and `configure()`.
+- **Market-data read surface + models (Phase 21, MD-01):** `get_market_data` / `get_latest` / `get_latest_batch` across both surfaces via three pure `_core` builders + parsers; net-new `models.py` with tolerant `SafeModel` `MarketDataSnapshot`/`MarketDataEntry`/`LatestRequest` and client-stamped first-class `received_at`; real `with_options(max_retries=N)` shared-view clone threading `request.extensions["max_attempts"]`. Folded Phase-20 debt D-09 (async header token precedence) + D-10 (permanent 401 re-auth regression tests).
+- **Reference-data read surface + models (Phase 22, REF-MD-01):** `get_instruments` / `get_segments` / `get_symbols` / `get_calendar` / `get_calendar_config` across both surfaces via five `_core` builders + parsers; five plain `SafeModel` dataclasses (`Instrument`/`Segment`/`Symbol`/`CalendarDay`/`CalendarConfig`, no `received_at` per D-05); collection endpoints guard 204/null→`[]` (D-06), `calendar/config` returns a single typed model (D-07).
+- **Live-verification apparatus + D-09 hardening (Phase 23, LIVE-MD-01):** `main_market_data.py` — the 6th driver — exercises all 10 read endpoints × sync/async through one `Client()` + one `AsyncClient()`, reusing the `verification/` infra (redacted output, write-once schema snapshots, SHAPE-diff, findings lifecycle), gated by `require_env` and wired into `main_verify.py`; a code review + verifier caught and fixed in-cycle a real D-09 never-FAILED defect (post-request processing moved inside each probe's try, locked with a non-vacuous AST regression guard).
+- **Release + publish v0.1.0 (Phase 24, PUB-MD-01):** Wave 1 (autonomous) added the package to the `ci.yml` test matrix (py3.12 + py3.13), documented it as the 6th package in CLAUDE.md + MEMORY, and validated lockfile/version alignment (`uv sync --frozen` + `uv lock --check` clean); Wave 2 (gated human go/no-go) opened PR #5, confirmed 15/15 CI green, merged to `main` (`1ea655d`) and pushed tag `market-data-client-v0.1.0`, triggering `release.yml` (unedited, D-02) → GitHub Release with wheel + sdist.
+
+**Known deferred at close (acknowledged by operator — see STATE.md Deferred Items):**
+
+- **LIVE-MD-01 real credentialed sweep — RESOLVED post-close (2026-07-31).** Was deferred at close (apparatus verified 12/12, but no Auth0 creds + VPN in-repo). After the milestone archived, the operator supplied working Auth0 credentials and the real credentialed sweep ran against `market-data-develop.bbsa.com.ar`: full read surface exercised sync+async (`PASS=17`, `market_data snapshots=12`), 9 write-once schema baselines captured (DRIFT-01), and **3 real client-vs-service divergences found and fixed in-cycle** via two follow-up quick tasks — `260731-j93` (`get_latest.symbol` required per OpenAPI/422) and `260731-jim` (`MarketDataSnapshot`/`CalendarConfig` model reconciliation + `parse_market_data_response` envelope-unwrap bug). Final live re-run: 0 real divergences (2 benign NO-DATA EXPECTED). LIVE-MD-01 is now fully satisfied — apparatus **and** real live evidence. Fixes landed post-close on `release/v0.2.0-bump` (not part of the sealed v1.4 tag). See STATE.md Quick Tasks Completed + `.planning/verification/market-data-client-findings.md`.
+- **Phase 20 `20-UAT.md`** — surfaced by the pre-close open-artifact audit as a UAT gap; actual status is `passed` with 0 pending scenarios (parser false-positive). No action.
+- **v1.5+ deferrals (v2 requirements):** mutations (symbols/calendar POST/PATCH/PUT/DELETE), SSE streaming `GET /marketdata/stream`, on-disk token cache, JWT signature validation (RS256 vs JWKS).
+
+---
+
 ## v1.3 Codegen Single-Source (libcst) (Closed: 2026-07-03 — signed NO-GO)
 
 **Phases completed:** 1 phase (18; Phase 19 REFAC-06 DROPPED), 3 plans, 7 tasks

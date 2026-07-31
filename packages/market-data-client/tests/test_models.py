@@ -7,8 +7,10 @@ Pins the D-01/D-04/D-05 behaviors:
 - ``received_at`` is a CLIENT-STAMPED field injected as a keyword; it must NOT be
   coerced from the payload — a decoy ``"received_at"`` payload key is ignored and
   the injected kwarg wins (D-01, the highest-risk fidelity point of the phase).
-- Nested ``MarketDataEntry`` rows deserialize via the base ``SafeModel.from_api``
-  and carry NO ``received_at`` attribute.
+- ``entries`` deserializes as a tolerant ``list[str]`` of entry-type codes matching
+  the real develop wire (LIVE-MD-01); the reconciled ``market_id``/``active``/
+  ``market_data``/``staleness_seconds``/``note`` fields parse both the ``/marketdata``
+  item shape and the ``/marketdata/latest`` no-data shape without raising.
 - ``LatestRequest(...).to_dict()`` drops ``None``-valued optionals and keeps
   supplied values (D-05).
 """
@@ -17,7 +19,6 @@ from __future__ import annotations
 
 from market_data_client.models import (
     LatestRequest,
-    MarketDataEntry,
     MarketDataSnapshot,
 )
 
@@ -25,8 +26,10 @@ from market_data_client.models import (
 def test_from_api_empty_dict_typed_zero_defaults() -> None:
     snap = MarketDataSnapshot.from_api({})
     assert snap.symbol == ""
-    assert snap.marketId == ""
+    assert snap.market_id == ""
     assert snap.entries == []
+    assert snap.active is False
+    assert snap.note is None
 
 
 def test_from_api_none_does_not_raise() -> None:
@@ -59,30 +62,68 @@ def test_received_at_defaults_to_zero_without_kwarg() -> None:
     assert snap.received_at == 0.0
 
 
-def test_entries_deserialize_as_entry_models_without_received_at() -> None:
+def test_entries_wrong_type_tolerated_as_empty_list() -> None:
+    # entries is now a plain list[str] of entry-type codes — a non-list wire value
+    # collapses to [] (SafeModel tolerance), never a raise.
+    snap = MarketDataSnapshot.from_api({"entries": "not-a-list"}, received_at=1.0)
+    assert snap.entries == []
+
+
+def test_from_api_marketdata_item_parses_new_fields() -> None:
+    # Mirrors get-market-data.json items[0]: the reconciled wire shape parses in
+    # full, market_data passes through untouched, and the decoy received_at loses.
     snap = MarketDataSnapshot.from_api(
         {
             "symbol": "GGAL",
-            "entries": [
-                {"entryType": "BID", "price": 100.5},
-                {"entryType": "OFFER"},
-            ],
+            "market_id": "BCBA",
+            "active": True,
+            "entries": ["BI", "OF"],
+            "market_data": {
+                "BI": [{"price": 1, "size": 2}],
+                "CL": {"date": 1, "price": 3},
+                "HI": 4,
+                "OI": None,
+            },
+            "staleness_seconds": 1.5,
+            "received_at": "ignored",
         },
         received_at=42.0,
     )
-    assert len(snap.entries) == 2
-    assert all(isinstance(e, MarketDataEntry) for e in snap.entries)
-    assert snap.entries[0].entryType == "BID"
-    assert snap.entries[0].price == 100.5
-    assert snap.entries[1].entryType == "OFFER"
-    assert snap.entries[1].price == 0.0
-    # Entries never carry received_at — only the top-level snapshot does.
-    assert not hasattr(snap.entries[0], "received_at")
+    assert snap.symbol == "GGAL"
+    assert snap.market_id == "BCBA"
+    assert snap.active is True
+    assert snap.entries == ["BI", "OF"]
+    # market_data is a dict passthrough — nested rows are preserved verbatim.
+    assert snap.market_data["BI"][0]["price"] == 1
+    assert snap.market_data["OI"] is None
+    assert snap.staleness_seconds == 1.5
+    assert snap.received_at == 42.0
+    assert snap.note is None
 
 
-def test_entries_partial_or_wrong_type_tolerated() -> None:
-    snap = MarketDataSnapshot.from_api({"entries": "not-a-list"}, received_at=1.0)
+def test_from_api_latest_nodata_item() -> None:
+    # Mirrors get-latest.json: a /marketdata/latest no-data row collapses the null
+    # fields tolerantly while note carries the message and received_at stays injected.
+    snap = MarketDataSnapshot.from_api(
+        {
+            "symbol": "GGAL",
+            "note": "no data",
+            "active": None,
+            "market_data": None,
+            "market_id": None,
+            "received_at": None,
+            "staleness_seconds": None,
+        },
+        received_at=7.0,
+    )
+    assert snap.symbol == "GGAL"
+    assert snap.note == "no data"
+    assert snap.active is False
+    assert snap.market_data is None
+    assert snap.market_id == ""
     assert snap.entries == []
+    assert snap.staleness_seconds == 0.0
+    assert snap.received_at == 7.0
 
 
 def test_latest_request_to_dict_drops_none_optionals() -> None:

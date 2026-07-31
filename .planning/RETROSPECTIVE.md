@@ -155,6 +155,49 @@ Nothing shipped to production — and that was a valid, guaranteed milestone out
 
 ---
 
+## Milestone: v1.4 — market-data-client
+
+**Shipped:** 2026-07-31
+**Phases:** 5 (20-24) | **Plans:** 16 | **Tasks:** 36 | **Sessions:** ~3 days (2026-07-29 → 2026-07-31)
+
+### What Was Built
+
+The first **greenfield package** since the verification cycle began — `market-data-client v0.1.0`, the 6th monorepo package, publicly released. Rather than verifying an existing client, v1.4 *authored* one by mirroring every architectural decision already proven across the other five: `Client`/`AsyncClient` classes with `_ClientState`, a pure IO-free `_core.py` (builders/parsers), the `RetryTransport`/`AsyncRetryTransport` full-jitter pair, per-package `RedactingFilter`, `configure()`, `with_options(max_retries=N)`, and the PEP-562 public surface. The auth flavor is new — **Auth0 `client_credentials`** single-grant (vs IOL's OAuth refresh_token) — with a TTL-cache token lifecycle in both surfaces (per-loop double-checked `asyncio.Lock`). Scope was deliberately **read-only**: 10 endpoints (health + market-data + reference-data) × sync/async, with tolerant `SafeModel` dataclasses (market-data snapshots carry client-stamped `received_at`; reference/catalog models don't, D-05). Phase 23 stood up the 6th live-verification driver (`main_market_data.py`) reusing the whole `verification/` harness, and Phase 24 published via the existing per-package tag pipeline under a gated human go/no-go.
+
+### What Worked
+
+- **Verbatim mirroring of a proven package as the scaffolding strategy.** Copying `iol-client`'s shape (down to the `_core`/transport/logging split) meant zero architectural risk — every decision was already battle-tested across 5 packages and 3 milestones. The intentional 4×→6× duplication (no shared internals, by design) paid off exactly as the constraint predicted: the new package inherited correctness without a shared-library refactor.
+- **TDD data layer, then public surface.** Phases 21/22 both split into a RED→GREEN pure `_core` builders/parsers wave followed by a thin public-surface wave (3-line dispatch methods). The pure layer was fully testable before any client wiring existed, and the public surface became mechanical.
+- **Debt folded forward, not deferred indefinitely.** Phase-20 debts D-09 (async header token precedence) and D-10 (permanent 401 re-auth regression tests) were closed in Phase 21 rather than carried to close — the debt list stayed short.
+- **In-cycle code review caught a real never-FAILED defect.** Phase 23's advisory review + verifier both surfaced CR-01 (post-request `_emit_shape`/`_write_schema_snapshot` running *outside* the probe try, so a corrupt baseline would crash the driver to FAILED) — fixed in-cycle and locked with a non-vacuous AST regression guard. The review wasn't ceremony; it found a latent crash.
+- **Gated human go/no-go for the irreversible publish.** Wave 2 of Phase 24 ran fully mechanical prep autonomously (CI matrix, docs, lockfile validation) but stopped hard before merge-to-main + tag-push — the two ops that trigger a public GitHub Release. Explicit "approved" gated the irreversible step; `release.yml` stayed unedited (D-02).
+
+### What Was Inefficient
+
+- **LIVE-MD-01 could not fully close.** The live-verification requirement shipped its *apparatus* (verifier 12/12) but never ran a real credentialed sweep against develop — Auth0 creds + VPN/allowlist weren't available in-repo. This was a known risk flagged at milestone kickoff (STATE.md blocker), so it didn't derail the plan, but it means one of six requirements is "verified by construction / offline-SKIP" rather than "verified live." The publish (PUB-MD-01) was correctly made independent of it, but the gap is real and carries to v1.5+.
+- **Model field shapes were provisional through three phases.** With the API's *responses* untyped in the OpenAPI (only request schemas), the `SafeModel` field names were designed against inference in Phases 21/22 and meant to be reconciled against real payloads in Phase 23 — but Phase 23 hit the SKIP path, so the models remain bounded-by-tolerance rather than confirmed against wire data. `from_api` tolerance de-risks this, but it's unverified surface.
+- **Auto-extracted accomplishments needed hand-cleaning.** The `milestone.complete` CLI pulled two code-review bullet artifacts ("[Rule 1 - Bug]…", "[Rule 3 - Blocking]…") into the MILESTONES.md accomplishment list from SUMMARY files. Minor, but the summary-extract heuristic isn't discriminating between deliverables and in-summary review notes.
+
+### Patterns Established
+
+- **Greenfield-by-mirroring.** When the monorepo already encodes a mature package shape, a new package is a *mirror + adapt-the-auth-flavor* exercise, not a from-scratch design. The read-only scope + provisional-models + live-reconcile sequencing is now a reusable template for the next client package.
+- **Offline-SKIP as a first-class verification outcome.** Like v1.3's NO-GO, Phase 23's `require_env`-SKIP / D-09 NO-DATA path is a *sanctioned* result: zero fabricated diffs, `verify_cycle_closure` passes vacuously, the runner classifies SKIPPED (never FAILED). A verification driver that can't reach live data must degrade honestly, not fake success.
+- **Autonomous prep + gated irreversible ops within one phase.** Phase 24 split a single phase into an autonomous wave (reversible edits) and a human-gated wave (merge + tag). This is the right shape for any release phase.
+
+### Key Lessons
+
+1. **The intentional-duplication constraint is a feature at package-creation time.** What reads as "tech debt" (no shared internals, logic duplicated 6×) is exactly what made adding the 6th package low-risk — there was a complete, proven template to copy and nothing shared to break. The constraint that costs on every logic fix pays back on every new package.
+2. **Make the publish independent of the flakiest requirement.** LIVE-MD-01's live sweep was blocked on external access (creds + VPN); PUB-MD-01 was deliberately scoped to not depend on it. Shipping v0.1.0 didn't wait on an environment blocker outside the team's control — the right call, and a pattern for any release gated behind third-party access.
+3. **Untyped API responses mean models stay provisional until live-reconciled — plan for the round-trip.** The OpenAPI typed only requests; models were inference-designed and meant to firm up against real payloads. When that live step can't run, `SafeModel` tolerance is the safety net, but the surface is unconfirmed — carry it explicitly rather than claiming it validated.
+
+### Cost Observations
+
+- Model mix (estimated): ~50% opus (planners + executors authoring the new package's `_core`/client/aio/models across 5 phases), ~45% sonnet (the mechanical mirror-and-adapt work, TDD test authoring, driver wiring — well-suited to copying a proven template), ~5% haiku (utility). The genuinely-new slices (Auth0 client_credentials lifecycle, `received_at` client-stamping, the D-09 driver-hardening fix) were the opus-heavy work.
+- Sessions: ~3 days (2026-07-29 → 2026-07-31), 5 phases with Phases 21/22 parallelizable (both depend only on 20).
+- Notable: the first milestone to *ship a public release* since the package set was defined — highest external-visibility payload, lowest architectural risk (pure mirror), with the one soft spot (LIVE-MD-01) fully attributable to an external-access blocker rather than any planning gap.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -165,6 +208,7 @@ Nothing shipped to production — and that was a valid, guaranteed milestone out
 | v1.1 | ~3.5 days | 6 | 30 | Architectural refactor + spike-before-plan + per-phase VALIDATION.md operator signoff |
 | v1.2 | ~11 days | 5 (Phase 16 dropped) | 18 | CONDITIONAL phase modeling + spike NO-GO honored + per-request `extensions` override channel |
 | v1.3 | ~1 day | 1 (Phase 19 dropped) | 3 | Milestone-scale spike-gate: entire milestone closes on a signed NO-GO; two-tool convergence before permanent shelving |
+| v1.4 | ~3 days | 5 | 16 | First greenfield package (mirror-a-proven-shape); autonomous-prep + human-gated-publish; offline-SKIP as a sanctioned verification outcome |
 
 ### Cumulative Quality
 
@@ -174,6 +218,7 @@ Nothing shipped to production — and that was a valid, guaranteed milestone out
 | v1.1 | 907/908 | +630 (vs v1.0 close) / +122 (vs Phase 9 baseline) | 29/29 | tenacity 9.1.4 (Apache-2.0, zero deps, py.typed) |
 | v1.2 | ≥989 | +82 (vs v1.1 close) | 4/4 (REFAC-06 → v1.3) | platformdirs >=4.0,<5 (iol-client only) |
 | v1.3 | ≥989 (unchanged) | 0 (spike-only, zero production footprint) | 2/2 (CODEGEN-01 resolved NO-GO; REFAC-06 shelved) | (none — libcst ephemeral, never added to deps) |
+| v1.4 | ≥1,123 (+134 new package) | +134 (market-data-client suite) | 6/6 (AUTH/CORE/MD/REF/LIVE/PUB-MD; LIVE-MD-01 apparatus-verified, live sweep deferred) | (none new — httpx/python-dotenv/tenacity reused; 6th package) |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -184,3 +229,5 @@ Nothing shipped to production — and that was a valid, guaranteed milestone out
 5. **Spike-before-plan works in both directions.** v1.1 Phase 10 spiked the TokenStore concurrency primitive → GO, and the validated recipe dropped straight into the plan with zero design surprises. v1.2 Phase 12 spiked unasync codegen → NO-GO, and the failure analysis became the v1.3 libcst spike scope. The flag earns its cost whether the answer is yes or no — model the dependent work as CONDITIONAL so a NO-GO drops cleanly (Phase 16 cost nothing to absorb).
 6. **The per-request `request.extensions[...]` channel is the decoupling pattern.** v1.1 introduced it for the `idempotent` mutation gate; v1.2 reused it for `max_attempts`. The transport stays ignorant of domain types while callers thread per-call knobs through the httpx request object. Default to this for any future per-call override.
 7. **Two independent tools before shelving an architectural limitation permanently.** v1.2 Phase 12 (unasync) and v1.3 Phase 18 (libcst) both returned a signed NO-GO on codegen single-source for the same content-absence root cause. One NO-GO says "maybe the tool"; two genuinely-different tools converging says "the source shape is intrinsic." That convergence is what let REFAC-06 be shelved *permanently* (accepted as a structural feature) rather than deferred a third time. A NO-GO milestone that produces a durable signed decision is a real deliverable — v1.3 shipped zero code and was a success.
+8. **The intentional-duplication constraint that costs on every fix pays back on every new package.** For 3 milestones the "no shared internals, logic duplicated 4×" design read as tech debt. v1.4 proved its upside: adding the 6th package (`market-data-client`) was a low-risk mirror of a fully-proven template with nothing shared to break. The same constraint that makes a logic fix a 4-6× chore makes package creation a copy-and-adapt-the-auth exercise. Weigh both directions before "fixing" an intentional duplication.
+9. **Decouple the release from the flakiest requirement.** v1.4's live-verification (LIVE-MD-01) was blocked on external access (Auth0 creds + VPN); the publish (PUB-MD-01) was scoped to not depend on it, so v0.1.0 shipped on schedule while the live sweep carries forward. When a requirement hinges on third-party access outside the team's control, make the user-visible deliverable independent of it rather than letting an environment blocker gate the ship.

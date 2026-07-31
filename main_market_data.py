@@ -62,7 +62,6 @@ from market_data_client import (
     Client,
     Instrument,
     LatestRequest,
-    MarketDataEntry,
     MarketDataSnapshot,
     Segment,
     Symbol,
@@ -82,6 +81,13 @@ _SCHEMA_DIR = _REPO_ROOT / ".planning" / "verification" / "schemas" / _PKG
 # el wire. Se excluyen del direction ``model-only`` del SHAPE-diff para no emitir
 # un finding garantizado-falso (``received_at`` lo inyecta ``from_api``).
 _CLIENT_STAMPED = frozenset({"received_at"})
+
+# Campos ENDPOINT-UNION (LIVE-MD-01): declarados por MarketDataSnapshot pero que
+# UN endpoint omite por diseño — ``note`` está ausente en ``/marketdata`` y
+# ``entries`` está ausente en las filas no-data de ``/marketdata/latest``. Su
+# ausencia model-only es esperada (endpoint-union), no un defecto, así que se
+# excluyen del direction ``model-only`` del SHAPE-diff igual que ``received_at``.
+_ENDPOINT_OPTIONAL = frozenset({"note", "entries"})
 
 # Símbolo placeholder para el probe batch (``get_latest_batch``); reconciliado
 # contra develop en Wave 2 (23-02).
@@ -270,8 +276,8 @@ def _emit_shape(
         return 0
     n = 0
     for path_, direction, key in diff_safemodel_bidirectional(sample, model_cls):
-        if direction == "model-only" and key in _CLIENT_STAMPED:
-            continue  # D-01: received_at es client-stamped, ausencia esperada
+        if direction == "model-only" and key in _CLIENT_STAMPED | _ENDPOINT_OPTIONAL:
+            continue  # D-01: received_at client-stamped + note/entries endpoint-union
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -356,7 +362,7 @@ async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
 
 
 def probe_market_data_sync(client: Client) -> ProbeResult:
-    """Market-data read sync: happy-path + SHAPE-diff (Snapshot + Entry) + snapshot."""
+    """Market-data read sync: happy-path + SHAPE-diff (Snapshot) + snapshot."""
     name = "market_data_sync"
     base_url = client._state.base_url
     try:
@@ -366,12 +372,17 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
         )
         # D-09: SHAPE-diff + schema snapshot dentro del try (pueden hacer I/O,
         # json.loads y append_finding); un fallo degrada a finding, no a crash.
-        sample = raw[0] if isinstance(raw, list) and raw else None
+        # El wire envuelve las filas en un envelope {count, items:[...], ...}
+        # (LIVE-MD-01): se desenvuelve items[] antes de tomar la muestra.
+        if isinstance(raw, dict):
+            rows = raw.get("items", [])
+        elif isinstance(raw, list):
+            rows = raw
+        else:
+            rows = []
+        sample = rows[0] if isinstance(rows, list) and rows else None
         if isinstance(sample, dict):
             _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
-            entries = sample.get("entries")
-            if isinstance(entries, list) and entries:
-                _emit_shape(entries[0], MarketDataEntry, "MarketDataEntry", "sync", base_url)
         _write_schema_snapshot(
             endpoint="/marketdata",
             client_function="get_market_data",
@@ -389,9 +400,11 @@ def probe_latest_sync(client: Client) -> ProbeResult:
     name = "latest_sync"
     base_url = client._state.base_url
     try:
-        latest = client.get_latest()
+        latest = client.get_latest(symbol=_SAMPLE_SYMBOLS[0])
         batch = client.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
-        raw = _raw_via_request_sync(client, _core.build_latest_request(client._state))
+        raw = _raw_via_request_sync(
+            client, _core.build_latest_request(client._state, symbol=_SAMPLE_SYMBOLS[0])
+        )
         # D-09: post-procesado dentro del try.
         sample = raw[0] if isinstance(raw, list) and raw else None
         if isinstance(sample, dict):
@@ -651,13 +664,17 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
         raw = await _raw_via_request_async(
             aclient, _core.build_market_data_request(aclient._state, active=True)
         )
-        # D-09: post-procesado dentro del try (espejo sync).
-        sample = raw[0] if isinstance(raw, list) and raw else None
+        # D-09: post-procesado dentro del try (espejo sync). Se desenvuelve el
+        # envelope items[] (LIVE-MD-01) antes de tomar la muestra.
+        if isinstance(raw, dict):
+            rows = raw.get("items", [])
+        elif isinstance(raw, list):
+            rows = raw
+        else:
+            rows = []
+        sample = rows[0] if isinstance(rows, list) and rows else None
         if isinstance(sample, dict):
             _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
-            entries = sample.get("entries")
-            if isinstance(entries, list) and entries:
-                _emit_shape(entries[0], MarketDataEntry, "MarketDataEntry", "async", base_url)
         _write_schema_snapshot(
             endpoint="/marketdata",
             client_function="get_market_data",
@@ -675,9 +692,11 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
     name = "latest_async"
     base_url = aclient._state.base_url
     try:
-        latest = await aclient.get_latest()
+        latest = await aclient.get_latest(symbol=_SAMPLE_SYMBOLS[0])
         batch = await aclient.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
-        raw = await _raw_via_request_async(aclient, _core.build_latest_request(aclient._state))
+        raw = await _raw_via_request_async(
+            aclient, _core.build_latest_request(aclient._state, symbol=_SAMPLE_SYMBOLS[0])
+        )
         # D-09: post-procesado dentro del try (espejo sync).
         sample = raw[0] if isinstance(raw, list) and raw else None
         if isinstance(sample, dict):

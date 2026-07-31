@@ -1,0 +1,18 @@
+{
+  "endpoint": "/instruments/segments",
+  "client_function": "get_segments",
+  "captured_at": "2026-07-31T16:49:31.056229+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "catalogue": {
+      "age_seconds": "float",
+      "instruments": "int"
+    },
+    "segments": [
+      {
+        "live_instruments": "int",
+        "segment": "str"
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "endpoint": "/symbols",
+  "client_function": "get_symbols",
+  "captured_at": "2026-07-31T16:49:31.404962+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": []
+}

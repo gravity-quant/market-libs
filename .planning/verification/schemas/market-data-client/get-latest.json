@@ -1,0 +1,17 @@
+{
+  "endpoint": "/marketdata/latest",
+  "client_function": "get_latest",
+  "captured_at": "2026-07-31T16:58:28.443526+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": [
+    {
+      "active": "NoneType",
+      "market_data": "NoneType",
+      "market_id": "NoneType",
+      "note": "str",
+      "received_at": "NoneType",
+      "staleness_seconds": "NoneType",
+      "symbol": "str"
+    }
+  ]
+}

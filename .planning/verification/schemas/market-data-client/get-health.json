@@ -1,0 +1,14 @@
+{
+  "endpoint": "/health",
+  "client_function": "get_health",
+  "captured_at": "2026-07-31T16:00:35.510743+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "auth": {
+      "configured": "bool",
+      "enabled": "bool",
+      "issuer": "str"
+    },
+    "status": "str"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "endpoint": "/marketdata",
+  "client_function": "get_market_data",
+  "captured_at": "2026-07-31T16:49:26.998990+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "count": "int",
+    "items": [
+      {
+        "active": "bool",
+        "entries": [
+          "str"
+        ],
+        "market_data": {
+          "BI": [
+            {
+              "price": "int",
+              "size": "int"
+            }
+          ],
+          "CL": {
+            "date": "int",
+            "price": "int"
+          },
+          "HI": "int",
+          "LA": {
+            "date": "int",
+            "price": "int",
+            "size": "int"
+          },
+          "LO": "int",
+          "OF": [
+            {
+              "price": "int",
+              "size": "int"
+            }
+          ],
+          "OI": "NoneType",
+          "OP": "int",
+          "SE": {
+            "price": "int"
+          },
+          "TV": "NoneType"
+        },
+        "market_id": "str",
+        "received_at": "str",
+        "staleness_seconds": "float",
+        "symbol": "str"
+      }
+    ],
+    "limit": "int",
+    "offset": "int",
+    "total": "int"
+  }
+}

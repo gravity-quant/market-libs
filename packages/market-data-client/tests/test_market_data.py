@@ -107,6 +107,12 @@ def test_build_latest_request_shape() -> None:
     assert spec.params == {"symbol": "S", "market_id": "M"}
 
 
+def test_build_latest_request_requires_symbol() -> None:
+    """``build_latest_request`` raises ``TypeError`` when ``symbol`` is omitted (F-01/F-13)."""
+    with pytest.raises(TypeError):
+        _core.build_latest_request(_ClientState())  # type: ignore[call-arg]
+
+
 # ----------------------------------------------------------------------
 # build_latest_batch_request (D-05 / D-06)
 # ----------------------------------------------------------------------
@@ -132,12 +138,19 @@ def test_build_latest_batch_request_posts_serialized_body() -> None:
 
 
 def test_parse_market_data_response_stamps_received_at_once() -> None:
-    """Both snapshots share the SAME received_at (one stamp per response) and > 0."""
+    """Envelope items[] parse; both snapshots share the SAME received_at (>0)."""
     before = time.time()
-    body = [
-        {"symbol": "AAA", "marketId": "M", "entries": []},
-        {"symbol": "BBB", "marketId": "M", "entries": []},
-    ]
+    # The develop wire wraps rows in an envelope {count, items:[...], ...}.
+    body = {
+        "count": 2,
+        "items": [
+            {"symbol": "AAA", "market_id": "M", "entries": ["BI"]},
+            {"symbol": "BBB", "market_id": "M", "entries": ["OF"]},
+        ],
+        "limit": 50,
+        "offset": 0,
+        "total": 2,
+    }
     resp = _resp(200, json_body=body)
     snapshots = _core.parse_market_data_response(resp)
     after = time.time()
@@ -147,7 +160,21 @@ def test_parse_market_data_response_stamps_received_at_once() -> None:
     assert snapshots[0].received_at > 0
     assert before <= snapshots[0].received_at <= after
     assert snapshots[0].symbol == "AAA"
+    assert snapshots[0].market_id == "M"
     assert snapshots[1].symbol == "BBB"
+
+
+def test_parse_market_data_response_bare_list_still_parses() -> None:
+    """Backward-compat: a bare-list body (no envelope) still parses to snapshots."""
+    body = [
+        {"symbol": "AAA", "market_id": "M", "entries": []},
+        {"symbol": "BBB", "market_id": "M", "entries": []},
+    ]
+    resp = _resp(200, json_body=body)
+    snapshots = _core.parse_market_data_response(resp)
+    assert len(snapshots) == 2
+    assert snapshots[0].symbol == "AAA"
+    assert snapshots[1].market_id == "M"
 
 
 def test_parse_market_data_response_null_body_returns_empty() -> None:
@@ -171,9 +198,11 @@ def test_parse_market_data_response_401_raises_auth() -> None:
 
 def test_parse_latest_response_stamps_received_at_once() -> None:
     before = time.time()
+    # /marketdata/latest is a BARE list (not an envelope) — parse_latest_response
+    # stays on the bare-list path.
     body = [
-        {"symbol": "AAA", "marketId": "M", "entries": []},
-        {"symbol": "BBB", "marketId": "M", "entries": []},
+        {"symbol": "AAA", "market_id": "M", "entries": []},
+        {"symbol": "BBB", "market_id": "M", "entries": []},
     ]
     resp = _resp(200, json_body=body)
     snapshots = _core.parse_latest_response(resp)

@@ -115,14 +115,22 @@ def test_get_calendar_config_returns_single_object(httpx_mock: HTTPXMock) -> Non
     """``get_calendar_config`` returns a single ``CalendarConfig`` (D-07), not a list."""
     httpx_mock.add_response(
         method="GET",
-        json={"timezone": "America/Argentina/Buenos_Aires", "businessDays": ["MON", "TUE"]},
+        json={
+            "open": "11:00",
+            "close": "17:00",
+            "timezone": "America/Argentina/Buenos_Aires",
+            "warnings": [],
+            "updated_at": None,
+        },
     )
 
     result = market_data_client.client._get_default().get_calendar_config()
 
     assert isinstance(result, CalendarConfig)
     assert result.timezone == "America/Argentina/Buenos_Aires"
-    assert result.businessDays == ["MON", "TUE"]
+    assert result.open == "11:00"
+    assert result.warnings == []
+    assert result.updated_at is None
     req = httpx_mock.get_requests()[0]
     assert req.headers["Authorization"] == "Bearer test-token"
     assert req.url.path == "/api/calendar/config"
