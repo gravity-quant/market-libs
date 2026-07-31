@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
-current_phase: 24
-status: verifying
+current_phase: 4
+status: Awaiting next milestone
 stopped_at: Phase 24 context gathered (assumptions mode)
-last_updated: "2026-07-31T15:07:08.817Z"
+last_updated: "2026-07-31T15:39:22.485Z"
 last_activity: 2026-07-31
-last_activity_desc: Phase 24 complete
+last_activity_desc: Milestone v1.4 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -21,18 +21,18 @@ current_phase_name: release-prep-publish-v0-1-0
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.4 amplió el monorepo de 5 a 6 paquetes: `market-data-client v0.1.0` publicado — solo lectura, Auth0 client-credentials — espejando cada decisión arquitectónica existente; el apparatus de verificación en vivo está verificado pero el barrido credencial-real contra develop sigue pendiente de creds Auth0 + VPN.)
 
-**Current focus:** Phase 24 — release-prep-publish-v0-1-0
+**Current focus:** v1.4 shipped — awaiting next milestone (`/gsd-new-milestone` to scope v1.5)
 
 ## Current Position
 
-Phase: 24
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-31 — Phase 24 complete
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-31 — Milestone v1.4 completed and archived
 
 ## Performance Metrics
 
@@ -191,6 +191,18 @@ Items surfaced by `gsd-sdk query audit-open` (6 total) and acknowledged by opera
 
 See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for full close context.
 
+### Acknowledged at v1.4 close on 2026-07-31
+
+Items acknowledged and deferred by operator at v1.4 milestone close ("Proceed with close"). None are real blockers:
+
+| Category | Item | Status | Carry-forward |
+|----------|------|--------|---------------|
+| uat_gap | 20-UAT.md | passed — 0 pending scenarios | False-positive (open-artifact audit parser heuristic flags file presence) — no action |
+| verification_gap | LIVE-MD-01 real credentialed sweep | apparatus verified (verifier 12/12); real develop run pending Auth0 creds + VPN/allowlist | Carried to v1.5+ — independent of the v0.1.0 publish (PUB-MD-01 shipped) |
+| deferred_cap | MUT-MD-01/02, STREAM-MD-01, SEC-MD-01/02 | v2 requirements (market-data-client) | Deferred to v1.5+ — mutations, SSE streaming, disk token cache, JWT signature validation (see ROADMAP Backlog) |
+
+See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for full close context.
+
 ## Session Continuity
 
 Last session: 2026-07-31T15:03:22.086Z
@@ -199,4 +211,4 @@ Resume file: .planning/phases/24-release-prep-publish-v0-1-0/24-CONTEXT.md
 
 ## Operator Next Steps
 
-- Plan Phase 20 with `/gsd-discuss-phase 20` (gather context) or `/gsd-plan-phase 20` (plan directly)
+- Start the next milestone with /gsd-new-milestone
