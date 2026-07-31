@@ -13,7 +13,7 @@
 
 ### 🚧 v1.5 market-data-client · mutaciones (Phases 25-28) — IN PROGRESS
 
-- [ ] **Phase 25: Mutating-gate + Symbols write** — safety gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes) + `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}` — GATE-MD-01 + MUT-MD-01
+- [x] **Phase 25: Mutating-gate + Symbols write** — safety gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes) + `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}` — GATE-MD-01 + MUT-MD-01 (completed 2026-07-31)
 - [ ] **Phase 26: Calendar write** — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con `confirm` guardrail — MUT-MD-02
 - [ ] **Phase 27: Verificación en vivo segura + fixes** — probes de mutación detrás del gate contra develop (create→verify→revert), revalida idempotencia DM-03, fixes in-cycle — LIVE-MUT-01
 - [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release — PUB-MUT-01
@@ -187,7 +187,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 | 22. Instruments/segments/symbols/calendar (read) + models   | v1.4      | 2/2   | Complete    | 2026-07-30 |
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
-| 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete   | 2026-07-31 |
+| 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 0/?   | Not started | -          |
 | 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |

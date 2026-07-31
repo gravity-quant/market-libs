@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: market-data-client · mutaciones
-current_phase: 25
-current_phase_name: Mutating-gate + Symbols write
+current_phase: 26
+current_phase_name: Calendar write
 status: verifying
 stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-07-31T20:45:23.419Z"
+last_updated: "2026-07-31T20:51:44.770Z"
 last_activity: 2026-07-31
-last_activity_desc: Phase 25 execution started
+last_activity_desc: Phase 25 complete, transitioned to Phase 26
 progress:
   total_phases: 4
   completed_phases: 1
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 ## Current Position
 
-Phase: 25 (Mutating-gate + Symbols write) — EXECUTING
-Plan: 3 of 3
+Phase: 26 — Calendar write
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-31 — Phase 25 execution started
+Last activity: 2026-07-31 — Phase 25 complete, transitioned to Phase 26
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 76 (v1.0)
+- Total plans completed: 79 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
