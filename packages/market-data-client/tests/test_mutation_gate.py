@@ -58,7 +58,7 @@ def test_gate_open_matching_host_passes_sync() -> None:
         base_url=f"https://{_DEVELOP_HOST}/api",
         expected_host=_DEVELOP_HOST,
     )
-    assert client._ensure_mutation_allowed() is None
+    client._ensure_mutation_allowed()  # gate abierto: no debe levantar
 
 
 async def test_gate_open_matching_host_passes_async() -> None:
@@ -67,7 +67,7 @@ async def test_gate_open_matching_host_passes_async() -> None:
         base_url=f"https://{_DEVELOP_HOST}/api",
         expected_host=_DEVELOP_HOST,
     )
-    assert client._ensure_mutation_allowed() is None
+    client._ensure_mutation_allowed()  # gate abierto: no debe levantar
 
 
 # ----------------------------------------------------------------------
@@ -133,7 +133,7 @@ def test_expected_host_none_disables_host_leg_sync() -> None:
     # ``None`` en el field: la pata del host se saltea (el constructor usa el
     # sentinel None como "no cambiar", así que se setea el field directamente).
     client._state.expected_host = None
-    assert client._ensure_mutation_allowed() is None
+    client._ensure_mutation_allowed()  # gate abierto: no debe levantar
     # Pero el flag sigue siendo la primera pata: sin opt-in, refuse aunque el
     # host esté deshabilitado.
     client._state.mutating_allowed = False
@@ -147,7 +147,7 @@ async def test_expected_host_none_disables_host_leg_async() -> None:
         base_url="https://any-host.example/api",
     )
     client._state.expected_host = None
-    assert client._ensure_mutation_allowed() is None
+    client._ensure_mutation_allowed()  # gate abierto: no debe levantar
     client._state.mutating_allowed = False
     with pytest.raises(MarketDataMutationNotAllowedError):
         client._ensure_mutation_allowed()
@@ -164,7 +164,7 @@ def test_configure_base_url_does_not_reset_flag_sync() -> None:
     market_data_client.configure(base_url=f"https://{_CONFTEST_HOST}/api")
     default = market_data_client.client._get_default()
     assert default._state.mutating_allowed is True
-    assert default._ensure_mutation_allowed() is None
+    default._ensure_mutation_allowed()  # gate abierto: no debe levantar
 
 
 async def test_configure_base_url_does_not_reset_flag_async() -> None:
@@ -172,7 +172,7 @@ async def test_configure_base_url_does_not_reset_flag_async() -> None:
     aio.configure(base_url=f"https://{_CONFTEST_HOST}/api")
     default = aio._get_default()
     assert default._state.mutating_allowed is True
-    assert default._ensure_mutation_allowed() is None
+    default._ensure_mutation_allowed()  # gate abierto: no debe levantar
 
 
 # ----------------------------------------------------------------------
@@ -187,7 +187,7 @@ def test_view_inherits_gate_sync() -> None:
         expected_host=_CONFTEST_HOST,
     )
     view = client.with_options(max_retries=0)
-    assert view._ensure_mutation_allowed() is None
+    view._ensure_mutation_allowed()  # gate abierto (view hereda estado): no debe levantar
 
 
 async def test_view_inherits_gate_async() -> None:
@@ -197,4 +197,4 @@ async def test_view_inherits_gate_async() -> None:
         expected_host=_CONFTEST_HOST,
     )
     view = client.with_options(max_retries=0)
-    assert view._ensure_mutation_allowed() is None
+    view._ensure_mutation_allowed()  # gate abierto (view hereda estado): no debe levantar
