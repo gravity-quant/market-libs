@@ -389,9 +389,11 @@ def probe_latest_sync(client: Client) -> ProbeResult:
     name = "latest_sync"
     base_url = client._state.base_url
     try:
-        latest = client.get_latest()
+        latest = client.get_latest(symbol=_SAMPLE_SYMBOLS[0])
         batch = client.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
-        raw = _raw_via_request_sync(client, _core.build_latest_request(client._state))
+        raw = _raw_via_request_sync(
+            client, _core.build_latest_request(client._state, symbol=_SAMPLE_SYMBOLS[0])
+        )
         # D-09: post-procesado dentro del try.
         sample = raw[0] if isinstance(raw, list) and raw else None
         if isinstance(sample, dict):
@@ -675,9 +677,11 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
     name = "latest_async"
     base_url = aclient._state.base_url
     try:
-        latest = await aclient.get_latest()
+        latest = await aclient.get_latest(symbol=_SAMPLE_SYMBOLS[0])
         batch = await aclient.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
-        raw = await _raw_via_request_async(aclient, _core.build_latest_request(aclient._state))
+        raw = await _raw_via_request_async(
+            aclient, _core.build_latest_request(aclient._state, symbol=_SAMPLE_SYMBOLS[0])
+        )
         # D-09: post-procesado dentro del try (espejo sync).
         sample = raw[0] if isinstance(raw, list) and raw else None
         if isinstance(sample, dict):
