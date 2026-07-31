@@ -417,7 +417,7 @@ class AsyncClient:
     async def get_latest(
         self,
         *,
-        symbol: str | None = None,
+        symbol: str,
         market_id: str | None = None,
         entries: str | None = None,
     ) -> list[MarketDataSnapshot]:
@@ -621,7 +621,7 @@ async def get_market_data(
 
 async def get_latest(
     *,
-    symbol: str | None = None,
+    symbol: str,
     market_id: str | None = None,
     entries: str | None = None,
 ) -> list[MarketDataSnapshot]:

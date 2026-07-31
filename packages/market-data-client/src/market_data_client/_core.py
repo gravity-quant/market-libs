@@ -329,14 +329,16 @@ def build_market_data_request(
 def build_latest_request(
     state: _ClientState,
     *,
-    symbol: str | None = None,
+    symbol: str,
     market_id: str | None = None,
     entries: str | None = None,
 ) -> RequestSpec:
     """Pure: build spec for ``GET /marketdata/latest`` (D-06).
 
-    Same authenticated/idempotent contract as ``build_market_data_request``;
-    ``None`` optionals dropped, empty dict → ``params=None``.
+    Same authenticated/idempotent contract as ``build_market_data_request``.
+    ``symbol`` is required (the live OpenAPI marks the query param
+    ``required=True``; F-01/F-13); ``market_id`` and ``entries`` remain
+    droppable ``None`` optionals, empty dict → ``params=None``.
     """
     del state  # state-independent (filtros vienen por kwargs)
     params = _params.drop_none(
