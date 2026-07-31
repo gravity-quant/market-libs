@@ -59,6 +59,24 @@ uv run mypy packages/market-data-client
 
 ## Changelog
 
+### v0.3.0
+
+**Nueva superficie de escritura: symbols detrás de un mutating-gate de seguridad**
+(features nuevas, minor bump — no rompe la superficie de lectura v0.2.0).
+
+- **Mutating-gate opt-in (GATE-MD-01):** por default `Client()`/`AsyncClient()` rehúsan toda
+  mutación con `MarketDataMutationNotAllowedError` (⊂ `MarketDataError`) **sin emitir request
+  HTTP ni token Auth0**. Habilitación explícita vía `mutating_allowed=True` (constructor o
+  `configure()`), más un segundo **gate de host exacto** (`expected_host`, comparación exacta
+  de hostname — nunca substring) que impide mutar contra un `base_url` inesperado. El flag vive
+  en el estado compartido, así que las vistas de `with_options()` lo heredan; `configure()` usa
+  centinela `bool | None` para no resetear un opt-in previo al reconfigurar `base_url`.
+- **Symbols write (MUT-MD-01):** `create_symbol` (`NewSymbol`), `create_symbols`
+  (batch 1–500, `NewSymbols`) y `update_symbol` (`SymbolPatch`), en sync y async, con
+  request-models tipados serializados a JSON y respuestas `SafeModel` tolerantes; `422`
+  levanta error tipado. Las tres operaciones se despachan como idempotentes
+  (`request.extensions["idempotent"]=True`) según el spec.
+
 ### v0.2.0
 
 **Breaking changes** (semver minor bump en línea 0.x) — reconciliación del cliente
