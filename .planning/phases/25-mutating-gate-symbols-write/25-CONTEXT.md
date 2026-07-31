@@ -89,6 +89,10 @@ all OUT of scope here.
   `expected_host: str | None = None` to `_ClientState` as plainly-typed fields. Add matching
   keyword-only params to `Client.__init__` / `AsyncClient.__init__` and to `configure()`
   (both surfaces), following the existing `if x is not None:` carry-forward pattern.
+  **Consistency note (D-02 ↔ D-13):** the `str | None = None` FIELD default is the sentinel
+  meaning "unset" — it does NOT mean "no host gate". At gate-check time a `None` `expected_host`
+  resolves to the hostname of `DEFAULT_BASE_URL` (D-02), i.e. the effective default host is
+  always enforced. `None` = use-default-host, never bypass-host-check.
 - **D-14:** Because these fields live on the SHARED `_ClientState` and `with_options` clones
   share `self._state`, the mutation flag + host gate **propagate to views automatically** with
   zero extra code — a view of a mutating-allowed client is also mutating-allowed. Do NOT store
