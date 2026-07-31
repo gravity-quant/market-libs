@@ -198,7 +198,26 @@ def _write_schema_snapshot(
             encoding="utf-8",
         )
         return
-    committed = json.loads(schema_file.read_text(encoding="utf-8"))
+    try:
+        committed = json.loads(schema_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        # D-09: un baseline committed corrupto/ilegible (hand-edit, merge-conflict,
+        # error de disco) degrada a un finding SHAPE, NUNCA un crash. No se
+        # sobreescribe el baseline (D-25).
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface=surface,
+            status="OPEN",
+            title=f"baseline schema ilegible en {client_function}",
+            expected="baseline JSON parseable",
+            actual=repr(exc),
+            diff="committed baseline corrupto/ilegible; NO se sobreescribe (D-25)",
+            base_url=base_url,
+        )
+        return
     if committed.get("schema") == actual_schema:
         return
     fid = _next_fid()
@@ -282,23 +301,26 @@ def probe_health_sync(client: Client) -> ProbeResult:
     try:
         health = client.get_health()
         feed = client.get_health_feed()
-    except Exception as exc:  # D-09: aislamiento per-probe
+        # D-09: el post-procesado (schema snapshot: file I/O + json.loads +
+        # append_finding) va DENTRO del try para que un fallo de I/O/parse degrade
+        # a finding/SKIP en vez de crashear el driver a FAILED.
+        _write_schema_snapshot(
+            endpoint="/health",
+            client_function="get_health",
+            raw=health,
+            base_url=base_url,
+            surface="sync",
+        )
+        _write_schema_snapshot(
+            endpoint="/health/feed",
+            client_function="get_health_feed",
+            raw=feed,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", "health+feed ok")
+    except Exception as exc:  # D-09: aislamiento per-probe (request + post-procesado)
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
-    _write_schema_snapshot(
-        endpoint="/health",
-        client_function="get_health",
-        raw=health,
-        base_url=base_url,
-        surface="sync",
-    )
-    _write_schema_snapshot(
-        endpoint="/health/feed",
-        client_function="get_health_feed",
-        raw=feed,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", "health+feed ok")
 
 
 async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
@@ -308,23 +330,24 @@ async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
     try:
         health = await aclient.get_health()
         feed = await aclient.get_health_feed()
-    except Exception as exc:  # D-09: aislamiento per-probe
+        # D-09: post-procesado dentro del try (espejo sync).
+        _write_schema_snapshot(
+            endpoint="/health",
+            client_function="get_health",
+            raw=health,
+            base_url=base_url,
+            surface="async",
+        )
+        _write_schema_snapshot(
+            endpoint="/health/feed",
+            client_function="get_health_feed",
+            raw=feed,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", "health+feed ok")
+    except Exception as exc:  # D-09: aislamiento per-probe (request + post-procesado)
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
-    _write_schema_snapshot(
-        endpoint="/health",
-        client_function="get_health",
-        raw=health,
-        base_url=base_url,
-        surface="async",
-    )
-    _write_schema_snapshot(
-        endpoint="/health/feed",
-        client_function="get_health_feed",
-        raw=feed,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", "health+feed ok")
 
 
 # ---------------------------------------------------------------------------
@@ -341,22 +364,24 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
         raw = _raw_via_request_sync(
             client, _core.build_market_data_request(client._state, active=True)
         )
+        # D-09: SHAPE-diff + schema snapshot dentro del try (pueden hacer I/O,
+        # json.loads y append_finding); un fallo degrada a finding, no a crash.
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
+            entries = sample.get("entries")
+            if isinstance(entries, list) and entries:
+                _emit_shape(entries[0], MarketDataEntry, "MarketDataEntry", "sync", base_url)
+        _write_schema_snapshot(
+            endpoint="/marketdata",
+            client_function="get_market_data",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
-        entries = sample.get("entries")
-        if isinstance(entries, list) and entries:
-            _emit_shape(entries[0], MarketDataEntry, "MarketDataEntry", "sync", base_url)
-    _write_schema_snapshot(
-        endpoint="/marketdata",
-        client_function="get_market_data",
-        raw=raw,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
 
 
 def probe_latest_sync(client: Client) -> ProbeResult:
@@ -367,19 +392,20 @@ def probe_latest_sync(client: Client) -> ProbeResult:
         latest = client.get_latest()
         batch = client.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
         raw = _raw_via_request_sync(client, _core.build_latest_request(client._state))
+        # D-09: post-procesado dentro del try.
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
+        _write_schema_snapshot(
+            endpoint="/marketdata/latest",
+            client_function="get_latest",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", f"latest={len(latest)} batch={len(batch)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
-    _write_schema_snapshot(
-        endpoint="/marketdata/latest",
-        client_function="get_latest",
-        raw=raw,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", f"latest={len(latest)} batch={len(batch)}")
 
 
 def probe_instruments_sync(client: Client) -> ProbeResult:
@@ -394,19 +420,20 @@ def probe_instruments_sync(client: Client) -> ProbeResult:
                 client._state, include_expired=True, only_outright=False, offset=0
             ),
         )
+        # D-09: post-procesado dentro del try.
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, Instrument, "Instrument", "sync", base_url)
+        _write_schema_snapshot(
+            endpoint="/instruments",
+            client_function="get_instruments",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", f"instruments={len(instruments)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, Instrument, "Instrument", "sync", base_url)
-    _write_schema_snapshot(
-        endpoint="/instruments",
-        client_function="get_instruments",
-        raw=raw,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", f"instruments={len(instruments)}")
 
 
 def probe_segments_sync(client: Client) -> tuple[ProbeResult, list[Segment] | None]:
@@ -416,22 +443,24 @@ def probe_segments_sync(client: Client) -> tuple[ProbeResult, list[Segment] | No
     try:
         segments = client.get_segments()
         raw = _raw_via_request_sync(client, _core.build_segments_request(client._state))
+        # D-09: post-procesado dentro del try. Si el post-procesado falla, la lista
+        # de segments se pierde (return None) → el probe de paridad hace SKIP.
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, Segment, "Segment", "sync", base_url)
+        _write_schema_snapshot(
+            endpoint="/instruments/segments",
+            client_function="get_segments",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", f"segments={len(segments)}"), segments
     except Exception as exc:  # D-09
         return (
             _finding_for_exc(exc, name=name, surface="sync", base_url=base_url),
             None,
         )
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, Segment, "Segment", "sync", base_url)
-    _write_schema_snapshot(
-        endpoint="/instruments/segments",
-        client_function="get_segments",
-        raw=raw,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", f"segments={len(segments)}"), segments
 
 
 def probe_symbols_sync(client: Client) -> ProbeResult:
@@ -443,19 +472,20 @@ def probe_symbols_sync(client: Client) -> ProbeResult:
         raw = _raw_via_request_sync(
             client, _core.build_symbols_request(client._state, active=False)
         )
+        # D-09: post-procesado dentro del try.
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, Symbol, "Symbol", "sync", base_url)
+        _write_schema_snapshot(
+            endpoint="/symbols",
+            client_function="get_symbols",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", f"symbols={len(symbols)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, Symbol, "Symbol", "sync", base_url)
-    _write_schema_snapshot(
-        endpoint="/symbols",
-        client_function="get_symbols",
-        raw=raw,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", f"symbols={len(symbols)}")
 
 
 def probe_calendar_sync(client: Client) -> ProbeResult:
@@ -469,28 +499,29 @@ def probe_calendar_sync(client: Client) -> ProbeResult:
         raw_config = _raw_via_request_sync(
             client, _core.build_calendar_config_request(client._state)
         )
+        # D-09: post-procesado dentro del try.
+        sample_day = raw_days[0] if isinstance(raw_days, list) and raw_days else None
+        if isinstance(sample_day, dict):
+            _emit_shape(sample_day, CalendarDay, "CalendarDay", "sync", base_url)
+        if isinstance(raw_config, dict):
+            _emit_shape(raw_config, CalendarConfig, "CalendarConfig", "sync", base_url)
+        _write_schema_snapshot(
+            endpoint="/calendar",
+            client_function="get_calendar",
+            raw=raw_days,
+            base_url=base_url,
+            surface="sync",
+        )
+        _write_schema_snapshot(
+            endpoint="/calendar/config",
+            client_function="get_calendar_config",
+            raw=raw_config,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(name, "PASS", f"days={len(days)} config_tz={config.timezone!r}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
-    sample_day = raw_days[0] if isinstance(raw_days, list) and raw_days else None
-    if isinstance(sample_day, dict):
-        _emit_shape(sample_day, CalendarDay, "CalendarDay", "sync", base_url)
-    if isinstance(raw_config, dict):
-        _emit_shape(raw_config, CalendarConfig, "CalendarConfig", "sync", base_url)
-    _write_schema_snapshot(
-        endpoint="/calendar",
-        client_function="get_calendar",
-        raw=raw_days,
-        base_url=base_url,
-        surface="sync",
-    )
-    _write_schema_snapshot(
-        endpoint="/calendar/config",
-        client_function="get_calendar_config",
-        raw=raw_config,
-        base_url=base_url,
-        surface="sync",
-    )
-    return ProbeResult(name, "PASS", f"days={len(days)} config_tz={config.timezone!r}")
 
 
 def probe_param_encoding_sync(client: Client) -> ProbeResult:
@@ -620,22 +651,23 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
         raw = await _raw_via_request_async(
             aclient, _core.build_market_data_request(aclient._state, active=True)
         )
+        # D-09: post-procesado dentro del try (espejo sync).
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
+            entries = sample.get("entries")
+            if isinstance(entries, list) and entries:
+                _emit_shape(entries[0], MarketDataEntry, "MarketDataEntry", "async", base_url)
+        _write_schema_snapshot(
+            endpoint="/marketdata",
+            client_function="get_market_data",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
-        entries = sample.get("entries")
-        if isinstance(entries, list) and entries:
-            _emit_shape(entries[0], MarketDataEntry, "MarketDataEntry", "async", base_url)
-    _write_schema_snapshot(
-        endpoint="/marketdata",
-        client_function="get_market_data",
-        raw=raw,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
 
 
 async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
@@ -646,19 +678,20 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
         latest = await aclient.get_latest()
         batch = await aclient.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
         raw = await _raw_via_request_async(aclient, _core.build_latest_request(aclient._state))
+        # D-09: post-procesado dentro del try (espejo sync).
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
+        _write_schema_snapshot(
+            endpoint="/marketdata/latest",
+            client_function="get_latest",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", f"latest={len(latest)} batch={len(batch)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
-    _write_schema_snapshot(
-        endpoint="/marketdata/latest",
-        client_function="get_latest",
-        raw=raw,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", f"latest={len(latest)} batch={len(batch)}")
 
 
 async def probe_instruments_async(aclient: AsyncClient) -> ProbeResult:
@@ -675,19 +708,20 @@ async def probe_instruments_async(aclient: AsyncClient) -> ProbeResult:
                 aclient._state, include_expired=True, only_outright=False, offset=0
             ),
         )
+        # D-09: post-procesado dentro del try (espejo sync).
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, Instrument, "Instrument", "async", base_url)
+        _write_schema_snapshot(
+            endpoint="/instruments",
+            client_function="get_instruments",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", f"instruments={len(instruments)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, Instrument, "Instrument", "async", base_url)
-    _write_schema_snapshot(
-        endpoint="/instruments",
-        client_function="get_instruments",
-        raw=raw,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", f"instruments={len(instruments)}")
 
 
 async def probe_segments_async(
@@ -699,22 +733,23 @@ async def probe_segments_async(
     try:
         segments = await aclient.get_segments()
         raw = await _raw_via_request_async(aclient, _core.build_segments_request(aclient._state))
+        # D-09: post-procesado dentro del try (espejo sync).
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, Segment, "Segment", "async", base_url)
+        _write_schema_snapshot(
+            endpoint="/instruments/segments",
+            client_function="get_segments",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", f"segments={len(segments)}"), segments
     except Exception as exc:  # D-09
         return (
             _finding_for_exc(exc, name=name, surface="async", base_url=base_url),
             None,
         )
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, Segment, "Segment", "async", base_url)
-    _write_schema_snapshot(
-        endpoint="/instruments/segments",
-        client_function="get_segments",
-        raw=raw,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", f"segments={len(segments)}"), segments
 
 
 async def probe_symbols_async(aclient: AsyncClient) -> ProbeResult:
@@ -726,19 +761,20 @@ async def probe_symbols_async(aclient: AsyncClient) -> ProbeResult:
         raw = await _raw_via_request_async(
             aclient, _core.build_symbols_request(aclient._state, active=False)
         )
+        # D-09: post-procesado dentro del try (espejo sync).
+        sample = raw[0] if isinstance(raw, list) and raw else None
+        if isinstance(sample, dict):
+            _emit_shape(sample, Symbol, "Symbol", "async", base_url)
+        _write_schema_snapshot(
+            endpoint="/symbols",
+            client_function="get_symbols",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", f"symbols={len(symbols)}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
-    sample = raw[0] if isinstance(raw, list) and raw else None
-    if isinstance(sample, dict):
-        _emit_shape(sample, Symbol, "Symbol", "async", base_url)
-    _write_schema_snapshot(
-        endpoint="/symbols",
-        client_function="get_symbols",
-        raw=raw,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", f"symbols={len(symbols)}")
 
 
 async def probe_calendar_async(aclient: AsyncClient) -> ProbeResult:
@@ -754,28 +790,29 @@ async def probe_calendar_async(aclient: AsyncClient) -> ProbeResult:
         raw_config = await _raw_via_request_async(
             aclient, _core.build_calendar_config_request(aclient._state)
         )
+        # D-09: post-procesado dentro del try (espejo sync).
+        sample_day = raw_days[0] if isinstance(raw_days, list) and raw_days else None
+        if isinstance(sample_day, dict):
+            _emit_shape(sample_day, CalendarDay, "CalendarDay", "async", base_url)
+        if isinstance(raw_config, dict):
+            _emit_shape(raw_config, CalendarConfig, "CalendarConfig", "async", base_url)
+        _write_schema_snapshot(
+            endpoint="/calendar",
+            client_function="get_calendar",
+            raw=raw_days,
+            base_url=base_url,
+            surface="async",
+        )
+        _write_schema_snapshot(
+            endpoint="/calendar/config",
+            client_function="get_calendar_config",
+            raw=raw_config,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(name, "PASS", f"days={len(days)} config_tz={config.timezone!r}")
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
-    sample_day = raw_days[0] if isinstance(raw_days, list) and raw_days else None
-    if isinstance(sample_day, dict):
-        _emit_shape(sample_day, CalendarDay, "CalendarDay", "async", base_url)
-    if isinstance(raw_config, dict):
-        _emit_shape(raw_config, CalendarConfig, "CalendarConfig", "async", base_url)
-    _write_schema_snapshot(
-        endpoint="/calendar",
-        client_function="get_calendar",
-        raw=raw_days,
-        base_url=base_url,
-        surface="async",
-    )
-    _write_schema_snapshot(
-        endpoint="/calendar/config",
-        client_function="get_calendar_config",
-        raw=raw_config,
-        base_url=base_url,
-        surface="async",
-    )
-    return ProbeResult(name, "PASS", f"days={len(days)} config_tz={config.timezone!r}")
 
 
 async def probe_no_data_async(aclient: AsyncClient) -> ProbeResult:
@@ -873,6 +910,14 @@ async def _async_main() -> tuple[list[ProbeResult], list[Segment] | None]:
         results.append(await probe_symbols_async(aclient))
         results.append(await probe_calendar_async(aclient))
         results.append(await probe_no_data_async(aclient))
+    except Exception as exc:  # D-09 defensa en profundidad: ningún path escapa a FAILED
+        results.append(
+            ProbeResult(
+                "async_guard",
+                "SKIPPED",
+                f"excepción inesperada no aislada ({type(exc).__name__})",
+            )
+        )
     finally:
         with contextlib.suppress(Exception):
             await aclient.aclose()
@@ -920,6 +965,14 @@ def main() -> None:
         async_results, seg_async = asyncio.run(_async_main())
         results.extend(async_results)
         results.append(probe_parity(seg_sync, seg_async, client))
+    except Exception as exc:  # D-09 defensa en profundidad: el driver NUNCA exit != 0
+        results.append(
+            ProbeResult(
+                "driver_guard",
+                "SKIPPED",
+                f"excepción inesperada no aislada ({type(exc).__name__})",
+            )
+        )
     finally:
         with contextlib.suppress(Exception):
             client.close()
