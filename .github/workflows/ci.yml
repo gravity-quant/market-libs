@@ -100,6 +100,7 @@ jobs:
           - matriz-client
           - iol-client
           - ambito-financiero-client
+          - market-data-client
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
