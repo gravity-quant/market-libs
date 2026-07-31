@@ -93,53 +93,70 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 ## Phase Details (v1.5)
 
 ### Phase 25: Mutating-gate + Symbols write
+
 **Goal**: El consumidor puede crear/actualizar symbols detrás de un gate de seguridad opt-in que hace **imposible disparar una mutación por accidente** — el gate es load-bearing y se construye primero; symbols es la primera superficie de mutación que lo ejercita.
 **Depends on**: Phase 24 (v1.4 read surface v0.2.0 — el paquete base con `_core.py`, transporte, auth Auth0)
 **Requirements**: GATE-MD-01, MUT-MD-01
 **Success Criteria** (what must be TRUE):
+
   1. Un `Client()` / `AsyncClient()` por default **rehúsa toda mutación** con un `MarketDataMutationNotAllowedError` tipado (⊂ `MarketDataError`) — no se emite request HTTP alguno.
   2. Con `mutating_allowed=True` (constructor o `configure()`) **y** el host/base_url esperado, el consumidor puede `create_symbol` (`NewSymbol`), `create_symbols` (batch 1–500, `NewSymbols`) y `update_symbol` (`SymbolPatch`) en sync y async.
   3. Los request-bodies serializan desde modelos tipados a JSON; las respuestas `201`/`200` parsean a `SafeModel` tolerantes y `422` levanta un error tipado.
   4. Las operaciones no idempotentes se despachan con `request.extensions["idempotent"]=False` per DM-03, de modo que el transporte de retries **nunca** las reintenta.
   5. Paridad sync/async: idéntico comportamiento en `client.py` y `aio.py`, dispatch vía builders `_core.py`; 4 gates verdes (ruff/format/mypy-strict/pytest).
+
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 25-01-PLAN.md — Mutating-gate infrastructure: `MarketDataMutationNotAllowedError`, `_ClientState` gate fields, `_ensure_mutation_allowed()` + opt-in params (dual sync/async), conftest reset, adversarial gate tests (Wave 1)
 - [ ] 25-02-PLAN.md — Request models (`NewSymbol`/`NewSymbols`/`SymbolPatch`, 1–500 `ValueError`) + 3 pure `_core` builders (idempotent=True) with unit tests (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 25-03-PLAN.md — Symbols-write dispatch (`create_symbol`/`create_symbols`/`update_symbol` methods + shims, dual sync/async) + `__init__` re-exports + wire/refusal/parity tests (Wave 2)
 
 ### Phase 26: Calendar write
+
 **Goal**: El consumidor puede administrar la configuración de calendario y los feriados detrás del mismo mutating-gate, con el guardrail `confirm` del servidor expuesto explícitamente.
 **Depends on**: Phase 25 (necesita el mutating-gate; 25 es prerequisito — no paraleliza con nada antes del gate)
 **Requirements**: MUT-MD-02
 **Success Criteria** (what must be TRUE):
+
   1. Detrás del gate, el consumidor puede `set_calendar_config` (`PUT`, `MarketHoursIn`), `delete_calendar_config` (`DELETE`), `preview_calendar_config` (`POST` preview), `add_holidays` (`POST`, `HolidaysIn`) y `delete_holiday(day)` (`DELETE`) en sync y async.
   2. `set_calendar_config` expone `confirm` con **default `False`** (guardrail del servidor) y respeta el resto de defaults de `MarketHoursIn`.
   3. Los request-models tipados `MarketHoursIn`/`HolidayIn`/`HolidaysIn` serializan a JSON reusando `_params.drop_none`; el `preview` pasa por el gate (es POST) pero **no persiste** — la excepción read-safe queda documentada.
   4. La idempotencia por-endpoint se setea per DM-03 (`POST /calendar/holidays` con `idempotent=False` → no retry; el resto retry-safe).
   5. Paridad sync/async y enforcement del gate idénticos a Phase 25; tests mockeados (gate, serialización, defaults, `confirm`, `422`, paridad) y 4 gates verdes.
+
 **Plans**: TBD
 
 ### Phase 27: Verificación en vivo segura + fixes
+
 **Goal**: Toda la superficie de mutación (sync + async) se ejercita en vivo contra develop de forma **destructiva pero segura** (create→verify→revert), la idempotencia asumida se revalida, y toda divergencia se corrige en el mismo ciclo.
 **Depends on**: Phases 25 y 26 (necesita ambas superficies de mutación construidas)
 **Requirements**: LIVE-MUT-01
 **Success Criteria** (what must be TRUE):
+
   1. `main_market_data.py` ejercita todas las mutaciones (symbols + calendar) sync+async **detrás del mutating-gate** (`mutating_allowed=True` sólo bajo env-gate explícito + host develop exacto, patrón `verification/mutation_gate.py`).
   2. Cada probe destructivo usa **identificadores de prueba dedicados** y completa un ciclo de cleanup (crear→verificar→revertir con el DELETE/PATCH correspondiente); la config real de mercado **nunca** se toca sin `confirm`.
   3. La idempotencia por-endpoint (DM-03) se **revalida contra el comportamiento en vivo** antes de confiar el retry-behavior; retry-safety confirmado o corregido.
   4. Toda divergencia (shape de respuesta, códigos, idempotencia real) se documenta en findings y se corrige in-cycle, espejada sync/async, con un test de regresión mockeado por fix.
   5. Cycle closure PASS.
+
 **Plans**: TBD
 
 ### Phase 28: Release prep + publish v0.3.0
+
 **Goal**: `market-data-client` se publica como `v0.3.0` (minor bump, no breaking sobre la superficie de lectura v0.2.0) por el pipeline de tags.
 **Depends on**: Phase 27 (la superficie de mutación verificada en vivo)
 **Requirements**: PUB-MUT-01
 **Success Criteria** (what must be TRUE):
+
   1. Versión bumpeada a `0.3.0` en `pyproject` + `__version__`; README changelog documenta las nuevas mutaciones + el opt-in del gate; `uv.lock` refrescado.
   2. PR abierto; los 15 checks de CI verdes (incl. los jobs de `market-data-client` en la matrix py3.12 + py3.13).
   3. Merge a `main`; tag `market-data-client-v0.3.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
   4. El bump es minor no-breaking: la superficie de lectura v0.2.0 permanece 100% compatible.
+
 **Plans**: TBD
 
 ## Progress
