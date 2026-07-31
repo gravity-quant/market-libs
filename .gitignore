@@ -29,6 +29,20 @@ venv/
 
 claude/
 
+# GSD framework tooling (not release content — keep out of the repo/PR)
+.claude/.gsd-profile
+.claude/agents/
+.claude/commands/
+.claude/gsd-core/
+.claude/gsd-file-manifest.json
+.claude/gsd-install-state.json
+.claude/gsd-migration-journal/
+.claude/hooks/
+.claude/package.json
+.claude/scripts/
+.claude/skills/senior-prompt-engineer/
+.future_plans/
+
 # Env
 .env
 .env.local
