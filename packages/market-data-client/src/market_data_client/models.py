@@ -26,8 +26,8 @@ the ``N815`` naming rule (see ``[tool.ruff.lint.per-file-ignores]`` in the root
 :class:`MarketDataSnapshot` (D-01): it records when the client received the
 response, NOT a payload value. :meth:`MarketDataSnapshot.from_api` injects it
 directly as a keyword and never routes it through ``_coerce`` (which would
-collapse it to ``0.0``). Nested :class:`MarketDataEntry` rows carry no
-``received_at``.
+collapse it to ``0.0``). Only :class:`MarketDataSnapshot` is client-stamped;
+every other :class:`SafeModel` subclass carries no ``received_at``.
 
 This module is a package-local copy of the higyrus ``SafeModel`` / ``_coerce``
 implementation (D-03): the no-shared-internals constraint forbids importing any
@@ -45,7 +45,6 @@ __all__ = [
     "CalendarDay",
     "Instrument",
     "LatestRequest",
-    "MarketDataEntry",
     "MarketDataSnapshot",
     "SafeModel",
     "Segment",
@@ -116,32 +115,26 @@ def _coerce(value: Any, hint: Any) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
-class MarketDataEntry(SafeModel):
-    """A single market-data entry row nested inside a :class:`MarketDataSnapshot`.
-
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles field
-    names against real payloads). A plain :class:`SafeModel` subclass: it carries
-    NO ``received_at`` (only the top-level snapshot is client-stamped).
-    """
-
-    entryType: str
-    price: float
-    size: float
-
-
-@dataclass(frozen=True, slots=True)
 class MarketDataSnapshot(SafeModel):
     """A market-data snapshot returned by the ``/marketdata`` read endpoints.
 
-    PROVISIONAL wire shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles).
-    ``received_at`` is a first-class, CLIENT-STAMPED field (D-01): it is injected
-    by :meth:`from_api` as a keyword and never coerced from the payload.
+    Reconciled against the real develop wire (LIVE-MD-01): ``/marketdata`` items
+    carry ``symbol``, ``market_id``, ``active``, ``entries`` (a list of entry-type
+    code strings, e.g. ``["BI", "OF"]``), ``market_data`` (a dict passthrough of
+    per-entry-type rows), ``staleness_seconds``, and — on ``/marketdata/latest``
+    no-data rows — a ``note`` string. ``received_at`` is a first-class,
+    CLIENT-STAMPED field (D-01): it is injected by :meth:`from_api` as a keyword
+    and never coerced from the payload (a wire/decoy ``received_at`` never wins).
     """
 
     symbol: str
-    marketId: str
-    entries: list[MarketDataEntry]
+    market_id: str
+    active: bool
+    entries: list[str]
+    market_data: dict[str, Any]
+    staleness_seconds: float
     received_at: float
+    note: str | None = None
 
     @classmethod
     def from_api(cls, payload: Any, *, received_at: float = 0.0) -> Self:
@@ -192,7 +185,7 @@ class LatestRequest:
 # Reference-data models (D-04 / D-05) — plain SafeModel, no received_at
 # ----------------------------------------------------------------------
 #
-# These five catalog models mirror the ``MarketDataEntry`` precedent: they are
+# These five catalog models follow the ``SafeModel`` base precedent: they are
 # built via the INHERITED ``SafeModel.from_api`` (no override) and carry NO
 # client-stamped ``received_at`` (D-05) — reference data is slow-moving with no
 # ``max_staleness_seconds`` companion to justify a receipt-time stamp. Shapes
