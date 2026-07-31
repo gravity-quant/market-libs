@@ -205,12 +205,19 @@ def test_parse_calendar_config_response_empty_body_tolerant_default() -> None:
 
 
 def test_parse_calendar_config_response_returns_single_object() -> None:
-    body = {"timezone": "America/Argentina/Buenos_Aires", "businessDays": ["MON"]}
+    body = {
+        "open": "11:00",
+        "close": "17:00",
+        "timezone": "America/Argentina/Buenos_Aires",
+        "warnings": [],
+        "updated_at": None,
+    }
     result = _core.parse_calendar_config_response(_resp(200, json_body=body))
     assert isinstance(result, CalendarConfig)
     assert not isinstance(result, list)
     assert result.timezone == "America/Argentina/Buenos_Aires"
-    assert result.businessDays == ["MON"]
+    assert result.open == "11:00"
+    assert result.updated_at is None
 
 
 def test_parse_calendar_config_response_401_raises_auth() -> None:
