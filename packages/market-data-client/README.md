@@ -56,3 +56,20 @@ uv run ruff check packages/market-data-client
 # Type checking
 uv run mypy packages/market-data-client
 ```
+
+## Changelog
+
+### v0.2.0
+
+**Breaking changes** (semver minor bump en línea 0.x) — reconciliación del cliente
+contra la API en vivo tras la verificación `LIVE-MD-01`:
+
+- `get_latest(symbol=...)` ahora es **requerido** (la API devuelve 422 sin él).
+- `MarketDataSnapshot` reconciliado contra el wire de develop: `marketId` → `market_id`;
+  agregados `active`, `market_data`, `staleness_seconds`, `note`; se retiró el
+  `MarketDataEntry` inventado.
+- `CalendarConfig` reconciliado: se eliminó `businessDays`; se agregaron `open`, `close`,
+  `enabled`, `editable`, `env_bypass`, `pre_open_minutes`, `source`, `updated_at`,
+  `updated_by`, `warnings`.
+- Corregido el envelope-unwrap de `parse_market_data_response` (`get_market_data` ahora
+  lee `items[]`).

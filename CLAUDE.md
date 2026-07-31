@@ -71,7 +71,7 @@ corregida.
 - `packages/ambito-financiero-client/` — `ambito-financiero-client` v0.1.1 (Ámbito Financiero, HTTP sync+async, no auth)
 - `packages/wallets-client/` — `wallets-client` v0.1.0 (Wallets, HTTP sync+async, static Bearer token)
 - `packages/matriz-client/` — `matriz-client` v0.1.1 (MATBA ROFEX Primary API, HTTP REST + WebSocket)
-- `packages/market-data-client/` — `market-data-client` v0.1.0 (Market data / primary-extractor, HTTP sync+async, Auth0 client-credentials)
+- `packages/market-data-client/` — `market-data-client` v0.2.0 (Market data / primary-extractor, HTTP sync+async, Auth0 client-credentials)
 ## Platform Requirements
 - uv 0.9.0+
 - Python 3.12 or 3.13
