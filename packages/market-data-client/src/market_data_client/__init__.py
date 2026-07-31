@@ -56,6 +56,7 @@ from market_data_client.exceptions import (  # noqa: E402
     MarketDataAPIError,
     MarketDataAuthError,
     MarketDataError,
+    MarketDataMutationNotAllowedError,
     MarketDataRateLimitError,
 )
 from market_data_client.models import (  # noqa: E402
@@ -81,6 +82,7 @@ __all__ = [
     "MarketDataAPIError",
     "MarketDataAuthError",
     "MarketDataError",
+    "MarketDataMutationNotAllowedError",
     "MarketDataRateLimitError",
     "MarketDataSnapshot",
     "Segment",

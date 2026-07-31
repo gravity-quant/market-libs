@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -40,7 +41,10 @@ from dotenv import load_dotenv
 from market_data_client import _atransport, _core
 from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
-from market_data_client.exceptions import MarketDataAuthError
+from market_data_client.exceptions import (
+    MarketDataAuthError,
+    MarketDataMutationNotAllowedError,
+)
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
@@ -104,6 +108,8 @@ class AsyncClient:
         token: str | None = None,
         token_expires_at: float | None = None,
         http_client: httpx.AsyncClient | None = None,
+        mutating_allowed: bool | None = None,
+        expected_host: str | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: valida max_retries temprano (antes de mutar estado).
@@ -121,6 +127,13 @@ class AsyncClient:
             self._state.audience = audience
         if auth0_token_url is not None:
             self._state.auth0_token_url = auth0_token_url
+        # Gate de mutaciones (D-13/D-15): sentinel None = "no cambiar". Espeja
+        # verbatim la superficie sync — un _ClientState fresco ya default-ea
+        # mutating_allowed=False y expected_host al host develop.
+        if mutating_allowed is not None:
+            self._state.mutating_allowed = mutating_allowed
+        if expected_host is not None:
+            self._state.expected_host = expected_host
         if token is not None:
             self._state.token = token
         if token_expires_at is not None:
@@ -191,6 +204,37 @@ class AsyncClient:
         view._max_retries = max_retries  # OVERRIDE
         view._is_view = True  # FLAG para el no-op de aclose()/__aexit__ (D-08)
         return view
+
+    # ------------------------------------------------------------------
+    # Mutation gate (GATE-MD-01 — D-04/D-05/D-15)
+    # ------------------------------------------------------------------
+
+    def _ensure_mutation_allowed(self) -> None:
+        """Rechaza mutaciones sin opt-in o hacia un host inesperado (D-04/D-05).
+
+        Espejo VERBATIM del helper sync (D-15). Es una lectura PURA de estado
+        (SIN ``await``, SIN IO): NO emite request HTTP NI round-trip a Auth0 en
+        refusal ni en éxito. Debe ser la PRIMERA sentencia (no-awaited) de cada
+        método mutador (cableado en el Plan 03), antes de ``_core.build_*`` y de
+        cualquier ``_ensure_token``.
+
+        Dos patas:
+          1. ``mutating_allowed`` debe ser True (refuse-by-default, D-13).
+          2. El host de ``base_url`` debe coincidir EXACTAMENTE con
+             ``expected_host`` (D-01, security-load-bearing) vía
+             ``urlsplit(...).hostname`` — NUNCA substring ni ``endswith``. Un
+             ``expected_host`` en ``None`` deshabilita SÓLO esta segunda pata.
+        """
+        if not self._state.mutating_allowed:
+            raise MarketDataMutationNotAllowedError(
+                "Mutación rechazada: seteá mutating_allowed=True (constructor o configure())."
+            )
+        expected = self._state.expected_host
+        actual = urlsplit(self._state.base_url).hostname
+        if expected is not None and actual != expected:
+            raise MarketDataMutationNotAllowedError(
+                f"Mutación rechazada: host de base_url {actual!r} != expected_host {expected!r}."
+            )
 
     # ------------------------------------------------------------------
     # HTTP transport + lazy per-loop locks
@@ -540,6 +584,8 @@ def configure(
     base_url: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
+    mutating_allowed: bool | None = None,
+    expected_host: str | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs del default async en runtime.
 
@@ -581,6 +627,13 @@ def configure(
         client._state.token = token
     if token_expires_at is not None:
         client._state.token_expires_at = token_expires_at
+    # Gate de mutaciones: config puro (D-13/D-15), NO credenciales — NO setea
+    # ``rotated`` (no invalida el token). Sentinel None = "no cambiar", así que
+    # un ``configure(base_url=...)`` NO resetea un opt-in previo (Pitfall 5).
+    if mutating_allowed is not None:
+        client._state.mutating_allowed = mutating_allowed
+    if expected_host is not None:
+        client._state.expected_host = expected_host
 
 
 async def get_health() -> dict[str, Any]:

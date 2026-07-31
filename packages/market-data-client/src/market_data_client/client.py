@@ -44,13 +44,17 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
 
 from market_data_client import _core, _transport
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
-from market_data_client.exceptions import MarketDataAuthError
+from market_data_client.exceptions import (
+    MarketDataAuthError,
+    MarketDataMutationNotAllowedError,
+)
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
@@ -122,6 +126,8 @@ class Client:
         client_secret: str | None = None,
         audience: str | None = None,
         auth0_token_url: str | None = None,
+        mutating_allowed: bool | None = None,
+        expected_host: str | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: validate max_retries early (before any state mutation).
@@ -137,6 +143,13 @@ class Client:
             self._state.audience = audience
         if auth0_token_url is not None:
             self._state.auth0_token_url = auth0_token_url
+        # Gate de mutaciones (D-13): sentinel None = "no cambiar" (carry-forward).
+        # Un _ClientState fresco ya default-ea mutating_allowed=False y
+        # expected_host al host develop, así que el sentinel es seguro acá.
+        if mutating_allowed is not None:
+            self._state.mutating_allowed = mutating_allowed
+        if expected_host is not None:
+            self._state.expected_host = expected_host
         # D-08: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
         # D-08: normally-constructed Clients are NOT views; with_options sets
@@ -233,6 +246,38 @@ class Client:
         view._max_retries = max_retries  # OVERRIDE
         view._is_view = True  # FLAG for close()/__exit__ no-op (D-08)
         return view
+
+    # ------------------------------------------------------------------
+    # Mutation gate (GATE-MD-01 — D-04/D-05)
+    # ------------------------------------------------------------------
+
+    def _ensure_mutation_allowed(self) -> None:
+        """Rechaza mutaciones sin opt-in o hacia un host inesperado (D-04/D-05).
+
+        Debe ser la PRIMERA sentencia de cada método mutador (cableado en el
+        Plan 03) — antes de ``_core.build_*``, antes de ``self._request``, antes
+        de cualquier ``_ensure_token``. Es una lectura PURA de estado: NO emite
+        request HTTP NI round-trip a Auth0 en refusal ni en éxito, así un intento
+        rechazado no se filtra por la red.
+
+        Dos patas:
+          1. ``mutating_allowed`` debe ser True (refuse-by-default, D-13).
+          2. El host de ``base_url`` debe coincidir EXACTAMENTE con
+             ``expected_host`` (D-01, security-load-bearing). Match exacto vía
+             ``urlsplit(...).hostname`` — NUNCA substring ni ``endswith`` (un
+             ``…bbsa.com.ar.attacker.example`` pasaría un substring-match). Un
+             ``expected_host`` en ``None`` deshabilita SÓLO esta segunda pata.
+        """
+        if not self._state.mutating_allowed:
+            raise MarketDataMutationNotAllowedError(
+                "Mutación rechazada: seteá mutating_allowed=True (constructor o configure())."
+            )
+        expected = self._state.expected_host
+        actual = urlsplit(self._state.base_url).hostname
+        if expected is not None and actual != expected:
+            raise MarketDataMutationNotAllowedError(
+                f"Mutación rechazada: host de base_url {actual!r} != expected_host {expected!r}."
+            )
 
     def _send_auth_request(self, spec: _core.RequestSpec) -> httpx.Response:
         """Dispatch the Auth0 grant to the ABSOLUTE ``auth0_token_url``.
@@ -523,6 +568,8 @@ def configure(
     token: str | None = None,
     token_expires_at: float | None = None,
     http_client: httpx.Client | None = None,
+    mutating_allowed: bool | None = None,
+    expected_host: str | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs en runtime con semántica carry-forward.
 
@@ -569,6 +616,13 @@ def configure(
             assert isinstance(state.http_client, httpx.Client)
             state.http_client.close()
         state.http_client = http_client
+    # Gate de mutaciones: config puro (D-13), NO credenciales — NO setea
+    # ``rotated`` (no invalida el token). Sentinel None = "no cambiar", así que
+    # un ``configure(base_url=...)`` NO resetea un opt-in previo (Pitfall 5).
+    if mutating_allowed is not None:
+        state.mutating_allowed = mutating_allowed
+    if expected_host is not None:
+        state.expected_host = expected_host
 
 
 def get_health() -> dict[str, Any]:
