@@ -46,9 +46,12 @@ __all__ = [
     "Instrument",
     "LatestRequest",
     "MarketDataSnapshot",
+    "NewSymbol",
+    "NewSymbols",
     "SafeModel",
     "Segment",
     "Symbol",
+    "SymbolPatch",
 ]
 
 
@@ -179,6 +182,74 @@ class LatestRequest:
         if self.entries is not None:
             out["entries"] = self.entries
         return out
+
+
+# ----------------------------------------------------------------------
+# Symbols write request models (D-09 / D-10 / D-11) — serialize-OUT
+# ----------------------------------------------------------------------
+#
+# These three request models feed the ``POST /symbols``, ``POST /symbols/batch``
+# and ``PATCH /symbols/{id}`` write endpoints (MUT-MD-01). Like
+# :class:`LatestRequest`, they are NOT :class:`SafeModel` subclasses — they
+# serialize OUT via a hand-written :meth:`to_dict`, they do not deserialize IN.
+
+
+@dataclass(frozen=True, slots=True)
+class NewSymbol:
+    """Typed request body element for a symbol create (D-09 / D-10).
+
+    NOT a :class:`SafeModel` — this dataclass serializes OUT via :meth:`to_dict`.
+    ``market_id`` is defaulted, non-nullable, and ALWAYS emitted (D-10). The wire
+    key is snake_case ``market_id`` per the source-plan schema — INTENTIONALLY
+    different from :class:`LatestRequest`'s camelCase ``marketId`` (Pitfall 3 /
+    A2; the real key is confirmed live in Phase 27).
+    """
+
+    symbol: str
+    market_id: str = "ROFX"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a wire dict — both keys always present (D-10)."""
+        return {"symbol": self.symbol, "market_id": self.market_id}
+
+
+@dataclass(frozen=True, slots=True)
+class NewSymbols:
+    """Typed request body for the batch ``POST /symbols/batch`` endpoint (D-09).
+
+    NOT a :class:`SafeModel` — serializes OUT via :meth:`to_dict`. Enforces the
+    client-side 1-500 batch-size guard in :meth:`__post_init__`, raising a plain
+    :class:`ValueError` (NOT a ``MarketData*`` error — that hierarchy is reserved
+    for server contract errors, D-11) before any spec build or HTTP dispatch. The
+    ``ValueError``-only ``__post_init__`` reads but never mutates fields, so it is
+    valid on a frozen dataclass without ``object.__setattr__``.
+    """
+
+    symbols: list[NewSymbol]
+
+    def __post_init__(self) -> None:
+        """Enforce the 1-500 batch-size bound (D-11) — plain ValueError."""
+        if not 1 <= len(self.symbols) <= 500:
+            raise ValueError(f"NewSymbols requires 1-500 symbols, got {len(self.symbols)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to ``{"symbols": [each element's to_dict()]}``."""
+        return {"symbols": [s.to_dict() for s in self.symbols]}
+
+
+@dataclass(frozen=True, slots=True)
+class SymbolPatch:
+    """Typed request body for the ``PATCH /symbols/{id}`` endpoint (D-09).
+
+    NOT a :class:`SafeModel` — serializes OUT via :meth:`to_dict`. Carries the
+    single ``active`` toggle the update endpoint accepts.
+    """
+
+    active: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to ``{"active": self.active}``."""
+        return {"active": self.active}
 
 
 # ----------------------------------------------------------------------

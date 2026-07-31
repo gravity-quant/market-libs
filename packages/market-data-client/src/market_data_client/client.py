@@ -44,21 +44,28 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
 
 from market_data_client import _core, _transport
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
-from market_data_client.exceptions import MarketDataAuthError
+from market_data_client.exceptions import (
+    MarketDataAuthError,
+    MarketDataMutationNotAllowedError,
+)
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    NewSymbol,
+    NewSymbols,
     Segment,
     Symbol,
+    SymbolPatch,
 )
 
 load_dotenv()
@@ -122,6 +129,8 @@ class Client:
         client_secret: str | None = None,
         audience: str | None = None,
         auth0_token_url: str | None = None,
+        mutating_allowed: bool | None = None,
+        expected_host: str | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: validate max_retries early (before any state mutation).
@@ -137,6 +146,13 @@ class Client:
             self._state.audience = audience
         if auth0_token_url is not None:
             self._state.auth0_token_url = auth0_token_url
+        # Gate de mutaciones (D-13): sentinel None = "no cambiar" (carry-forward).
+        # Un _ClientState fresco ya default-ea mutating_allowed=False y
+        # expected_host al host develop, así que el sentinel es seguro acá.
+        if mutating_allowed is not None:
+            self._state.mutating_allowed = mutating_allowed
+        if expected_host is not None:
+            self._state.expected_host = expected_host
         # D-08: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
         # D-08: normally-constructed Clients are NOT views; with_options sets
@@ -233,6 +249,38 @@ class Client:
         view._max_retries = max_retries  # OVERRIDE
         view._is_view = True  # FLAG for close()/__exit__ no-op (D-08)
         return view
+
+    # ------------------------------------------------------------------
+    # Mutation gate (GATE-MD-01 — D-04/D-05)
+    # ------------------------------------------------------------------
+
+    def _ensure_mutation_allowed(self) -> None:
+        """Rechaza mutaciones sin opt-in o hacia un host inesperado (D-04/D-05).
+
+        Debe ser la PRIMERA sentencia de cada método mutador (cableado en el
+        Plan 03) — antes de ``_core.build_*``, antes de ``self._request``, antes
+        de cualquier ``_ensure_token``. Es una lectura PURA de estado: NO emite
+        request HTTP NI round-trip a Auth0 en refusal ni en éxito, así un intento
+        rechazado no se filtra por la red.
+
+        Dos patas:
+          1. ``mutating_allowed`` debe ser True (refuse-by-default, D-13).
+          2. El host de ``base_url`` debe coincidir EXACTAMENTE con
+             ``expected_host`` (D-01, security-load-bearing). Match exacto vía
+             ``urlsplit(...).hostname`` — NUNCA substring ni ``endswith`` (un
+             ``…bbsa.com.ar.attacker.example`` pasaría un substring-match). Un
+             ``expected_host`` en ``None`` deshabilita SÓLO esta segunda pata.
+        """
+        if not self._state.mutating_allowed:
+            raise MarketDataMutationNotAllowedError(
+                "Mutación rechazada: seteá mutating_allowed=True (constructor o configure())."
+            )
+        expected = self._state.expected_host
+        actual = urlsplit(self._state.base_url).hostname
+        if expected is not None and actual != expected:
+            raise MarketDataMutationNotAllowedError(
+                f"Mutación rechazada: host de base_url {actual!r} != expected_host {expected!r}."
+            )
 
     def _send_auth_request(self, spec: _core.RequestSpec) -> httpx.Response:
         """Dispatch the Auth0 grant to the ABSOLUTE ``auth0_token_url``.
@@ -484,6 +532,47 @@ class Client:
         resp = self._request(spec)
         return _core.parse_symbols_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — symbols writes (gated, MUT-MD-01 / GATE-MD-01)
+    # ------------------------------------------------------------------
+
+    def create_symbol(self, new_symbol: NewSymbol) -> list[Symbol]:
+        """Gated ``POST {base_url}/symbols`` → tolerant ``list[Symbol]`` (MUT-MD-01).
+
+        ``_ensure_mutation_allowed()`` is the LITERAL FIRST statement (before the
+        builder, before ``self._request``, before any token fetch) so a refused
+        mutation emits ZERO HTTP + ZERO Auth0 grant (D-04/D-05). A ``422`` flows
+        through the existing ``_core.raise_for_response`` unchanged (D-12). The
+        response shape is Phase-27-deferred (A1) — ``parse_symbols_response`` stays
+        tolerant via ``Symbol.from_api``.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_create_symbol_request(self._state, new_symbol.to_dict())
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    def create_symbols(self, new_symbols: NewSymbols) -> list[Symbol]:
+        """Gated batch ``POST {base_url}/symbols/batch`` → tolerant ``list[Symbol]``.
+
+        Gate-first (D-04/D-05); the 1-500 batch bound is enforced client-side in
+        ``NewSymbols.__post_init__`` (D-11), before this method runs.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_create_symbols_request(self._state, new_symbols.to_dict())
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    def update_symbol(self, symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+        """Gated ``PATCH {base_url}/symbols/{symbol_id}`` → tolerant ``list[Symbol]``.
+
+        Gate-first (D-04/D-05). ``symbol_id`` is interpolated raw for Phase 25
+        (percent-encoding of ``/``-bearing ids is D-08, deferred to Phase 27).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_update_symbol_request(self._state, symbol_id, patch.to_dict())
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
     def get_calendar(self, *, year: int | None = None) -> list[CalendarDay]:
         """Authenticated ``GET {base_url}/calendar`` → list of calendar days (D-06)."""
         spec = _core.build_calendar_request(self._state, year=year)
@@ -523,6 +612,8 @@ def configure(
     token: str | None = None,
     token_expires_at: float | None = None,
     http_client: httpx.Client | None = None,
+    mutating_allowed: bool | None = None,
+    expected_host: str | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs en runtime con semántica carry-forward.
 
@@ -569,6 +660,13 @@ def configure(
             assert isinstance(state.http_client, httpx.Client)
             state.http_client.close()
         state.http_client = http_client
+    # Gate de mutaciones: config puro (D-13), NO credenciales — NO setea
+    # ``rotated`` (no invalida el token). Sentinel None = "no cambiar", así que
+    # un ``configure(base_url=...)`` NO resetea un opt-in previo (Pitfall 5).
+    if mutating_allowed is not None:
+        state.mutating_allowed = mutating_allowed
+    if expected_host is not None:
+        state.expected_host = expected_host
 
 
 def get_health() -> dict[str, Any]:
@@ -661,6 +759,21 @@ def get_symbols(
 ) -> list[Symbol]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_symbols(active=active, market_id=market_id, prefix=prefix)
+
+
+def create_symbol(new_symbol: NewSymbol) -> list[Symbol]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().create_symbol(new_symbol)
+
+
+def create_symbols(new_symbols: NewSymbols) -> list[Symbol]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().create_symbols(new_symbols)
+
+
+def update_symbol(symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().update_symbol(symbol_id, patch)
 
 
 def get_calendar(*, year: int | None = None) -> list[CalendarDay]:

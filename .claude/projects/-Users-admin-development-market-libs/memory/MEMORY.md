@@ -1,2 +1,2 @@
 - [Phase 23 Wave 2 pending creds](phase-23-wave2-pending-creds.md) — live market-data verification paused; needs MARKET_DATA_* Auth0 creds + develop VPN before /gsd-execute-phase 23 resumes Wave 2
-- [market-data-client v0.1.0 published](market-data-client-v0.1.0-published.md) — 6th monorepo package released via per-package tag market-data-client-v0.1.0; CI matrix + CLAUDE.md updated in Phase 24
+- [market-data-client releases](market-data-client-releases.md) — latest published is v0.2.0 (LIVE-MD-01 fixes; v0.1.0 superseded/buggy); install via git subdir @ tag or GitHub Release wheel, not PyPI

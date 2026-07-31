@@ -313,3 +313,66 @@ def test_parse_health_response_raises_on_error_status() -> None:
     resp = _resp(500, json_body={"status": "down"})
     with pytest.raises(MarketDataAPIError):
         _core.parse_health_response(resp)
+
+
+# ----------------------------------------------------------------------
+# symbols write builders (Plan 25-02, MUT-MD-01) — POST/PATCH, idempotent=True
+# ----------------------------------------------------------------------
+
+
+def test_build_create_symbol_request_posts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"symbol": "DLR/DIC26", "market_id": "ROFX"}
+    spec = _core.build_create_symbol_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/symbols"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "create_symbol"
+
+
+def test_build_create_symbols_request_posts_batch_body() -> None:
+    state = _ClientState()
+    body = {"symbols": [{"symbol": "A", "market_id": "ROFX"}]}
+    spec = _core.build_create_symbols_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/symbols/batch"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "create_symbols"
+
+
+def test_build_update_symbol_request_patches_id_path() -> None:
+    state = _ClientState()
+    body = {"active": False}
+    spec = _core.build_update_symbol_request(state, "DLR/DIC26", body)
+    assert spec.method == "PATCH"
+    assert spec.path == "/symbols/DLR/DIC26"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "update_symbol"
+
+
+def test_symbols_write_builders_are_state_independent() -> None:
+    """Same payload yields identical specs for a fresh vs a configured state."""
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    create_body = {"symbol": "DLR/DIC26", "market_id": "ROFX"}
+    batch_body = {"symbols": [{"symbol": "A", "market_id": "ROFX"}]}
+    patch_body = {"active": True}
+    assert _core.build_create_symbol_request(
+        fresh, create_body
+    ) == _core.build_create_symbol_request(configured, create_body)
+    assert _core.build_create_symbols_request(
+        fresh, batch_body
+    ) == _core.build_create_symbols_request(configured, batch_body)
+    assert _core.build_update_symbol_request(
+        fresh, "X", patch_body
+    ) == _core.build_update_symbol_request(configured, "X", patch_body)

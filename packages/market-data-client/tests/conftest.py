@@ -41,12 +41,17 @@ def _configure_sync() -> Iterator[None]:
     # Cierre del transport: cada test arranca con un httpx.Client fresco que
     # ``httpx_mock`` intercepta vía el patch de Transport.
     market_data_client.client._get_default().close()
+    # Pitfall 6: resetea también los campos del gate en el singleton default para
+    # que un test que abrió el gate (``mutating_allowed=True``) no contamine al
+    # siguiente. ``expected_host`` vuelve al host develop default (constante).
     market_data_client.configure(
         base_url="https://market-data-develop.test/api",
         client_id="",
         client_secret="",
         audience="",
         auth0_token_url="https://auth.test/oauth/token",
+        mutating_allowed=False,
+        expected_host="market-data-develop.bbsa.com.ar",
     )
 
 
@@ -63,10 +68,13 @@ async def _configure_async() -> AsyncIterator[None]:
     )
     yield
     await aio._get_default().aclose()
+    # Pitfall 6 (async): mismo reset del gate en el singleton async default.
     aio.configure(
         base_url="https://market-data-develop.test/api",
         client_id="",
         client_secret="",
         audience="",
         auth0_token_url="https://auth.test/oauth/token",
+        mutating_allowed=False,
+        expected_host="market-data-develop.bbsa.com.ar",
     )

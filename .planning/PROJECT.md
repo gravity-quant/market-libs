@@ -21,7 +21,14 @@ corregida.
 
 ## Current State
 
+**v1.5 Phase 25 complete (2026-07-31)** — `market-data-client` gained its **first mutation surface (symbols write) behind a load-bearing safety gate** (GATE-MD-01 + MUT-MD-01), on the v0.2.0 read foundation, purely additive. The **mutating-gate** is built first and is opt-in-by-default-refuse: a default `Client()`/`AsyncClient()` raises the new typed `MarketDataMutationNotAllowedError` (⊂ `MarketDataError`) on any mutation and emits **zero HTTP requests and zero Auth0 round-trips** (verified adversarially with a force-expired token). Two gates compose in `_ensure_mutation_allowed()` — the literal first statement of every mutation method on both shells (AST-verified): the opt-in `mutating_allowed` flag **and** an **exact-hostname** env gate (`urlsplit(base_url).hostname == expected_host`, never substring/`endswith`; the `…bbsa.com.ar.attacker.example` superstring is refused, port/userinfo stripped, malformed→`None` fails closed). `mutating_allowed`/`expected_host` live on the shared `_ClientState` so `with_options` views inherit for free; `configure(mutating_allowed=…)` uses a `bool|None` sentinel so a later `configure(base_url=…)` can't silently reset a prior opt-in. **Symbols write** ships `create_symbol` (`NewSymbol`), `create_symbols` (batch 1–500, `NewSymbols`, client-side `ValueError` bound), `update_symbol` (`SymbolPatch`) in sync **and** async, via three pure `_core.py` builders (all `idempotent=True` per DM-03) dispatching typed frozen request-models (`to_dict()` serialize-out, not `SafeModel`) with tolerant `SafeModel` responses and `422`→typed error. SC#5 export/parity is enforced by a new **in-package** `test_public_surface_market_data.py` (the cross-package nets exclude this package — RESEARCH corrected CONTEXT D-16). 3 plans / 2 waves; verifier **15/15 must-haves**; **all 4 gates green** (ruff/format/mypy-strict/pytest — **189 package tests**). Advisory code review: **0 BLOCKER**, 5 WARNING / 2 INFO — the strongest (WR-01, a `parse_latest_response` read-path envelope-unwrap gap) is **pre-existing Phase-21 code** whose fix depends on the live response shape → deferred to Phase 27. Carry-forwards to Phase 27 (LIVE-MUT-01), unresolved by design: exact 201/200/422 wire shapes, snake_case `market_id` wire key, real server-side POST idempotency, PATCH `/`-encoding of `symbol_id`; plus enrolling `market-data-client` into the cross-package mypy CI loop (documented follow-up). Next: Phase 26 (calendar write, MUT-MD-02).
+
+<details>
+<summary>v1.4 Phase 24 Current State block (complete 2026-07-31 — MILESTONE v1.4 SHIPPED, archived for reference)</summary>
+
 **v1.4 Phase 24 complete (2026-07-31) — MILESTONE v1.4 SHIPPED.** `market-data-client v0.1.0` is **publicly released** through the same per-package tag pipeline as the other five packages (PUB-MD-01, goal met, verifier 9/9 against live GitHub state). Wave 1 (24-01, autonomous) landed the reversible pre-release edits: `market-data-client` added as the 6th entry in the `ci.yml` test matrix (py3.12 + py3.13), CLAUDE.md documented as the 6th package (workspace bullet + "6 packages" count + component-table row), a new MEMORY pointer file, and lockfile/version alignment validated (`uv sync --frozen` + `uv lock --check` clean, version `0.1.0` across `pyproject` + `__version__`, workspace member registered) — no functional package code changed. Wave 2 (24-02, `autonomous:false`) executed the release under a **blocking human go/no-go checkpoint**: opened PR #5 (`release/v0.2.0-bump` → `main`, `.planning/` artifacts kept per D-07, GSD tooling under `.claude/` gitignored out), confirmed all 15 CI checks green (incl. both new `market-data-client` jobs), and only after explicit operator "approved" performed the two irreversible ops — merged to `main` (merge commit `1ea655d`) and pushed the exact per-package tag `market-data-client-v0.1.0` on that commit, triggering `release.yml` (run `30641107566`, success) which published the GitHub Release with wheel (`market_data_client-0.1.0-py3-none-any.whl`) + sdist (`market_data_client-0.1.0.tar.gz`). `release.yml` unedited (D-02). 2/2 plans; no secrets in the diff. **Note (carried, not a v1.4 regression):** LIVE-MD-01's real credentialed live sweep against develop still awaits Auth0 creds + VPN — the publish is independent of that standing Phase-23 blocker. Milestone next step: `/gsd-complete-milestone` for v1.4.
+
+</details>
 
 <details>
 <summary>v1.4 Phase 23 Current State block (complete 2026-07-31, archived for reference)</summary>
@@ -65,20 +72,27 @@ corregida.
 
 </details>
 
-## Current Milestone: v1.4 market-data-client
+## Current Milestone: v1.5 market-data-client · mutaciones
 
-**Goal:** Crear un nuevo paquete cliente `market-data-client` en el monorepo que exponga la superficie de **lectura** de la API primary-extractor (`https://market-data-develop.bbsa.com.ar/api`, OpenAPI 3.1) con autenticación **Auth0 client-credentials**, replicando todas las decisiones arquitectónicas de los paquetes existentes, verificarlo en vivo contra develop y **publicarlo como v0.1.0** por el mismo pipeline de tags que el resto.
+**Goal:** Extender `market-data-client` (v0.2.0, sólo lectura) con la superficie de **escritura** de la API primary-extractor —symbols + calendar— detrás de un **mutating-gate de seguridad** que espeja el patrón de `matriz-client`, verificarla en vivo de forma segura (create→verify→revert, sólo develop), y **publicar v0.3.0** por el pipeline de tags.
 
 **Target features:**
-- Scaffold del paquete `market-data-client` (import `market_data_client`) espejando la estructura de `iol-client` + Auth0 client-credentials (token cache TTL/refresh, dual sync/async) + fundaciones de transporte (retries full-jitter, logging redactado, exceptions, `configure()`, health).
-- Superficie de lectura de market data: `GET /marketdata` (list), `GET|POST /marketdata/latest` (single + batch) con modelos `SafeModel` (`received_at` de primera clase) + paridad `with_options(max_retries=N)`.
-- Superficie de referencia (lectura): `GET /instruments`, `/instruments/segments`, `GET /symbols`, `GET /calendar`, `GET /calendar/config` + modelos.
-- Verificación en vivo contra develop (driver `main_market_data.py`, reutiliza `verification/`) + fixes de divergencias en el mismo ciclo.
-- Release prep + publish `market-data-client-v0.1.0` (README, `market-data-client` en la matriz de `ci.yml`, `uv.lock`, PR → tag → GitHub Release).
+- **Mutating-gate de seguridad** (GATE-MD-01): opt-in explícito `mutating_allowed` (constructor + `configure()`) + gate de entorno (host/base_url esperado) + no-retry de operaciones no idempotentes; error tipado `MarketDataMutationNotAllowedError` si no está habilitado. Dual sync/async.
+- **Symbols write** (MUT-MD-01): `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{symbol_id}` + request-models (`NewSymbol`/`NewSymbols`/`SymbolPatch`).
+- **Calendar write** (MUT-MD-02): `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` + request-models (`MarketHoursIn`/`HolidayIn`/`HolidaysIn`).
+- **Verificación en vivo segura** (LIVE-MUT-01): probes de mutación detrás del gate, con identificadores de prueba dedicados y cleanup; toda divergencia corregida in-cycle.
+- **Release v0.3.0** (PUB-MUT-01): bump + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release.
 
-**Key context:** Alcance **solo lectura** — mutaciones (symbols POST/PATCH/batch, calendar PUT/POST/DELETE), streaming SSE `GET /marketdata/stream`, token cache en disco y validación de firma JWT quedan diferidos a v1.5+. El nombre debe terminar en `-client` (regex de `release.yml`). Plan fuente: `.future_plans/market_data.md`. Riesgo: el entorno develop puede requerir VPN/allowlist o credenciales aún no disponibles para la Fase 4 (verificación en vivo); las respuestas no están tipadas en el OpenAPI, así que los modelos se afinan contra payloads reales.
+**Key context:** minor bump (features nuevas, no rompe la superficie de lectura v0.2.0). Riesgo central = **mutación accidental** → el mutating-gate es load-bearing y lo primero a construir. La verificación en vivo es **destructiva** (crea/modifica estado en develop) → requiere identificadores de prueba + cleanup + confirmación del operator sobre qué es seguro tocar. La idempotencia real de los POST se revalida en vivo antes de confiar el retry-behavior. Plan fuente: `.planning/future-plans/market_data_mutations.md`.
 
-**Backlog no incluido en v1.4:** prod-vs-remarkets verification (D-MATZ-27), `matriz_client.ws_client` live verification, `cryptography.fernet` token encryption at-rest — siguen en el ROADMAP Backlog.
+**Backlog no incluido en v1.5 (v2):** streaming SSE `GET /marketdata/stream` (STREAM-MD-01), token cache en disco (SEC-MD-01), validación de firma JWT RS256 (SEC-MD-02) — más los carry-forwards del monorepo (prod-vs-remarkets D-MATZ-27, `ws_client` live, token encryption at-rest).
+
+<details>
+<summary>v1.4 Current Milestone block (shipped 2026-07-31 as market-data-client v0.1.0→v0.2.0, archived for reference)</summary>
+
+**Goal:** Crear un nuevo paquete cliente `market-data-client` en el monorepo que exponga la superficie de **lectura** de la API primary-extractor con Auth0 client-credentials, verificarlo en vivo contra develop y publicarlo como v0.1.0. **Outcome:** 6/6 requisitos validados; publicado v0.1.0 y luego v0.2.0 (fixes de la primera verificación credencial-real: `get_latest.symbol` requerido + reconciliación de modelos + envelope-unwrap). Ver `milestones/v1.4-ROADMAP.md`.
+
+</details>
 
 <details>
 <summary>v1.3 Current Milestone block (closed 2026-07-03 on signed NO-GO, archived for reference)</summary>
@@ -186,9 +200,13 @@ corregida.
 
 ### Active
 
-<!-- v1.4 market-data-client SHIPPED 2026-07-31 (6 reqs → Validated). Next milestone not yet defined — candidate work in ROADMAP Backlog. Run /gsd-new-milestone to scope v1.5. -->
+<!-- v1.5 market-data-client mutaciones. Ver .planning/REQUIREMENTS.md + .planning/future-plans/market_data_mutations.md. -->
 
-*(None — v1.4 shipped. Next milestone requirements defined via `/gsd-new-milestone`.)*
+- [ ] **GATE-MD-01**: Mutating-gate de seguridad — opt-in `mutating_allowed` (constructor + `configure()`) + gate de entorno + no-retry de no-idempotentes + error tipado, dual sync/async
+- [ ] **MUT-MD-01**: Symbols write — `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{symbol_id}` con request-models tipados, sync + async
+- [ ] **MUT-MD-02**: Calendar write — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con request-models tipados, sync + async
+- [ ] **LIVE-MUT-01**: Verificación en vivo segura (con cleanup) de toda la superficie de mutación contra develop + fixes de divergencias in-cycle
+- [ ] **PUB-MUT-01**: Publicación `market-data-client-v0.3.0` (bump, README changelog, PR, tag, GitHub Release)
 
 ### Out of Scope
 
@@ -281,6 +299,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
+*Last updated: 2026-07-31 after starting milestone **v1.5 · market-data-client · mutaciones** — extiende el paquete `market-data-client` (v0.2.0, sólo lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad estilo `matriz-client`, verificada en vivo de forma segura (create→verify→revert), publicada como **v0.3.0**. Requisitos activos: GATE-MD-01, MUT-MD-01, MUT-MD-02, LIVE-MUT-01, PUB-MUT-01 → Fases 25-28 (continúa la numeración de v1.4). Diferido a v2: SSE streaming, disk token cache, JWT validation. Plan fuente: `.planning/future-plans/market_data_mutations.md`. Prior v1.4-close footer below for reference.*
+
 *Last updated: 2026-07-31 after **v1.4 market-data-client milestone close** — 5 phases (20-24) / 16 plans / 36 tasks / 6-of-6 v1 requirements Validated (AUTH-MD-01, CORE-MD-01, MD-01, REF-MD-01, LIVE-MD-01, PUB-MD-01). The monorepo grew from 5 to **6 standalone client packages**: `market-data-client v0.1.0` is publicly released (merge `1ea655d`, tag `market-data-client-v0.1.0`, GitHub Release with wheel + sdist), mirroring every existing architectural decision (Client/AsyncClient, pure `_core.py`, RetryTransport, RedactingFilter, `with_options`) with Auth0 `client_credentials` auth and a read-only surface (10 endpoints × sync/async). Milestone tag `v1.4`. Known deferred at close: LIVE-MD-01's real credentialed develop sweep (awaits Auth0 creds + VPN; publish is independent), a false-positive Phase-20 UAT audit item, and the v2 deferrals (mutations, SSE streaming, disk token cache, JWT validation). Next: `/gsd-new-milestone` to scope v1.5. Prior Phase-24 footer below for reference.*
 
 *Last updated: 2026-07-31 after Phase 24 complete — **v1.4 MILESTONE SHIPPED**: `market-data-client v0.1.0` publicly released through the per-package tag pipeline (PUB-MD-01, verifier 9/9 vs live GitHub). Phase 24 Wave 1 (autonomous) added the package to the `ci.yml` test matrix (py3.12+py3.13), documented it as the 6th package in CLAUDE.md + MEMORY, and validated lockfile/version alignment (`uv sync --frozen`/`uv lock --check` clean, `0.1.0`, workspace member registered) — no code changes. Wave 2 (`autonomous:false`) opened PR #5 (`release/v0.2.0-bump`→`main`, `.planning/` kept per D-07, `.claude/` tooling gitignored), confirmed 15/15 CI green incl. both new market-data-client jobs, then under an explicit human go/no-go merged to `main` (`1ea655d`) and pushed tag `market-data-client-v0.1.0`, triggering `release.yml` (success) → GitHub Release with wheel + sdist. `release.yml` unedited (D-02). 2/2 plans; no secrets. LIVE-MD-01's real credentialed develop sweep still pending Auth0 creds+VPN (independent of publish). Next: `/gsd-complete-milestone` v1.4. Prior Phase-23 footer below for reference.*

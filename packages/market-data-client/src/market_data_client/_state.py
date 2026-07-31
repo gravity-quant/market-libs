@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -46,6 +47,12 @@ __all__ = [
 ]
 
 DEFAULT_BASE_URL = "https://market-data-develop.bbsa.com.ar/api"
+# Host esperado por defecto para el gate de mutaciones (D-01/D-02): el hostname
+# de ``DEFAULT_BASE_URL``. El ``or`` mantiene el tipo ``str`` (mypy-strict), ya
+# que ``urlsplit(...).hostname`` es ``str | None``.
+_DEFAULT_EXPECTED_HOST: str = (
+    urlsplit(DEFAULT_BASE_URL).hostname or "market-data-develop.bbsa.com.ar"
+)
 _REQUEST_TIMEOUT = 30.0
 # Refrescamos un poco antes del vencimiento reportado por Auth0 (``expires_in``).
 _TOKEN_TTL_BUFFER_SECONDS = 60
@@ -88,6 +95,14 @@ class _ClientState:
     client_secret: str = field(default_factory=_env_client_secret)
     audience: str = field(default_factory=_env_audience)
     auth0_token_url: str = field(default_factory=_env_auth0_token_url)
+    # Gate de mutaciones (D-13/D-01/D-02). Viven SÓLO en el ``_ClientState``
+    # compartido — nunca en un ``__slots__`` de instancia — así un view de
+    # ``with_options`` hereda el estado del gate del parent (D-14).
+    # ``mutating_allowed`` refuse-by-default: una mutación NO se dispara sin
+    # opt-in explícito. ``expected_host`` arranca en el host develop; ``None``
+    # deshabilita SÓLO la pata del host (la del flag sigue vigente).
+    mutating_allowed: bool = False
+    expected_host: str | None = _DEFAULT_EXPECTED_HOST
     token: str | None = None
     token_expires_at: float = 0.0
     http_client: httpx.Client | httpx.AsyncClient | None = None
