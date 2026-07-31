@@ -256,12 +256,24 @@ class CalendarDay(SafeModel):
 class CalendarConfig(SafeModel):
     """The single calendar configuration object from ``GET /calendar/config`` (D-07).
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). The
-    ONE non-collection reference model (D-07): an empty/None body collapses to
-    ``CalendarConfig.from_api(None)`` (tolerant default), never a raise. A plain
-    :class:`SafeModel` subclass built via the inherited ``from_api``: it carries
-    NO ``received_at`` (D-05 — reference data is unstamped).
+    Reconciled against the real develop wire (LIVE-MD-01): ``open``/``close`` trading
+    times (str); ``enabled``/``editable``/``env_bypass`` flags (bool);
+    ``pre_open_minutes`` (int); ``source``/``timezone``/``updated_by`` (str);
+    ``warnings`` (list, wire sends ``[]``); ``updated_at`` (str | None, wire sends
+    ``null``). The ONE non-collection reference model (D-07): an empty/None body
+    collapses to ``CalendarConfig.from_api(None)`` (tolerant default), never a raise.
+    A plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
+    carries NO ``received_at`` (D-05 — reference data is unstamped).
     """
 
+    open: str
+    close: str
+    enabled: bool
+    editable: bool
+    env_bypass: bool
+    pre_open_minutes: int
+    source: str
     timezone: str
-    businessDays: list[str]
+    updated_by: str
+    warnings: list[Any]
+    updated_at: str | None = None
