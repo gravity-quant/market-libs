@@ -17,6 +17,7 @@ wallets-client = { workspace = true }
 matriz-client = { workspace = true }
 iol-client = { workspace = true }
 ambito-financiero-client = { workspace = true }
+market-data-client = { workspace = true }
 
 # Dependencias de desarrollo compartidas por todo el workspace.
 # Se instalan con `uv sync` y aplican a cualquier paquete miembro.
@@ -70,6 +71,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101"]  # asserts permitidos en tests
+"packages/market-data-client/src/market_data_client/models.py" = ["N815"]  # campos wire camelCase (forward-safety, D-04)
 
 [tool.ruff.format]
 quote-style = "double"

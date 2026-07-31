@@ -1,0 +1,83 @@
+# Requirements: market-libs — v1.4 market-data-client
+
+**Defined:** 2026-07-29
+**Core Value:** Confianza de que cada cliente refleja fielmente el comportamiento real de su API — el nuevo `market-data-client` se sostiene al mismo estándar (dual sync/async, modelos tolerantes, retries, logging redactado, tests, verificación en vivo).
+
+## v1 Requirements
+
+Requisitos del milestone v1.4. Cada uno mapea a una fase del roadmap.
+
+### Package Foundation
+
+- [x] **AUTH-MD-01**: El paquete autentica contra Auth0 mediante el grant `client_credentials` (`client_id` + `client_secret` + `audience`), cachea el access token y lo refresca automáticamente cuando expira el TTL (derivado de `expires_in`), tanto en la superficie sync como async
+- [x] **CORE-MD-01**: El paquete provee las fundaciones compartidas — transporte con retries full-jitter (mutación-gate-safe), logging estructurado con redacción de credenciales, jerarquía de excepciones tipadas (`MarketDataError → MarketDataAPIError → MarketDataAuthError`, `MarketDataRateLimitError`), `configure()` para override en runtime, y los endpoints de health (`GET /health`, `GET /health/feed`)
+
+### Market Data (read)
+
+- [x] **MD-01**: El consumidor puede leer market data en vivo — `GET /marketdata` (con filtros: market_id, prefix, active, entries, max_staleness_seconds, with_data, order, limit, offset), `GET /marketdata/latest` (symbol, market_id, entries) y `POST /marketdata/latest` (batch vía `LatestRequest`) — devuelto como dataclasses `SafeModel` con `received_at` de primera clase, con paridad `with_options(max_retries=N)` sync y async
+
+### Reference Data (read)
+
+- [x] **REF-MD-01**: El consumidor puede leer datos de referencia — `GET /instruments` (q, segment, market_id, include_expired, only_outright, subscribed, limit, offset, refresh), `GET /instruments/segments`, `GET /symbols` (active, market_id, prefix), `GET /calendar` (year) y `GET /calendar/config` — devueltos como modelos tipados, sync y async
+
+### Verification
+
+- [x] **LIVE-MD-01**: La superficie pública completa del paquete (sync + async) se ejercita en vivo contra `https://market-data-develop.bbsa.com.ar` con credenciales Auth0 a través del driver `main_market_data.py`, reutilizando la infra `verification/` (split live/offline, redacción); toda divergencia cliente-vs-servicio se documenta y se corrige en el mismo ciclo (espejada sync/async)
+
+### Release
+
+- [x] **PUB-MD-01**: `market-data-client` se publica como `v0.1.0` por el mismo pipeline que el resto — README del paquete, entrada en la matriz de `ci.yml`, `uv.lock` regenerado, CI verde, PR → merge → tag `market-data-client-v0.1.0` → GitHub Release con wheel + sdist
+
+## v2 Requirements
+
+Diferidos a v1.5+. Trackeados pero fuera del roadmap actual.
+
+### Mutations
+
+- **MUT-MD-01**: Crear/actualizar symbols (`POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{symbol_id}`)
+- **MUT-MD-02**: Administrar el calendario (`PUT/DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}`)
+
+### Streaming
+
+- **STREAM-MD-01**: Consumir el stream de market data (`GET /marketdata/stream`, SSE con param `interval`) vía un transporte dedicado (patrón `ws_client` de matriz)
+
+### Security
+
+- **SEC-MD-01**: Cache del token Auth0 en disco (`_token_cache.py` + platformdirs, atomic + flock + 0600)
+- **SEC-MD-02**: Validación de firma del JWT (RS256) contra el JWKS de Auth0
+
+## Out of Scope
+
+Excluido explícitamente para prevenir scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Mutaciones (symbols/calendar) | v1.4 es solo lectura; las mutaciones requieren el mutating-gate de seguridad y se difieren a v1.5+ |
+| Streaming SSE `/marketdata/stream` | Transporte distinto (streaming); se planifica aparte como el WebSocket de matriz — v1.5+ |
+| Cache de token en disco | El grant client_credentials es barato de re-obtener; cache en memoria por TTL alcanza para v0.1.0 |
+| Validación de firma JWT | El token se usa como bearer opaco (Auth0 lo emite y el servidor lo valida); validar la firma en el cliente no aporta a v0.1.0 |
+| Nombre `market-data` sin sufijo `-client` | El parser de `release.yml` exige `<pkg>-client`; usar `market-data` a secas rompería el pipeline de publicación |
+| Publicación a PyPI | El pipeline sólo crea GitHub Releases (wheel+sdist); consistente con el resto de los paquetes |
+
+## Traceability
+
+Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| AUTH-MD-01 | Phase 20 | Complete |
+| CORE-MD-01 | Phase 20 | Complete |
+| MD-01 | Phase 21 | Complete |
+| REF-MD-01 | Phase 22 | Complete |
+| LIVE-MD-01 | Phase 23 | Complete |
+| PUB-MD-01 | Phase 24 | Complete |
+
+**Coverage:**
+
+- v1 requirements: 6 total
+- Mapped to phases: 6
+- Unmapped: 0 ✓
+
+---
+*Requirements defined: 2026-07-29*
+*Last updated: 2026-07-29 after v1.4 milestone kickoff*

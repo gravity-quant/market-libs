@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Codegen Single-Source
-current_phase: 3
-status: Awaiting next milestone
-stopped_at: Phase 18 context gathered (assumptions mode)
-last_updated: "2026-07-03T18:15:08.396Z"
-last_activity: 2026-07-03
-last_activity_desc: Milestone v1.3 completed and archived
+milestone: v1.4
+milestone_name: market-data-client
+current_phase: 24
+current_phase_name: release-prep-publish-v0-1-0
+status: executing
+stopped_at: Phase 24 context gathered (assumptions mode)
+last_updated: "2026-07-31T14:50:22.661Z"
+last_activity: 2026-07-31
+last_activity_desc: Phase 24 execution started
 progress:
-  total_phases: 2
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 50
-current_phase_name: REFAC-06
+  total_phases: 5
+  completed_phases: 4
+  total_plans: 16
+  completed_plans: 15
+  percent: 80
 ---
 
 # Project State
@@ -25,20 +25,20 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Planning next milestone — v1.3 closed 2026-07-03 on the signed SPIKE-006 NO-GO. No forced next milestone; candidate v1.4+ work (prod-vs-remarkets D-MATZ-27, ws_client live verification, token encryption at-rest) lives in the ROADMAP Backlog. Start with `/gsd-new-milestone`.
+**Current focus:** Phase 24 — release-prep-publish-v0-1-0
 
 ## Current Position
 
-Phase: Milestone v1.3 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-03 — Milestone v1.3 completed and archived
+Phase: 24 (release-prep-publish-v0-1-0) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-31 — Phase 24 execution started
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 60 (v1.0)
+- Total plans completed: 74 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -91,6 +91,13 @@ Last activity: 2026-07-03 — Milestone v1.3 completed and archived
 | Phase 18 P01 | 22min | 3 tasks | 15 files |
 | Phase 18 P02 | 33min | 2 tasks | 12 files |
 | Phase 18 P18-03 | 9min | 2 tasks | 6 files |
+| Phase 21 P01 | 1 | 3 tasks | 3 files |
+| Phase 21 P02 | 2min | 2 tasks | 3 files |
+| Phase 21 P03 | 4min | 3 tasks | 3 files |
+| Phase 21 P04 | 4min | 3 tasks | 4 files |
+| Phase 22 P01 | 5min | 3 tasks | 4 files |
+| Phase 22 P02 | 3min | 3 tasks | 5 files |
+| Phase 24 P01 | 6min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -98,6 +105,13 @@ Last activity: 2026-07-03 — Milestone v1.3 completed and archived
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v1.4 Roadmap]: Phase numbering CONTINUES from v1.3 — v1.3 allocated Phases 18-19 (19 dropped), so v1.4 starts at **Phase 20** (avoids collision with the dropped Phase 19 reference). Sequential `phase_naming`.
+- [v1.4 Scope]: Paquete `market-data-client` (import `market_data_client`) — nombre con sufijo `-client` OBLIGATORIO por el regex de `release.yml`. Solo lectura; mutaciones + streaming SSE + disk token cache + JWT signature validation diferidos a v1.5+ (REQUIREMENTS § v2). Auth = Auth0 client_credentials. Plan fuente: `.future_plans/market_data.md`.
+- [v1.4 Roadmap]: 5 fases lineales (20 scaffold+auth → 21 market data → 22 reference data → 23 live verification → 24 publish); Phases 21 y 22 pueden paralelizar (ambas dependen solo de 20). 6 requisitos, 1:1 con fases salvo Phase 20 (AUTH-MD-01 + CORE-MD-01).
+
+<details>
+<summary>v1.3 decisions (milestone closed 2026-07-03, archived for reference)</summary>
 
 - [v1.3 Roadmap]: Phase numbering CONTINUES from v1.2 (last phase = 17) — v1.3 starts at Phase 18 (does NOT reset). Sequential `phase_naming` per config.json.
 - [v1.3 Roadmap]: Spike-gated conditional structure mirrors v1.2 (Phase 12 spike + conditional Phase 16). Phase 18 (SPIKE-006) is spike-before-plan and the guaranteed deliverable; Phase 19 (REFAC-06) is CONDITIONAL — DROPPED entirely if Phase 18 returns NO-GO, in which case REFAC-06 is shelved permanently per D-NOGO-01 and the milestone closes on the signed NO-GO.
@@ -109,6 +123,19 @@ Recent decisions affecting current work:
 - [Phase 18 / 18-03]: SPIKE-006 **signed NO-GO** (sebadlf, 2026-07-03) — 7 PASS / 3 FAIL (items 1/3/6) → strict D-04 NO-GO. libcst is a partial gain over unasync (closes item 4 `ruff check` / ASYNC1xx) but cannot cross the content-absence boundary without a forbidden source migration (D-02). Two independent tools now reach the same NO-GO for the same root cause.
 - [Phase 18 / 18-03]: **REFAC-06 PERMANENTLY shelved; Phase 19 DROPPED**; duplicate `client.py`/`aio.py` transport shells accepted as a structural feature. v1.3 milestone closes on the signed NO-GO (run `/gsd-complete-milestone`).
 
+</details>
+
+- [Phase 21-02]: drop_none copiado verbatim en un _params.py nuevo (sin import cross-package); format_date/format_bool omitidos (bool wire-encoding diferido a Phase 23, D-07).
+- [Phase 21-02]: parse_latest_response retorna list[MarketDataSnapshot] (provisional) — el batch POST retorna varios simbolos; la forma single-snapshot del GET se reconcilia en Phase 23 via from_api tolerance.
+- [Phase ?]: [Phase 21-03]: with_options threads req.extensions['max_attempts']=_max_retries+1 in BOTH _request and _send_auth_request (D-08 load-bearing); mirrors iol, _validate_max_retries copied verbatim (no cross-package import).
+- [Phase ?]: [Phase 21-03]: sync read methods + module shims added in client.py only (__init__ re-export deferred to respect files_modified scope); retry count asserted by outgoing-request count, 401 re-auth by token-POST count.
+- [Phase 21]: Async with_options mirrors sync as a shared-view clone; per-call max_attempts threaded via req.extensions in both _request and _send_auth_request (load-bearing).
+- [Phase 21]: D-09: authenticated async header build spreads spec.headers first and Authorization token last so the fresh token always wins over a decoy spec header.
+- [Phase ?]: Phase 22-01: reference SafeModels carry no received_at (D-05); calendar/config is the single non-collection parser with empty-body from_api(None) fallback (D-07)
+- [Phase 22]: 22-02: 5 sync + 5 async reference methods dispatch through Plan 01 _core builders/parsers; get_calendar_config returns a single CalendarConfig (D-07), the other four return list[Model]
+- [Phase ?]: [Phase 24-01]: Committed the pre-staged uv.lock market-data-client workspace-member registration (D-03/D-11), validated via uv sync --frozen + uv lock --check (both exit 0), not regenerated.
+- [Phase ?]: [Phase 24-01]: Left global mypy files, importlinter root_packages, and CI typecheck per-package loop untouched (scope_decisions deferrals) — coverage gaps not CI failures; new package pytest+coverage runs via the matrix edit so CI stays green.
+
 ### Pending Todos
 
 [From .planning/todos/pending/ — ideas captured during sessions]
@@ -119,11 +146,9 @@ Recent decisions affecting current work:
 
 [Issues that affect future work]
 
-- [Phase 18]: SPIKE-006 is the single architectural unknown remaining in the codebase; spike-before-plan flag active. Its GO/NO-GO output gates Phase 19. Inherits the 8 SPIKE-005 PASS/FAIL learnings via `Skill("spike-findings-codegen-market-libs")` — items 2/3/5/7/8 expected-PASS; items 1/4/6 are the gap libcst must close.
-- [Phase 18]: If items 1/4/6 FAIL again under libcst, REFAC-06 is shelved PERMANENTLY (duplicate shells accepted as structural feature) and the milestone closes on the signed NO-GO — this is a valid, guaranteed milestone outcome, not a failure.
-- [Phase 19]: Pitfall 4 (codegen breaks B8 identity) — `aio._raise_for_response is client._raise_for_response is _core.raise_for_response` MUST survive codegen; test runs FIRST in CI (no thunk-wrapper).
-- [Phase 19]: Pitfall 5 (codegen overwrites hand-edit) — `@generated` marker + CI `lint-codegen` verify-clean (`git diff --exit-code`) mandatory.
-- [Phase 19]: Matriz deny-list intactness — the 4 concurrency-primitive files must stay sha256-identical; only `client.py`/`aio.py` are regenerated.
+- [v1.4 / Phase 23 risk]: El entorno **develop** (`market-data-develop.bbsa.com.ar`) puede requerir VPN/allowlist de red o credenciales Auth0 (client_id/secret/audience) que aún no están disponibles. La verificación en vivo (Phase 23) depende de esto — confirmar acceso + credenciales antes de/ durante Phase 20. Las Fases 20-22 (build + tests mockeados) NO dependen del acceso live.
+- [v1.4 / Phases 21-22 risk]: Las respuestas de la API **no están tipadas** en el OpenAPI (solo hay schemas de request). Los modelos `SafeModel` se diseñan contra los ejemplos/inferencia en Fases 21-22 y se **afinan contra payloads reales en Phase 23** — esperar ida y vuelta (campos, `received_at`/staleness semantics).
+- [v1.4 / Phase 24]: El paquete debe agregarse a `matrix.package` en `ci.yml` (hardcodeada) para que el CI lo teste; el release es por tag (`market-data-client-v0.1.0`, automático). El workspace `packages/*` lo autodescubre.
 
 ### Quick Tasks Completed
 
@@ -166,10 +191,10 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-03T12:10:01.862Z
-Stopped at: Phase 18 context gathered (assumptions mode)
-Resume file: .planning/phases/18-libcst-codegen-tool-choice-spike-spike-006/18-CONTEXT.md
+Last session: 2026-07-31T14:49:56.277Z
+Stopped at: Phase 24 context gathered (assumptions mode)
+Resume file: .planning/phases/24-release-prep-publish-v0-1-0/24-CONTEXT.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 20 with `/gsd-discuss-phase 20` (gather context) or `/gsd-plan-phase 20` (plan directly)
