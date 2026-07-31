@@ -71,6 +71,7 @@ corregida.
 - `packages/ambito-financiero-client/` — `ambito-financiero-client` v0.1.1 (Ámbito Financiero, HTTP sync+async, no auth)
 - `packages/wallets-client/` — `wallets-client` v0.1.0 (Wallets, HTTP sync+async, static Bearer token)
 - `packages/matriz-client/` — `matriz-client` v0.1.1 (MATBA ROFEX Primary API, HTTP REST + WebSocket)
+- `packages/market-data-client/` — `market-data-client` v0.1.0 (Market data / primary-extractor, HTTP sync+async, Auth0 client-credentials)
 ## Platform Requirements
 - uv 0.9.0+
 - Python 3.12 or 3.13
@@ -80,7 +81,7 @@ corregida.
 ## CI/CD
 - Triggers on push/PR to `main` (ignores `.md` and `.gitignore` changes)
 - Jobs: lint (ruff check + format), pre-commit hooks, typecheck (mypy), tests
-- Test matrix: 5 packages × 2 Python versions (3.12, 3.13)
+- Test matrix: 6 packages × 2 Python versions (3.12, 3.13)
 - Uses `astral-sh/setup-uv@v3` with cache enabled
 - Triggers on tags matching `*-client-v*` pattern (e.g., `iol-client-v0.1.1`)
 - Validates tag version matches `pyproject.toml` version
@@ -169,9 +170,10 @@ corregida.
 | `iol_client` | IOL trading platform (quotes, instruments, OAuth) | `packages/iol-client/src/iol_client/client.py` |
 | `matriz_client` | MATBA ROFEX Primary API (orders, market data, WS streaming) | `packages/matriz-client/src/matriz_client/client.py` |
 | `wallets_client` | Internal wallets service (Bearer token, stub) | `packages/wallets-client/src/wallets_client/client.py` |
-| `<pkg>.aio` | Async counterpart for ambito, higyrus, iol, wallets clients | `*/src/*/aio.py` |
+| `market_data_client` | Market data / primary-extractor (quotes, instruments, calendar, health; Auth0 client-credentials) | `packages/market-data-client/src/market_data_client/client.py` |
+| `<pkg>.aio` | Async counterpart for ambito, higyrus, iol, wallets, market-data clients | `*/src/*/aio.py` |
 | `matriz_client.ws_client` | WebSocket streaming (market data + execution reports) | `packages/matriz-client/src/matriz_client/ws_client.py` |
-| `<pkg>.models` | Frozen safe-access dataclasses for API responses | `higyrus_client/models.py`, `matriz_client/models.py` |
+| `<pkg>.models` | Frozen safe-access dataclasses for API responses | `higyrus_client/models.py`, `matriz_client/models.py`, `market_data_client/models.py` |
 | `<pkg>.exceptions` | Package-scoped exception hierarchy | `*/src/*/exceptions.py` |
 | `<pkg>._params` / `<pkg>._parsing` | Internal serialization helpers | `higyrus_client/_params.py`, `ambito_financiero_client/_parsing.py` |
 ## Pattern Overview
