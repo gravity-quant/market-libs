@@ -105,7 +105,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. Las operaciones no idempotentes se despachan con `request.extensions["idempotent"]=False` per DM-03, de modo que el transporte de retries **nunca** las reintenta.
   5. Paridad sync/async: idéntico comportamiento en `client.py` y `aio.py`, dispatch vía builders `_core.py`; 4 gates verdes (ruff/format/mypy-strict/pytest).
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 25-01-PLAN.md — Mutating-gate infrastructure: `MarketDataMutationNotAllowedError`, `_ClientState` gate fields, `_ensure_mutation_allowed()` + opt-in params (dual sync/async), conftest reset, adversarial gate tests (Wave 1)
@@ -113,7 +113,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 25-03-PLAN.md — Symbols-write dispatch (`create_symbol`/`create_symbols`/`update_symbol` methods + shims, dual sync/async) + `__init__` re-exports + wire/refusal/parity tests (Wave 2)
+- [x] 25-03-PLAN.md — Symbols-write dispatch (`create_symbol`/`create_symbols`/`update_symbol` methods + shims, dual sync/async) + `__init__` re-exports + wire/refusal/parity tests (Wave 2)
 
 ### Phase 26: Calendar write
 
@@ -187,7 +187,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 | 22. Instruments/segments/symbols/calendar (read) + models   | v1.4      | 2/2   | Complete    | 2026-07-30 |
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
-| 25. Mutating-gate + Symbols write                           | v1.5      | 2/3 | In Progress|  |
+| 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete   | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 0/?   | Not started | -          |
 | 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
