@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: market-data-client
-current_phase: 4
-status: Awaiting next milestone
-stopped_at: Phase 24 context gathered (assumptions mode)
-last_updated: "2026-07-31T15:39:22.485Z"
+milestone: v1.5
+milestone_name: market-data-client mutaciones
+status: planning
+last_updated: "2026-07-31T19:22:56.326Z"
 last_activity: 2026-07-31
-last_activity_desc: Milestone v1.4 completed and archived
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
-current_phase_name: release-prep-publish-v0-1-0
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-31 — Milestone v1.4 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-31 — Milestone v1.5 started
 
 ## Performance Metrics
 
