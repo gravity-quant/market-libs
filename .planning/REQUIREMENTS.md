@@ -9,7 +9,7 @@ Requisitos del milestone v1.5. Cada uno mapea a una fase del roadmap. Plan fuent
 
 ### Safety
 
-- [ ] **GATE-MD-01**: El paquete provee un **mutating-gate de seguridad** — toda operación de mutación requiere opt-in explícito del consumidor (`Client(mutating_allowed=True)` / `configure(mutating_allowed=True)`); por default rehúsa con un error tipado nuevo (`MarketDataMutationNotAllowedError ⊂ MarketDataError`). Segundo gate de entorno (verifica host/base_url esperado antes de mutar). Las operaciones no idempotentes NO se reintentan (`request.extensions["idempotent"]=False`). Espeja el patrón de `matriz-client` / `verification/mutation_gate.py`, dual sync (`client.py`) y async (`aio.py`)
+- [x] **GATE-MD-01**: El paquete provee un **mutating-gate de seguridad** — toda operación de mutación requiere opt-in explícito del consumidor (`Client(mutating_allowed=True)` / `configure(mutating_allowed=True)`); por default rehúsa con un error tipado nuevo (`MarketDataMutationNotAllowedError ⊂ MarketDataError`). Segundo gate de entorno (verifica host/base_url esperado antes de mutar). Las operaciones no idempotentes NO se reintentan (`request.extensions["idempotent"]=False`). Espeja el patrón de `matriz-client` / `verification/mutation_gate.py`, dual sync (`client.py`) y async (`aio.py`)
 
 ### Symbols (write)
 
@@ -58,7 +58,7 @@ Qué fases cubren qué requisitos. Confirmado en la creación del roadmap (2026-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GATE-MD-01 | Phase 25 | Pending |
+| GATE-MD-01 | Phase 25 | Complete |
 | MUT-MD-01 | Phase 25 | Pending |
 | MUT-MD-02 | Phase 26 | Pending |
 | LIVE-MUT-01 | Phase 27 | Pending |
