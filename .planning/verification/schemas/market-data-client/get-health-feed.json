@@ -1,0 +1,55 @@
+{
+  "endpoint": "/health/feed",
+  "client_function": "get_health_feed",
+  "captured_at": "2026-07-31T16:00:35.522768+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "active_symbols": "int",
+    "ingestor": {
+      "connected": "bool",
+      "frames_total": "int",
+      "heartbeat_age_seconds": "float",
+      "last_error": "NoneType",
+      "last_frame_age_seconds": "float",
+      "last_frame_at": "str",
+      "market": {
+        "enabled": "bool",
+        "is_open": "bool",
+        "last_business_day": "str",
+        "local_time": "str",
+        "next_transition": "str",
+        "reason": "str",
+        "session_close": "str",
+        "session_open": "str",
+        "state": "str"
+      },
+      "pipeline": {
+        "batch_interval_ms": "int",
+        "conserved": "bool",
+        "flushes": "int",
+        "frames_accepted": "int",
+        "frames_coalesced": "int",
+        "frames_unknown_symbol": "int",
+        "last_flush_ms": "float",
+        "last_write_at": "str",
+        "last_write_error": "NoneType",
+        "pending": "int",
+        "pending_peak": "int",
+        "rows_skipped_stale": "int"
+      },
+      "present": "bool",
+      "reason": "str",
+      "reconnects": "int",
+      "rows_written": "int",
+      "started_at": "str",
+      "state": "str",
+      "symbols_subscribed": "int",
+      "uptime_seconds": "int"
+    },
+    "newest_received_at": "str",
+    "oldest_received_at": "str",
+    "staleness_seconds": "float",
+    "status": "str",
+    "symbols_with_data": "int"
+  }
+}

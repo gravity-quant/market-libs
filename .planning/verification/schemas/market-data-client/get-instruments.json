@@ -1,0 +1,32 @@
+{
+  "endpoint": "/instruments",
+  "client_function": "get_instruments",
+  "captured_at": "2026-07-31T16:49:30.691111+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "catalogue": {
+      "age_seconds": "float",
+      "instruments": "int",
+      "last_error": "NoneType",
+      "stale": "bool"
+    },
+    "count": "int",
+    "items": [
+      {
+        "active": "NoneType",
+        "currency": "str",
+        "days_to_maturity": "int",
+        "expired": "bool",
+        "market_id": "str",
+        "maturity": "str",
+        "outright": "bool",
+        "segment": "str",
+        "subscribed": "bool",
+        "symbol": "str"
+      }
+    ],
+    "limit": "int",
+    "offset": "int",
+    "total": "int"
+  }
+}
