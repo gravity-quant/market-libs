@@ -61,8 +61,11 @@ from market_data_client.models import (
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    NewSymbol,
+    NewSymbols,
     Segment,
     Symbol,
+    SymbolPatch,
 )
 
 load_dotenv()
@@ -529,6 +532,47 @@ class Client:
         resp = self._request(spec)
         return _core.parse_symbols_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — symbols writes (gated, MUT-MD-01 / GATE-MD-01)
+    # ------------------------------------------------------------------
+
+    def create_symbol(self, new_symbol: NewSymbol) -> list[Symbol]:
+        """Gated ``POST {base_url}/symbols`` → tolerant ``list[Symbol]`` (MUT-MD-01).
+
+        ``_ensure_mutation_allowed()`` is the LITERAL FIRST statement (before the
+        builder, before ``self._request``, before any token fetch) so a refused
+        mutation emits ZERO HTTP + ZERO Auth0 grant (D-04/D-05). A ``422`` flows
+        through the existing ``_core.raise_for_response`` unchanged (D-12). The
+        response shape is Phase-27-deferred (A1) — ``parse_symbols_response`` stays
+        tolerant via ``Symbol.from_api``.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_create_symbol_request(self._state, new_symbol.to_dict())
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    def create_symbols(self, new_symbols: NewSymbols) -> list[Symbol]:
+        """Gated batch ``POST {base_url}/symbols/batch`` → tolerant ``list[Symbol]``.
+
+        Gate-first (D-04/D-05); the 1-500 batch bound is enforced client-side in
+        ``NewSymbols.__post_init__`` (D-11), before this method runs.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_create_symbols_request(self._state, new_symbols.to_dict())
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    def update_symbol(self, symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+        """Gated ``PATCH {base_url}/symbols/{symbol_id}`` → tolerant ``list[Symbol]``.
+
+        Gate-first (D-04/D-05). ``symbol_id`` is interpolated raw for Phase 25
+        (percent-encoding of ``/``-bearing ids is D-08, deferred to Phase 27).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_update_symbol_request(self._state, symbol_id, patch.to_dict())
+        resp = self._request(spec)
+        return _core.parse_symbols_response(resp)
+
     def get_calendar(self, *, year: int | None = None) -> list[CalendarDay]:
         """Authenticated ``GET {base_url}/calendar`` → list of calendar days (D-06)."""
         spec = _core.build_calendar_request(self._state, year=year)
@@ -715,6 +759,21 @@ def get_symbols(
 ) -> list[Symbol]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_symbols(active=active, market_id=market_id, prefix=prefix)
+
+
+def create_symbol(new_symbol: NewSymbol) -> list[Symbol]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().create_symbol(new_symbol)
+
+
+def create_symbols(new_symbols: NewSymbols) -> list[Symbol]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().create_symbols(new_symbols)
+
+
+def update_symbol(symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().update_symbol(symbol_id, patch)
 
 
 def get_calendar(*, year: int | None = None) -> list[CalendarDay]:

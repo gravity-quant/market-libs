@@ -51,8 +51,11 @@ from market_data_client.models import (
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    NewSymbol,
+    NewSymbols,
     Segment,
     Symbol,
+    SymbolPatch,
 )
 
 load_dotenv()
@@ -542,6 +545,45 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_symbols_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — symbols writes (gated, MUT-MD-01 / GATE-MD-01)
+    # ------------------------------------------------------------------
+
+    async def create_symbol(self, new_symbol: NewSymbol) -> list[Symbol]:
+        """Gated ``POST {base_url}/symbols`` → ``list[Symbol]`` tolerante (D-15).
+
+        Espejo async: ``_ensure_mutation_allowed()`` es la PRIMERA sentencia
+        (no-awaited), antes del builder, de ``await self._request`` y de cualquier
+        token fetch — un refusal emite CERO HTTP + CERO grant a Auth0 (D-04/D-05).
+        Un ``422`` fluye por el ``_core.raise_for_response`` existente (D-12).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_create_symbol_request(self._state, new_symbol.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    async def create_symbols(self, new_symbols: NewSymbols) -> list[Symbol]:
+        """Gated batch ``POST {base_url}/symbols/batch`` → ``list[Symbol]`` (D-15).
+
+        Gate-first (D-04/D-05); el bound 1-500 lo enforcea ``NewSymbols.__post_init__``
+        client-side (D-11), antes de este método.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_create_symbols_request(self._state, new_symbols.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_symbols_response(resp)
+
+    async def update_symbol(self, symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+        """Gated ``PATCH {base_url}/symbols/{symbol_id}`` → ``list[Symbol]`` (D-15).
+
+        Gate-first (D-04/D-05). ``symbol_id`` se interpola raw en Phase 25
+        (percent-encoding de ids con ``/`` es D-08, diferido a Phase 27).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_update_symbol_request(self._state, symbol_id, patch.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_symbols_response(resp)
+
     async def get_calendar(self, *, year: int | None = None) -> list[CalendarDay]:
         """Autenticado ``GET {base_url}/calendar`` → lista de días de calendario (D-06)."""
         spec = _core.build_calendar_request(self._state, year=year)
@@ -726,6 +768,21 @@ async def get_symbols(
 ) -> list[Symbol]:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_symbols(active=active, market_id=market_id, prefix=prefix)
+
+
+async def create_symbol(new_symbol: NewSymbol) -> list[Symbol]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().create_symbol(new_symbol)
+
+
+async def create_symbols(new_symbols: NewSymbols) -> list[Symbol]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().create_symbols(new_symbols)
+
+
+async def update_symbol(symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().update_symbol(symbol_id, patch)
 
 
 async def get_calendar(*, year: int | None = None) -> list[CalendarDay]:
