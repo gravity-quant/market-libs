@@ -18,7 +18,7 @@
 - [x] Phase 21: Market data (lectura) + modelos (MD-01) (completed 2026-07-30)
 - [x] Phase 22: Instruments + symbols(read) + calendar(read) + modelos (REF-MD-01) (completed 2026-07-30)
 - [x] Phase 23: Verificación en vivo contra develop + fixes (LIVE-MD-01) (completed 2026-07-31)
-- [ ] Phase 24: Release prep + publish v0.1.0 (PUB-MD-01)
+- [x] Phase 24: Release prep + publish v0.1.0 (PUB-MD-01) (completed 2026-07-31)
 
 Detalle por fase: ver **## Phase Details (v1.4)** más abajo. **Diferido a v1.5+:** mutaciones (symbols/calendar), streaming SSE `GET /marketdata/stream`, cache de token en disco, validación de firma JWT (REQUIREMENTS.md § v2).
 
