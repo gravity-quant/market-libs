@@ -223,7 +223,7 @@ Verified from `iol_client/client.py` and `aio.py`. Six pieces, mirror all of the
 1. **`__slots__`** (`client.py:128`): `("_is_view", "_max_retries", "_state")` — add `_is_view` + `_max_retries` to the current `("_state",)`.
 2. **`_validate_max_retries(value)`** (`client.py:86-102`): module-level; rejects `bool`, non-`int`, and `< 0` with `ValueError`. Copy verbatim (the "no shared internals" constraint means it is duplicated per-package by design).
 3. **`__init__` kwarg** (`client.py:140,144,174`): add `max_retries: int = 2` (iol's default), call `_validate_max_retries(max_retries)` first, set `self._max_retries = max_retries` and `self._is_view = False`.
-4. **`with_options`** (`client.py:264-329`): 
+4. **`with_options`** (`client.py:264-329`):
    ```python
    def with_options(self, *, max_retries: int) -> Self:
        _validate_max_retries(max_retries)
@@ -378,7 +378,7 @@ if raw is None:
 
 3. **`LatestRequest` batch body — dict vs dataclass serialization.**
    - What we know: D-05 makes it a typed request dataclass serialized to `json_body`.
-   - What's unclear: exact field names (A2). 
+   - What's unclear: exact field names (A2).
    - Recommendation: Model it as a small frozen dataclass with an explicit `to_dict()` (or `dataclasses.asdict`) so Phase 23 can adjust field names in one place; keep `json_body` construction in the `_core.py` builder.
 
 ## Environment Availability
