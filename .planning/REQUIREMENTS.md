@@ -26,7 +26,7 @@ Requisitos del milestone v1.4. Cada uno mapea a una fase del roadmap.
 
 ### Release
 
-- [ ] **PUB-MD-01**: `market-data-client` se publica como `v0.1.0` por el mismo pipeline que el resto — README del paquete, entrada en la matriz de `ci.yml`, `uv.lock` regenerado, CI verde, PR → merge → tag `market-data-client-v0.1.0` → GitHub Release con wheel + sdist
+- [x] **PUB-MD-01**: `market-data-client` se publica como `v0.1.0` por el mismo pipeline que el resto — README del paquete, entrada en la matriz de `ci.yml`, `uv.lock` regenerado, CI verde, PR → merge → tag `market-data-client-v0.1.0` → GitHub Release con wheel + sdist
 
 ## v2 Requirements
 
@@ -70,7 +70,7 @@ Qué fases cubren qué requisitos. Se completa durante la creación del roadmap.
 | MD-01 | Phase 21 | Complete |
 | REF-MD-01 | Phase 22 | Complete |
 | LIVE-MD-01 | Phase 23 | Complete |
-| PUB-MD-01 | Phase 24 | Pending |
+| PUB-MD-01 | Phase 24 | Complete |
 
 **Coverage:**
 

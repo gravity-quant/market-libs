@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: market-data-client
 current_phase: 24
-current_phase_name: Release prep + publish v0.1.0
+current_phase_name: release-prep-publish-v0-1-0
 status: executing
 stopped_at: Phase 24 context gathered (assumptions mode)
-last_updated: "2026-07-31T14:04:29.979Z"
+last_updated: "2026-07-31T14:50:22.661Z"
 last_activity: 2026-07-31
-last_activity_desc: Phase 23 complete, transitioned to Phase 24
+last_activity_desc: Phase 24 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 15
   percent: 80
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-03 after v1.3 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.3 resolvió definitivamente el único unknown arquitectónico residual: el codegen single-source sync/async de los transport shells `client.py`/`aio.py` retornó un NO-GO firmado en dos tools independientes — unasync SPIKE-005 + libcst SPIKE-006 — por el mismo root cause de content-absence; REFAC-06 permanentemente archivado, shells duplicados aceptados como feature estructural.)
 
-**Current focus:** Phase 23 — verificaci-n-en-vivo-contra-develop-fixes
+**Current focus:** Phase 24 — release-prep-publish-v0-1-0
 
 ## Current Position
 
-Phase: 24 — Release prep + publish v0.1.0
-Plan: Not started
+Phase: 24 (release-prep-publish-v0-1-0) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-07-31 — Phase 23 complete, transitioned to Phase 24
+Last activity: 2026-07-31 — Phase 24 execution started
 
 ## Performance Metrics
 
@@ -97,6 +97,7 @@ Last activity: 2026-07-31 — Phase 23 complete, transitioned to Phase 24
 | Phase 21 P04 | 4min | 3 tasks | 4 files |
 | Phase 22 P01 | 5min | 3 tasks | 4 files |
 | Phase 22 P02 | 3min | 3 tasks | 5 files |
+| Phase 24 P01 | 6min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,8 @@ Recent decisions affecting current work:
 - [Phase 21]: D-09: authenticated async header build spreads spec.headers first and Authorization token last so the fresh token always wins over a decoy spec header.
 - [Phase ?]: Phase 22-01: reference SafeModels carry no received_at (D-05); calendar/config is the single non-collection parser with empty-body from_api(None) fallback (D-07)
 - [Phase 22]: 22-02: 5 sync + 5 async reference methods dispatch through Plan 01 _core builders/parsers; get_calendar_config returns a single CalendarConfig (D-07), the other four return list[Model]
+- [Phase ?]: [Phase 24-01]: Committed the pre-staged uv.lock market-data-client workspace-member registration (D-03/D-11), validated via uv sync --frozen + uv lock --check (both exit 0), not regenerated.
+- [Phase ?]: [Phase 24-01]: Left global mypy files, importlinter root_packages, and CI typecheck per-package loop untouched (scope_decisions deferrals) — coverage gaps not CI failures; new package pytest+coverage runs via the matrix edit so CI stays green.
 
 ### Pending Todos
 
@@ -188,7 +191,7 @@ See `.planning/milestones/v1.2-ROADMAP.md` and the MILESTONES.md v1.2 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-31T13:38:25.931Z
+Last session: 2026-07-31T14:49:56.277Z
 Stopped at: Phase 24 context gathered (assumptions mode)
 Resume file: .planning/phases/24-release-prep-publish-v0-1-0/24-CONTEXT.md
 

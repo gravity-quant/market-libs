@@ -186,12 +186,12 @@ Plans:
 
 **Requirements:** PUB-MD-01
 **Depends on:** Phase 23
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 24-01-PLAN.md — Release prep: add market-data-client to CI matrix, align CLAUDE.md + MEMORY, validate uv.lock/version/workspace-member (wave 1, autonomous)
+- [x] 24-01-PLAN.md — Release prep: add market-data-client to CI matrix, align CLAUDE.md + MEMORY, validate uv.lock/version/workspace-member (wave 1, autonomous)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
