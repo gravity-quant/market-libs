@@ -13,7 +13,7 @@ Requisitos del milestone v1.5. Cada uno mapea a una fase del roadmap. Plan fuent
 
 ### Symbols (write)
 
-- [ ] **MUT-MD-01**: El consumidor puede escribir symbols — `POST /symbols` (crear uno, `NewSymbol`), `POST /symbols/batch` (crear 1–500, `NewSymbols`) y `PATCH /symbols/{symbol_id}` (actualizar `active`, `SymbolPatch`) — con request-models tipados serializados a JSON, respuestas `SafeModel` tolerantes, sync y async, detrás del mutating-gate
+- [x] **MUT-MD-01**: El consumidor puede escribir symbols — `POST /symbols` (crear uno, `NewSymbol`), `POST /symbols/batch` (crear 1–500, `NewSymbols`) y `PATCH /symbols/{symbol_id}` (actualizar `active`, `SymbolPatch`) — con request-models tipados serializados a JSON, respuestas `SafeModel` tolerantes, sync y async, detrás del mutating-gate
 
 ### Calendar (write)
 
@@ -59,7 +59,7 @@ Qué fases cubren qué requisitos. Confirmado en la creación del roadmap (2026-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | GATE-MD-01 | Phase 25 | Complete |
-| MUT-MD-01 | Phase 25 | Pending |
+| MUT-MD-01 | Phase 25 | Complete |
 | MUT-MD-02 | Phase 26 | Pending |
 | LIVE-MUT-01 | Phase 27 | Pending |
 | PUB-MUT-01 | Phase 28 | Pending |

@@ -105,11 +105,11 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. Las operaciones no idempotentes se despachan con `request.extensions["idempotent"]=False` per DM-03, de modo que el transporte de retries **nunca** las reintenta.
   5. Paridad sync/async: idéntico comportamiento en `client.py` y `aio.py`, dispatch vía builders `_core.py`; 4 gates verdes (ruff/format/mypy-strict/pytest).
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 **Wave 1**
 
 - [x] 25-01-PLAN.md — Mutating-gate infrastructure: `MarketDataMutationNotAllowedError`, `_ClientState` gate fields, `_ensure_mutation_allowed()` + opt-in params (dual sync/async), conftest reset, adversarial gate tests (Wave 1)
-- [ ] 25-02-PLAN.md — Request models (`NewSymbol`/`NewSymbols`/`SymbolPatch`, 1–500 `ValueError`) + 3 pure `_core` builders (idempotent=True) with unit tests (Wave 1)
+- [x] 25-02-PLAN.md — Request models (`NewSymbol`/`NewSymbols`/`SymbolPatch`, 1–500 `ValueError`) + 3 pure `_core` builders (idempotent=True) with unit tests (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -187,7 +187,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 | 22. Instruments/segments/symbols/calendar (read) + models   | v1.4      | 2/2   | Complete    | 2026-07-30 |
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
-| 25. Mutating-gate + Symbols write                           | v1.5      | 1/3 | In Progress|  |
+| 25. Mutating-gate + Symbols write                           | v1.5      | 2/3 | In Progress|  |
 | 26. Calendar write                                          | v1.5      | 0/?   | Not started | -          |
 | 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |

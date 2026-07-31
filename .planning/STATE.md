@@ -6,14 +6,14 @@ current_phase: 25
 current_phase_name: Mutating-gate + Symbols write
 status: executing
 stopped_at: Phase 25 context gathered (assumptions mode)
-last_updated: "2026-07-31T20:27:00.740Z"
+last_updated: "2026-07-31T20:33:30.262Z"
 last_activity: 2026-07-31
 last_activity_desc: Phase 25 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 ## Current Position
 
 Phase: 25 (Mutating-gate + Symbols write) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-31 — Phase 25 execution started
 
@@ -103,6 +103,7 @@ Last activity: 2026-07-31 — Phase 25 execution started
 | 27    | ?     | Not started | LIVE-MUT-01 | Verificación en vivo destructiva-pero-segura contra develop (create→verify→revert, identificadores dedicados), revalida idempotencia DM-03, fixes in-cycle sync/async. Depende de 25 + 26. |
 | 28    | ?     | Not started | PUB-MUT-01 | Release prep + publish `market-data-client-v0.3.0` (minor bump no-breaking). Depende de 27. |
 | Phase 25 P01 | 10 | 3 tasks | 7 files |
+| Phase 25 P02 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 24-01]: Left global mypy files, importlinter root_packages, and CI typecheck per-package loop untouched (scope_decisions deferrals) — coverage gaps not CI failures; new package pytest+coverage runs via the matrix edit so CI stays green.
 - [Phase ?]: [Phase 24-02]: Merged PR #5 with a true merge commit (gh pr merge --merge) so tag market-data-client-v0.1.0 sits on the distinct merge commit 1ea655d (D-10); release.yml unedited (D-02) matched the tag and published the GitHub Release with wheel + sdist (PUB-MD-01).
 - [Phase ?]: GATE-MD-01: mutation gate is IO-free exact-hostname refuse-by-default on both shells; expected_host field None disables only the host leg
+- [Phase ?]: 25-02: NewSymbol emits snake_case market_id wire key (not camelCase marketId) per source-plan schema; confirmed live Phase 27 (A2)
+- [Phase ?]: 25-02: NewSymbols 1-500 batch guard raises plain ValueError in __post_init__, not a MarketData* error (D-11)
+- [Phase ?]: 25-02: all three symbols write builders idempotent=True (DM-03); PATCH symbol_id interpolated raw, percent-encoding deferred to Phase 27 (D-08)
 
 ### Pending Todos
 
@@ -216,7 +220,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-31T20:26:53.710Z
+Last session: 2026-07-31T20:33:11.084Z
 Stopped at: Phase 25 context gathered (assumptions mode)
 Resume file: .planning/phases/25-mutating-gate-symbols-write/25-CONTEXT.md
 
