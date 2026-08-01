@@ -581,6 +581,106 @@ def build_calendar_config_request(state: _ClientState) -> RequestSpec:
 
 
 # ----------------------------------------------------------------------
+# Calendar write builders (MUT-MD-02) — PUT/POST/DELETE, authenticated
+# ----------------------------------------------------------------------
+#
+# Pure builders mirroring the Phase 25 symbols-write shape (``del state``, no
+# I/O): the ones carrying a body take the ALREADY-serialized model dict as
+# ``json_body`` (the shell serializes — NOT ``build_latest_batch_request``, which
+# calls ``to_dict()`` inside the builder; Phase 25 is the precedent to follow).
+# Idempotency is assigned per DM-03 / D-04: ``True`` for the config trio and for
+# the holiday delete, ``False`` ONLY for ``POST /calendar/holidays`` (an append).
+# The DELETE builders OMIT ``json_body`` entirely so it stays ``None`` — with
+# httpx 0.28.1 that emits ``content == b""`` and NO ``Content-Type`` header,
+# whereas ``json={}`` would emit ``b"{}"`` plus ``Content-Type: application/json``
+# (D-02 / T-26-08). The mutation gate does NOT live here — the shell checks it
+# before calling these.
+
+
+def build_set_calendar_config_request(
+    state: _ClientState, json_body: dict[str, Any]
+) -> RequestSpec:
+    """Pure: build spec for ``PUT /calendar/config`` (market hours replace, MUT-MD-02).
+
+    ``idempotent=True`` (DM-03 / D-04 — a full replace is retry-safe; revalidated
+    live in Phase 27); ``authenticated=True``. ``json_body`` is the
+    already-serialized ``MarketHoursIn.to_dict()`` (the payload, not state).
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="PUT",
+        path="/calendar/config",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="set_calendar_config",
+        authenticated=True,
+    )
+
+
+def build_preview_calendar_config_request(
+    state: _ClientState, json_body: dict[str, Any]
+) -> RequestSpec:
+    """Pure: build spec for ``POST /calendar/config/preview`` (dry-run, MUT-MD-02).
+
+    A write expressed as POST that mutates nothing server-side, so it keeps the
+    same ``idempotent=True`` / ``authenticated=True`` contract as
+    ``build_set_calendar_config_request``; ``json_body`` is the already-serialized
+    payload dict.
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="POST",
+        path="/calendar/config/preview",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="preview_calendar_config",
+        authenticated=True,
+    )
+
+
+def build_add_holidays_request(state: _ClientState, json_body: dict[str, Any]) -> RequestSpec:
+    """Pure: build spec for ``POST /calendar/holidays`` (holiday append, MUT-MD-02).
+
+    ``idempotent=False`` — the ONLY such builder in the package, written
+    explicitly even though :class:`RequestSpec` already defaults to ``False``
+    because the value is load-bearing (DM-03 / D-04) and an implicit default would
+    make it invisible in review. Appending holidays is NOT idempotent: a replay
+    would duplicate the days, so ``RetryTransport`` must not retry it — the flag
+    reaches the transport as ``request.extensions["idempotent"]`` and short-circuits
+    the retry loop on its first line (T-26-07). ``authenticated=True``;
+    ``json_body`` is the already-serialized ``HolidaysIn.to_dict()``.
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="POST",
+        path="/calendar/holidays",
+        json_body=json_body,
+        idempotent=False,
+        endpoint_name="add_holidays",
+        authenticated=True,
+    )
+
+
+def build_delete_calendar_config_request(state: _ClientState) -> RequestSpec:
+    """Pure: build spec for ``DELETE /calendar/config`` (reset to defaults, MUT-MD-02).
+
+    Zero-kwarg counterpart of ``build_calendar_config_request`` — no filters, no
+    body. ``json_body`` is OMITTED on purpose so it stays ``None``: httpx then
+    sends an empty body with no ``Content-Type``, whereas ``json_body={}`` would
+    put ``b"{}"`` on the wire for the server to interpret (D-02 / T-26-08).
+    ``idempotent=True`` (DM-03 — a reset replayed is still a reset).
+    """
+    del state  # state-independent
+    return RequestSpec(
+        method="DELETE",
+        path="/calendar/config",
+        idempotent=True,
+        endpoint_name="delete_calendar_config",
+        authenticated=True,
+    )
+
+
+# ----------------------------------------------------------------------
 # Market-data read parsers (D-01) — client-stamped received_at
 # ----------------------------------------------------------------------
 
