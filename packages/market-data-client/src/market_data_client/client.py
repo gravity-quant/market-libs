@@ -61,6 +61,7 @@ from market_data_client.models import (
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     NewSymbol,
     NewSymbols,
     Segment,
@@ -585,6 +586,70 @@ class Client:
         resp = self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — calendar writes (gated, MUT-MD-02 / GATE-MD-01)
+    # ------------------------------------------------------------------
+
+    def set_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
+        """Gated ``PUT {base_url}/calendar/config`` → ``CalendarConfig`` (MUT-MD-02).
+
+        ``_ensure_mutation_allowed()`` is the LITERAL FIRST statement (before the
+        builder, before ``self._request``, before any token fetch) so a refused
+        mutation emits ZERO HTTP + ZERO Auth0 grant (D-14). The model is
+        serialized HERE, in the shell — ``config.to_dict()`` is handed to the
+        builder already flattened (the Phase 25 precedent).
+
+        ``confirm`` is a FIELD of :class:`MarketHoursIn` defaulting to ``False``
+        (D-09) and it ALWAYS travels on the wire. Per the live OpenAPI it is a
+        required SECOND OPINION — not a force flag: the server demands it only
+        when the requested window produces warnings. The intended flow is
+        ``preview_calendar_config(...)`` → inspect ``warnings`` → re-issue with
+        ``confirm=True``.
+
+        Reuses ``_core.parse_calendar_config_response`` UNMODIFIED (D-05) and adds
+        no status handling: a ``422`` flows through the existing
+        ``_core.raise_for_response`` (D-13 — the hour/timezone formats are the
+        server's to validate).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_set_calendar_config_request(self._state, config.to_dict())
+        resp = self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    def delete_calendar_config(self) -> CalendarConfig:
+        """Gated ``DELETE {base_url}/calendar/config`` → ``CalendarConfig`` (MUT-MD-02).
+
+        Resets the market-hours config to its defaults. Gate-first (D-14). The
+        builder omits ``json_body`` entirely, so the request goes out with
+        ``content == b""`` and NO ``Content-Type`` header (D-02) — an empty JSON
+        object would be a body the server has to interpret. Reuses
+        ``_core.parse_calendar_config_response`` unmodified (D-05).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_delete_calendar_config_request(self._state)
+        resp = self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+
+        Compute-only dry run: it persists NOTHING server-side, so it is read-safe
+        in effect. That exception is DOCUMENTED here, NOT implemented as a gate
+        carve-out (D-14): it is still a ``POST`` on the mutation surface, and a
+        second, weaker path into that surface would be worth more than the
+        convenience. ``_ensure_mutation_allowed()`` therefore stays the literal
+        first statement, exactly as in the two persisting methods.
+
+        Same serialized ``MarketHoursIn`` body as
+        :meth:`set_calendar_config` (``confirm`` included) and the same
+        ``_core.parse_calendar_config_response`` (D-05); read ``warnings`` off the
+        returned config to decide whether the real write needs ``confirm=True``.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
+        resp = self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-client lazy singleton + top-level shims
@@ -784,3 +849,18 @@ def get_calendar(*, year: int | None = None) -> list[CalendarDay]:
 def get_calendar_config() -> CalendarConfig:
     """Top-level shim: delega al default Client."""
     return _get_default().get_calendar_config()
+
+
+def set_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().set_calendar_config(config)
+
+
+def delete_calendar_config() -> CalendarConfig:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().delete_calendar_config()
+
+
+def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().preview_calendar_config(config)

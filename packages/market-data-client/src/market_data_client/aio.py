@@ -51,6 +51,7 @@ from market_data_client.models import (
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     NewSymbol,
     NewSymbols,
     Segment,
@@ -596,6 +597,71 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
+    # ------------------------------------------------------------------
+    # Public endpoint methods — calendar writes (gated, MUT-MD-02 / GATE-MD-01)
+    # ------------------------------------------------------------------
+
+    async def set_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
+        """Gated ``PUT {base_url}/calendar/config`` → ``CalendarConfig`` (MUT-MD-02).
+
+        Espejo async: ``_ensure_mutation_allowed()`` es la PRIMERA sentencia
+        literal (no-awaited), antes del builder, de ``await self._request`` y de
+        cualquier token fetch — un refusal emite CERO HTTP + CERO grant a Auth0
+        (D-14). El modelo se serializa ACÁ, en el shell: ``config.to_dict()``
+        llega al builder ya aplanado (precedente Phase 25).
+
+        ``confirm`` es un CAMPO de :class:`MarketHoursIn` con default ``False``
+        (D-09) y SIEMPRE viaja en el wire. Según la OpenAPI en vivo es una SEGUNDA
+        OPINIÓN requerida, no un force flag: el servidor la exige sólo cuando la
+        ventana pedida produce warnings. El flujo previsto es
+        ``preview_calendar_config(...)`` → inspeccionar ``warnings`` → reemitir con
+        ``confirm=True``.
+
+        Reusa ``_core.parse_calendar_config_response`` SIN modificar (D-05) y no
+        agrega manejo de status: un ``422`` fluye por el
+        ``_core.raise_for_response`` existente (D-13 — los formatos de hora y
+        timezone los valida el servidor).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_set_calendar_config_request(self._state, config.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    async def delete_calendar_config(self) -> CalendarConfig:
+        """Gated ``DELETE {base_url}/calendar/config`` → ``CalendarConfig`` (MUT-MD-02).
+
+        Resetea la config de horarios a sus defaults. Gate-first (D-14). El builder
+        omite ``json_body`` por completo, así que el request sale con
+        ``content == b""`` y SIN header ``Content-Type`` (D-02) — un objeto JSON
+        vacío sería un body que el servidor tendría que interpretar. Reusa
+        ``_core.parse_calendar_config_response`` sin modificar (D-05).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_delete_calendar_config_request(self._state)
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    async def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+
+        Dry-run compute-only: NO persiste nada del lado del servidor, así que en
+        efecto es read-safe. Esa excepción queda DOCUMENTADA acá, NO implementada
+        como carve-out del gate (D-14): sigue siendo un ``POST`` sobre la
+        superficie de mutación, y un segundo camino —más débil— hacia esa
+        superficie costaría más que la comodidad. Por eso
+        ``_ensure_mutation_allowed()`` sigue siendo la primera sentencia literal,
+        igual que en los dos métodos que sí persisten.
+
+        Mismo body de ``MarketHoursIn`` serializado que
+        :meth:`set_calendar_config` (``confirm`` incluido) y el mismo
+        ``_core.parse_calendar_config_response`` (D-05); leé ``warnings`` en la
+        config devuelta para decidir si la escritura real necesita ``confirm=True``.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-async-client lazy singleton + top-level module surface
@@ -793,6 +859,21 @@ async def get_calendar(*, year: int | None = None) -> list[CalendarDay]:
 async def get_calendar_config() -> CalendarConfig:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_calendar_config()
+
+
+async def set_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().set_calendar_config(config)
+
+
+async def delete_calendar_config() -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().delete_calendar_config()
+
+
+async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().preview_calendar_config(config)
 
 
 async def aclose() -> None:
