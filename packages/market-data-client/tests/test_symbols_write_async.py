@@ -152,3 +152,69 @@ async def test_create_symbol_module_shim_dispatches(httpx_mock: HTTPXMock) -> No
     req = httpx_mock.get_requests()[0]
     assert req.method == "POST"
     assert req.url.path == "/api/symbols"
+
+
+# ----------------------------------------------------------------------
+# symbol_id: int | str — espejo async del ensanche (D-09 / D-15 / D-22)
+# ----------------------------------------------------------------------
+
+
+async def test_update_symbol_accepts_int_row_id(httpx_mock: HTTPXMock) -> None:
+    """La forma correcta: el id ENTERO de fila viaja tal cual en el path."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    await aio._get_default().update_symbol(8123, SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "PATCH"
+    assert req.url.path == "/api/symbols/8123"
+
+
+async def test_update_symbol_still_accepts_str_row_id(httpx_mock: HTTPXMock) -> None:
+    """La forma publicada en v0.3.x sigue funcionando: ensanchar, no angostar (D-22)."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    await aio._get_default().update_symbol("8123", SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/symbols/8123"
+
+
+async def test_update_symbol_int_and_str_forms_hit_the_same_path(httpx_mock: HTTPXMock) -> None:
+    """Ambas formas producen el MISMO path — el ensanche no bifurca el dispatch."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    aclient = aio._get_default()
+    await aclient.update_symbol(8123, SymbolPatch(active=False))
+    await aclient.update_symbol("8123", SymbolPatch(active=False))
+
+    paths = [r.url.path for r in httpx_mock.get_requests()]
+    assert paths == ["/api/symbols/8123", "/api/symbols/8123"]
+
+
+async def test_update_symbol_applies_no_percent_encoding(httpx_mock: HTTPXMock) -> None:
+    """D-09: nada se encodea; el path sale byte por byte, sin ``%2F``."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    await aio._get_default().update_symbol("DLR/DIC26", SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/symbols/DLR/DIC26"
+    assert "%2F" not in str(req.url)
+    assert "%2f" not in str(req.url)
+
+
+async def test_update_symbol_module_shim_accepts_int_row_id(httpx_mock: HTTPXMock) -> None:
+    """El shim async module-level ensancha igual que el método (D-15)."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    await aio.update_symbol(8123, SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/symbols/8123"

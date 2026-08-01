@@ -166,3 +166,83 @@ def test_create_symbol_module_shim_dispatches(httpx_mock: HTTPXMock) -> None:
     req = httpx_mock.get_requests()[0]
     assert req.method == "POST"
     assert req.url.path == "/api/symbols"
+
+
+# ----------------------------------------------------------------------
+# symbol_id: int | str — WIDENED, never narrowed (D-09 / D-22)
+# ----------------------------------------------------------------------
+#
+# The live spec types ``PATCH /symbols/{symbol_id}``'s path parameter as an
+# INTEGER and the wire confirms it (``Symbol.id``). The annotation therefore
+# widens to ``int | str`` rather than narrowing to ``int``: ``str`` is what
+# v0.3.0/v0.3.1 published, and narrowing would break every consumer at
+# type-check time. Both forms must reach the SAME path, and neither may be
+# percent-encoded — the D-08 encoding item is DISSOLVED (an integer cannot
+# contain a slash), so a quoting layer here could only corrupt a valid id.
+
+
+def test_update_symbol_accepts_int_row_id(httpx_mock: HTTPXMock) -> None:
+    """La forma correcta: el id ENTERO de fila viaja tal cual en el path."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    market_data_client.client._get_default().update_symbol(8123, SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "PATCH"
+    assert req.url.path == "/api/symbols/8123"
+
+
+def test_update_symbol_still_accepts_str_row_id(httpx_mock: HTTPXMock) -> None:
+    """La forma publicada en v0.3.x sigue funcionando: ensanchar, no angostar (D-22)."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    market_data_client.client._get_default().update_symbol("8123", SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/symbols/8123"
+
+
+def test_update_symbol_int_and_str_forms_hit_the_same_path(httpx_mock: HTTPXMock) -> None:
+    """Ambas formas producen el MISMO path — el ensanche no bifurca el dispatch."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    client = market_data_client.client._get_default()
+    client.update_symbol(8123, SymbolPatch(active=False))
+    client.update_symbol("8123", SymbolPatch(active=False))
+
+    paths = [r.url.path for r in httpx_mock.get_requests()]
+    assert paths == ["/api/symbols/8123", "/api/symbols/8123"]
+
+
+def test_update_symbol_applies_no_percent_encoding(httpx_mock: HTTPXMock) -> None:
+    """D-09: nada se encodea. Un id con ``/`` sale byte por byte, sin ``%2F``.
+
+    No es que un id así sea legítimo — el path param es un entero. Es que si
+    alguna vez se agregara una capa de quoting, este test la detectaría: el
+    contrato es interpolación CRUDA, y ese contrato es lo que disuelve el ítem
+    D-08 en vez de diferirlo otra vez.
+    """
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    market_data_client.client._get_default().update_symbol("DLR/DIC26", SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/symbols/DLR/DIC26"
+    assert "%2F" not in str(req.url)
+    assert "%2f" not in str(req.url)
+
+
+def test_update_symbol_module_shim_accepts_int_row_id(httpx_mock: HTTPXMock) -> None:
+    """El shim module-level ensancha igual que el método (las 4 rutas, D-15)."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=[])
+
+    market_data_client.update_symbol(8123, SymbolPatch(active=False))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.url.path == "/api/symbols/8123"

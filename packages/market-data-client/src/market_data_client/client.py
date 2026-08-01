@@ -564,11 +564,15 @@ class Client:
         resp = self._request(spec)
         return _core.parse_symbols_response(resp)
 
-    def update_symbol(self, symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+    def update_symbol(self, symbol_id: int | str, patch: SymbolPatch) -> list[Symbol]:
         """Gated ``PATCH {base_url}/symbols/{symbol_id}`` → tolerant ``list[Symbol]``.
 
-        Gate-first (D-04/D-05). ``symbol_id`` is interpolated raw for Phase 25
-        (percent-encoding of ``/``-bearing ids is D-08, deferred to Phase 27).
+        Gate-first (D-04/D-05). ``symbol_id`` is the integer DATABASE ROW ID
+        (``Symbol.id``), not the symbol name; the annotation widens to ``int | str``
+        so the ``str`` form published in v0.3.x keeps working (D-22). It is
+        interpolated RAW and stays raw: the D-08 percent-encoding item is
+        DISSOLVED, not deferred — the path parameter is an integer (D-09). See
+        :func:`_core.build_update_symbol_request` for the measured evidence.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_update_symbol_request(self._state, symbol_id, patch.to_dict())
@@ -882,7 +886,7 @@ def create_symbols(new_symbols: NewSymbols) -> list[Symbol]:
     return _get_default().create_symbols(new_symbols)
 
 
-def update_symbol(symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+def update_symbol(symbol_id: int | str, patch: SymbolPatch) -> list[Symbol]:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().update_symbol(symbol_id, patch)
 

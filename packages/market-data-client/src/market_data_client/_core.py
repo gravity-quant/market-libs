@@ -434,14 +434,35 @@ def build_create_symbols_request(state: _ClientState, json_body: dict[str, Any])
 
 
 def build_update_symbol_request(
-    state: _ClientState, symbol_id: str, json_body: dict[str, Any]
+    state: _ClientState, symbol_id: int | str, json_body: dict[str, Any]
 ) -> RequestSpec:
     """Pure: build spec for ``PATCH /symbols/{symbol_id}`` (MUT-MD-01).
 
-    ``symbol_id`` is interpolated RAW into the path for Phase 25 — percent-encoding
-    for ids containing ``/`` (e.g. ``"DLR/DIC26"``) is D-08 / Pitfall 4, explicitly
-    deferred to Phase 27. ``idempotent=True`` (DM-03), ``authenticated=True``;
-    ``json_body`` is the already-serialized ``SymbolPatch.to_dict()``.
+    ``symbol_id`` is the DATABASE ROW ID, not the symbol name. The live develop
+    OpenAPI types the path parameter ``{"type": "integer"}`` and the real wire
+    confirms it: every row of ``GET /symbols`` carries ``"id": <int>``, and so does
+    the body of ``POST /symbols`` (LIVE-MUT-01 armed run 2026-08-01; baselines
+    ``get-symbols-probe-prefix-{sync,async}.json`` and
+    ``create-symbol-{sync,async}-response.json``).
+
+    **The percent-encoding item is DISSOLVED, not deferred (D-09).** Phase 25
+    recorded ``symbol_id`` as a possibly ``/``-bearing identifier such as
+    ``"DLR/DIC26"`` and deferred quoting to Phase 27. That premise was FALSE: the
+    parameter is an integer row id and an integer cannot contain a slash, so there
+    is nothing to encode. The value is interpolated RAW and stays raw — adding a
+    quoting layer here would only be able to corrupt a legitimate id. Do not
+    re-open this: the dissolution rests on the re-fetched contract plus the
+    measured wire, not on an assumption.
+
+    The annotation WIDENS to ``int | str`` rather than narrowing to ``int``
+    (D-22): ``str`` is the type published in v0.3.0/v0.3.1, so narrowing would
+    break every consumer at type-check time. ``int`` is the correct form and the
+    one callers should migrate to; ``str`` keeps working and is interpolated
+    identically.
+
+    ``idempotent=True`` (DM-03, CONFIRMED live: two identical PATCHes left exactly
+    one row), ``authenticated=True``; ``json_body`` is the already-serialized
+    ``SymbolPatch.to_dict()``.
     """
     del state  # state-independent (payload comes via json_body)
     return RequestSpec(

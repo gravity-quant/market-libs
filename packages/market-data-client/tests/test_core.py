@@ -358,6 +358,21 @@ def test_build_update_symbol_request_patches_id_path() -> None:
     assert spec.endpoint_name == "update_symbol"
 
 
+def test_build_update_symbol_request_accepts_int_row_id() -> None:
+    """D-09/D-22: el builder acepta el id ENTERO y lo interpola sin encodear."""
+    spec = _core.build_update_symbol_request(_ClientState(), 8123, {"active": False})
+    assert spec.path == "/symbols/8123"
+
+
+def test_build_update_symbol_request_int_and_str_forms_agree() -> None:
+    """El ensanche no bifurca: ``8123`` y ``"8123"`` producen el mismo path."""
+    body = {"active": False}
+    assert (
+        _core.build_update_symbol_request(_ClientState(), 8123, body).path
+        == _core.build_update_symbol_request(_ClientState(), "8123", body).path
+    )
+
+
 def test_symbols_write_builders_are_state_independent() -> None:
     """Same payload yields identical specs for a fresh vs a configured state."""
     fresh = _ClientState()
