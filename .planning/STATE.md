@@ -5,16 +5,16 @@ milestone_name: market-data-client · mutaciones
 current_phase: 27
 current_phase_name: Verificación en vivo segura + fixes
 status: executing
-stopped_at: Phase 27 waves 1-4 complete (5/7 plans); awaiting operator authorization for armed run (27-06)
-last_updated: "2026-08-01T15:42:38.714Z"
+stopped_at: Phase 27 complete — LIVE-MUT-01 satisfied with real live evidence; verifier 5/5
+last_updated: "2026-08-01T16:47:31.263Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 27 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 14
-  completed_plans: 12
-  percent: 50
+  completed_plans: 14
+  percent: 75
 ---
 
 # Project State
@@ -222,9 +222,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-01T15:42:38.709Z
-Stopped at: Phase 27 waves 1-4 complete (5/7 plans); awaiting operator authorization for armed run (27-06)
-Resume file: .planning/phases/27-verificaci-n-en-vivo-segura-fixes/27-06-PLAN.md
+Last session: 2026-08-01T16:47:31.257Z
+Stopped at: Phase 27 complete — LIVE-MUT-01 satisfied with real live evidence; verifier 5/5
+Resume file: .planning/phases/27-verificaci-n-en-vivo-segura-fixes/27-VERIFICATION.md
 
 ## Operator Next Steps
 

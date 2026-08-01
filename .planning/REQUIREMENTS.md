@@ -21,7 +21,7 @@ Requisitos del milestone v1.5. Cada uno mapea a una fase del roadmap. Plan fuent
 
 ### Verification
 
-- [ ] **LIVE-MUT-01**: La superficie de mutación completa (sync + async) se ejercita en vivo contra develop con credenciales Auth0 a través de `main_market_data.py`, **detrás del mutating-gate** y con **identificadores de prueba dedicados + cleanup** (create→verify→revert); NUNCA toca config real de mercado sin `confirm`. Toda divergencia (shape de respuesta, idempotencia real, códigos) se documenta y se corrige en el mismo ciclo, espejada sync/async. Revalida la idempotencia asumida por-endpoint (DM-03)
+- [x] **LIVE-MUT-01**: La superficie de mutación completa (sync + async) se ejercita en vivo contra develop con credenciales Auth0 a través de `main_market_data.py`, **detrás del mutating-gate** y con **identificadores de prueba dedicados + cleanup** (create→verify→revert); NUNCA toca config real de mercado sin `confirm`. Toda divergencia (shape de respuesta, idempotencia real, códigos) se documenta y se corrige en el mismo ciclo, espejada sync/async. Revalida la idempotencia asumida por-endpoint (DM-03)
 
 ### Release
 
@@ -61,7 +61,7 @@ Qué fases cubren qué requisitos. Confirmado en la creación del roadmap (2026-
 | GATE-MD-01 | Phase 25 | Complete |
 | MUT-MD-01 | Phase 25 | Complete |
 | MUT-MD-02 | Phase 26 | Complete |
-| LIVE-MUT-01 | Phase 27 | Pending |
+| LIVE-MUT-01 | Phase 27 | Complete |
 | PUB-MUT-01 | Phase 28 | Pending |
 
 **Coverage:**

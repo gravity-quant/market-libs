@@ -157,7 +157,7 @@ Plans:
   4. Toda divergencia (shape de respuesta, códigos, idempotencia real) se documenta en findings y se corrige in-cycle, espejada sync/async, con un test de regresión mockeado por fix.
   5. Cycle closure PASS.
 
-**Plans**: 5/7 plans executed
+**Plans**: 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -179,11 +179,11 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 27-06-PLAN.md — Wave 5 · Corrida destructiva armada contra develop con checkpoint de operator; captura de evidencia (id, shapes de mutación, dedupe) — `autonomous: false`
+- [x] 27-06-PLAN.md — Wave 5 · Corrida destructiva armada contra develop con checkpoint de operator; captura de evidencia (id, shapes de mutación, dedupe) — `autonomous: false`
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 27-07-PLAN.md — Wave 6 · Fixes in-cycle no-breaking (D-09/D-22), flip de `idempotent=` si la medición lo contradice (D-20), promoción de findings a FIXED, re-baseline y re-run → cycle closure PASS — `autonomous: false`
+- [x] 27-07-PLAN.md — Wave 6 · Fixes in-cycle no-breaking (D-09/D-22), flip de `idempotent=` si la medición lo contradice (D-20), promoción de findings a FIXED, re-baseline y re-run → cycle closure PASS — `autonomous: false`
 
 ### Phase 28: Release prep + publish v0.3.0
 
@@ -229,7 +229,7 @@ Plans:
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
-| 27. Safe live verification + fixes                          | v1.5      | 5/7 | In Progress|  |
+| 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
 
 ## Backlog
