@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: market-data-client · mutaciones
 current_phase: 26
-current_phase_name: Calendar write
+current_phase_name: calendar-write
 status: executing
 stopped_at: Phase 26 context gathered (assumptions mode)
-last_updated: "2026-08-01T01:07:05.623Z"
-last_activity: 2026-07-31
-last_activity_desc: Phase 25 complete, transitioned to Phase 26
+last_updated: "2026-08-01T01:09:29.910Z"
+last_activity: 2026-08-01
+last_activity_desc: Phase 26 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 3
+  total_plans: 7
   completed_plans: 3
   percent: 25
 ---
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.5 extiende `market-data-client` v0.2.0 —solo lectura— con la superficie de **escritura** de la API primary-extractor: symbols + calendar, detrás de un mutating-gate de seguridad load-bearing, verificada en vivo de forma segura contra develop, y publicada v0.3.0.)
 
-**Current focus:** Phase 25 — Mutating-gate + Symbols write
+**Current focus:** Phase 26 — calendar-write
 
 ## Current Position
 
-Phase: 26 — Calendar write
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-31 — Phase 25 complete, transitioned to Phase 26
+Phase: 26 (calendar-write) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 26
+Last activity: 2026-08-01 — Phase 26 execution started
 
 ## Performance Metrics
 
