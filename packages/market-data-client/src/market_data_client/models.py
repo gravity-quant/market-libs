@@ -40,6 +40,8 @@ from dataclasses import dataclass, fields
 from types import NoneType, UnionType
 from typing import Any, Self, Union, cast, get_args, get_origin, get_type_hints
 
+from market_data_client import _params
+
 __all__ = [
     "CalendarConfig",
     "CalendarDay",
@@ -250,6 +252,113 @@ class SymbolPatch:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to ``{"active": self.active}``."""
         return {"active": self.active}
+
+
+# ----------------------------------------------------------------------
+# Calendar write request models (D-08 .. D-13) — serialize-OUT
+# ----------------------------------------------------------------------
+#
+# These three request models feed the ``PUT /calendar/config``,
+# ``POST /calendar/config/preview`` and ``POST /calendar/holidays`` write
+# endpoints (MUT-MD-02). Like the symbols write models above they are NOT
+# :class:`SafeModel` subclasses (D-08) — they serialize OUT via a hand-written
+# :meth:`to_dict`, they never deserialize IN. Field names, defaults and bounds
+# are verbatim from the live OpenAPI (re-fetched 2026-07-31); the scalar bounds
+# it declares are deliberately NOT enforced client-side (D-13) — they surface as
+# the server's ``422``.
+
+
+@dataclass(frozen=True, slots=True)
+class MarketHoursIn:
+    """Typed request body for the calendar-config write endpoints (D-08 / D-09).
+
+    NOT a :class:`SafeModel` — this dataclass serializes OUT via :meth:`to_dict`.
+    Field order, wire keys and defaults are verbatim from the live OpenAPI
+    (D-10): ``open_time`` / ``close_time`` / ``timezone`` are required, the rest
+    default to ``pre_open_minutes=10``, ``enabled=True``, ``updated_by=""`` and
+    ``confirm=False``.
+
+    ``confirm`` is a FIELD of this model, not a loose method kwarg (D-09): it is
+    the exact analogue of :attr:`NewSymbol.market_id` — defaulted, non-nullable
+    and ALWAYS emitted. It is the "second opinion" guardrail the server demands
+    when a legal-but-suspicious window produces warnings (see
+    ``POST /calendar/config/preview``), so the consumer has to write
+    ``confirm=True`` on purpose to overwrite a warned-about config.
+
+    The scalar bounds the OpenAPI declares (``pre_open_minutes`` 0-120,
+    ``timezone`` 1-64 chars, ``updated_by`` <= 200 chars, and the ``format: time``
+    shape of the hour strings) are NOT validated client-side (D-13): a client-side
+    regex would produce false negatives because ``format: time`` also admits
+    ``"10:00:00"``. Out-of-range values ride to the server's ``422``.
+    """
+
+    open_time: str
+    close_time: str
+    timezone: str
+    pre_open_minutes: int = 10
+    enabled: bool = True
+    updated_by: str = ""
+    confirm: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a wire dict — all 7 keys always present (D-10).
+
+        Routed through ``_params.drop_none`` for consistency with
+        :meth:`HolidayIn.to_dict` (D-11); here it is a no-op because no field is
+        nullable, so every key — including ``confirm: False`` — always travels.
+        """
+        return _params.drop_none(
+            {
+                "open_time": self.open_time,
+                "close_time": self.close_time,
+                "timezone": self.timezone,
+                "pre_open_minutes": self.pre_open_minutes,
+                "enabled": self.enabled,
+                "updated_by": self.updated_by,
+                "confirm": self.confirm,
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HolidayIn:
+    """Typed request body element for a holiday create (D-08 / D-10 / D-11).
+
+    NOT a :class:`SafeModel` — this dataclass serializes OUT via :meth:`to_dict`.
+    ``day`` is the required ISO ``YYYY-MM-DD`` date; ``closed`` defaults to
+    ``True`` (``False`` = open with custom hours) and ``description`` to ``""``,
+    both verbatim from the live OpenAPI (D-10).
+
+    This is the FIRST request model of the package with nullable fields, so
+    ``_params.drop_none`` is load-bearing here (D-11): ``open_time`` /
+    ``close_time`` DISAPPEAR from the wire when they are ``None`` (the OpenAPI
+    documents ``null`` as "configured default", and the field default is ``None``
+    too, so dropping the key is semantically equivalent — assumption A3,
+    revalidated live in Phase 27), while the falsy-but-not-``None`` ``closed`` and
+    ``description=""`` are still emitted.
+
+    As with :class:`MarketHoursIn`, the declared scalar bounds (``description``
+    <= 500 chars, the ``format: date`` / ``format: time`` shapes) are NOT checked
+    client-side (D-13) — they surface as the server's ``422``.
+    """
+
+    day: str
+    closed: bool = True
+    open_time: str | None = None
+    close_time: str | None = None
+    description: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a wire dict, dropping the ``None``-valued hour pair (D-11)."""
+        return _params.drop_none(
+            {
+                "day": self.day,
+                "closed": self.closed,
+                "open_time": self.open_time,
+                "close_time": self.close_time,
+                "description": self.description,
+            }
+        )
 
 
 # ----------------------------------------------------------------------
