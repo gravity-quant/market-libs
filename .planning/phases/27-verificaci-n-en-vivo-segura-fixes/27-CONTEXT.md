@@ -197,6 +197,63 @@ streaming, disk token cache, JWT signature validation (backlog v1.6+); enrolar
   jitter real). Un flag que resulte demasiado permisivo (`True` cuando el server duplica)
   es un **bug de seguridad de datos**, no una nota — se corrige, no se documenta.
 
+### G. Enmiendas post-research (2026-08-01)
+
+La investigación (`27-RESEARCH.md`) **reprodujo ejecutando código** varias premisas que
+corrigen o precisan lo anterior. Ninguna re-abre una decisión; todas la aterrizan.
+
+- **D-21: Backfill de los 34 `Regression:` legacy — decisión del operator (2026-08-01).**
+  `verify_cycle_closure("market-data-client")` **ya devuelve `(False, 34)` hoy** (verificado:
+  los otros tres paquetes devuelven `(True, [])`). F-03…F-36 están `FIXED` **sin** bullet
+  `Regression:`, secuela del sweep v1.4 y de los quick tasks `260731-j93` / `260731-jim` /
+  `260731-t9o` — que **sí** agregaron tests, solo que nunca los linkearon. Por lo tanto D-18
+  estaba invertido: cablear el closure no produce un PASS vacuo sino un **FAIL inmediato**.
+  Phase 27 **backfillea los 34 links en Wave 0** como ejercicio de mapeo (finding → test ya
+  existente), escribiendo un test nuevo **solo** donde no exista ninguno. Criterio 5 pasa a
+  significar literalmente lo que dice y el paquete se alinea con los otros tres.
+- **D-22: Realizaciones no-breaking — decisión del operator (2026-08-01).**
+  `market-data-client-v0.3.0` **y** `v0.3.1` ya están tageados y publicados (versión actual
+  `0.3.1`), y v0.3.0 **ya contiene** `create_symbol`/`create_symbols`/`update_symbol`: la
+  superficie de mutación de symbols es **contrato público publicado**. Por lo tanto D-10 y
+  D-11 se realizan **sin romper**: `symbol_id` acepta `int | str` en vez de estrecharse a
+  `int`, y las mutaciones de symbols **conservan `list[Symbol]`** desenvolviendo el envelope
+  (espejando exactamente el fix de `parse_latest_response` ya shippeado en `260731-t9o`).
+  Los bugs reales se corrigen igual; ningún consumidor se rompe.
+  **Nota para Phase 28 (fuera de scope acá):** su premisa "publicar v0.3.0" quedó obsoleta —
+  v0.3.0/v0.3.1 ya existen. PUB-MUT-01 necesita re-apuntarse a la próxima versión disponible
+  cuando se planifique esa fase.
+- **D-23: `append_finding` con un fid nuevo DESTRUYE la prosa de triage humano de los 36
+  findings existentes** — reproducido sobre una copia: `**Classification:**` 36→0,
+  `**Resolution:**` 34→0, archivo 22.201→11.580 bytes, porque `_parse_findings`
+  (`verification/findings.py:404-410`) solo retiene Expected/Actual/Diff/Regression.
+  Wave 0 **debe** cerrar esta pérdida de datos **antes** de emitir cualquier finding nuevo.
+  `Regression:` sí round-trippea, así que el backfill de D-21 es estable.
+- **D-24: `idempotent_by_title=True` NO resuelve D-16.** El chequeo por título
+  (`findings.py:599-603`) precede al short-circuit por fid (`:610`) pero solo hace no-op
+  sobre un título **ya existente**; todo finding de Phase 27 tiene título nuevo y muere igual
+  en el chequeo de fid. **Solo un allocator seedeado cierra D-16** — esa es la mecánica a
+  implementar, descartando la alternativa que D-16 dejaba abierta.
+- **D-25: `main_matriz.py` NO es un precedente destructivo.** Ningún driver llama a
+  `mutating_allowed()` y matriz no tiene probes de mutación; su único guard es un chequeo
+  **por substring** (`main_matriz.py:2166`) — precisamente el anti-patrón contra el que
+  advierte `verification/mutation_gate.py:56-59`. **Phase 27 es la primera verificación live
+  destructiva del repo**: no hay patrón de cleanup que copiar, se diseña acá. Esto corrige la
+  afirmación de `<code_context>` más abajo.
+- **D-26: Drift de snapshots, corregido.** `get-calendar.json` **no** va a driftear
+  (`schema_of` muestrea solo `days[0]` y la forma del holiday de prueba es byte-idéntica),
+  pero `get-symbols.json` **sí driftea permanentemente** (el símbolo de prueba revertido vive
+  en `active=False` para siempre). Por lo tanto D-17 se realiza como **re-baseline**, no como
+  exclusión. Riesgo adicional no previsto: `get-health-feed.json` tiene
+  `ingestor.last_error: NoneType` y el spec indica que un símbolo no validado aflora
+  justamente en `last_error`.
+- **D-27: El observable de idempotencia es el conteo de filas, no el status code** — en
+  re-runs el primer POST ya devuelve 200. Se realiza vía `GET /symbols?prefix=` y
+  `GET /calendar?year=2099`. Además el OpenAPI live trae texto normativo que **contradice la
+  premisa de Phase 26 D-04**: `POST /calendar/holidays` está documentado como *"Add **or
+  update**… Idempotent by date, so re-seeding is safe"*. Eso no cambia nada por decreto —
+  D-19/D-20 ya mandan que **gana la realidad medida**; queda como hipótesis fuerte a
+  confirmar en vivo, y si se confirma, el flag `idempotent=False` de Phase 26 se corrige.
+
 ### Claude's Discretion
 
 - Dónde vive exactamente el gate de D-01 (una función parametrizada nueva en
