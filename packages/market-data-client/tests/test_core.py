@@ -502,7 +502,7 @@ def test_build_delete_holiday_request_rejects_path_escapes(hostile_day: str) -> 
 
 def test_build_delete_holiday_request_guard_raises_plain_value_error() -> None:
     """The guard is a client-side rejection: plain ValueError, NOT MarketDataError."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="day") as exc_info:
         _core.build_delete_holiday_request(_ClientState(), "../config")
     assert type(exc_info.value) is ValueError
     assert not isinstance(exc_info.value, MarketDataError)
@@ -515,7 +515,7 @@ def test_build_delete_holiday_request_guard_message_leaks_no_state() -> None:
         token="SUPERSECRET",
         client_secret="SHHH",
     )
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="day") as exc_info:
         _core.build_delete_holiday_request(configured, "../config")
     message = str(exc_info.value)
     assert "secret-host.test" not in message

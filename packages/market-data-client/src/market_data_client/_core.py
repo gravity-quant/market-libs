@@ -680,6 +680,47 @@ def build_delete_calendar_config_request(state: _ClientState) -> RequestSpec:
     )
 
 
+# Tokens that let a ``day`` value escape its path segment (D-18): ``/`` and
+# ``..`` retarget the request at a DIFFERENT endpoint, ``?`` appends a query
+# string and ``#`` truncates the path at a fragment.
+_PATH_SEGMENT_ESCAPES = ("/", "?", "#", "..")
+
+
+def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
+    """Pure: build spec for ``DELETE /calendar/holidays/{day}`` (MUT-MD-02).
+
+    ``idempotent=True`` (DM-03 — deleting a day twice leaves the same state);
+    ``authenticated=True``; ``json_body`` is OMITTED so it stays ``None`` and the
+    DELETE goes out with an empty body and no ``Content-Type`` (D-02). The
+    response is parsed by the tolerant passthrough
+    :func:`parse_calendar_write_response`, not by any calendar-read parser (D-16).
+
+    Path-safety guard (D-18 / T-26-01): ``day`` is interpolated RAW into the path
+    — no percent-encoding, so a legitimate ISO date rides the wire byte for byte
+    (D-03) — which makes an unvalidated ``day`` able to change WHICH endpoint runs.
+    Verified against httpx 0.28.1: ``day="../config"`` normalizes to
+    ``DELETE /api/calendar/config``, i.e. a market-config reset, and
+    ``day="2026-12-25?x=1"`` injects a query string. The server's ``422`` is NOT a
+    mitigation for this: the request never reaches the endpoint that would
+    validate it. So the guard REJECTS rather than sanitizes — a plain
+    :class:`ValueError` (the ``MarketData*`` hierarchy stays reserved for server
+    contract errors, D-12) raised BEFORE the ``RequestSpec`` is built. Nothing is
+    percent-encoded here, so the guard is strictly narrower than a quoting escape
+    and it is NOT date-format validation: ``"2026-13-45"`` passes and goes on to
+    earn the server's ``422`` (D-13).
+    """
+    if not day or any(token in day for token in _PATH_SEGMENT_ESCAPES):
+        raise ValueError(f"day must be a single path segment, got {day!r}")
+    del state  # state-independent
+    return RequestSpec(
+        method="DELETE",
+        path=f"/calendar/holidays/{day}",
+        idempotent=True,
+        endpoint_name="delete_holiday",
+        authenticated=True,
+    )
+
+
 # ----------------------------------------------------------------------
 # Market-data read parsers (D-01) — client-stamped received_at
 # ----------------------------------------------------------------------
