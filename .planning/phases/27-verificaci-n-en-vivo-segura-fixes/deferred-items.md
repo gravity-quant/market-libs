@@ -40,3 +40,20 @@ for real).
   `append_finding`'s public signature ... This is an additive fix to a module shared by five
   drivers; blast radius must stay at the serializer." Carrying `existing[fid].extra_bullets`
   into the replacement `_Finding` is a one-line follow-up if a later phase wants it.
+
+---
+
+## Operator authorization — armed destructive run (plan 27-06 task 2)
+
+**Granted 2026-08-01.** Scope authorized against `market-data-develop.bbsa.com.ar`:
+
+- Create then revert to `active=false`: `GSDPROBE/P27-SYNC`, `GSDPROBE/P27-ASYNC`,
+  `GSDPROBE/P27-SYNC-B1`, `GSDPROBE/P27-SYNC-B2`, `GSDPROBE/P27-ASYNC-B1`,
+  `GSDPROBE/P27-ASYNC-B2`. **Not deletable** — no `DELETE /symbols` exists in the API — so
+  these remain as permanent inactive catalogue rows, auditable by the `GSDPROBE/` prefix.
+- Create then delete: holidays `2099-12-29`, `2099-12-30`. Fully reversible.
+- **Never written:** `PUT` / `DELETE /calendar/config` (D-06, preview-only; AST-guarded).
+
+Operator also authorized 27-07 (in-cycle fixes, non-breaking per D-22) to follow without a
+second checkpoint. Pre-run develop baseline verified clean by 27-05: zero `GSDPROBE/` active
+symbols, zero 2099 days.
