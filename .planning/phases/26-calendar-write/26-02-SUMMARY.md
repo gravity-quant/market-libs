@@ -184,6 +184,18 @@ None - no external service configuration required.
 - **Sin cambios en:** `_state.py`, `exceptions.py`, `_transport.py`, `_atransport.py`, `_params.py`, `_logging.py`, `tests/conftest.py`, `pyproject.toml`, `uv.lock`, `__version__` (sigue en **v0.3.1** — el release es Phase 28).
 - **Sin blockers.**
 
+## Self-Check: PASSED
+
+- `packages/market-data-client/src/market_data_client/_core.py` — FOUND (modificado, 5 builders + parser + `__all__`)
+- `packages/market-data-client/tests/test_core.py` — FOUND (modificado, 25 tests nuevos)
+- `.planning/phases/26-calendar-write/26-02-SUMMARY.md` — FOUND
+- Commits `6a9bb86`, `ef62bb7`, `f76ac52`, `92f3286`, `58f27ac`, `5ac9eaa` — FOUND en `git log`
+- Working tree limpio; cero deleciones de archivos tracked en el rango del plan
+
+## TDD Gate Compliance
+
+Las tres tasks siguieron el ciclo completo: cada una tiene su commit `test(...)` (RED, con fallos verificados antes de implementar) seguido de su commit `feat(...)` (GREEN). No hubo commits `refactor(...)` porque los cuerpos GREEN salieron ya en la forma final del template — ninguna limpieza pendiente.
+
 ---
 *Phase: 26-calendar-write*
 *Completed: 2026-07-31*
