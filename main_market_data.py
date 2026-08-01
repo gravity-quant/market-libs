@@ -22,6 +22,16 @@ rompería la clasificación SKIPPED (``main_verify.py:41``) y la invocación
 flag-less del subproceso (``main_verify.py:61``). ``MARKET_DATA_BASE_URL`` es
 opcional (default al target develop en ``client.py``) y NO se gatea.
 
+Gate de mutaciones (LIVE-MUT-01 / D-01): las escrituras requieren DOS patas a la
+vez — el opt-in explícito ``MARKET_DATA_VERIFY_MUTATING=1`` **y** que el hostname
+de la base URL resuelta sea exactamente ``market-data-develop.bbsa.com.ar``. El
+booleano se computa UNA vez en ``main()`` vía
+``verification.mutation_gate.mutating_allowed_for`` y se thread-ea a los DOS
+constructores existentes junto con un ``expected_host`` explícito (la pata de host
+in-package queda así independiente de su default). El gate apagado NO corta el
+run: el read sweep completo sigue corriendo (D-03) y el driver nunca hace
+``sys.exit`` por el gate.
+
 Invariante de single-Client (D-02 / success-criterion 1): ``main()`` construye
 EXACTAMENTE UN ``Client()`` sync y ``_async_main()`` construye EXACTAMENTE UN
 ``AsyncClient()``; ambos se threadean como parámetros a cada probe. La AST-guard
@@ -39,6 +49,7 @@ import asyncio
 import contextlib
 import datetime as dt
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,8 +62,10 @@ from verification import (
     schema_of,
     write_findings,
 )
+from verification.cycle_report import verify_cycle_closure
 from verification.env_gate import require_env
-from verification.findings import append_finding
+from verification.findings import append_finding, findings_path, max_existing_fid
+from verification.mutation_gate import mutating_allowed_for
 
 import market_data_client as md
 from market_data_client import (
@@ -63,11 +76,13 @@ from market_data_client import (
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     Segment,
     Symbol,
     _core,
 )
 from market_data_client._core import RequestSpec
+from market_data_client._state import _env_base_url
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -96,12 +111,61 @@ _SAMPLE_SYMBOLS = ["GGAL"]
 # Prefix improbable para forzar un resultado vacío en el probe no-data.
 _NO_DATA_PREFIX = "__no_such_symbol__"
 
-# Contador module-level para asignar fids deterministicamente F-01, F-02, ...
+# Gate de mutaciones del driver (LIVE-MUT-01 / D-01). DOS patas reales:
+#   1. el opt-in explícito ``MARKET_DATA_VERIFY_MUTATING=1``, y
+#   2. el hostname EXACTO del target develop.
+# El nombre de la variable es market-data-scoped a propósito: ``main_verify.py``
+# corre los seis drivers en un mismo lote, así que reusar el ``VERIFY_MUTATING``
+# de matriz armaría DOS gates a la vez. Nunca se reusa el gate de otro paquete:
+# ``mutating_allowed()`` valida la base URL de matriz, así que su segunda pata
+# sería vacua acá y la variable sola habilitaría escrituras contra cualquier host.
+_EXPECTED_DEVELOP_HOST = "market-data-develop.bbsa.com.ar"
+_MUTATING_ENV_VAR = "MARKET_DATA_VERIFY_MUTATING"
+
+# Detalle de skip a nivel PROBE que usan los probes mutantes cuando el gate está
+# apagado (D-03). SIN dos puntos, a propósito: ``main_verify.py`` clasifica el
+# PAQUETE ENTERO como SKIPPED ante ``^SKIPPED \S.*:`` (``main_verify.py:42``), de
+# modo que un read sweep completamente exitoso se reportaría como skip si esta
+# cadena llevara dos puntos. El único emisor legítimo de la forma con dos puntos
+# es el gate de credenciales en ``verification/env_gate.py``.
+_MUTATING_SKIP_DETAIL = "SKIPPED (mutating, guard off)"
+
+# Status terminales que cuentan como "ciclo cerrado" en el findings file. Se usa
+# para que ``probe_cycle_closure`` no pueda pasar de forma vacua (D-18).
+_CLOSED_STATUS_RE = re.compile(r"\*\*Status:\*\*\s*`?(?:CONFIRMED|FIXED)`?")
+
+# Body usado por los probes de refusal del gate in-package. Se eligió
+# ``preview_calendar_config`` —el método mutante MÁS seguro del paquete: es un dry
+# run compute-only que NO persiste nada server-side— justamente para que, si el
+# gate fallara en rechazar, el peor caso sea un POST inocuo en lugar de una
+# escritura real sobre la config compartida de develop.
+_REFUSAL_PROBE_CONFIG = MarketHoursIn(
+    open_time="11:00",
+    close_time="17:00",
+    timezone="America/Argentina/Buenos_Aires",
+)
+
+# Contador module-level para asignar fids deterministicamente. NO arranca en 0 en
+# el run real: ``_seed_fid_counter()`` lo sube al máximo fid ya registrado antes
+# del primer probe (D-16/D-24). Sin ese seed, cada finding nuevo re-emitiría un
+# fid ya ocupado por un finding promovido (F-01..F-36) y ``append_finding`` lo
+# descartaría en silencio mientras el driver sigue reportando ``FINDING=N``.
 _fid_counter: int = 0
 
 
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (D-16).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
+
+
 def _next_fid() -> str:
-    """Devuelve el siguiente ``F-NN`` (NN zero-padded a 2 dígitos)."""
+    """Devuelve el siguiente ``F-NN`` (NN zero-padded a 2 dígitos; degrada >99)."""
     global _fid_counter
     _fid_counter += 1
     return f"F-{_fid_counter:02d}"
@@ -256,6 +320,23 @@ async def _raw_via_request_async(aclient: AsyncClient, spec: RequestSpec) -> Any
     """Espejo async de :func:`_raw_via_request_sync`."""
     resp = await aclient._request(spec)
     return resp.json()
+
+
+def _unwrap_rows(raw: Any, key: str) -> list[Any]:
+    """Devuelve las filas de un body wire, desenvolviendo el envelope si lo hay.
+
+    El wire de develop envuelve varias colecciones en un objeto
+    (``{count, items[]}`` para market-data, ``{config, coverage, days[], market}``
+    para calendar). Un body de lista bare se acepta tal cual por compatibilidad;
+    cualquier otra cosa colapsa a ``[]`` en vez de romper el SHAPE-diff.
+    """
+    if isinstance(raw, dict):
+        rows = raw.get(key, [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    return rows if isinstance(rows, list) else []
 
 
 def _emit_shape(
@@ -513,7 +594,12 @@ def probe_calendar_sync(client: Client) -> ProbeResult:
             client, _core.build_calendar_config_request(client._state)
         )
         # D-09: post-procesado dentro del try.
-        sample_day = raw_days[0] if isinstance(raw_days, list) and raw_days else None
+        # El wire envuelve las filas en el envelope {config, coverage, days[],
+        # market} (LIVE-MUT-01): tomar ``raw_days[0]`` sobre el dict daba siempre
+        # None, así que el SHAPE-diff de CalendarDay nunca llegó a correr. Se
+        # desenvuelve ``days`` y se mantiene el path de lista bare por compat.
+        day_rows = _unwrap_rows(raw_days, "days")
+        sample_day = day_rows[0] if day_rows else None
         if isinstance(sample_day, dict):
             _emit_shape(sample_day, CalendarDay, "CalendarDay", "sync", base_url)
         if isinstance(raw_config, dict):
@@ -809,8 +895,10 @@ async def probe_calendar_async(aclient: AsyncClient) -> ProbeResult:
         raw_config = await _raw_via_request_async(
             aclient, _core.build_calendar_config_request(aclient._state)
         )
-        # D-09: post-procesado dentro del try (espejo sync).
-        sample_day = raw_days[0] if isinstance(raw_days, list) and raw_days else None
+        # D-09: post-procesado dentro del try (espejo sync). Se desenvuelve el
+        # envelope ``days[]`` antes de tomar la muestra (LIVE-MUT-01).
+        day_rows = _unwrap_rows(raw_days, "days")
+        sample_day = day_rows[0] if day_rows else None
         if isinstance(sample_day, dict):
             _emit_shape(sample_day, CalendarDay, "CalendarDay", "async", base_url)
         if isinstance(raw_config, dict):
@@ -904,19 +992,189 @@ def probe_parity(
 
 
 # ---------------------------------------------------------------------------
+# Refuse-by-default probes del gate in-package (D-04) — sync + async
+# ---------------------------------------------------------------------------
+#
+# Estos dos probes son deliberadamente HTTP-free y corren IDÉNTICO con el gate
+# armado o apagado: fuerzan ``mutating_allowed=False`` y afirman que el paquete
+# rechaza. Eso es lo que hace que una corrida con el gate apagado NO sea vacua.
+# Un gate que NO rechaza es el defecto de mayor severidad que esta fase puede
+# encontrar, así que se emite un finding ``AUTH`` OPEN en vez de un PASS.
+
+
+def probe_mutation_gate_refusal_sync(client: Client) -> ProbeResult:
+    """Refuse-by-default sync (D-04): sin opt-in, una mutación pública debe levantar."""
+    name = "mutation_gate_refusal_sync"
+    base_url = client._state.base_url
+    previous = client._state.mutating_allowed
+    try:
+        # Se toca ``_state`` directamente (precedente in-package en
+        # ``packages/market-data-client/tests/test_mutation_gate.py``): no es un
+        # constructor ni un ``configure()``, así que ni la AST-guard de
+        # single-instance ni el singleton de módulo se ven afectados.
+        client._state.mutating_allowed = False
+        try:
+            client.preview_calendar_config(_REFUSAL_PROBE_CONFIG)
+        except md.MarketDataMutationNotAllowedError:
+            return ProbeResult(name, "PASS", "mutación rechazada sin opt-in (0 HTTP, 0 Auth0)")
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="sync",
+            status="OPEN",
+            title="el gate in-package NO rechazó una mutación con mutating_allowed=False",
+            expected="MarketDataMutationNotAllowedError antes de cualquier HTTP",
+            actual="ninguna excepción: la mutación salió a la red",
+            diff="refuse-by-default roto (D-04/GATE-MD-01)",
+            base_url=base_url,
+        )
+        return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:  # D-09: un error inesperado degrada, nunca voltea el driver
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    finally:
+        client._state.mutating_allowed = previous
+
+
+async def probe_mutation_gate_refusal_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_mutation_gate_refusal_sync` (D-04)."""
+    name = "mutation_gate_refusal_async"
+    base_url = aclient._state.base_url
+    previous = aclient._state.mutating_allowed
+    try:
+        aclient._state.mutating_allowed = False
+        try:
+            await aclient.preview_calendar_config(_REFUSAL_PROBE_CONFIG)
+        except md.MarketDataMutationNotAllowedError:
+            return ProbeResult(name, "PASS", "mutación rechazada sin opt-in (0 HTTP, 0 Auth0)")
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="async",
+            status="OPEN",
+            title="el gate in-package async NO rechazó una mutación con mutating_allowed=False",
+            expected="MarketDataMutationNotAllowedError antes de cualquier HTTP",
+            actual="ninguna excepción: la mutación salió a la red",
+            diff="refuse-by-default roto (D-04/GATE-MD-01)",
+            base_url=base_url,
+        )
+        return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+    finally:
+        aclient._state.mutating_allowed = previous
+
+
+# ---------------------------------------------------------------------------
+# Terminal probes — cierre de ciclo (D-18) + limitación operativa (D-06)
+# ---------------------------------------------------------------------------
+
+
+def probe_cycle_closure(client: Client) -> ProbeResult:
+    """Cierre de ciclo (D-18): todo CONFIRMED/FIXED enlazado a un test de regresión.
+
+    Endurecido contra el pase vacuo: ``verify_cycle_closure`` devuelve
+    ``(True, [])`` también cuando el archivo no existe o no tiene ningún finding
+    promovido — es decir, cuando no hay NADA que validar. Este probe exige además
+    que el archivo exista y contenga al menos un finding CONFIRMED/FIXED; si no,
+    reporta ``FAIL`` en vez de un PASS que no significa nada.
+    """
+    name = "cycle_closure"
+    base_url = client._state.base_url
+    try:
+        ok, missing = verify_cycle_closure(_PKG)
+        path = findings_path(_PKG)
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        n_closed = len(_CLOSED_STATUS_RE.findall(text))
+        if ok and n_closed == 0:
+            ok = False
+            missing = ["<ningún finding CONFIRMED/FIXED: el cierre de ciclo sería vacuo>"]
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    if ok:
+        return ProbeResult(name, "PASS", f"{n_closed} CONFIRMED/FIXED con regresión")
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface="sync",
+        status="OPEN",
+        title=f"cycle closure: {len(missing)} findings CONFIRMED/FIXED sin test de regresión",
+        expected="cada finding CONFIRMED/FIXED enlazado a un test existente",
+        actual=f"missing: {', '.join(missing)}",
+        diff="ver salida de verify_cycle_closure",
+        base_url=base_url,
+    )
+    return ProbeResult(name, "FAIL", f"{fid} (OPEN) missing: {', '.join(missing)}")
+
+
+def probe_expected_put_config_operator_gated(client: Client) -> ProbeResult:
+    """Terminal EXPECTED (D-06): PUT/DELETE ``/calendar/config`` fuera del run en vivo.
+
+    ``DELETE /calendar/config`` **resetea a los defaults del servidor**, no
+    restaura el valor previo, así que un DELETE NO puede servir de cleanup para un
+    PUT: un PUT real dejaría la config de develop —compartida— en un estado
+    distinto del que tenía. Por eso ambos endpoints quedan operator-gated fuera de
+    esta fase; su cobertura sigue viva en los tests mockeados del paquete.
+
+    ``idempotent_by_title=True`` es lo que evita que este terminal se duplique con
+    un fid nuevo en cada run (dedupe content-addressed por título).
+    """
+    name = "expected_put_config_operator_gated"
+    base_url = client._state.base_url
+    try:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="both",
+            status="EXPECTED",
+            title="PUT/DELETE /calendar/config operator-gated fuera del run en vivo (D-06)",
+            expected=(
+                "shape en vivo de set_calendar_config / delete_calendar_config "
+                "verificada contra develop"
+            ),
+            actual=(
+                "sin cobertura en vivo: DELETE resetea a defaults del servidor y no "
+                "restaura el valor previo, asi que no sirve de cleanup para un PUT; "
+                "un PUT real dejaria la config compartida de develop alterada"
+            ),
+            diff=(
+                "limitación operativa reconocida, no drift detectado; ambos endpoints "
+                "siguen cubiertos por packages/market-data-client/tests (mocked)"
+            ),
+            base_url=base_url,
+            idempotent_by_title=True,
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="both", base_url=base_url)
+    return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
+
+
+# ---------------------------------------------------------------------------
 # Async wrapper — un único asyncio.run + UN AsyncClient (D-02)
 # ---------------------------------------------------------------------------
 
 
-async def _async_main() -> tuple[list[ProbeResult], list[Segment] | None]:
+async def _async_main(mutating: bool) -> tuple[list[ProbeResult], list[Segment] | None]:
     """Construye EXACTAMENTE UN ``AsyncClient`` y corre los probes async.
+
+    ``mutating`` es el booleano del doble gate ya resuelto en ``main()``; se
+    thread-ea al ÚNICO constructor async (D-02). No se recomputa acá ni se usa
+    ``configure()``: ``configure()`` muta sólo el singleton de módulo, no esta
+    instancia, y un segundo constructor rompería la AST-guard de single-instance.
 
     IN-03: el ``aclose()`` se envuelve en ``contextlib.suppress`` para que un
     fallo de teardown (error de red durante cierre, etc.) nunca se propague a
     ``asyncio.run(...)`` y crashee el driver (D-09). Devuelve los resultados y la
     lista de segments async (para el probe de paridad en ``main``).
     """
-    aclient = AsyncClient()
+    aclient = AsyncClient(mutating_allowed=mutating, expected_host=_EXPECTED_DEVELOP_HOST)
     results: list[ProbeResult] = []
     seg_async: list[Segment] | None = None
     try:
@@ -929,6 +1187,8 @@ async def _async_main() -> tuple[list[ProbeResult], list[Segment] | None]:
         results.append(await probe_symbols_async(aclient))
         results.append(await probe_calendar_async(aclient))
         results.append(await probe_no_data_async(aclient))
+        # Refuse-by-default ANTES de cualquier probe destructivo (27-04).
+        results.append(await probe_mutation_gate_refusal_async(aclient))
     except Exception as exc:  # D-09 defensa en profundidad: ningún path escapa a FAILED
         results.append(
             ProbeResult(
@@ -965,8 +1225,24 @@ def main() -> None:
     # D-08.3: bootstrap idempotente del findings file (no-op si ya existe).
     write_findings(_PKG)
 
-    # D-02: EXACTAMENTE UN Client sync threadeado a cada probe sync.
-    client = Client()
+    # D-16/D-24: seedear el allocator ANTES del primer probe, para que cada fid
+    # emitido en este run caiga por encima de lo ya registrado.
+    _seed_fid_counter()
+
+    # LIVE-MUT-01 / D-01: el doble gate se evalúa UNA sola vez, antes de que
+    # exista un cliente. ``_env_base_url()`` es una función pura (no construye
+    # nada), así que la AST-guard de single-instance no se ve afectada. Un gate
+    # apagado NO corta el run: el read sweep sigue (D-03), sin ``sys.exit``.
+    mutating = mutating_allowed_for(
+        env_var=_MUTATING_ENV_VAR,
+        base_url=_env_base_url(),
+        expected_host=_EXPECTED_DEVELOP_HOST,
+    )
+
+    # D-02: EXACTAMENTE UN Client sync threadeado a cada probe sync. El
+    # ``expected_host`` explícito mantiene la pata de host in-package
+    # independiente de su default: son dos afirmaciones genuinamente separadas.
+    client = Client(mutating_allowed=mutating, expected_host=_EXPECTED_DEVELOP_HOST)
     results: list[ProbeResult] = []
     seg_sync: list[Segment] | None = None
     try:
@@ -981,9 +1257,15 @@ def main() -> None:
         results.append(probe_param_encoding_sync(client))
         results.append(probe_no_data_sync(client))
         results.append(probe_auth_fail_sync(client))
-        async_results, seg_async = asyncio.run(_async_main())
+        # Refuse-by-default ANTES de cualquier probe destructivo (27-04).
+        results.append(probe_mutation_gate_refusal_sync(client))
+        async_results, seg_async = asyncio.run(_async_main(mutating))
         results.extend(async_results)
         results.append(probe_parity(seg_sync, seg_async, client))
+        # Terminales: la limitación operativa D-06 y, último de todo, el cierre
+        # de ciclo — que debe ver el findings file ya completo de este run.
+        results.append(probe_expected_put_config_operator_gated(client))
+        results.append(probe_cycle_closure(client))
     except Exception as exc:  # D-09 defensa en profundidad: el driver NUNCA exit != 0
         results.append(
             ProbeResult(
