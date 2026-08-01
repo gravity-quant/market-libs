@@ -1,0 +1,21 @@
+{
+  "endpoint": "POST /symbols/batch",
+  "client_function": "create_symbols_batch_sync_response",
+  "captured_at": "2026-08-01T15:54:37.642682+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "created": "int",
+    "items": [
+      {
+        "active": "bool",
+        "created": "bool",
+        "id": "int",
+        "market_id": "str",
+        "symbol": "str"
+      }
+    ],
+    "note": "str",
+    "reactivated": "int",
+    "requested": "int"
+  }
+}

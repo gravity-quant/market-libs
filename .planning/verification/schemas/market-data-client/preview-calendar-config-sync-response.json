@@ -1,0 +1,20 @@
+{
+  "endpoint": "POST /calendar/config/preview",
+  "client_function": "preview_calendar_config_sync_response",
+  "captured_at": "2026-08-01T15:54:40.152199+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "market_after": {
+      "is_open": "bool",
+      "local_time": "str",
+      "next_transition": "str",
+      "reason": "str",
+      "session_close": "str",
+      "session_open": "str",
+      "state": "str"
+    },
+    "requires_confirmation": "bool",
+    "valid": "bool",
+    "warnings": []
+  }
+}
