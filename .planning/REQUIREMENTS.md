@@ -17,7 +17,7 @@ Requisitos del milestone v1.5. Cada uno mapea a una fase del roadmap. Plan fuent
 
 ### Calendar (write)
 
-- [ ] **MUT-MD-02**: El consumidor puede administrar el calendario — `PUT /calendar/config` (setear horario, `MarketHoursIn`, respeta `confirm`), `DELETE /calendar/config` (reset), `POST /calendar/config/preview` (preview sin persistir, `MarketHoursIn`), `POST /calendar/holidays` (agregar feriados, `HolidaysIn`) y `DELETE /calendar/holidays/{day}` (borrar un feriado) — con request-models tipados, sync y async, detrás del mutating-gate
+- [x] **MUT-MD-02**: El consumidor puede administrar el calendario — `PUT /calendar/config` (setear horario, `MarketHoursIn`, respeta `confirm`), `DELETE /calendar/config` (reset), `POST /calendar/config/preview` (preview sin persistir, `MarketHoursIn`), `POST /calendar/holidays` (agregar feriados, `HolidaysIn`) y `DELETE /calendar/holidays/{day}` (borrar un feriado) — con request-models tipados, sync y async, detrás del mutating-gate
 
 ### Verification
 
@@ -60,7 +60,7 @@ Qué fases cubren qué requisitos. Confirmado en la creación del roadmap (2026-
 |-------------|-------|--------|
 | GATE-MD-01 | Phase 25 | Complete |
 | MUT-MD-01 | Phase 25 | Complete |
-| MUT-MD-02 | Phase 26 | Pending |
+| MUT-MD-02 | Phase 26 | Complete |
 | LIVE-MUT-01 | Phase 27 | Pending |
 | PUB-MUT-01 | Phase 28 | Pending |
 

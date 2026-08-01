@@ -7,8 +7,11 @@ ni ``Content-Type``; el trío de config parsea a ``CalendarConfig`` tolerante y 
 ``422`` levanta ``MarketDataAPIError``; y el par de feriados retorna ``dict``
 passthrough tolerante.
 
-La matriz adversarial de refusals (cero requests) y el test dispatch-level de
-no-retry (D-15) viven en el Plan 04.
+Y —agregado por el Plan 04— el espejo async de la matriz adversarial: refusal
+end-to-end de los CINCO métodos con el gate OFF por default y el token
+FORZADO-vencido (0 HTTP y 0 grant a Auth0, incluido ``preview_calendar_config``),
+host mismatch → refused con 0 requests, y el guard de path-safety D-18 verificado
+end-to-end con el gate ABIERTO.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from typing import Any
 import pytest
 from pytest_httpx import HTTPXMock
 
-from market_data_client import MarketDataAPIError, aio
+from market_data_client import MarketDataAPIError, MarketDataMutationNotAllowedError, aio
 from market_data_client.models import CalendarConfig, HolidayIn, HolidaysIn, MarketHoursIn
 
 _BASE = "https://market-data-develop.test/api"
@@ -372,3 +375,118 @@ async def test_holiday_pair_module_shims_dispatch(httpx_mock: HTTPXMock) -> None
         ("POST", "/api/calendar/holidays"),
         ("DELETE", "/api/calendar/holidays/2026-12-25"),
     ]
+
+
+# ----------------------------------------------------------------------
+# Refusal end-to-end x5 async (gate OFF por default) → CERO IO (D-14/T-26-04)
+#
+# Igual que en el espejo sync: ``token_expires_at=0.0`` fuerza el token vencido,
+# de modo que la lista vacía de requests prueba a la vez cero HTTP al servicio y
+# cero grant a Auth0 (T-26-06).
+# ----------------------------------------------------------------------
+
+
+async def test_set_calendar_config_refused_by_default_emits_no_request(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """``PUT`` de config async: gate OFF por default → refused, 0 HTTP y 0 grant."""
+    aio.configure(token_expires_at=0.0)
+
+    with pytest.raises(MarketDataMutationNotAllowedError):
+        await aio._get_default().set_calendar_config(_hours())
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_delete_calendar_config_refused_by_default_emits_no_request(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """``DELETE`` de config async (reset): gate OFF → refused con 0 requests."""
+    aio.configure(token_expires_at=0.0)
+
+    with pytest.raises(MarketDataMutationNotAllowedError):
+        await aio._get_default().delete_calendar_config()
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_preview_calendar_config_refused_by_default_emits_no_request(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """El dry-run async tampoco tiene carve-out (D-14): refused con 0 requests."""
+    aio.configure(token_expires_at=0.0)
+
+    with pytest.raises(MarketDataMutationNotAllowedError):
+        await aio._get_default().preview_calendar_config(_hours())
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_add_holidays_refused_by_default_emits_no_request(httpx_mock: HTTPXMock) -> None:
+    """Alta de feriados async: gate OFF por default → refused con 0 requests."""
+    aio.configure(token_expires_at=0.0)
+
+    with pytest.raises(MarketDataMutationNotAllowedError):
+        await aio._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_delete_holiday_refused_by_default_emits_no_request(httpx_mock: HTTPXMock) -> None:
+    """Borrado de feriado async: gate OFF por default → refused con 0 requests."""
+    aio.configure(token_expires_at=0.0)
+
+    with pytest.raises(MarketDataMutationNotAllowedError):
+        await aio._get_default().delete_holiday("2026-12-25")
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_set_calendar_config_refused_on_host_mismatch(httpx_mock: HTTPXMock) -> None:
+    """Gate ON async pero host de ``base_url`` ≠ ``expected_host`` → 0 requests."""
+    aio.configure(
+        mutating_allowed=True,
+        expected_host="market-data-PROD.bbsa.com.ar",
+        token_expires_at=0.0,
+    )
+
+    with pytest.raises(MarketDataMutationNotAllowedError):
+        await aio._get_default().set_calendar_config(_hours())
+
+    assert httpx_mock.get_requests() == []
+
+
+# ----------------------------------------------------------------------
+# Path-safety D-18 end-to-end async con el gate ABIERTO (T-26-01)
+# ----------------------------------------------------------------------
+
+
+async def test_delete_holiday_path_safety_dotdot_emits_no_request(httpx_mock: HTTPXMock) -> None:
+    """``delete_holiday("../config")`` async: ``ValueError`` y CERO requests.
+
+    Sin el guard, ``day`` interpolado raw haría que httpx normalizara
+    ``/api/calendar/holidays/../config`` a ``DELETE /api/calendar/config`` — el
+    reset de la configuración de mercado. El ``422`` del servidor no es
+    mitigación: el request nunca llega al endpoint que validaría el ``day``.
+    """
+    _open_gate()
+
+    with pytest.raises(ValueError, match="single path segment"):
+        await aio._get_default().delete_holiday("../config")
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_delete_holiday_path_safety_empty_and_query_emit_no_request(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """``""`` y un ``day`` con query string async: rechazo con 0 requests."""
+    _open_gate()
+
+    with pytest.raises(ValueError, match="single path segment"):
+        await aio._get_default().delete_holiday("")
+
+    with pytest.raises(ValueError, match="single path segment"):
+        await aio._get_default().delete_holiday("2026-12-25?x=1")
+
+    assert httpx_mock.get_requests() == []
