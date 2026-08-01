@@ -5,15 +5,15 @@ milestone_name: market-data-client · mutaciones
 current_phase: 27
 current_phase_name: Verificación en vivo segura + fixes
 status: executing
-stopped_at: Phase 27 context gathered (assumptions mode)
-last_updated: "2026-08-01T13:50:20.005Z"
+stopped_at: Phase 27 waves 1-4 complete (5/7 plans); awaiting operator authorization for armed run (27-06)
+last_updated: "2026-08-01T15:42:38.714Z"
 last_activity: 2026-08-01
-last_activity_desc: Phase 26 complete, transitioned to Phase 27
+last_activity_desc: Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 14
+  completed_plans: 12
   percent: 50
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.5 extiende `market-data-client` v0.2.0 —solo lectura— con la superficie de **escritura** de la API primary-extractor: symbols + calendar, detrás de un mutating-gate de seguridad load-bearing, verificada en vivo de forma segura contra develop, y publicada v0.3.0.)
 
-**Current focus:** Phase 26 — calendar-write
+**Current focus:** Phase 27 — Verificación en vivo segura + fixes
 
 ## Current Position
 
-Phase: 27 — Verificación en vivo segura + fixes
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-01 — Phase 26 complete, transitioned to Phase 27
+Phase: 27 (Verificación en vivo segura + fixes) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 27
+Last activity: 2026-08-01 — Phase 27 execution started
 
 ## Performance Metrics
 
@@ -222,9 +222,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-01T12:31:16.629Z
-Stopped at: Phase 27 context gathered (assumptions mode)
-Resume file: .planning/phases/27-verificaci-n-en-vivo-segura-fixes/27-CONTEXT.md
+Last session: 2026-08-01T15:42:38.709Z
+Stopped at: Phase 27 waves 1-4 complete (5/7 plans); awaiting operator authorization for armed run (27-06)
+Resume file: .planning/phases/27-verificaci-n-en-vivo-segura-fixes/27-06-PLAN.md
 
 ## Operator Next Steps
 

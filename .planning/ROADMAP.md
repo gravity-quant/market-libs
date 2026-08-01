@@ -157,25 +157,25 @@ Plans:
   4. Toda divergencia (shape de respuesta, códigos, idempotencia real) se documenta en findings y se corrige in-cycle, espejada sync/async, con un test de regresión mockeado por fix.
   5. Cycle closure PASS.
 
-**Plans**: 7 plans (6 waves — el orden es dependencia dura, no preferencia: el plumbing roto invalida el run en vivo, y el run en vivo es el único insumo de los fixes)
+**Plans**: 5/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 27-01-PLAN.md — Wave 1 · Harness: preservar prosa de findings (D-23) + `max_existing_fid` (D-16/D-24) + backfill de los 34 `Regression:` legacy (D-21) → cycle closure deja de fallar
-- [ ] 27-02-PLAN.md — Wave 1 · Fix offline: `parse_calendar_response` desenvuelve el envelope `days[]` + `CalendarDay` retipado al wire real (D-12/D-13) — prerequisito del criterio 2
+- [x] 27-01-PLAN.md — Wave 1 · Harness: preservar prosa de findings (D-23) + `max_existing_fid` (D-16/D-24) + backfill de los 34 `Regression:` legacy (D-21) → cycle closure deja de fallar
+- [x] 27-02-PLAN.md — Wave 1 · Fix offline: `parse_calendar_response` desenvuelve el envelope `days[]` + `CalendarDay` retipado al wire real (D-12/D-13) — prerequisito del criterio 2
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 27-03-PLAN.md — Wave 2 · Gate driver-side parametrizado (D-01/D-02) + seed del allocator + `verify_cycle_closure` cableado (D-18) + probes de refusal + guard de línea SKIPPED (D-03/D-04)
+- [x] 27-03-PLAN.md — Wave 2 · Gate driver-side parametrizado (D-01/D-02) + seed del allocator + `verify_cycle_closure` cableado (D-18) + probes de refusal + guard de línea SKIPPED (D-03/D-04)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 27-04-PLAN.md — Wave 3 · Plumbing de mutación gate-checked + ciclo destructivo de symbols create→verify→revert sync+async con descubrimiento de id e idempotencia por conteo de filas (D-05/D-10/D-11/D-19/D-27)
+- [x] 27-04-PLAN.md — Wave 3 · Plumbing de mutación gate-checked + ciclo destructivo de symbols create→verify→revert sync+async con descubrimiento de id e idempotencia por conteo de filas (D-05/D-10/D-11/D-19/D-27)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 27-05-PLAN.md — Wave 4 · Calendar: config preview-only (D-06) + ciclo completo de holidays (D-07) + sweep de residuos + recheck de `/health/feed` + política de snapshots (D-08/D-17/D-26)
+- [x] 27-05-PLAN.md — Wave 4 · Calendar: config preview-only (D-06) + ciclo completo de holidays (D-07) + sweep de residuos + recheck de `/health/feed` + política de snapshots (D-08/D-17/D-26)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -229,7 +229,7 @@ Plans:
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
-| 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
+| 27. Safe live verification + fixes                          | v1.5      | 5/7 | In Progress|  |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
 
 ## Backlog
