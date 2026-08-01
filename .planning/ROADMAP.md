@@ -7,7 +7,7 @@
 - ✅ **v1.2 Architecture + Auth/Ergonomics Carry-forwards** — Phases 12-17 (shipped 2026-06-25) — see [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Codegen Single-Source (libcst)** — Phases 18-19 (closed 2026-07-03 on signed SPIKE-006 NO-GO; Phase 19 REFAC-06 dropped) — see [`milestones/v1.3-ROADMAP.md`](./milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 market-data-client** — Phases 20-24 (shipped 2026-07-31) — nuevo paquete cliente (solo lectura) contra la API primary-extractor con Auth0 client-credentials, verificado en vivo y publicado v0.1.0 — see [`milestones/v1.4-ROADMAP.md`](./milestones/v1.4-ROADMAP.md)
-- 🚧 **v1.5 market-data-client · mutaciones** — Phases 25-28 (in progress) — extiende `market-data-client` (v0.2.0, lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad, verificada en vivo de forma segura, y publicada v0.3.0
+- 🚧 **v1.5 market-data-client · mutaciones** — Phases 25-28 (in progress) — extiende `market-data-client` (v0.2.0, lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad, verificada en vivo de forma segura, y publicada v0.4.0
 
 ## Phases
 
@@ -16,7 +16,7 @@
 - [x] **Phase 25: Mutating-gate + Symbols write** — safety gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes) + `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}` — GATE-MD-01 + MUT-MD-01 (completed 2026-07-31)
 - [x] **Phase 26: Calendar write** — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con `confirm` guardrail — MUT-MD-02 (completed 2026-08-01)
 - [ ] **Phase 27: Verificación en vivo segura + fixes** — probes de mutación detrás del gate contra develop (create→verify→revert), revalida idempotencia DM-03, fixes in-cycle — LIVE-MUT-01
-- [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release — PUB-MUT-01
+- [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.4.0` → GitHub Release (la release efectiva es **v0.4.0**: `v0.3.0` y `v0.3.1` ya se publicaron mid-milestone fuera del flujo de fases — D-02) — PUB-MUT-01
 
 <details>
 <summary>✅ v1.4 market-data-client (Phases 20-24) — SHIPPED 2026-07-31</summary>
@@ -187,15 +187,15 @@ Plans:
 
 ### Phase 28: Release prep + publish v0.3.0
 
-**Goal**: `market-data-client` se publica como `v0.3.0` (minor bump, no breaking sobre la superficie de lectura v0.2.0) por el pipeline de tags.
+**Goal**: `market-data-client` se publica como `v0.4.0` (minor bump, no breaking sobre la superficie de lectura) por el pipeline de tags. La versión efectiva es `0.4.0` y no `0.3.0` porque `v0.3.0` y `v0.3.1` ya se publicaron mid-milestone fuera del flujo de fases (D-01/D-02); el título de esta sección se conserva textual porque la tooling de GSD resuelve el directorio `28-release-prep-publish-v0-3-0` a partir de él.
 **Depends on**: Phase 27 (la superficie de mutación verificada en vivo)
 **Requirements**: PUB-MUT-01
 **Success Criteria** (what must be TRUE):
 
-  1. Versión bumpeada a `0.3.0` en `pyproject` + `__version__`; README changelog documenta las nuevas mutaciones + el opt-in del gate; `uv.lock` refrescado.
+  1. Versión bumpeada a `0.4.0` en `pyproject` + `__version__`; README changelog documenta la superficie de calendar-write (MUT-MD-02) + el opt-in del gate **y** el reemplazo de campos de `CalendarDay` (`date`/`marketId`/`isBusinessDay` → `day`/`closed`/`description`/`open_time`/`close_time`, D-03); `uv.lock` refrescado.
   2. PR abierto; los 15 checks de CI verdes (incl. los jobs de `market-data-client` en la matrix py3.12 + py3.13).
-  3. Merge a `main`; tag `market-data-client-v0.3.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
-  4. El bump es minor no-breaking: la superficie de lectura v0.2.0 permanece 100% compatible.
+  3. Merge a `main`; tag `market-data-client-v0.4.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
+  4. El bump es minor no-breaking medido contra **v0.3.1** (el predecesor real publicado, no v0.2.0): la superficie de lectura permanece compatible y los cambios de symbols son aditivos/ensanchantes. Única excepción documentada: el carve-out D-03 de `CalendarDay`, source-breaking pero pre-autorizado por D-13 y explicitado en el changelog.
 
 **Plans**: 3 plans
 
@@ -248,6 +248,10 @@ Plans:
 ## Backlog
 
 *(Candidate items for next milestone; see `.planning/todos/pending/` + v1.0/v1.1/v1.2/v1.3 milestone audits deferred sections)*
+
+### Deferred to v1.6+ (from v1.5)
+
+- **D-16 — enrolar `market-data-client` en el typecheck global** — el paquete sigue ausente de tres listas: el `files` de mypy del root (`pyproject.toml:97`, hoy 5 paquetes), el `root_packages` de import-linter (`pyproject.toml:141-146`, hoy 4) y el loop mypy-tests per-package de `ci.yml:85` (hoy 5). Enrolarlo requiere además **escribir un contrato de import-linter** para `market_data_client._core` (los otros 4 paquetes ya tienen el suyo). Es un gap de **COBERTURA de typecheck, no un CI failure**: todos los checks package-scoped están verdes hoy, y la cobertura real de mypy sobre este paquete la da el hook de pre-commit scoped `files: ^packages/.*/src/` (`.pre-commit-config.yaml:32`). Diferido desde Phase 24 y re-confirmado en Phase 28 (**rechazado** enrolarlo en el PR de release: expandiría el diff). Se archiva acá explícitamente para que deje de rodar en silencio release tras release.
 
 ### Deferred to v1.5+ (from v1.4 — market-data-client v2 requirements)
 

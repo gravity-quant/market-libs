@@ -25,7 +25,7 @@ Requisitos del milestone v1.5. Cada uno mapea a una fase del roadmap. Plan fuent
 
 ### Release
 
-- [ ] **PUB-MUT-01**: `market-data-client` se publica como `v0.3.0` (minor bump — features nuevas, no rompe la superficie de lectura v0.2.0) por el pipeline de tags — bump `pyproject`+`__version__`, README changelog, `uv.lock` refresh, CI verde, PR → merge → tag `market-data-client-v0.3.0` → GitHub Release con wheel + sdist
+- [ ] **PUB-MUT-01**: `market-data-client` se publica como `v0.4.0` (minor bump — features nuevas, no rompe la superficie de lectura v0.2.0) por el pipeline de tags — bump `pyproject`+`__version__`, README changelog, `uv.lock` refresh, CI verde, PR → merge → tag `market-data-client-v0.4.0` → GitHub Release con wheel + sdist. **Constancia (2026-08-01, D-02):** `v0.3.0` (PR #8, `ea92dd8`) y `v0.3.1` (PR #9, `7b0e0b2`) ya se publicaron mid-milestone, fuera del flujo de fases; el requisito se satisface por la publicación de `0.4.0`, no por la de `0.3.0`
 
 ## v2 Requirements
 
