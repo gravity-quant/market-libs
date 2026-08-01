@@ -197,7 +197,7 @@ Plans:
   3. Merge a `main`; tag `market-data-client-v0.4.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
   4. El bump es minor no-breaking medido contra **v0.3.1** (el predecesor real publicado, no v0.2.0): la superficie de lectura permanece compatible y los cambios de symbols son aditivos/ensanchantes. Única excepción documentada: el carve-out D-03 de `CalendarDay`, source-breaking pero pre-autorizado por D-13 y explicitado en el changelog.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -206,7 +206,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 28-02-PLAN.md — Wave 2 · Abrir el PR (D-12), aserción **por conteo** de 15/15 checks en verde (C-2), checkpoint bloqueante D-18(a) y merge con merge commit real (D-11) — `autonomous: false`
+- [x] 28-02-PLAN.md — Wave 2 · Abrir el PR (D-12), aserción **por conteo** de 15/15 checks en verde (C-2), checkpoint bloqueante D-18(a) y merge con merge commit real (D-11) — `autonomous: false`
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -243,7 +243,7 @@ Plans:
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
-| 28. Release prep + publish v0.3.0                           | v1.5      | 1/3 | In Progress|  |
+| 28. Release prep + publish v0.3.0                           | v1.5      | 2/3 | In Progress|  |
 
 ## Backlog
 

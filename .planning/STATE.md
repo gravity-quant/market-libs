@@ -5,15 +5,15 @@ milestone_name: market-data-client · mutaciones
 current_phase: 28
 current_phase_name: release-prep-publish-v0-3-0
 status: executing
-stopped_at: Completed 28-01-PLAN.md — v0.4.0 release prep pushed to origin
-last_updated: "2026-08-01T21:01:42.036Z"
+stopped_at: "Completed 28-02-PLAN.md — PR #10 merged to main at 5d0825d; tag still pending 28-03 gate"
+last_updated: "2026-08-01T22:16:52.275Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 28 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 75
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 ## Current Position
 
 Phase: 28 (release-prep-publish-v0-3-0) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 28 execution started
 
@@ -106,6 +106,7 @@ Last activity: 2026-08-01 — Phase 28 execution started
 | Phase 25 P02 | 4min | 2 tasks | 4 files |
 | Phase 25 P03 | 7min | 2 tasks | 7 files |
 | Phase 28 P01 | 12min | 3 tasks | 6 files |
+| Phase 28 P02 | 69min | 3 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,10 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 28-01]: Los strings de título 'Phase 28: Release prep + publish v0.3.0' quedan textuales en ROADMAP; solo se re-apuntó el target de release adentro — la tooling GSD resuelve el directorio de fase desde ese string
 - [Phase ?]: [Phase 28-01]: D-16 (market-data-client ausente de mypy files / import-linter root_packages / ci.yml:85) sigue diferido pero archivado en ROADMAP § Backlog 'Deferred to v1.6+' — gap de cobertura, no CI failure
 - [Phase ?]: [Phase 28-01]: Branch publicada con fast-forward plano (behind=0, ahead=104); sin force flag y sin rebase/merge de origin/main — preserva los ~99 SHAs que los SUMMARY de Phases 25-27 cross-referencian (D-10, T-28-08)
+- [Phase 28-02]: PR #10 mergeado a main con merge commit real 5d0825d (dos padres 7b0e0b2 + 0c1a382) via gh pr merge --merge; nunca --squash ni --rebase (D-11) — un squash orfanaría los ~106 SHAs que los SUMMARY de Phases 25-27 cross-referencian
+- [Phase 28-02]: El gate de 15 checks se asertó POR CONTEO (15 filas / 15 pass / 0 no-pass / 2 market-data-client), nunca por ausencia de la palabra fail — pending, skipping y cancelled leen como verde bajo el chequeo negativo, y cancel-in-progress:true (ci.yml:20) hace cancelled alcanzable
+- [Phase 28-02]: El merge corrió SOLO tras el 'approved' verbatim del operator (2026-08-01T22:13:53Z) en el checkpoint D-18a; main no tiene branch protection (protected:false, rulesets []), así que esa respuesta fue el único control de acceso sobre la operación irreversible
+- [Phase 28-02]: Ningún tag ni GitHub Release se creó en 28-02 — D-18 exige dos gates independientes y el tag queda detrás del SEGUNDO checkpoint en 28-03; los gates no se colapsaron
 
 ### Pending Todos
 
@@ -228,8 +233,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-01T21:01:42.031Z
-Stopped at: Completed 28-01-PLAN.md — v0.4.0 release prep pushed to origin
+Last session: 2026-08-01T22:16:52.271Z
+Stopped at: Completed 28-02-PLAN.md — PR #10 merged to main at 5d0825d; tag still pending 28-03 gate
 Resume file: None
 
 ## Operator Next Steps
