@@ -115,15 +115,15 @@ curl -sS -o /dev/null -w '%{http_code}' https://market-data-develop.bbsa.com.ar/
 ```
 
 ```
-MARKET_DATA_CLIENT_ID present 32
-MARKET_DATA_CLIENT_SECRET present 64
-MARKET_DATA_AUDIENCE present 18
-MARKET_DATA_AUTH0_TOKEN_URL present 53
+MARKET_DATA_CLIENT_ID present
+MARKET_DATA_CLIENT_SECRET present
+MARKET_DATA_AUDIENCE present
+MARKET_DATA_AUTH0_TOKEN_URL present
 MARKET_DATA_VERIFY_MUTATING = None
 exit=0
 ```
 
-Sólo nombre, presencia y longitud — **ningún valor impreso** (T-27-34). El gate estaba en su
+Sólo nombre y presencia — **ningún valor ni longitud impresos** (T-27-34). El gate estaba en su
 estado seguro por defecto (variable ausente) antes del run armado.
 
 ### Run desarmado
