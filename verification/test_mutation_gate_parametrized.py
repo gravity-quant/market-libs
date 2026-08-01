@@ -22,7 +22,10 @@ parametrizado para que un fallo nombre el bypass exacto. Cubren:
 
 from __future__ import annotations
 
+import textwrap
+
 import pytest
+
 from verification.mutation_gate import mutating_allowed_for
 
 _HOST = "market-data-develop.bbsa.com.ar"
@@ -143,10 +146,19 @@ def test_refusal_line_has_no_colon() -> None:
 
 
 def test_gate_does_not_import_any_client_package() -> None:
-    """La pata del host es propia: el módulo genérico no toca ningún cliente."""
+    """La pata del host es propia: el gate genérico no importa ningún cliente.
+
+    El defecto que ``mutating_allowed_for`` existe para eliminar es justamente el
+    ``import matriz_client`` que hace que la segunda pata pertenezca a OTRO
+    paquete. Se verifica por AST, no por substring, para que un comentario o un
+    docstring no puedan disparar un falso positivo/negativo.
+    """
+    import ast
     import inspect
 
     from verification import mutation_gate
 
     src = inspect.getsource(mutation_gate.mutating_allowed_for)
-    assert "import " not in src, "mutating_allowed_for no debe importar ningún paquete cliente"
+    tree = ast.parse(textwrap.dedent(src))
+    imports = [n for n in ast.walk(tree) if isinstance(n, ast.Import | ast.ImportFrom)]
+    assert not imports, "mutating_allowed_for no debe importar ningún paquete cliente"
