@@ -448,16 +448,32 @@ class Symbol(SafeModel):
 
 @dataclass(frozen=True, slots=True)
 class CalendarDay(SafeModel):
-    """A calendar day row from ``GET /calendar`` (flat list item, D-06).
+    """One entry of the ``days[]`` list inside the ``GET /calendar`` envelope (D-12).
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
-    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
+    Reconciled against the real develop wire (LIVE-MUT-01): the committed baseline
+    ``.planning/verification/schemas/market-data-client/get-calendar.json`` shows the
+    response is the object envelope ``{config, coverage, days[], market}`` whose
+    ``days[]`` items are ``{day, closed, open_time, close_time, description}`` — i.e.
+    the :class:`HolidayIn` request shape echoed back. ``day`` is the ISO
+    ``YYYY-MM-DD`` date; ``closed`` flags a non-trading day; ``open_time`` /
+    ``close_time`` are ``str | None`` because the wire sends ``null`` for a fully
+    closed day and custom ``HH:MM`` session hours otherwise.
+
+    The previously declared ``date`` / ``marketId`` / ``isBusinessDay`` fields exist
+    NOWHERE on the wire — they were the PROVISIONAL A1/A2 guess. Retyping them is
+    treated as a minor, NON-breaking change (D-13): ``parse_calendar_response``
+    iterated the envelope's keys instead of ``days[]``, so no released consumer could
+    ever have read a populated instance.
+
+    A plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
     carries NO ``received_at`` (D-05 — reference data is unstamped).
     """
 
-    date: str
-    marketId: str
-    isBusinessDay: bool
+    day: str
+    closed: bool
+    description: str
+    open_time: str | None = None
+    close_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
