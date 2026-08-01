@@ -891,11 +891,22 @@ def parse_symbols_response(resp: httpx.Response) -> list[Symbol]:
 
 
 def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
-    """Pure: parse ``GET /calendar`` → ``list[CalendarDay]`` (D-05 / D-06).
+    """Pure: parse ``GET /calendar`` → ``list[CalendarDay]`` (D-05 / D-06 / D-12).
 
-    ``CalendarDay`` is treated as a flat list item (D-06 collection), not a
-    wrapped object. Body-consume-then-raise order; a 204 / ``null`` body collapses
-    to ``[]``. No ``received_at`` stamp — reference data is unstamped (D-05).
+    The develop wire wraps the rows in the object envelope
+    ``{config, coverage, days[], market}`` (LIVE-MUT-01; the live OpenAPI declares
+    the ``200`` as a bare ``object``, and the shape is committed under
+    ``.planning/verification/schemas/market-data-client/get-calendar.json``), so a
+    dict body is unwrapped via ``days``. This mirrors ``parse_latest_response``
+    exactly — the only difference is the unwrap key (``days``, not ``items``).
+
+    A bare-list body is still accepted as-is for compatibility; a dict without
+    ``days`` (or a non-list ``days``), a ``null``/empty, or any other body
+    collapses to ``[]`` (double collection guard — no ``KeyError``, no iteration
+    over the envelope's KEYS, which is what produced all-default rows before the
+    D-12 fix). Body-consume-then-raise order is preserved, so error statuses still
+    raise before any decoding. No ``received_at`` stamp — reference data is
+    unstamped (D-05).
     """
     resp.read()
     raise_for_response(resp)
@@ -904,7 +915,15 @@ def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
     raw = resp.json()
     if raw is None:
         return []
-    return [CalendarDay.from_api(item) for item in raw]
+    if isinstance(raw, dict):
+        rows = raw.get("days", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [CalendarDay.from_api(item) for item in rows]
 
 
 def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:

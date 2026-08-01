@@ -11,9 +11,9 @@ Bearer`` injection, (c) httpx-native bool encoding (``True → "true"`` /
 
 from __future__ import annotations
 
-from pytest_httpx import HTTPXMock
-
 from typing import Any
+
+from pytest_httpx import HTTPXMock
 
 import market_data_client
 from market_data_client import CalendarConfig, CalendarDay, Instrument, Segment, Symbol

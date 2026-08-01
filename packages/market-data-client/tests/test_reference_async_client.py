@@ -9,9 +9,9 @@ httpx-native bool encoding, falsy preservation (``offset=0`` / ``active=False``)
 
 from __future__ import annotations
 
-from pytest_httpx import HTTPXMock
-
 from typing import Any
+
+from pytest_httpx import HTTPXMock
 
 from market_data_client import CalendarConfig, CalendarDay, Instrument, Segment, Symbol, aio
 
