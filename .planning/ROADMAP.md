@@ -128,7 +128,13 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. La idempotencia por-endpoint se setea per DM-03 (`POST /calendar/holidays` con `idempotent=False` → no retry; el resto retry-safe).
   5. Paridad sync/async y enforcement del gate idénticos a Phase 25; tests mockeados (gate, serialización, defaults, `confirm`, `422`, paridad) y 4 gates verdes.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 26-01-PLAN.md — request-models `MarketHoursIn`/`HolidayIn`/`HolidaysIn` (defaults OpenAPI, `confirm=False`, `drop_none`, bound 1–500) [wave 1]
+- [ ] 26-02-PLAN.md — 5 builders puros en `_core.py` + guard de path-safety D-18 + parser passthrough tolerante [wave 1]
+- [ ] 26-03-PLAN.md — los 5 métodos gated + 10 shims en `client.py`/`aio.py` + tests de dispatch y serialización [wave 2]
+- [ ] 26-04-PLAN.md — matriz adversarial del gate + no-retry D-15 + re-exports/paridad + 4 gates verdes [wave 3]
 
 ### Phase 27: Verificación en vivo segura + fixes
 
