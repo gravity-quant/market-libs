@@ -1,0 +1,17 @@
+{
+  "endpoint": "GET /symbols?prefix=GSDPROBE/",
+  "client_function": "get_symbols_probe_prefix_sync",
+  "captured_at": "2026-08-01T15:54:37.246223+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": [
+    {
+      "active": "bool",
+      "created_at": "str",
+      "id": "int",
+      "market_id": "str",
+      "received_at": "NoneType",
+      "symbol": "str",
+      "updated_at": "str"
+    }
+  ]
+}

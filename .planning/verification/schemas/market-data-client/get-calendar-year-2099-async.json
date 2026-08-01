@@ -1,0 +1,47 @@
+{
+  "endpoint": "GET /calendar?year=2099",
+  "client_function": "get_calendar_year_2099_async",
+  "captured_at": "2026-08-01T15:54:34.993768+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "config": {
+      "close": "str",
+      "editable": "bool",
+      "enabled": "bool",
+      "env_bypass": "bool",
+      "open": "str",
+      "pre_open_minutes": "int",
+      "source": "str",
+      "timezone": "str",
+      "updated_at": "NoneType",
+      "updated_by": "str",
+      "warnings": []
+    },
+    "coverage": {
+      "current_year_covered": "bool",
+      "warning": "NoneType",
+      "years": [
+        "int"
+      ]
+    },
+    "days": [
+      {
+        "close_time": "NoneType",
+        "closed": "bool",
+        "day": "str",
+        "description": "str",
+        "open_time": "NoneType"
+      }
+    ],
+    "market": {
+      "is_open": "bool",
+      "last_business_day": "str",
+      "local_time": "str",
+      "next_transition": "str",
+      "reason": "str",
+      "session_close": "str",
+      "session_open": "str",
+      "state": "str"
+    }
+  }
+}
