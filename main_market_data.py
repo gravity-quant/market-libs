@@ -109,6 +109,19 @@ _CLIENT_STAMPED = frozenset({"received_at"})
 # excluyen del direction ``model-only`` del SHAPE-diff igual que ``received_at``.
 _ENDPOINT_OPTIONAL = frozenset({"note", "entries"})
 
+# Campos DEPRECATED-ALIAS (D-22): declarados por el modelo como alias de
+# compatibilidad de un campo cuyo nombre de wire es OTRO. ``Symbol.marketId`` es
+# el único: el wire manda ``market_id`` (snake_case, como toda esta API) y el
+# SHAPE-diff de 27-06 lo probó — ``marketId`` salió model-only y ``market_id``
+# wire-only en el MISMO diff (F-42/F-52). El alias NO se renombra porque
+# ``Symbol`` es superficie publicada desde v0.2.0; en cambio ``Symbol.from_api``
+# espeja el valor del wire adentro del alias, así que dejó de ser un campo
+# muerto. Su ausencia del wire es por DISEÑO y permanente, no un riesgo de
+# false-pass: el modelo SIEMPRE lo puebla. Se excluye del direction ``model-only``
+# igual que ``received_at``, con la misma justificación de forma —
+# sin esto el finding se re-emitiría con un fid nuevo en cada run futuro.
+_DEPRECATED_ALIAS = frozenset({"marketId"})
+
 # Símbolo placeholder para el probe batch (``get_latest_batch``); reconciliado
 # contra develop en Wave 2 (23-02).
 _SAMPLE_SYMBOLS = ["GGAL"]
@@ -567,15 +580,19 @@ def _emit_shape(
 
     ``model-only`` = FALSE-PASS risk (el modelo declara, el wire omite →
     ``from_api`` inyecta un default silencioso). ``wire-only`` = info (el server
-    agregó un campo). Los campos client-stamped (D-01) se saltan en direction
-    ``model-only``. Devuelve la cantidad de findings emitidos.
+    agregó un campo). Se saltan en direction ``model-only`` los campos
+    client-stamped (D-01), los endpoint-union (LIVE-MD-01) y los deprecated-alias
+    (D-22): en los tres casos la ausencia del wire es intencional y el modelo
+    puebla el campo por su cuenta, así que un finding ahí sería garantizado-falso.
+    Devuelve la cantidad de findings emitidos.
     """
     if not isinstance(sample, dict):
         return 0
     n = 0
+    skip_model_only = _CLIENT_STAMPED | _ENDPOINT_OPTIONAL | _DEPRECATED_ALIAS
     for path_, direction, key in diff_safemodel_bidirectional(sample, model_cls):
-        if direction == "model-only" and key in _CLIENT_STAMPED | _ENDPOINT_OPTIONAL:
-            continue  # D-01: received_at client-stamped + note/entries endpoint-union
+        if direction == "model-only" and key in skip_model_only:
+            continue  # D-01 client-stamped + endpoint-union + D-22 deprecated-alias
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1325,22 +1342,32 @@ def _discover_row_id(row: dict[str, Any]) -> tuple[str, object] | None:
 
 
 def _describe_symbols_misparse(raw: Any, parsed: list[Symbol]) -> str | None:
-    """Describe la evidencia D-11 sin arreglarla: parser de lectura sobre body de escritura.
+    """Detecta el misparse D-11: parser de lectura sobre un body de escritura.
 
-    ``_core.parse_symbols_response`` itera el body directamente. Contra una
-    respuesta de MUTACIÓN que sea un objeto JSON bare, eso produce UN ``Symbol``
-    all-default por CLAVE del objeto en vez de filas reales. Devuelve una
-    descripción cuando el resultado tiene esa firma; ``None`` cuando el body es
-    una lista (el caso para el que el parser fue escrito).
+    La firma del bug es un ``Symbol`` all-default por CLAVE del objeto de
+    respuesta, que es lo que producía iterar el body crudo. Devuelve una
+    descripción cuando el resultado tiene esa firma y ``None`` cuando el parseo
+    fue correcto.
+
+    El juicio se hace sobre el RESULTADO, no sobre la forma del body. Antes del
+    fix de 27-07 esta función devolvía una descripción para TODO body que no
+    fuera una lista, así que con el envelope ya desenvuelto habría seguido
+    emitiendo el finding para siempre: el fix nunca habría podido verificarse a
+    sí mismo. Ahora un dict del que salen filas pobladas es un PASS, y sólo las
+    filas en blanco —la firma real del defecto— lo son de nuevo.
     """
+    blanks = sum(1 for p in parsed if p.symbol == "")
     if isinstance(raw, list):
         return None
     if isinstance(raw, dict):
-        blanks = sum(1 for p in parsed if p.symbol == "")
+        if parsed and blanks == 0:
+            return None  # envelope desenvuelto a filas reales: el caso arreglado
         return (
             f"body objeto JSON de {len(raw)} clave(s); parse_symbols_response devolvió "
             f"{len(parsed)} Symbol, {blanks} all-default"
         )
+    if not parsed:
+        return None  # un body escalar/None colapsa a [] — el guard de colección
     return f"body de tipo {type(raw).__name__}; parse_symbols_response devolvió {len(parsed)} filas"
 
 
@@ -2012,6 +2039,31 @@ def _config_field_diff(before: CalendarConfig, after: CalendarConfig) -> list[st
     )
 
 
+def _body_key_diff(first: Any, second: Any, prefix: str = "") -> list[str]:
+    """RUTAS de clave cuyo valor difiere entre dos bodies — nunca sus valores (T-27-34).
+
+    27-06 midió que dos previews de la MISMA ventana devuelven bodies distintos
+    y dejó la CAUSA explícitamente sin medir, para que 27-07 la adjudicara en vez
+    de asumirla. Esta función convierte "distintos" en "distintos EN ESTAS
+    CLAVES", que es la diferencia entre una hipótesis y una observación: si las
+    únicas rutas que difieren son proyecciones de reloj, la diferencia no implica
+    persistencia — y la config leída antes y después, ya comparada campo a campo,
+    lo confirma por otro camino.
+
+    Sólo se emiten NOMBRES de ruta. Ningún valor sale de acá.
+    """
+    if isinstance(first, dict) and isinstance(second, dict):
+        out: list[str] = []
+        for key in sorted(set(first) | set(second)):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in first or key not in second:
+                out.append(path)
+            else:
+                out.extend(_body_key_diff(first[key], second[key], path))
+        return out
+    return [] if first == second else [prefix or "<root>"]
+
+
 def _emit_preview_idempotency_verdict(*, surface: str, identical: bool, base_url: str) -> str:
     """Registra el veredicto D-19 del doble-fire del preview (EXPECTED, dedupe por título).
 
@@ -2119,6 +2171,7 @@ def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
             "PASS",
             (
                 f"config sin cambios; doble-fire idéntico={body_first == body_second} "
+                f"difieren={_body_key_diff(body_first, body_second)} "
                 f"eco_warnings={len(previewed.warnings)} ventana_estrecha_warnings={n_narrow_warnings}"
             ),
         )
@@ -2195,6 +2248,7 @@ async def probe_preview_calendar_config_async(aclient: AsyncClient) -> ProbeResu
             "PASS",
             (
                 f"config sin cambios; doble-fire idéntico={body_first == body_second} "
+                f"difieren={_body_key_diff(body_first, body_second)} "
                 f"eco_warnings={len(previewed.warnings)} ventana_estrecha_warnings={n_narrow_warnings}"
             ),
         )

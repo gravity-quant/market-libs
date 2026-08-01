@@ -26,8 +26,11 @@ the ``N815`` naming rule (see ``[tool.ruff.lint.per-file-ignores]`` in the root
 :class:`MarketDataSnapshot` (D-01): it records when the client received the
 response, NOT a payload value. :meth:`MarketDataSnapshot.from_api` injects it
 directly as a keyword and never routes it through ``_coerce`` (which would
-collapse it to ``0.0``). Only :class:`MarketDataSnapshot` is client-stamped;
-every other :class:`SafeModel` subclass carries no ``received_at``.
+collapse it to ``0.0``). :class:`MarketDataSnapshot` is the ONLY client-stamped
+model. :class:`Symbol` also declares a ``received_at``, but that one is a plain
+WIRE field read off the payload like any other (the server's ingest timestamp for
+the row) — same name, opposite provenance. No other :class:`SafeModel` subclass
+carries a ``received_at`` at all.
 
 This module is a package-local copy of the higyrus ``SafeModel`` / ``_coerce``
 implementation (D-03): the no-shared-internals constraint forbids importing any
@@ -434,16 +437,69 @@ class Segment(SafeModel):
 
 @dataclass(frozen=True, slots=True)
 class Symbol(SafeModel):
-    """A symbol row from ``GET /symbols``.
+    """A symbol row from ``GET /symbols`` — and from the three symbols mutations.
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
-    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
-    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    Reconciled against the FIRST POPULATED symbol row ever observed (LIVE-MUT-01,
+    armed destructive run 2026-08-01, baselines
+    ``.planning/verification/schemas/market-data-client/get-symbols-probe-prefix-{sync,async}.json``).
+    Until that run the develop catalogue was empty and the committed baseline was a
+    bare ``[]``, so every field below the first three was unknowable — the live
+    OpenAPI declares the row as a bare ``object`` with ``additionalProperties: true``
+    and types nothing. The shape is therefore MEASURED, not inferred from the spec
+    (D-10 forbids retyping on the spec's authority alone).
+
+    Wire fields, verbatim: ``symbol``, ``market_id``, ``active``, ``id``,
+    ``created_at``, ``updated_at``, ``received_at``.
+
+    ``id`` is the DATABASE ROW ID and the value
+    ``PATCH /symbols/{symbol_id}`` expects — the live spec types that path
+    parameter as an integer and the wire agrees. It also rides the ``POST /symbols``
+    response body, so a create/patch cycle never has to re-read the catalogue.
+
+    ``received_at`` here is a WIRE field (``null`` on every row observed so far):
+    the SERVER's ingest timestamp for the symbol. It is NOT the client stamp of
+    :class:`MarketDataSnapshot` — this model is unstamped like every other
+    reference model (D-05), and the inherited ``from_api`` reads this key straight
+    off the payload.
+
+    ``marketId`` is a DEPRECATED CAMEL-CASE ALIAS of :attr:`market_id`. The wire
+    uses snake_case throughout this API; the 27-06 SHAPE-diff surfaced ``marketId``
+    as model-only and ``market_id`` as wire-only in the same diff, so the camelCase
+    spelling was simply wrong. It is NOT renamed, because ``Symbol`` is published
+    read surface since v0.2.0 and a rename would break consumers (D-22). Instead
+    the wire-correct field is added alongside and :meth:`from_api` mirrors
+    ``market_id`` into ``marketId``, so the alias — which used to be permanently
+    ``""`` against a real payload — now carries the real value. New code should
+    read :attr:`market_id`; the alias is scheduled for removal at the next MAJOR.
     """
 
     symbol: str
     marketId: str
     active: bool
+    id: int = 0
+    market_id: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    received_at: str | None = None
+
+    @classmethod
+    def from_api(cls, payload: Any) -> Self:
+        """Build a ``Symbol``, mirroring the wire ``market_id`` into ``marketId``.
+
+        The only :class:`SafeModel` subclass that pre-processes its payload. The
+        wire never sends ``marketId``; without this the deprecated alias would stay
+        ``""`` forever and silently contradict :attr:`market_id`. An explicit
+        ``marketId`` in the payload (a hand-built dict, an older fixture) still
+        wins — the mirror only FILLS an absent key, it never overwrites.
+        """
+        if isinstance(payload, dict) and "marketId" not in payload and "market_id" in payload:
+            payload = {**payload, "marketId": payload["market_id"]}
+        # Explicit two-arg ``super()``: ``@dataclass(slots=True)`` REBUILDS the
+        # class, so the implicit ``__class__`` cell captured by a zero-arg
+        # ``super()`` still points at the pre-slots class and raises
+        # ``TypeError: obj must be an instance or subtype of type``. The module
+        # global ``Symbol`` is rebound to the slots class, so naming it works.
+        return super(Symbol, cls).from_api(payload)
 
 
 @dataclass(frozen=True, slots=True)

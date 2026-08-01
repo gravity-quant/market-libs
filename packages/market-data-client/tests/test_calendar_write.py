@@ -608,13 +608,22 @@ def test_delete_holiday_path_safety_non_str_day_emits_no_request(httpx_mock: HTT
 
 
 @pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
-def test_add_holidays_not_retried_on_repeated_503(
+def test_add_holidays_retries_three_times_on_repeated_503(
     httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``idempotent=False``: 3x503 encolados → EXACTAMENTE 1 request y 0 sleeps.
+    """``idempotent=True`` CORREGIDO: 3x503 encolados → 3 requests y 2 sleeps.
 
-    Un reintento del append duplicaría los feriados del lado del servidor, así
-    que el ``POST`` sale una sola vez y el ``503`` se propaga tal cual.
+    Este test reemplaza al ``test_add_holidays_not_retried_on_repeated_503`` de
+    Phase 26, que asertaba EXACTAMENTE lo contrario (1 request, 0 sleeps) sobre
+    la premisa de que un replay duplicaría feriados. La medición en vivo
+    (LIVE-MUT-01, 2026-08-01) refutó la premisa por CONTEO DE FILAS: dos POST
+    idénticos dejaron 1 sola fila por fecha en ambas superficies — el endpoint
+    hace upsert por fecha (F-49/F-59). El flag pasó a ``True`` y el efecto
+    observable del cambio es este: el ``POST`` ahora agota ``max_attempts=3``
+    (``max_retries`` default 2 + el intento inicial) en vez de cortar en el primero.
+
+    La dirección importa: el valor viejo era CONSERVADOR DE MÁS, no permisivo de
+    más. Costaba un retry perdido, nunca estado duplicado.
     """
     sleeps: list[float] = []
     monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
@@ -625,8 +634,8 @@ def test_add_holidays_not_retried_on_repeated_503(
     with pytest.raises(MarketDataAPIError):
         market_data_client.client._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
 
-    assert len(httpx_mock.get_requests()) == 1
-    assert sleeps == []
+    assert len(httpx_mock.get_requests()) == 3
+    assert len(sleeps) == 2
 
 
 @pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
@@ -650,3 +659,35 @@ def test_delete_holiday_retries_three_times_on_repeated_503(
 
     assert len(httpx_mock.get_requests()) == 3
     assert len(sleeps) == 2
+
+
+def test_delete_holiday_retry_after_lost_response_surfaces_404(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F-50/F-60: idempotente en ESTADO, no en STATUS — el retry ve el 404.
+
+    El armed run midió que el SEGUNDO ``DELETE`` del mismo día devuelve ``404``.
+    Con ``idempotent=True`` eso significa que si el primer intento ya borró del
+    lado del servidor pero su respuesta se perdió (``503``/timeout), el reintento
+    encuentra el día ausente y ``raise_for_response`` levanta
+    ``MarketDataAPIError``.
+
+    El flag se MANTIENE en ``True`` igual (ver ``build_delete_holiday_request``):
+    sin retry el caller habría recibido el ``503`` y levantado lo mismo, así que
+    lo que cambia es la IDENTIDAD del error, no el resultado — y a cambio se
+    conserva la cobertura de retry sobre fallos transitorios reales. Este test
+    existe para que esa consecuencia quede fijada y probada en vez de ser una
+    sorpresa en producción.
+    """
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+    _open_gate()
+    httpx_mock.add_response(method="DELETE", status_code=503)
+    httpx_mock.add_response(method="DELETE", status_code=404, json={"detail": "not found"})
+
+    with pytest.raises(MarketDataAPIError):
+        market_data_client.client._get_default().delete_holiday("2026-12-25")
+
+    # 2 requests: el 404 NO es retryable, así que el loop corta ahí.
+    assert len(httpx_mock.get_requests()) == 2
+    assert len(sleeps) == 1

@@ -575,11 +575,15 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_symbols_response(resp)
 
-    async def update_symbol(self, symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+    async def update_symbol(self, symbol_id: int | str, patch: SymbolPatch) -> list[Symbol]:
         """Gated ``PATCH {base_url}/symbols/{symbol_id}`` → ``list[Symbol]`` (D-15).
 
-        Gate-first (D-04/D-05). ``symbol_id`` se interpola raw en Phase 25
-        (percent-encoding de ids con ``/`` es D-08, diferido a Phase 27).
+        Gate-first (D-04/D-05). ``symbol_id`` es el ID ENTERO DE FILA (``Symbol.id``),
+        no el nombre del símbolo; la anotación se ENSANCHA a ``int | str`` para que
+        la forma ``str`` publicada en v0.3.x siga funcionando (D-22). Se interpola
+        RAW y sigue raw: el ítem D-08 de percent-encoding queda DISUELTO, no
+        diferido — el path param es un entero (D-09). La evidencia medida está en
+        :func:`_core.build_update_symbol_request`.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_update_symbol_request(self._state, symbol_id, patch.to_dict())
@@ -892,7 +896,7 @@ async def create_symbols(new_symbols: NewSymbols) -> list[Symbol]:
     return await _get_default().create_symbols(new_symbols)
 
 
-async def update_symbol(symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+async def update_symbol(symbol_id: int | str, patch: SymbolPatch) -> list[Symbol]:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().update_symbol(symbol_id, patch)
 
