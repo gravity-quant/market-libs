@@ -4,9 +4,9 @@ milestone: v1.5
 milestone_name: market-data-client · mutaciones
 current_phase: 26
 current_phase_name: Calendar write
-status: verifying
+status: executing
 stopped_at: Phase 26 context gathered (assumptions mode)
-last_updated: "2026-08-01T00:28:16.243Z"
+last_updated: "2026-08-01T01:07:05.623Z"
 last_activity: 2026-07-31
 last_activity_desc: Phase 25 complete, transitioned to Phase 26
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 Phase: 26 — Calendar write
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-31 — Phase 25 complete, transitioned to Phase 26
 
 ## Performance Metrics

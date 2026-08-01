@@ -131,9 +131,17 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 26-01-PLAN.md — request-models `MarketHoursIn`/`HolidayIn`/`HolidaysIn` (defaults OpenAPI, `confirm=False`, `drop_none`, bound 1–500) [wave 1]
 - [ ] 26-02-PLAN.md — 5 builders puros en `_core.py` + guard de path-safety D-18 + parser passthrough tolerante [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 26-03-PLAN.md — los 5 métodos gated + 10 shims en `client.py`/`aio.py` + tests de dispatch y serialización [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 26-04-PLAN.md — matriz adversarial del gate + no-retry D-15 + re-exports/paridad + 4 gates verdes [wave 3]
 
 ### Phase 27: Verificación en vivo segura + fixes
