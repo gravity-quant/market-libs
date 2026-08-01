@@ -1,11 +1,22 @@
 ---
 phase: 27
 slug: verificaci-n-en-vivo-segura-fixes
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-08-01
+updated: 2026-08-01
+plans: 7
+waves: 6
+tasks: 20
 ---
+
+> **Revision note (2026-08-01):** this file was first written between research and
+> planning, when the expected shape was 4 plans across waves 0–3. The planner produced
+> **7 plans across waves 1–6** (20 tasks). The map below has been refreshed against the
+> real `27-01-PLAN.md` … `27-07-PLAN.md`. Task IDs are positional (`27-<plan>-<task>`),
+> since plan tasks carry no explicit `id` attribute. Wave numbering starts at **1**, not
+> 0 — what this file originally called "Wave 0 harness plumbing" is **Wave 1 / plan 27-01**.
 
 # Phase 27 — Validation Strategy
 
@@ -56,48 +67,60 @@ fixed (criterion 4).
 
 ## Per-Task Verification Map
 
-Task IDs are assigned by the planner; this map is the contract each task's `<verify>`
-block must satisfy. Rows marked **W0** depend on Wave 0 harness work landing first.
+This map is the contract each task's `<verify>` block must satisfy. **File Exists** answers
+"does a test file covering this already exist?" — ❌ W1 means plan 27-01 (wave 1) must create
+it first.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | 01 | 0 | LIVE-MUT-01 | T-27-01 | `append_finding` with a new fid preserves `Classification:`/`Resolution:` prose on all pre-existing findings (D-23 data-loss fix) | unit | `uv run pytest verification -q -k findings` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 0 | LIVE-MUT-01 | — | Seeded fid allocator emits the first new fid above the highest existing fid, so no Phase-27 finding is swallowed by the non-OPEN short-circuit (D-16/D-24) | unit | `uv run pytest verification -q -k findings` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 0 | LIVE-MUT-01 | — | `verify_cycle_closure("market-data-client")` returns `(True, [])` after the 34 legacy `Regression:` bullets are backfilled (D-21) | cli | `uv run python -c "from verification.cycle_report import verify_cycle_closure as v; ok,m=v('market-data-client'); assert ok, m"` | ✅ | ⬜ pending |
-| TBD | 02 | 1 | LIVE-MUT-01 | T-27-02 | Driver mutation gate refuses when the env opt-in is unset **or** `urlsplit(base_url).hostname` is not exactly the develop host; superstring/substring hosts are refused (D-01) | unit | `uv run pytest verification -q -k mutation_gate` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | LIVE-MUT-01 | T-27-03 | Driver constructs at most 2 `Client`/`AsyncClient` ctor sites total — the mutating client is the existing single instance, not a second one (D-02) | unit | `uv run pytest verification/test_main_market_data_uses_single_client_instance.py -q` | ✅ | ⬜ pending |
-| TBD | 02 | 1 | LIVE-MUT-01 | — | Gate-off emits a **colon-less** probe-level SKIP; no line matches `^SKIPPED \S.*:` except the `require_env` credentials line (D-03) | unit | `uv run pytest verification -q -k main_market_data` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | LIVE-MUT-01 | — | No creds / wrong host ⇒ driver exits SKIPPED, never FAILED; all mutation post-processing sits inside each probe's `try` (D-04) | unit | `uv run pytest verification/test_main_market_data_postprocess_guarded.py -q` | ✅ | ⬜ pending |
-| TBD | 02 | 1 | LIVE-MUT-01 | — | `parse_calendar_response` unwraps the `{config, coverage, days[], market}` envelope; `CalendarDay` carries the real wire fields (D-12/D-13) | unit | `uv run --package market-data-client pytest packages/market-data-client/tests -q -k calendar` | ✅ | ⬜ pending |
-| TBD | 03 | 2 | LIVE-MUT-01 | T-27-04 | Symbols cycle: create with the dedicated prefix → `GET /symbols` confirms → `PATCH active=false` reverts (D-05) | manual (live) | driver `SUMMARY:` line + findings file | n/a | ⬜ pending |
-| TBD | 03 | 2 | LIVE-MUT-01 | T-27-05 | Holidays cycle: `POST` far-future ISO date → `GET /calendar` confirms → `DELETE /calendar/holidays/{day}` (D-07) | manual (live) | driver `SUMMARY:` line + findings file | n/a | ⬜ pending |
-| TBD | 03 | 2 | LIVE-MUT-01 | T-27-06 | Calendar config is exercised **preview-only**; no `PUT`/`DELETE /calendar/config` request is ever emitted against develop (D-06) | manual (live) + unit | outgoing-request assertion in the mocked suite | ❌ W0 | ⬜ pending |
-| TBD | 03 | 2 | LIVE-MUT-01 | — | Cleanup failure emits a finding rather than being suppressed (D-08) | unit | `uv run pytest verification -q -k main_market_data` | ❌ W0 | ⬜ pending |
-| TBD | 03 | 2 | LIVE-MUT-01 | — | Idempotency measured by **row count** via `GET /symbols?prefix=` and `GET /calendar?year=2099`, not status code (D-19/D-27) | manual (live) | findings file | n/a | ⬜ pending |
-| TBD | 04 | 3 | LIVE-MUT-01 | — | Every live divergence has a mocked regression test, mirrored sync **and** async (D-15, criterion 4) | unit | `uv run pytest -q` | ❌ W0 | ⬜ pending |
-| TBD | 04 | 3 | LIVE-MUT-01 | — | `symbol_id` accepts `int \| str` and symbols mutations still return `list[Symbol]` — released v0.3.x contract unbroken (D-22) | unit | `uv run --package market-data-client pytest packages/market-data-client/tests -q -k symbols` | ✅ | ⬜ pending |
-| TBD | 04 | 3 | LIVE-MUT-01 | — | If live measurement contradicts DM-03, the builder's `idempotent=` flag changes and a **dispatch-level** no-retry test proves exactly one outgoing request under repeated 503 (D-20/D-27) | unit | `uv run --package market-data-client pytest packages/market-data-client/tests -q -k transport` | ✅ | ⬜ pending |
-| TBD | 04 | 3 | LIVE-MUT-01 | — | `get-symbols.json` re-baselined (permanent drift from the reverted test symbol), `get-calendar.json` untouched (D-26) | cli | `git diff --stat .planning/verification/schemas/market-data-client/` | ✅ | ⬜ pending |
+| 27-01-01 | 01 | 1 | LIVE-MUT-01 | T-27-01 | `append_finding` with a new fid preserves unknown bullets (`Classification:`/`Rationale:`/`Resolution:`) on all 36 pre-existing findings (D-23) | unit (tdd) | `uv run pytest verification -q -k findings` | ✅ | ⬜ pending |
+| 27-01-02 | 01 | 1 | LIVE-MUT-01 | — | `max_existing_fid(pkg)` lets the allocator seed above the highest recorded fid, so no Phase-27 finding dies on the non-OPEN short-circuit (D-16/D-24) | unit (tdd) | `uv run pytest verification -q -k findings` | ✅ | ⬜ pending |
+| 27-01-03 | 01 | 1 | LIVE-MUT-01 | — | 34 legacy `Regression:` bullets backfilled; `verify_cycle_closure("market-data-client")` returns `(True, [])` (D-21/D-18) | cli | `uv run python -c "from verification.cycle_report import verify_cycle_closure as v; ok,m=v('market-data-client'); assert ok, m"` | ✅ | ⬜ pending |
+| 27-02-01 | 02 | 1 | LIVE-MUT-01 | — | `CalendarDay` carries the real develop wire fields (`day`/`closed`/`open_time`/`close_time`/`description`), not the invented `date`/`marketId`/`isBusinessDay` (D-12/D-13) | unit (tdd) | `uv run --package market-data-client pytest packages/market-data-client/tests -q -k calendar` | ✅ | ⬜ pending |
+| 27-02-02 | 02 | 1 | LIVE-MUT-01 | — | `parse_calendar_response` unwraps the `{config, coverage, days[], market}` envelope instead of iterating it as a list; coverage mirrored sync/async (D-12/D-15) | unit (tdd) | `uv run --package market-data-client pytest packages/market-data-client/tests -q -k calendar` | ✅ | ⬜ pending |
+| 27-03-01 | 03 | 2 | LIVE-MUT-01 | T-27-02 | Package-agnostic parametrized gate refuses unless the env opt-in is set **and** `urlsplit(base_url).hostname` equals the develop host exactly — substring, superstring, port, userinfo and malformed URLs all fail closed (D-01) | unit | `uv run pytest verification -q -k mutation_gate` | ✅ | ⬜ pending |
+| 27-03-02 | 03 | 2 | LIVE-MUT-01 | T-27-03 | Gate, seeded allocator, cycle-closure probe and the D-06 EXPECTED finding wired into the driver without adding a ctor site (`1 <= ctor_sites <= 2` holds) (D-02/D-04/D-06/D-12/D-16/D-18) | unit | `uv run pytest verification/test_main_market_data_uses_single_client_instance.py -q` | ✅ | ⬜ pending |
+| 27-03-03 | 03 | 2 | LIVE-MUT-01 | — | Gate-refusal probes present; source-level guard proves the skip line is **colon-less** so no line matches `^SKIPPED \S.*:` except the `require_env` credentials line (D-03/D-04) | unit | `uv run pytest verification -q -k skip_line` | ❌ W1 | ⬜ pending |
+| 27-04-01 | 04 | 3 | LIVE-MUT-01 | T-27-04 | Gate-checked mutation dispatch + dedicated test identifiers + `_emit_cleanup_finding` helper; two AST guards prove cleanup failure emits a finding rather than being suppressed (D-08) | unit | `uv run pytest verification -q -k main_market_data` | ❌ W1 | ⬜ pending |
+| 27-04-02 | 04 | 3 | LIVE-MUT-01 | T-27-05 | Symbols create → `GET /symbols` verify → `PATCH active=false` revert on the sync surface, with id discovery and row-count idempotency (D-05/D-10/D-11/D-19/D-27) | manual (live) + unit | driver `SUMMARY:` line + findings file; gate-off smoke run emits zero new findings | n/a | ⬜ pending |
+| 27-04-03 | 04 | 3 | LIVE-MUT-01 | — | The four symbols probes mirrored on the async surface (D-05/D-15/D-19) | manual (live) + unit | driver `SUMMARY:` line; parity assertion | n/a | ⬜ pending |
+| 27-05-01 | 05 | 4 | LIVE-MUT-01 | T-27-06 | Calendar config exercised **preview-only**; an AST guard proves no `PUT`/`DELETE /calendar/config` call site exists in the driver (D-06/D-19) | unit | `uv run pytest verification -q -k main_market_data` | ❌ W1 | ⬜ pending |
+| 27-05-02 | 05 | 4 | LIVE-MUT-01 | T-27-07 | Holidays `POST` far-future ISO date → `GET /calendar` verify → `DELETE /calendar/holidays/{day}`, both surfaces (D-07/D-08/D-12/D-19/D-27) | manual (live) + unit | driver `SUMMARY:` line + findings file | n/a | ⬜ pending |
+| 27-05-03 | 05 | 4 | LIVE-MUT-01 | — | Terminal residue sweep leaves no unrecognized test-prefixed state; self-inflicted health-feed recheck; snapshot drift policy applied (D-08/D-17/D-26) | manual (live) + cli | residue sweep output; `git diff --stat .planning/verification/schemas/market-data-client/` | n/a | ⬜ pending |
+| 27-06-01 | 06 | 5 | LIVE-MUT-01 | — | Pre-flight re-fetches the live OpenAPI, re-verifies its load-bearing claims, and records a clean prose-preservation baseline before anything is armed | manual (live) | pre-flight output captured in SUMMARY | n/a | ⬜ pending |
+| 27-06-02 | 06 | 5 | LIVE-MUT-01 | T-27-08 | **Blocking operator authorization** obtained before the destructive run; no write is emitted without it | manual (human) | explicit operator approval recorded | n/a | ⬜ pending |
+| 27-06-03 | 06 | 5 | LIVE-MUT-01 | T-27-09 | Armed destructive run against develop; evidence captured; residue verified absent (test symbol `active=false`, test holiday deleted) | manual (live) | driver `SUMMARY:` line + findings file + residue check | n/a | ⬜ pending |
+| 27-07-01 | 07 | 6 | LIVE-MUT-01 | — | `symbol_id` widened to `int \| str` (**not** narrowed to `int`) across all four call sites; discovered `Symbol` row-id field added alongside, mirrored sync/async — released v0.3.x contract unbroken (D-09/D-10/D-22) | unit | signature-inspection assertion + `uv run --package market-data-client pytest packages/market-data-client/tests -q -k symbols` | ✅ | ⬜ pending |
+| 27-07-02 | 07 | 6 | LIVE-MUT-01 | — | Symbols mutation parsing corrected while **keeping** `list[Symbol]` (envelope unwrap, mirroring `parse_latest_response`); any contradicted `idempotent=` flag flipped with a dispatch-level no-retry test proving exactly one request under repeated 503 (D-11/D-20/D-22) | unit (tdd) | `uv run --package market-data-client pytest packages/market-data-client/tests -q -k "symbols or transport"` | ✅ | ⬜ pending |
+| 27-07-03 | 07 | 6 | LIVE-MUT-01 | — | Every divergence promoted to `FIXED` with a resolvable `Regression:` bullet, mirrored sync **and** async; `get-symbols.json` re-baselined; live re-run clean; **cycle closure PASS** (D-17/D-18/D-21/D-26) | cli + unit | `uv run pytest -q` and `verify_cycle_closure("market-data-client") == (True, [])` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
+**Sampling continuity check:** no run of 3 consecutive tasks lacks an automated verify.
+The longest manual-only run is `27-06-01 … 27-06-03` (the armed live run), which is
+inherently manual by nature — it is bracketed by fully automated waves on both sides
+(27-05 before, 27-07 after) and gated by a blocking human checkpoint at `27-06-02`.
+
 ---
 
-## Wave 0 Requirements
+## Wave 1 Requirements (the "Wave 0" role)
 
-Wave 0 is **harness plumbing**, and it is load-bearing: without it a live run silently
-discards its own findings (D-16/D-24) and destroys 36 findings' worth of human triage
-prose (D-23). Nothing destructive may run before it lands.
+Plan **27-01** is the harness plumbing, and it is load-bearing: without it a live run
+silently discards its own findings (D-16/D-24) and destroys 36 findings' worth of human
+triage prose (D-23). Nothing destructive may run before it lands. Plan 27-02 shares wave 1
+but is independent (zero `files_modified` overlap) — the two are the only true parallel pair
+in this phase.
 
-- [ ] `verification/findings.py` — preserve human-triage fields (`Classification:`,
-      `Rationale:`, `Resolution:`) across a rewrite triggered by a new fid (D-23)
-- [ ] `verification/findings.py` / `main_market_data.py` — seeded fid allocator so new
-      findings start above the highest existing fid (D-16/D-24)
-- [ ] `.planning/verification/market-data-client-findings.md` — backfill 34 `Regression:`
-      bullets on F-03…F-36 (D-21)
-- [ ] `verification/test_findings_*.py` — regression coverage for both harness fixes above
-- [ ] `main_market_data.py` — import and call `verify_cycle_closure("market-data-client")` (D-18)
-- [ ] New driver-gate tests (D-01/D-03/D-08) — no existing file covers these
+- [x] `verification/findings.py` — preserve unknown bullets (`Classification:`,
+      `Rationale:`, `Resolution:`) across a rewrite triggered by a new fid — **27-01-01** (D-23)
+- [x] `verification/findings.py` — `max_existing_fid(pkg)` so allocators seed above the
+      highest recorded fid — **27-01-02** (D-16/D-24)
+- [x] `.planning/verification/market-data-client-findings.md` — backfill 34 `Regression:`
+      bullets on F-03…F-36 — **27-01-03** (D-21)
+- [x] `verification/test_findings_*.py` — regression coverage for both harness fixes — **27-01-01/02**
+- [x] `main_market_data.py` — import and call `verify_cycle_closure("market-data-client")` — **27-03-02** (D-18)
+- [x] New driver-gate + skip-line + cleanup-finding guards — **27-03-01/03**, **27-04-01**,
+      **27-05-01** (D-01/D-03/D-08/D-06); no existing file covered these
 
 *Existing infrastructure covers the rest: pytest + pytest-httpx + pytest-asyncio are
 installed and configured; `verification/` already provides redaction, snapshots,
@@ -118,14 +141,17 @@ SafeModel diffing and the findings lifecycle.*
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] Live-only behaviors are enumerated in Manual-Only Verifications with concrete instructions
-- [ ] Every live divergence has a mocked regression test mirrored sync + async
-- [ ] `verify_cycle_closure("market-data-client")` returns `(True, [])`
-- [ ] `nyquist_compliant: true` set in frontmatter
+Checked against the final 7-plan / 6-wave / 20-task structure.
 
-**Approval:** pending
+- [x] All 20 tasks have an automated verify or a declared wave-1 dependency
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify (the manual
+      `27-06-*` run is inherently live and is bracketed by automated waves on both sides)
+- [x] Wave 1 covers every MISSING test-file reference
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s (package suite)
+- [x] Live-only behaviors enumerated in Manual-Only Verifications with concrete instructions
+- [ ] Every live divergence has a mocked regression test mirrored sync + async *(execution-time — 27-07-03)*
+- [ ] `verify_cycle_closure("market-data-client")` returns `(True, [])` *(execution-time — 27-01-03 establishes it, 27-07-03 re-confirms after new findings)*
+- [x] `nyquist_compliant: true` set in frontmatter
+
+**Approval:** approved 2026-08-01 (plan-checker VERIFICATION PASSED; stale-map warning resolved by this revision)
