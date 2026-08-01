@@ -485,7 +485,7 @@ wheels = [
 
 [[package]]
 name = "market-data-client"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/market-data-client" }
 dependencies = [
     { name = "httpx" },
