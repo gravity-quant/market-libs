@@ -17,13 +17,21 @@ Pins the D-01/D-04/D-05 behaviors:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
+from market_data_client import models as models_module
+from market_data_client.exceptions import MarketDataError
 from market_data_client.models import (
+    HolidayIn,
+    HolidaysIn,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     NewSymbol,
     NewSymbols,
+    SafeModel,
     SymbolPatch,
 )
 
@@ -207,3 +215,140 @@ def test_new_symbols_boundary_1_and_500_construct() -> None:
     assert len(one.symbols) == 1
     full = NewSymbols([NewSymbol(f"S{i}") for i in range(500)])
     assert len(full.symbols) == 500
+
+
+# ----------------------------------------------------------------------
+# Calendar write request models (Plan 26-01, MUT-MD-02): MarketHoursIn,
+# HolidayIn, HolidaysIn. NOT SafeModel subclasses — they serialize OUT via
+# to_dict(), routed through ``_params.drop_none`` (D-08 / D-11).
+# ----------------------------------------------------------------------
+
+_TZ = "America/Argentina/Buenos_Aires"
+
+
+def test_market_hours_in_to_dict_openapi_defaults_verbatim() -> None:
+    """All 7 keys emitted with the live-OpenAPI defaults; confirm is False (D-10)."""
+    out = MarketHoursIn("10:00", "17:00", _TZ).to_dict()
+    assert out == {
+        "open_time": "10:00",
+        "close_time": "17:00",
+        "timezone": _TZ,
+        "pre_open_minutes": 10,
+        "enabled": True,
+        "updated_by": "",
+        "confirm": False,
+    }
+
+
+def test_market_hours_in_confirm_opt_in_is_true() -> None:
+    """``confirm`` is a model field the consumer must opt into on purpose (D-09)."""
+    assert MarketHoursIn("10:00", "17:00", _TZ, confirm=True).to_dict()["confirm"] is True
+
+
+def test_market_hours_in_to_dict_keeps_falsy_non_none_values() -> None:
+    """drop_none preserves falsy-but-not-None: pre_open_minutes=0 / enabled=False."""
+    out = MarketHoursIn(
+        "10:00", "17:00", "TZ", pre_open_minutes=0, enabled=False, updated_by="ops"
+    ).to_dict()
+    assert out["pre_open_minutes"] == 0
+    assert out["enabled"] is False
+    assert out["updated_by"] == "ops"
+
+
+def test_holiday_in_to_dict_drops_none_hours() -> None:
+    """open_time/close_time DISAPPEAR when None; closed=True and description="" stay (D-11)."""
+    out = HolidayIn("2026-12-25").to_dict()
+    assert out == {"day": "2026-12-25", "closed": True, "description": ""}
+    assert "open_time" not in out
+    assert "close_time" not in out
+
+
+def test_holiday_in_to_dict_custom_hours_all_five_keys() -> None:
+    out = HolidayIn(
+        "2026-12-24",
+        closed=False,
+        open_time="10:00",
+        close_time="13:00",
+        description="Nochebuena",
+    ).to_dict()
+    assert out == {
+        "day": "2026-12-24",
+        "closed": False,
+        "open_time": "10:00",
+        "close_time": "13:00",
+        "description": "Nochebuena",
+    }
+
+
+def test_calendar_write_models_are_not_safe_models() -> None:
+    """D-08: these serialize OUT — they must NOT inherit SafeModel nor expose from_api."""
+    assert not issubclass(MarketHoursIn, SafeModel)
+    assert not issubclass(HolidayIn, SafeModel)
+    assert not hasattr(MarketHoursIn, "from_api")
+    assert not hasattr(HolidayIn, "from_api")
+
+
+def test_market_hours_in_is_frozen() -> None:
+    hours = MarketHoursIn("10:00", "17:00", _TZ)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        hours.open_time = "11:00"  # type: ignore[misc]
+
+
+def test_holiday_in_is_frozen() -> None:
+    holiday = HolidayIn("2026-12-25")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        holiday.day = "2026-12-26"  # type: ignore[misc]
+
+
+def test_holidays_in_to_dict_wraps_each_day() -> None:
+    """Pure wrapper: ``{"days": [each element's to_dict()]}`` — no drop_none (D-11)."""
+    out = HolidaysIn([HolidayIn("2026-12-25")]).to_dict()
+    assert out == {"days": [{"day": "2026-12-25", "closed": True, "description": ""}]}
+
+
+def test_holidays_in_to_dict_nests_per_day_drop_none() -> None:
+    """Each nested to_dict() keeps its own drop_none effect."""
+    out = HolidaysIn(
+        [
+            HolidayIn("2026-12-25"),
+            HolidayIn("2026-12-24", closed=False, open_time="10:00"),
+        ]
+    ).to_dict()
+    assert len(out["days"]) == 2
+    second = out["days"][1]
+    assert second["open_time"] == "10:00"
+    assert "close_time" not in second
+
+
+def test_holidays_in_empty_raises_value_error() -> None:
+    """Lower-bound guard: an empty batch raises before any dispatch (D-12)."""
+    with pytest.raises(ValueError, match="1-500"):
+        HolidaysIn([])
+
+
+def test_holidays_in_over_500_raises_value_error() -> None:
+    """Upper-bound guard: 501 days raises before any dispatch (D-12)."""
+    with pytest.raises(ValueError, match="1-500"):
+        HolidaysIn([HolidayIn(f"2026-01-{i:02d}") for i in range(501)])
+
+
+def test_holidays_in_boundary_1_and_500_construct() -> None:
+    """Exactly 1 and exactly 500 days construct successfully."""
+    one = HolidaysIn([HolidayIn("2026-12-25")])
+    assert len(one.days) == 1
+    full = HolidaysIn([HolidayIn(f"2026-01-{i:02d}") for i in range(500)])
+    assert len(full.days) == 500
+
+
+def test_holidays_in_bound_error_is_plain_value_error() -> None:
+    """The bound error is a BARE ValueError — the MarketData* hierarchy stays
+    reserved for server contract errors (D-12)."""
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011
+        HolidaysIn([])
+    assert type(excinfo.value) is ValueError
+    assert not isinstance(excinfo.value, MarketDataError)
+
+
+def test_calendar_write_models_exported_in_models_all() -> None:
+    assert {"HolidayIn", "HolidaysIn", "MarketHoursIn"} <= set(models_module.__all__)
+    assert list(models_module.__all__) == sorted(models_module.__all__)
