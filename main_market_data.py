@@ -51,7 +51,7 @@ import datetime as dt
 import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,8 @@ from market_data_client import (
     CalendarConfig,
     CalendarDay,
     Client,
+    HolidayIn,
+    HolidaysIn,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
@@ -179,6 +181,58 @@ _SYM_SYNC_B1 = "GSDPROBE/P27-SYNC-B1"
 _SYM_SYNC_B2 = "GSDPROBE/P27-SYNC-B2"
 _SYM_ASYNC_B1 = "GSDPROBE/P27-ASYNC-B1"
 _SYM_ASYNC_B2 = "GSDPROBE/P27-ASYNC-B2"
+
+# ---------------------------------------------------------------------------
+# Identificadores del ciclo de calendar (D-06 config preview-only / D-07 holidays)
+# ---------------------------------------------------------------------------
+#
+# CONFIG — **PREVIEW-ONLY** (D-06, ruling del operator). En vivo se ejercita
+# ÚNICAMENTE ``POST /calendar/config/preview``, documentado como *"Writes
+# nothing"*. ``PUT /calendar/config`` y ``DELETE /calendar/config`` NO tienen
+# call site en este driver y la AST-guard
+# ``verification/test_main_market_data_no_config_write.py`` lo vuelve
+# irreintroducible: ``delete_calendar_config`` RESETEA a los defaults del
+# servidor —no restaura el valor previo—, así que un DELETE no puede servir de
+# cleanup para un PUT y cualquier PUT real dejaría clobbereada la configuración
+# COMPARTIDA de develop. Ambos endpoints siguen cubiertos por los tests mockeados
+# del paquete, y la limitación se registra como finding EXPECTED
+# (``probe_expected_put_config_operator_gated``).
+#
+# HOLIDAYS — el ÚNICO ciclo create -> verify -> revert COMPLETO de la fase
+# (D-07): ``DELETE /calendar/holidays/{day}`` existe y el spec en vivo dice que
+# borrar ahí es seguro porque nada referencia esas filas.
+#
+# El AÑO 2099 es deliberado y no arbitrario: ``GET /calendar`` sólo acepta
+# ``year`` en el rango 2000..2100, así que 2099 es a la vez LEGIBLE de vuelta
+# (condición sin la cual el paso de confirmación no existiría) y lo bastante
+# lejano como para no colisionar jamás con un feriado real ni tener impacto
+# operativo alguno.
+#
+# Sync y async usan DÍAS DISJUNTOS por la misma razón que los símbolos: el
+# observable de idempotencia es el CONTEO de días leídos de vuelta, así que un
+# fallo en una superficie no puede contaminar el conteo de la otra.
+_HOLIDAY_YEAR = 2099
+_HOLIDAY_SYNC = "2099-12-29"
+_HOLIDAY_ASYNC = "2099-12-30"
+_HOLIDAY_DESCRIPTION = "GSD verification harness probe holiday"
+
+# Los DOS días que este driver puede haber creado. El sweep terminal borra
+# EXCLUSIVAMENTE días de esta tupla: 2099 es un año dedicado, pero borrar una
+# fila que no creamos nosotros sería un daño peor que el residuo que se quiere
+# limpiar. Lo que sobreviva y no sea nuestro se REPORTA, no se toca.
+_PROBE_HOLIDAYS = (_HOLIDAY_SYNC, _HOLIDAY_ASYNC)
+
+# ``updated_by`` del preview: identifica al HARNESS, nunca a una persona, y NO
+# se deriva de ninguna variable de entorno (T-27-30). El body del preview se
+# snapshotea, así que nada operator-identifying puede entrar en él.
+_PREVIEW_UPDATED_BY = "gsd-verification-harness"
+
+# Ventana deliberadamente ESTRECHA (5 minutos) para observar cómo se REPORTA un
+# preview que dispara el confirm-gate del servidor, sin persistir nada: el spec
+# documenta el 409 del confirm gate sobre ``PUT``, y el preview es el único lugar
+# donde esa señal puede observarse sin escribir.
+_PREVIEW_NARROW_OPEN = "11:00"
+_PREVIEW_NARROW_CLOSE = "11:05"
 
 # Registro de ids de fila DESCUBIERTOS en vivo (D-10). ``Symbol`` no declara
 # ningún campo de id y la spec en vivo tipa ``symbol_id`` como ENTERO mientras el
@@ -400,6 +454,43 @@ async def _mutate_raw_async(aclient: AsyncClient, spec: RequestSpec) -> httpx.Re
     """Espejo async de :func:`_mutate_raw_sync` (gate primero, luego dispatch)."""
     aclient._ensure_mutation_allowed()
     return await aclient._request(spec)
+
+
+def _response_json(resp: httpx.Response) -> Any:
+    """JSON del response, o ``None`` si el body está vacío o no es JSON."""
+    try:
+        return resp.json()
+    except ValueError:  # json.JSONDecodeError es subclase de ValueError
+        return None
+
+
+def _mutate_status_sync(client: Client, spec: RequestSpec) -> tuple[int, Any]:
+    """Despacha una mutación CON gate y devuelve ``(status, body)`` aunque el server falle.
+
+    ``_request`` levanta ``MarketDataAPIError`` ante cualquier status de error, así
+    que un segundo ``DELETE /calendar/holidays/{day}`` que devuelva ``404`` —el
+    observable EXACTO que D-19 pide medir para decidir si el delete es idempotente
+    en estado pero no en status— sería indistinguible de un fallo de transporte si
+    no se capturara acá.
+
+    Se captura SÓLO ``MarketDataAPIError``, la única que lleva ``status_code``.
+    ``MarketDataMutationNotAllowedError`` **no** es subclase suya, así que un
+    refusal del gate sigue propagando y nunca se confunde con un status observado.
+    """
+    try:
+        resp = _mutate_raw_sync(client, spec)
+    except md.MarketDataAPIError as exc:
+        return exc.status_code, None
+    return resp.status_code, _response_json(resp)
+
+
+async def _mutate_status_async(aclient: AsyncClient, spec: RequestSpec) -> tuple[int, Any]:
+    """Espejo async de :func:`_mutate_status_sync`."""
+    try:
+        resp = await _mutate_raw_async(aclient, spec)
+    except md.MarketDataAPIError as exc:
+        return exc.status_code, None
+    return resp.status_code, _response_json(resp)
 
 
 def _emit_cleanup_finding(
@@ -1890,6 +1981,908 @@ async def probe_update_symbol_async(aclient: AsyncClient) -> ProbeResult:
 
 
 # ---------------------------------------------------------------------------
+# Ciclo de calendar (D-06/D-07) — config PREVIEW-ONLY + holidays revert-completo
+# ---------------------------------------------------------------------------
+
+
+def _echo_market_hours(config: CalendarConfig) -> MarketHoursIn:
+    """``MarketHoursIn`` que ECOA la ventana ya configurada, con ``confirm=False``.
+
+    Ecoar la config vigente es lo que hace que el preview sea un no-op semántico
+    además de un no-op declarado: aunque el servidor persistiera (que es
+    justamente lo que el probe verifica que NO pasa), el valor escrito sería el
+    que ya estaba. ``updated_by`` es el identificador del HARNESS, nunca uno
+    derivado del entorno (T-27-30).
+    """
+    return MarketHoursIn(
+        open_time=config.open,
+        close_time=config.close,
+        timezone=config.timezone,
+        pre_open_minutes=config.pre_open_minutes,
+        enabled=config.enabled,
+        updated_by=_PREVIEW_UPDATED_BY,
+        confirm=False,
+    )
+
+
+def _config_field_diff(before: CalendarConfig, after: CalendarConfig) -> list[str]:
+    """NOMBRES de campo que difieren entre dos configs — nunca sus valores (T-27-30)."""
+    return sorted(
+        f.name for f in fields(before) if getattr(before, f.name) != getattr(after, f.name)
+    )
+
+
+def _emit_preview_idempotency_verdict(*, surface: str, identical: bool, base_url: str) -> str:
+    """Registra el veredicto D-19 del doble-fire del preview (EXPECTED, dedupe por título).
+
+    Se emite en AMBAS direcciones porque es evidencia de revalidación de DM-03
+    que el criterio 3 exige, no un defecto: el flag ``idempotent=True`` de
+    ``build_preview_calendar_config_request`` sólo se toca en el plan 27-07 y
+    sólo si esta medición lo pide (D-20). ``status="EXPECTED"`` mantiene la
+    medición fuera del conteo de divergencias abiertas.
+    """
+    fid = _next_fid()
+    verdict = "idénticos" if identical else "DISTINTOS"
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="EXPECTED",
+        title=f"D-19 {surface}: doble-fire de POST /calendar/config/preview devolvió bodies {verdict}",
+        expected=(
+            "medición en vivo del flag idempotent=True de "
+            "build_preview_calendar_config_request (DM-03/D-19)"
+        ),
+        actual=f"los dos previews de la MISMA ventana devolvieron bodies {verdict}",
+        diff="evidencia medida para el plan 27-07; el flag NO se cambia acá (D-20)",
+        base_url=base_url,
+        idempotent_by_title=True,
+    )
+    return fid
+
+
+def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
+    """Config sync PREVIEW-ONLY (D-06): verifica el *"Writes nothing"* en vez de creerlo.
+
+    Lee la config ANTES, dispara el preview (público + doble-fire con gate + una
+    ventana estrecha que debería producir warnings) y RE-LEE la config. La
+    igualdad antes/después es la prueba en vivo de que el endpoint no persiste —
+    y es lo que permite AFIRMAR el criterio 2 del ROADMAP en lugar de asumirlo.
+    Cualquier diferencia es un finding ``ERROR-MAP`` OPEN.
+    """
+    name = "preview_calendar_config_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        before = client.get_calendar_config()
+        echo = _echo_market_hours(before)
+        previewed = client.preview_calendar_config(echo)
+        first = _mutate_raw_sync(
+            client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
+        )
+        second = _mutate_raw_sync(
+            client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
+        )
+        body_first = first.json()
+        body_second = second.json()
+        narrow = MarketHoursIn(
+            open_time=_PREVIEW_NARROW_OPEN,
+            close_time=_PREVIEW_NARROW_CLOSE,
+            timezone=before.timezone,
+            updated_by=_PREVIEW_UPDATED_BY,
+        )
+        narrow_body = _mutate_raw_sync(
+            client, _core.build_preview_calendar_config_request(client._state, narrow.to_dict())
+        ).json()
+        after = client.get_calendar_config()
+        # D-09: todo el post-procesado dentro del try. El snapshot lleva un
+        # ``client_function`` propio de esta superficie (D-17) y captura SÓLO el
+        # body del eco: el de la ventana estrecha trae ``warnings`` poblados, y
+        # su tipo de lista derivaría el baseline en cuanto el servidor tocara ese
+        # texto.
+        _write_schema_snapshot(
+            endpoint="POST /calendar/config/preview",
+            client_function="preview_calendar_config_sync_response",
+            raw=body_first,
+            base_url=base_url,
+            surface="sync",
+        )
+        n_narrow_warnings = (
+            len(narrow_body.get("warnings", [])) if isinstance(narrow_body, dict) else 0
+        )
+        _emit_preview_idempotency_verdict(
+            surface="sync", identical=body_first == body_second, base_url=base_url
+        )
+        changed = _config_field_diff(before, after)
+        if changed:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title="POST /calendar/config/preview modificó la config pese a declarar 'Writes nothing'",
+                expected="get_calendar_config() idéntica antes y después del preview",
+                actual=f"campos que cambiaron: {changed}",
+                diff=(
+                    "sólo se registran NOMBRES de campo, nunca valores (T-27-30); "
+                    "si el preview persiste, la config compartida de develop quedó alterada"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        return ProbeResult(
+            name,
+            "PASS",
+            (
+                f"config sin cambios; doble-fire idéntico={body_first == body_second} "
+                f"eco_warnings={len(previewed.warnings)} ventana_estrecha_warnings={n_narrow_warnings}"
+            ),
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+async def probe_preview_calendar_config_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_preview_calendar_config_sync` (D-06/D-19)."""
+    name = "preview_calendar_config_async"
+    base_url = aclient._state.base_url
+    if not _gate_open(aclient._state):
+        return _skipped_when_gated(name)
+    try:
+        before = await aclient.get_calendar_config()
+        echo = _echo_market_hours(before)
+        previewed = await aclient.preview_calendar_config(echo)
+        first = await _mutate_raw_async(
+            aclient, _core.build_preview_calendar_config_request(aclient._state, echo.to_dict())
+        )
+        second = await _mutate_raw_async(
+            aclient, _core.build_preview_calendar_config_request(aclient._state, echo.to_dict())
+        )
+        body_first = first.json()
+        body_second = second.json()
+        narrow = MarketHoursIn(
+            open_time=_PREVIEW_NARROW_OPEN,
+            close_time=_PREVIEW_NARROW_CLOSE,
+            timezone=before.timezone,
+            updated_by=_PREVIEW_UPDATED_BY,
+        )
+        narrow_resp = await _mutate_raw_async(
+            aclient, _core.build_preview_calendar_config_request(aclient._state, narrow.to_dict())
+        )
+        narrow_body = narrow_resp.json()
+        after = await aclient.get_calendar_config()
+        # D-09: post-procesado dentro del try (espejo sync); ``client_function``
+        # propio de ESTA superficie para que una divergencia sync/async del body
+        # quede visible en vez de pisarse (D-17).
+        _write_schema_snapshot(
+            endpoint="POST /calendar/config/preview",
+            client_function="preview_calendar_config_async_response",
+            raw=body_first,
+            base_url=base_url,
+            surface="async",
+        )
+        n_narrow_warnings = (
+            len(narrow_body.get("warnings", [])) if isinstance(narrow_body, dict) else 0
+        )
+        _emit_preview_idempotency_verdict(
+            surface="async", identical=body_first == body_second, base_url=base_url
+        )
+        changed = _config_field_diff(before, after)
+        if changed:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="async",
+                status="OPEN",
+                title="POST /calendar/config/preview async modificó la config pese a 'Writes nothing'",
+                expected="get_calendar_config() idéntica antes y después del preview",
+                actual=f"campos que cambiaron: {changed}",
+                diff=(
+                    "sólo se registran NOMBRES de campo, nunca valores (T-27-30); "
+                    "si el preview persiste, la config compartida de develop quedó alterada"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        return ProbeResult(
+            name,
+            "PASS",
+            (
+                f"config sin cambios; doble-fire idéntico={body_first == body_second} "
+                f"eco_warnings={len(previewed.warnings)} ventana_estrecha_warnings={n_narrow_warnings}"
+            ),
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+
+
+def _count_holiday_rows(day_rows: list[Any], day: str) -> int:
+    """Cuenta filas crudas de ``days[]`` cuyo ``day`` es exactamente ``day`` (observable D-19)."""
+    return sum(1 for d in day_rows if isinstance(d, dict) and d.get("day") == day)
+
+
+def _emit_holiday_idempotency_verdict(*, surface: str, day: str, count: int, base_url: str) -> str:
+    """Registra el veredicto D-19 de ``POST /calendar/holidays`` (EXPECTED, dedupe por título).
+
+    Se emite CUALQUIERA sea el resultado, no sólo ante el caso malo: es la
+    evidencia de revalidación de DM-03 que el criterio 3 del ROADMAP exige, y
+    ninguna de las dos ramas es un defecto — una dice que el flag
+    ``idempotent=False`` de ``build_add_holidays_request`` es conservador de más,
+    la otra que es correcto. Por eso el status es ``EXPECTED``: la medición no
+    debe inflar el conteo de divergencias abiertas. El flag se toca —si
+    corresponde— en el plan 27-07 (D-20), nunca acá.
+    """
+    fid = _next_fid()
+    if count == 1:
+        title = (
+            f"D-19 {surface}: POST /calendar/holidays dedupea por fecha (1 fila tras doble-fire)"
+        )
+        actual = f"1 fila para {day} tras dos POST idénticos: el server hace UPSERT por fecha"
+        diff = (
+            "idempotent=False en build_add_holidays_request es CONSERVADOR DE MÁS; "
+            "el spec en vivo dice 'Add or update … Idempotent by date' y la medición "
+            "lo confirma — el flip lo decide el plan 27-07 (D-20)"
+        )
+    else:
+        title = f"D-19 {surface}: POST /calendar/holidays APENDEA ({count} filas tras doble-fire)"
+        actual = f"{count} filas para {day} tras dos POST idénticos: el server APENDEA"
+        diff = (
+            "idempotent=False en build_add_holidays_request es CORRECTO: un retry del "
+            "RetryTransport duplicaría el día (D-20). La prosa del spec en vivo "
+            "('Idempotent by date') NO describe el comportamiento real"
+        )
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="EXPECTED",
+        title=title,
+        expected=(
+            "medición en vivo del flag idempotent=False de build_add_holidays_request "
+            "(DM-03/D-19), por CONTEO de días leídos del envelope, no por status code"
+        ),
+        actual=actual,
+        diff=diff,
+        base_url=base_url,
+        idempotent_by_title=True,
+    )
+    return fid
+
+
+def _emit_delete_holiday_idempotency_verdict(
+    *, surface: str, day: str, status: int, base_url: str
+) -> str:
+    """Registra el veredicto D-19 del segundo ``DELETE /calendar/holidays/{day}``."""
+    fid = _next_fid()
+    if status == 404:
+        title = f"D-19 {surface}: el segundo DELETE /calendar/holidays/{{day}} devolvió 404"
+        diff = (
+            "idempotente en ESTADO pero no en STATUS: build_delete_holiday_request "
+            "lleva idempotent=True, así que un retry del RetryTransport convertiría "
+            "ese 404 en MarketDataAPIError (_core.raise_for_response). Evidencia para 27-07"
+        )
+    else:
+        title = f"D-19 {surface}: el segundo DELETE /calendar/holidays/{{day}} devolvió {status}"
+        diff = (
+            "idempotente de punta a punta: repetir el DELETE no cambia ni el estado ni "
+            "el status, así que idempotent=True en build_delete_holiday_request es correcto"
+        )
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="EXPECTED",
+        title=title,
+        expected="medición en vivo del flag idempotent=True de build_delete_holiday_request (DM-03/D-19)",
+        actual=f"status observado en el segundo DELETE de {day}: {status}",
+        diff=diff,
+        base_url=base_url,
+        idempotent_by_title=True,
+    )
+    return fid
+
+
+def probe_add_holidays_sync(client: Client) -> ProbeResult:
+    """Alta sync del feriado de prueba: método público + re-fire crudo (D-07/D-19).
+
+    Fire 1 va por el método PÚBLICO ``add_holidays`` (criterio 1 del ROADMAP y lo
+    que ejercita el gate in-package); fire 2 va por el helper CON gate, que
+    devuelve el ``httpx.Response`` y por lo tanto el status y el body crudo. Un
+    día repetido NO se trata como error: el spec en vivo documenta el endpoint
+    como *"Add **or update**"*, así que un 200 en el re-fire es lo esperado y un
+    422 sería la sorpresa (Pitfall 7).
+
+    ``closed=True`` con AMBOS horarios en ``None`` es deliberado: reproduce
+    exactamente la shape del ``days[0]`` commiteado en ``get-calendar.json``, que
+    es lo que impide que este ciclo derive esa baseline (D-26).
+    """
+    name = "add_holidays_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        holidays = HolidaysIn(
+            days=[
+                HolidayIn(day=_HOLIDAY_SYNC, closed=True, description=_HOLIDAY_DESCRIPTION),
+            ]
+        )
+        created = client.add_holidays(holidays)
+        refire = _mutate_raw_sync(
+            client, _core.build_add_holidays_request(client._state, holidays.to_dict())
+        )
+        raw = refire.json()
+        # D-09: todo el post-procesado dentro del try. ``client_function`` propio
+        # de esta superficie (D-17): un body de MUTACIÓN no puede derivar jamás el
+        # baseline de una lectura.
+        _write_schema_snapshot(
+            endpoint="POST /calendar/holidays",
+            client_function="add_holidays_sync_response",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        return ProbeResult(
+            name,
+            "PASS",
+            f"{_HOLIDAY_SYNC}; public_keys={len(created)} refire_status={refire.status_code}",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+def probe_calendar_after_holiday_sync(client: Client) -> ProbeResult:
+    """Confirma el alta sync y juzga la idempotencia por CONTEO de días (D-19/D-27).
+
+    ``GET /calendar`` es la ÚNICA lectura capaz de confirmar que un
+    ``add_holidays`` aterrizó, y sólo puede hacerlo porque el plan 27-02 arregló
+    el unwrap del envelope ``days[]`` en ``parse_calendar_response``: antes, el
+    parser iteraba las claves del objeto y jamás veía una fila. Por eso este probe
+    también compara el resultado PARSEADO contra el crudo — una divergencia ahí
+    sería una regresión de ese fix.
+    """
+    name = "calendar_after_holiday_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        days = client.get_calendar(year=_HOLIDAY_YEAR)
+        raw = _raw_via_request_sync(
+            client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
+        )
+        # D-09: todo el post-procesado dentro del try. El snapshot usa un
+        # ``client_function`` propio del filtro Y de la superficie, para que el
+        # payload filtrado por año no pise ni derive el baseline de ``get_calendar``
+        # sin filtrar (D-17).
+        day_rows = _unwrap_rows(raw, "days")
+        _write_schema_snapshot(
+            endpoint="GET /calendar?year=2099",
+            client_function="get_calendar_year_2099_sync",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        hits = [d for d in day_rows if isinstance(d, dict) and d.get("day") == _HOLIDAY_SYNC]
+        if hits:
+            # Primera vez que un item de ``days[]`` creado por nosotros se
+            # SHAPE-diffea contra CalendarDay: es la validación del set de campos
+            # reconciliado en 27-02.
+            _emit_shape(hits[0], CalendarDay, "CalendarDay", "sync", base_url)
+        if not hits:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"{_HOLIDAY_SYNC} ausente de GET /calendar?year={_HOLIDAY_YEAR} tras el alta",
+                expected="el feriado creado visible al filtrar el calendario por su año",
+                actual=f"0 días con esa fecha sobre {len(day_rows)} leídos del envelope",
+                diff="el alta no persistió o el filtro year no filtra como se asume",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        if not any(d.day == _HOLIDAY_SYNC for d in days):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"parse_calendar_response no devolvió {_HOLIDAY_SYNC} que SÍ está en el wire",
+                expected="el día presente en el envelope crudo también presente en list[CalendarDay]",
+                actual=f"crudo={len(hits)} fila(s), parseado={len(days)} CalendarDay sin esa fecha",
+                diff="regresión del unwrap de days[] que shippeó el plan 27-02 (D-12)",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        fid = _emit_holiday_idempotency_verdict(
+            surface="sync", day=_HOLIDAY_SYNC, count=len(hits), base_url=base_url
+        )
+        return ProbeResult(
+            name,
+            "PASS",
+            f"{len(hits)} fila(s) para {_HOLIDAY_SYNC}; {fid} (EXPECTED, dedupe by title)",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+def probe_delete_holiday_sync(client: Client) -> ProbeResult:
+    """Reversión sync del feriado: doble DELETE + confirmación de ausencia (D-07/D-08/D-19).
+
+    Cierra el ÚNICO ciclo create -> verify -> revert completo de la fase. El
+    segundo DELETE se despacha por :func:`_mutate_status_sync` justamente porque
+    su status es el observable: ``200`` = idempotente de punta a punta, ``404`` =
+    idempotente en estado pero no en status (y entonces un retry bajo el
+    ``idempotent=True`` actual lo convertiría en ``MarketDataAPIError``).
+    """
+    name = "delete_holiday_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        deleted = client.delete_holiday(_HOLIDAY_SYNC)
+        second_status, _second_body = _mutate_status_sync(
+            client, _core.build_delete_holiday_request(client._state, _HOLIDAY_SYNC)
+        )
+        raw = _raw_via_request_sync(
+            client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
+        )
+        # D-09: todo el post-procesado dentro del try. Se snapshotea el body del
+        # PRIMER delete (el público): el segundo puede ser legítimamente un 404, y
+        # capturar un body de error como baseline sería capturar la shape
+        # equivocada.
+        _write_schema_snapshot(
+            endpoint="DELETE /calendar/holidays/{day}",
+            client_function="delete_holiday_sync_response",
+            raw=deleted,
+            base_url=base_url,
+            surface="sync",
+        )
+        leftovers = _count_holiday_rows(_unwrap_rows(raw, "days"), _HOLIDAY_SYNC)
+        fid = _emit_delete_holiday_idempotency_verdict(
+            surface="sync", day=_HOLIDAY_SYNC, status=second_status, base_url=base_url
+        )
+        if leftovers:
+            orphan_fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=orphan_fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"{_HOLIDAY_SYNC} sigue en el calendario tras el DELETE",
+                expected=f"0 filas para {_HOLIDAY_SYNC} en GET /calendar?year={_HOLIDAY_YEAR}",
+                actual=f"{leftovers} fila(s) sobrevivieron al doble DELETE",
+                diff="residuo huérfano en develop; el sweep terminal debe perseguirlo (D-08)",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{orphan_fid} (OPEN) filas={leftovers}")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"{_HOLIDAY_SYNC} borrado; second_status={second_status}; {fid} (EXPECTED)",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    finally:
+        # D-08: reintento defensivo del borrado; su fallo es un finding, NUNCA un
+        # suppress. Nada de _emit_shape / _write_schema_snapshot acá (Pitfall 5).
+        # Un 404 NO es un fallo: significa que el día YA no está, que es
+        # exactamente el estado deseado — emitir un finding ahí convertiría el
+        # camino feliz en ruido permanente.
+        try:
+            client.delete_holiday(_HOLIDAY_SYNC)
+        except md.MarketDataAPIError as exc:
+            if exc.status_code != 404:
+                _emit_cleanup_finding(
+                    name,
+                    surface="sync",
+                    base_url=base_url,
+                    exc=exc,
+                    detail=f"{_HOLIDAY_SYNC} pudo quedar en el calendario de develop",
+                )
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="sync",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{_HOLIDAY_SYNC} pudo quedar en el calendario de develop",
+            )
+
+
+async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_add_holidays_sync` (D-07/D-19)."""
+    name = "add_holidays_async"
+    base_url = aclient._state.base_url
+    if not _gate_open(aclient._state):
+        return _skipped_when_gated(name)
+    try:
+        holidays = HolidaysIn(
+            days=[
+                HolidayIn(day=_HOLIDAY_ASYNC, closed=True, description=_HOLIDAY_DESCRIPTION),
+            ]
+        )
+        created = await aclient.add_holidays(holidays)
+        refire = await _mutate_raw_async(
+            aclient, _core.build_add_holidays_request(aclient._state, holidays.to_dict())
+        )
+        raw = refire.json()
+        # D-09: post-procesado dentro del try (espejo sync).
+        _write_schema_snapshot(
+            endpoint="POST /calendar/holidays",
+            client_function="add_holidays_async_response",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        return ProbeResult(
+            name,
+            "PASS",
+            f"{_HOLIDAY_ASYNC}; public_keys={len(created)} refire_status={refire.status_code}",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+
+
+async def probe_calendar_after_holiday_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_calendar_after_holiday_sync` (D-19/D-27)."""
+    name = "calendar_after_holiday_async"
+    base_url = aclient._state.base_url
+    if not _gate_open(aclient._state):
+        return _skipped_when_gated(name)
+    try:
+        days = await aclient.get_calendar(year=_HOLIDAY_YEAR)
+        raw = await _raw_via_request_async(
+            aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
+        )
+        # D-09: post-procesado dentro del try (espejo sync); ``client_function``
+        # propio del filtro Y de la superficie (D-17).
+        day_rows = _unwrap_rows(raw, "days")
+        _write_schema_snapshot(
+            endpoint="GET /calendar?year=2099",
+            client_function="get_calendar_year_2099_async",
+            raw=raw,
+            base_url=base_url,
+            surface="async",
+        )
+        hits = [d for d in day_rows if isinstance(d, dict) and d.get("day") == _HOLIDAY_ASYNC]
+        if hits:
+            _emit_shape(hits[0], CalendarDay, "CalendarDay", "async", base_url)
+        if not hits:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="async",
+                status="OPEN",
+                title=f"{_HOLIDAY_ASYNC} ausente de GET /calendar?year={_HOLIDAY_YEAR} tras el alta",
+                expected="el feriado creado visible al filtrar el calendario por su año",
+                actual=f"0 días con esa fecha sobre {len(day_rows)} leídos del envelope",
+                diff="el alta no persistió o el filtro year no filtra como se asume",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        if not any(d.day == _HOLIDAY_ASYNC for d in days):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="async",
+                status="OPEN",
+                title=f"parse_calendar_response async no devolvió {_HOLIDAY_ASYNC} que SÍ está en el wire",
+                expected="el día presente en el envelope crudo también presente en list[CalendarDay]",
+                actual=f"crudo={len(hits)} fila(s), parseado={len(days)} CalendarDay sin esa fecha",
+                diff="regresión del unwrap de days[] que shippeó el plan 27-02 (D-12)",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        fid = _emit_holiday_idempotency_verdict(
+            surface="async", day=_HOLIDAY_ASYNC, count=len(hits), base_url=base_url
+        )
+        return ProbeResult(
+            name,
+            "PASS",
+            f"{len(hits)} fila(s) para {_HOLIDAY_ASYNC}; {fid} (EXPECTED, dedupe by title)",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+
+
+async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_delete_holiday_sync` (D-07/D-08/D-19)."""
+    name = "delete_holiday_async"
+    base_url = aclient._state.base_url
+    if not _gate_open(aclient._state):
+        return _skipped_when_gated(name)
+    try:
+        deleted = await aclient.delete_holiday(_HOLIDAY_ASYNC)
+        second_status, _second_body = await _mutate_status_async(
+            aclient, _core.build_delete_holiday_request(aclient._state, _HOLIDAY_ASYNC)
+        )
+        raw = await _raw_via_request_async(
+            aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
+        )
+        # D-09: post-procesado dentro del try (espejo sync). Se snapshotea el body
+        # del PRIMER delete: el segundo puede ser legítimamente un 404.
+        _write_schema_snapshot(
+            endpoint="DELETE /calendar/holidays/{day}",
+            client_function="delete_holiday_async_response",
+            raw=deleted,
+            base_url=base_url,
+            surface="async",
+        )
+        leftovers = _count_holiday_rows(_unwrap_rows(raw, "days"), _HOLIDAY_ASYNC)
+        fid = _emit_delete_holiday_idempotency_verdict(
+            surface="async", day=_HOLIDAY_ASYNC, status=second_status, base_url=base_url
+        )
+        if leftovers:
+            orphan_fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=orphan_fid,
+                class_="ERROR-MAP",
+                surface="async",
+                status="OPEN",
+                title=f"{_HOLIDAY_ASYNC} sigue en el calendario tras el DELETE",
+                expected=f"0 filas para {_HOLIDAY_ASYNC} en GET /calendar?year={_HOLIDAY_YEAR}",
+                actual=f"{leftovers} fila(s) sobrevivieron al doble DELETE",
+                diff="residuo huérfano en develop; el sweep terminal debe perseguirlo (D-08)",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{orphan_fid} (OPEN) filas={leftovers}")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"{_HOLIDAY_ASYNC} borrado; second_status={second_status}; {fid} (EXPECTED)",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+    finally:
+        # D-08: reintento defensivo (espejo sync). Un 404 es el estado deseado,
+        # no un fallo. Nada de _emit_shape / _write_schema_snapshot acá.
+        try:
+            await aclient.delete_holiday(_HOLIDAY_ASYNC)
+        except md.MarketDataAPIError as exc:
+            if exc.status_code != 404:
+                _emit_cleanup_finding(
+                    name,
+                    surface="async",
+                    base_url=base_url,
+                    exc=exc,
+                    detail=f"{_HOLIDAY_ASYNC} pudo quedar en el calendario de develop",
+                )
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="async",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{_HOLIDAY_ASYNC} pudo quedar en el calendario de develop",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Sweep terminal de residuos (D-08) — la red DEBAJO de los ``finally``
+# ---------------------------------------------------------------------------
+#
+# Este sweep NO reemplaza los ``finally`` de cada probe: es la red que atrapa lo
+# que ellos no pudieron revertir (una excepción a mitad del ciclo, un cleanup que
+# falló y emitió su finding, o residuo dejado por una corrida ANTERIOR). Corre
+# con el gate abierto o cerrado, porque sus DOS lecturas son GETs: con el gate
+# cerrado no puede reintentar la limpieza, pero sí puede —y debe— NOMBRAR lo que
+# quedó, que es justamente lo que un operador necesita antes del próximo run.
+
+
+def _residue_symbols_sync(client: Client) -> list[str]:
+    """Símbolos ACTIVOS que aún llevan el prefijo dedicado del probe."""
+    return sorted(s.symbol for s in client.get_symbols(prefix=_PROBE_PREFIX) if s.active)
+
+
+def _residue_days_sync(client: Client) -> list[str]:
+    """Días presentes en el año dedicado del probe (cualquiera, no sólo los nuestros)."""
+    raw = _raw_via_request_sync(
+        client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
+    )
+    return sorted(
+        str(d.get("day")) for d in _unwrap_rows(raw, "days") if isinstance(d, dict) and d.get("day")
+    )
+
+
+async def _residue_symbols_async(aclient: AsyncClient) -> list[str]:
+    """Espejo async de :func:`_residue_symbols_sync`."""
+    rows = await aclient.get_symbols(prefix=_PROBE_PREFIX)
+    return sorted(s.symbol for s in rows if s.active)
+
+
+async def _residue_days_async(aclient: AsyncClient) -> list[str]:
+    """Espejo async de :func:`_residue_days_sync`."""
+    raw = await _raw_via_request_async(
+        aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
+    )
+    return sorted(
+        str(d.get("day")) for d in _unwrap_rows(raw, "days") if isinstance(d, dict) and d.get("day")
+    )
+
+
+def _retry_residue_cleanup_sync(
+    client: Client, symbols: list[str], days: list[str], *, name: str, base_url: str
+) -> None:
+    """Reintenta UNA vez la limpieza de cada residuo; cada fallo emite un finding (D-08).
+
+    Se itera por ítem con su propio ``try`` a propósito: un símbolo que no se deja
+    desactivar no debe impedir que el feriado siguiente se borre. Los ids se
+    redescubren en vivo (D-10) porque el registro puede estar vacío si el residuo
+    lo dejó una corrida anterior.
+    """
+    raw = _raw_via_request_sync(
+        client, _core.build_symbols_request(client._state, prefix=_PROBE_PREFIX)
+    )
+    rows = _prefixed_rows(raw)
+    for symbol in symbols:
+        try:
+            match = next(
+                (r for r in rows if isinstance(r, dict) and r.get("symbol") == symbol), None
+            )
+            found = _discover_row_id(match) if isinstance(match, dict) else None
+            row_id = found[1] if found is not None else _discovered_symbol_ids.get(symbol)
+            if row_id is not None:
+                client.update_symbol(str(row_id), SymbolPatch(active=False))
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="sync",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{symbol} sigue ACTIVO tras el reintento del sweep",
+            )
+    for day in days:
+        if day not in _PROBE_HOLIDAYS:
+            continue  # NUNCA se borra una fila que este driver no creó
+        try:
+            client.delete_holiday(day)
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="sync",
+                base_url=base_url,
+                exc=exc,
+                detail=f"el feriado {day} sigue en el calendario tras el reintento del sweep",
+            )
+
+
+async def _retry_residue_cleanup_async(
+    aclient: AsyncClient, symbols: list[str], days: list[str], *, name: str, base_url: str
+) -> None:
+    """Espejo async de :func:`_retry_residue_cleanup_sync`."""
+    raw = await _raw_via_request_async(
+        aclient, _core.build_symbols_request(aclient._state, prefix=_PROBE_PREFIX)
+    )
+    rows = _prefixed_rows(raw)
+    for symbol in symbols:
+        try:
+            match = next(
+                (r for r in rows if isinstance(r, dict) and r.get("symbol") == symbol), None
+            )
+            found = _discover_row_id(match) if isinstance(match, dict) else None
+            row_id = found[1] if found is not None else _discovered_symbol_ids.get(symbol)
+            if row_id is not None:
+                await aclient.update_symbol(str(row_id), SymbolPatch(active=False))
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="async",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{symbol} sigue ACTIVO tras el reintento del sweep",
+            )
+    for day in days:
+        if day not in _PROBE_HOLIDAYS:
+            continue  # NUNCA se borra una fila que este driver no creó
+        try:
+            await aclient.delete_holiday(day)
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="async",
+                base_url=base_url,
+                exc=exc,
+                detail=f"el feriado {day} sigue en el calendario tras el reintento del sweep",
+            )
+
+
+def _emit_residue_finding(
+    *, surface: str, symbols: list[str], days: list[str], retried: bool, base_url: str
+) -> str:
+    """Finding OPEN que NOMBRA exactamente qué residuo sobrevivió al sweep (D-08)."""
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="OPEN",
+        title=f"residuo de los probes de mutación sobrevivió en develop ({surface})",
+        expected=f"0 símbolos {_PROBE_PREFIX} activos y 0 días en {_HOLIDAY_YEAR}",
+        actual=f"activos={symbols} dias_{_HOLIDAY_YEAR}={days}",
+        diff=(
+            f"reintento de cleanup {'ejecutado' if retried else 'NO ejecutado (gate cerrado)'}; "
+            f"barrer manualmente antes del próximo run — si no, la próxima corrida "
+            f"leerá su propio residuo como una divergencia"
+        ),
+        base_url=base_url,
+    )
+    return fid
+
+
+def probe_residue_sweep_sync(client: Client) -> ProbeResult:
+    """Sweep terminal sync: cero residuo, o un finding que nombra qué sobrevivió (D-08)."""
+    name = "residue_sweep_sync"
+    base_url = client._state.base_url
+    try:
+        symbols = _residue_symbols_sync(client)
+        days = _residue_days_sync(client)
+        retried = False
+        if (symbols or days) and _gate_open(client._state):
+            retried = True
+            _retry_residue_cleanup_sync(client, symbols, days, name=name, base_url=base_url)
+            symbols = _residue_symbols_sync(client)
+            days = _residue_days_sync(client)
+        if symbols or days:
+            fid = _emit_residue_finding(
+                surface="sync",
+                symbols=symbols,
+                days=days,
+                retried=retried,
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) activos={symbols} dias={days}")
+        return ProbeResult(name, "PASS", f"sin residuo (reintento={retried})")
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+async def probe_residue_sweep_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_residue_sweep_sync` (D-08)."""
+    name = "residue_sweep_async"
+    base_url = aclient._state.base_url
+    try:
+        symbols = await _residue_symbols_async(aclient)
+        days = await _residue_days_async(aclient)
+        retried = False
+        if (symbols or days) and _gate_open(aclient._state):
+            retried = True
+            await _retry_residue_cleanup_async(aclient, symbols, days, name=name, base_url=base_url)
+            symbols = await _residue_symbols_async(aclient)
+            days = await _residue_days_async(aclient)
+        if symbols or days:
+            fid = _emit_residue_finding(
+                surface="async",
+                symbols=symbols,
+                days=days,
+                retried=retried,
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) activos={symbols} dias={days}")
+        return ProbeResult(name, "PASS", f"sin residuo (reintento={retried})")
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+
+
+# ---------------------------------------------------------------------------
 # Terminal probes — cierre de ciclo (D-18) + limitación operativa (D-06)
 # ---------------------------------------------------------------------------
 
@@ -1931,6 +2924,109 @@ def probe_cycle_closure(client: Client) -> ProbeResult:
         base_url=base_url,
     )
     return ProbeResult(name, "FAIL", f"{fid} (OPEN) missing: {', '.join(missing)}")
+
+
+def probe_health_feed_recheck_sync(client: Client) -> ProbeResult:
+    """Re-lectura terminal de ``/health/feed``: nuestra propia contaminación, clasificada (D-26).
+
+    El spec en vivo documenta que un símbolo NO validado contra el exchange
+    *"will be rejected by the feed and surface as ``last_error`` in the ingestor
+    status"*. Es decir: los símbolos que este harness crea pueden poblar un campo
+    que el baseline ``get-health-feed.json`` tiene tipado ``NoneType``.
+
+    Cuando eso pasa, la clasificación correcta es ``EXPECTED`` + auto-infligido,
+    NUNCA ``SHAPE``: un drift "inexplicado" acá sería una atribución falsa y, peor,
+    inflaría el conteo de divergencias del criterio 4 con ruido propio. Se registra
+    el **tipo** observado del campo, jamás su valor (T-27-30), y con
+    ``idempotent_by_title=True`` para que no se acumule corrida tras corrida.
+
+    Se saltea con el gate cerrado porque es literalmente una RE-verificación
+    *después* de nuestras mutaciones: sin mutaciones no hay nada que reverificar, y
+    un ``last_error`` poblado en ese caso NO sería auto-infligido —clasificarlo así
+    sería exactamente la misatribución que este probe existe para evitar—.
+    """
+    name = "health_feed_recheck_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        feed = client.get_health_feed()
+        ingestor = feed.get("ingestor")
+        last_error = ingestor.get("last_error") if isinstance(ingestor, dict) else None
+        if last_error is None:
+            return ProbeResult(name, "PASS", "ingestor.last_error sigue vacío tras las mutaciones")
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="EXPECTED",
+            title="ingestor.last_error poblado por los símbolos de prueba de este harness (auto-infligido)",
+            expected="ingestor.last_error NoneType, como en el baseline get-health-feed.json",
+            actual=f"tipo observado del campo: {type(last_error).__name__} (valor NO registrado)",
+            diff=(
+                "contaminación PROPIA del harness, no drift inexplicado: el spec en vivo "
+                "documenta que un símbolo no validado contra el exchange aflora justo ahí. "
+                "Clasificarlo SHAPE sería una misatribución y inflaría el conteo del criterio 4"
+            ),
+            base_url=base_url,
+            idempotent_by_title=True,
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
+
+
+def probe_snapshot_rebaseline_notice_sync(client: Client) -> ProbeResult:
+    """Terminal EXPECTED (D-17/D-26): la política de snapshots frente a las mutaciones.
+
+    Deja registrado, en el mismo archivo donde vive la evidencia, POR QUÉ un
+    baseline va a derivar y qué se hace con él — la diferencia entre un
+    re-baseline deliberado y un baseline pisado en silencio.
+
+    Se saltea con el gate cerrado: sin mutaciones no hay snapshots de mutación que
+    explicar, y así una corrida con el gate apagado no agrega NINGÚN bloque nuevo
+    al findings file.
+    """
+    name = "snapshot_rebaseline_notice_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="both",
+            status="EXPECTED",
+            title="política de snapshots de mutación y re-baseline deliberado de get-symbols.json (D-17/D-26)",
+            expected=(
+                "los baselines write-once siguen detectando drift real en los endpoints "
+                "de lectura de primera clase"
+            ),
+            actual=(
+                "cada body de mutación y cada lectura de verificación FILTRADA usa un "
+                "client_function dedicado, distinto por superficie, así que ninguno puede "
+                "derivar el baseline de una lectura; get-calendar.json NO deriva porque "
+                "schema_of muestrea sólo days[0] y el feriado de prueba tiene shape "
+                "idéntica al item commiteado; get-symbols.json SÍ deriva de forma "
+                "permanente, porque el símbolo revertido vive en active=False para siempre "
+                "y probe_symbols_sync lee justamente con active=False"
+            ),
+            diff=(
+                "get-symbols.json se RE-BASELINEA a propósito en el plan 27-07, no se "
+                "excluye: excluirlo apagaría la detección de drift sobre un endpoint de "
+                "lectura de primera clase, mientras que re-baselinearlo captura por primera "
+                "vez la shape REAL de Symbol (hoy el baseline es 'schema': [])"
+            ),
+            base_url=base_url,
+            idempotent_by_title=True,
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="both", base_url=base_url)
+    return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
 
 
 def probe_expected_put_config_operator_gated(client: Client) -> ProbeResult:
@@ -2018,6 +3114,18 @@ async def _async_main(mutating: bool) -> tuple[list[ProbeResult], list[Segment] 
         results.append(await probe_symbols_after_create_async(aclient))
         results.append(await probe_create_symbols_batch_async(aclient))
         results.append(await probe_update_symbol_async(aclient))
+        # Ciclo de calendar (27-05): config PREVIEW-ONLY (D-06) primero — no
+        # persiste nada, así que no puede perturbar la lectura de los holidays —
+        # y después el ÚNICO ciclo create -> verify -> revert completo de la fase
+        # (D-07), en ese orden estricto: el alta es insumo de la confirmación y la
+        # confirmación es insumo del veredicto de idempotencia.
+        results.append(await probe_preview_calendar_config_async(aclient))
+        results.append(await probe_add_holidays_async(aclient))
+        results.append(await probe_calendar_after_holiday_async(aclient))
+        results.append(await probe_delete_holiday_async(aclient))
+        # Sweep terminal de la superficie async: LO ÚLTIMO que corre acá, para que
+        # vea el estado final de todos los ciclos destructivos async (D-08).
+        results.append(await probe_residue_sweep_async(aclient))
     except Exception as exc:  # D-09 defensa en profundidad: ningún path escapa a FAILED
         results.append(
             ProbeResult(
@@ -2099,9 +3207,25 @@ def main() -> None:
         results.append(probe_symbols_after_create_sync(client))
         results.append(probe_create_symbols_batch_sync(client))
         results.append(probe_update_symbol_sync(client))
+        # Ciclo de calendar (27-05): config PREVIEW-ONLY (D-06) y luego el ciclo
+        # create -> verify -> revert de holidays (D-07). Las dos superficies usan
+        # DÍAS DISJUNTOS, así que un fallo acá no puede contaminar el conteo de
+        # filas —el observable de idempotencia— de la superficie async.
+        results.append(probe_preview_calendar_config_sync(client))
+        results.append(probe_add_holidays_sync(client))
+        results.append(probe_calendar_after_holiday_sync(client))
+        results.append(probe_delete_holiday_sync(client))
+        # Sweep terminal de la superficie sync: LO ÚLTIMO de esta superficie (D-08).
+        results.append(probe_residue_sweep_sync(client))
+        # Paridad: no emite HTTP, sólo compara las dos listas de segments ya
+        # capturadas, así que no altera el estado que el sweep acaba de constatar.
         results.append(probe_parity(seg_sync, seg_async, client))
-        # Terminales: la limitación operativa D-06 y, último de todo, el cierre
-        # de ciclo — que debe ver el findings file ya completo de este run.
+        # Terminales, en orden: la re-lectura del feed (nuestra contaminación,
+        # clasificada EXPECTED en vez de SHAPE), la política de snapshots, la
+        # limitación operativa D-06 y, último de todo, el cierre de ciclo — que
+        # debe ver el findings file ya completo de este run.
+        results.append(probe_health_feed_recheck_sync(client))
+        results.append(probe_snapshot_rebaseline_notice_sync(client))
         results.append(probe_expected_put_config_operator_gated(client))
         results.append(probe_cycle_closure(client))
     except Exception as exc:  # D-09 defensa en profundidad: el driver NUNCA exit != 0
