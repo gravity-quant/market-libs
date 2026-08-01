@@ -51,7 +51,7 @@ import datetime as dt
 import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -179,6 +179,52 @@ _SYM_SYNC_B1 = "GSDPROBE/P27-SYNC-B1"
 _SYM_SYNC_B2 = "GSDPROBE/P27-SYNC-B2"
 _SYM_ASYNC_B1 = "GSDPROBE/P27-ASYNC-B1"
 _SYM_ASYNC_B2 = "GSDPROBE/P27-ASYNC-B2"
+
+# ---------------------------------------------------------------------------
+# Identificadores del ciclo de calendar (D-06 config preview-only / D-07 holidays)
+# ---------------------------------------------------------------------------
+#
+# CONFIG — **PREVIEW-ONLY** (D-06, ruling del operator). En vivo se ejercita
+# ÚNICAMENTE ``POST /calendar/config/preview``, documentado como *"Writes
+# nothing"*. ``PUT /calendar/config`` y ``DELETE /calendar/config`` NO tienen
+# call site en este driver y la AST-guard
+# ``verification/test_main_market_data_no_config_write.py`` lo vuelve
+# irreintroducible: ``delete_calendar_config`` RESETEA a los defaults del
+# servidor —no restaura el valor previo—, así que un DELETE no puede servir de
+# cleanup para un PUT y cualquier PUT real dejaría clobbereada la configuración
+# COMPARTIDA de develop. Ambos endpoints siguen cubiertos por los tests mockeados
+# del paquete, y la limitación se registra como finding EXPECTED
+# (``probe_expected_put_config_operator_gated``).
+#
+# HOLIDAYS — el ÚNICO ciclo create -> verify -> revert COMPLETO de la fase
+# (D-07): ``DELETE /calendar/holidays/{day}`` existe y el spec en vivo dice que
+# borrar ahí es seguro porque nada referencia esas filas.
+#
+# El AÑO 2099 es deliberado y no arbitrario: ``GET /calendar`` sólo acepta
+# ``year`` en el rango 2000..2100, así que 2099 es a la vez LEGIBLE de vuelta
+# (condición sin la cual el paso de confirmación no existiría) y lo bastante
+# lejano como para no colisionar jamás con un feriado real ni tener impacto
+# operativo alguno.
+#
+# Sync y async usan DÍAS DISJUNTOS por la misma razón que los símbolos: el
+# observable de idempotencia es el CONTEO de días leídos de vuelta, así que un
+# fallo en una superficie no puede contaminar el conteo de la otra.
+_HOLIDAY_YEAR = 2099
+_HOLIDAY_SYNC = "2099-12-29"
+_HOLIDAY_ASYNC = "2099-12-30"
+_HOLIDAY_DESCRIPTION = "GSD verification harness probe holiday"
+
+# ``updated_by`` del preview: identifica al HARNESS, nunca a una persona, y NO
+# se deriva de ninguna variable de entorno (T-27-30). El body del preview se
+# snapshotea, así que nada operator-identifying puede entrar en él.
+_PREVIEW_UPDATED_BY = "gsd-verification-harness"
+
+# Ventana deliberadamente ESTRECHA (5 minutos) para observar cómo se REPORTA un
+# preview que dispara el confirm-gate del servidor, sin persistir nada: el spec
+# documenta el 409 del confirm gate sobre ``PUT``, y el preview es el único lugar
+# donde esa señal puede observarse sin escribir.
+_PREVIEW_NARROW_OPEN = "11:00"
+_PREVIEW_NARROW_CLOSE = "11:05"
 
 # Registro de ids de fila DESCUBIERTOS en vivo (D-10). ``Symbol`` no declara
 # ningún campo de id y la spec en vivo tipa ``symbol_id`` como ENTERO mientras el
@@ -1890,6 +1936,228 @@ async def probe_update_symbol_async(aclient: AsyncClient) -> ProbeResult:
 
 
 # ---------------------------------------------------------------------------
+# Ciclo de calendar (D-06/D-07) — config PREVIEW-ONLY + holidays revert-completo
+# ---------------------------------------------------------------------------
+
+
+def _echo_market_hours(config: CalendarConfig) -> MarketHoursIn:
+    """``MarketHoursIn`` que ECOA la ventana ya configurada, con ``confirm=False``.
+
+    Ecoar la config vigente es lo que hace que el preview sea un no-op semántico
+    además de un no-op declarado: aunque el servidor persistiera (que es
+    justamente lo que el probe verifica que NO pasa), el valor escrito sería el
+    que ya estaba. ``updated_by`` es el identificador del HARNESS, nunca uno
+    derivado del entorno (T-27-30).
+    """
+    return MarketHoursIn(
+        open_time=config.open,
+        close_time=config.close,
+        timezone=config.timezone,
+        pre_open_minutes=config.pre_open_minutes,
+        enabled=config.enabled,
+        updated_by=_PREVIEW_UPDATED_BY,
+        confirm=False,
+    )
+
+
+def _config_field_diff(before: CalendarConfig, after: CalendarConfig) -> list[str]:
+    """NOMBRES de campo que difieren entre dos configs — nunca sus valores (T-27-30)."""
+    return sorted(
+        f.name for f in fields(before) if getattr(before, f.name) != getattr(after, f.name)
+    )
+
+
+def _emit_preview_idempotency_verdict(*, surface: str, identical: bool, base_url: str) -> str:
+    """Registra el veredicto D-19 del doble-fire del preview (EXPECTED, dedupe por título).
+
+    Se emite en AMBAS direcciones porque es evidencia de revalidación de DM-03
+    que el criterio 3 exige, no un defecto: el flag ``idempotent=True`` de
+    ``build_preview_calendar_config_request`` sólo se toca en el plan 27-07 y
+    sólo si esta medición lo pide (D-20). ``status="EXPECTED"`` mantiene la
+    medición fuera del conteo de divergencias abiertas.
+    """
+    fid = _next_fid()
+    verdict = "idénticos" if identical else "DISTINTOS"
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="EXPECTED",
+        title=f"D-19 {surface}: doble-fire de POST /calendar/config/preview devolvió bodies {verdict}",
+        expected=(
+            "medición en vivo del flag idempotent=True de "
+            "build_preview_calendar_config_request (DM-03/D-19)"
+        ),
+        actual=f"los dos previews de la MISMA ventana devolvieron bodies {verdict}",
+        diff="evidencia medida para el plan 27-07; el flag NO se cambia acá (D-20)",
+        base_url=base_url,
+        idempotent_by_title=True,
+    )
+    return fid
+
+
+def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
+    """Config sync PREVIEW-ONLY (D-06): verifica el *"Writes nothing"* en vez de creerlo.
+
+    Lee la config ANTES, dispara el preview (público + doble-fire con gate + una
+    ventana estrecha que debería producir warnings) y RE-LEE la config. La
+    igualdad antes/después es la prueba en vivo de que el endpoint no persiste —
+    y es lo que permite AFIRMAR el criterio 2 del ROADMAP en lugar de asumirlo.
+    Cualquier diferencia es un finding ``ERROR-MAP`` OPEN.
+    """
+    name = "preview_calendar_config_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        before = client.get_calendar_config()
+        echo = _echo_market_hours(before)
+        previewed = client.preview_calendar_config(echo)
+        first = _mutate_raw_sync(
+            client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
+        )
+        second = _mutate_raw_sync(
+            client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
+        )
+        body_first = first.json()
+        body_second = second.json()
+        narrow = MarketHoursIn(
+            open_time=_PREVIEW_NARROW_OPEN,
+            close_time=_PREVIEW_NARROW_CLOSE,
+            timezone=before.timezone,
+            updated_by=_PREVIEW_UPDATED_BY,
+        )
+        narrow_body = _mutate_raw_sync(
+            client, _core.build_preview_calendar_config_request(client._state, narrow.to_dict())
+        ).json()
+        after = client.get_calendar_config()
+        # D-09: todo el post-procesado dentro del try. El snapshot lleva un
+        # ``client_function`` propio de esta superficie (D-17) y captura SÓLO el
+        # body del eco: el de la ventana estrecha trae ``warnings`` poblados, y
+        # su tipo de lista derivaría el baseline en cuanto el servidor tocara ese
+        # texto.
+        _write_schema_snapshot(
+            endpoint="POST /calendar/config/preview",
+            client_function="preview_calendar_config_sync_response",
+            raw=body_first,
+            base_url=base_url,
+            surface="sync",
+        )
+        n_narrow_warnings = (
+            len(narrow_body.get("warnings", [])) if isinstance(narrow_body, dict) else 0
+        )
+        _emit_preview_idempotency_verdict(
+            surface="sync", identical=body_first == body_second, base_url=base_url
+        )
+        changed = _config_field_diff(before, after)
+        if changed:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title="POST /calendar/config/preview modificó la config pese a declarar 'Writes nothing'",
+                expected="get_calendar_config() idéntica antes y después del preview",
+                actual=f"campos que cambiaron: {changed}",
+                diff=(
+                    "sólo se registran NOMBRES de campo, nunca valores (T-27-30); "
+                    "si el preview persiste, la config compartida de develop quedó alterada"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        return ProbeResult(
+            name,
+            "PASS",
+            (
+                f"config sin cambios; doble-fire idéntico={body_first == body_second} "
+                f"eco_warnings={len(previewed.warnings)} ventana_estrecha_warnings={n_narrow_warnings}"
+            ),
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+async def probe_preview_calendar_config_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_preview_calendar_config_sync` (D-06/D-19)."""
+    name = "preview_calendar_config_async"
+    base_url = aclient._state.base_url
+    if not _gate_open(aclient._state):
+        return _skipped_when_gated(name)
+    try:
+        before = await aclient.get_calendar_config()
+        echo = _echo_market_hours(before)
+        previewed = await aclient.preview_calendar_config(echo)
+        first = await _mutate_raw_async(
+            aclient, _core.build_preview_calendar_config_request(aclient._state, echo.to_dict())
+        )
+        second = await _mutate_raw_async(
+            aclient, _core.build_preview_calendar_config_request(aclient._state, echo.to_dict())
+        )
+        body_first = first.json()
+        body_second = second.json()
+        narrow = MarketHoursIn(
+            open_time=_PREVIEW_NARROW_OPEN,
+            close_time=_PREVIEW_NARROW_CLOSE,
+            timezone=before.timezone,
+            updated_by=_PREVIEW_UPDATED_BY,
+        )
+        narrow_resp = await _mutate_raw_async(
+            aclient, _core.build_preview_calendar_config_request(aclient._state, narrow.to_dict())
+        )
+        narrow_body = narrow_resp.json()
+        after = await aclient.get_calendar_config()
+        # D-09: post-procesado dentro del try (espejo sync); ``client_function``
+        # propio de ESTA superficie para que una divergencia sync/async del body
+        # quede visible en vez de pisarse (D-17).
+        _write_schema_snapshot(
+            endpoint="POST /calendar/config/preview",
+            client_function="preview_calendar_config_async_response",
+            raw=body_first,
+            base_url=base_url,
+            surface="async",
+        )
+        n_narrow_warnings = (
+            len(narrow_body.get("warnings", [])) if isinstance(narrow_body, dict) else 0
+        )
+        _emit_preview_idempotency_verdict(
+            surface="async", identical=body_first == body_second, base_url=base_url
+        )
+        changed = _config_field_diff(before, after)
+        if changed:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="async",
+                status="OPEN",
+                title="POST /calendar/config/preview async modificó la config pese a 'Writes nothing'",
+                expected="get_calendar_config() idéntica antes y después del preview",
+                actual=f"campos que cambiaron: {changed}",
+                diff=(
+                    "sólo se registran NOMBRES de campo, nunca valores (T-27-30); "
+                    "si el preview persiste, la config compartida de develop quedó alterada"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        return ProbeResult(
+            name,
+            "PASS",
+            (
+                f"config sin cambios; doble-fire idéntico={body_first == body_second} "
+                f"eco_warnings={len(previewed.warnings)} ventana_estrecha_warnings={n_narrow_warnings}"
+            ),
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+
+
+# ---------------------------------------------------------------------------
 # Terminal probes — cierre de ciclo (D-18) + limitación operativa (D-06)
 # ---------------------------------------------------------------------------
 
@@ -2018,6 +2286,9 @@ async def _async_main(mutating: bool) -> tuple[list[ProbeResult], list[Segment] 
         results.append(await probe_symbols_after_create_async(aclient))
         results.append(await probe_create_symbols_batch_async(aclient))
         results.append(await probe_update_symbol_async(aclient))
+        # Ciclo de calendar (27-05): config PREVIEW-ONLY (D-06) primero — no
+        # persiste nada, así que no puede perturbar la lectura de los holidays.
+        results.append(await probe_preview_calendar_config_async(aclient))
     except Exception as exc:  # D-09 defensa en profundidad: ningún path escapa a FAILED
         results.append(
             ProbeResult(
@@ -2099,6 +2370,8 @@ def main() -> None:
         results.append(probe_symbols_after_create_sync(client))
         results.append(probe_create_symbols_batch_sync(client))
         results.append(probe_update_symbol_sync(client))
+        # Ciclo de calendar (27-05): config PREVIEW-ONLY (D-06) primero.
+        results.append(probe_preview_calendar_config_sync(client))
         results.append(probe_parity(seg_sync, seg_async, client))
         # Terminales: la limitación operativa D-06 y, último de todo, el cierre
         # de ciclo — que debe ver el findings file ya completo de este run.
