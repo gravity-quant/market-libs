@@ -197,12 +197,12 @@ Plans:
   3. Merge a `main`; tag `market-data-client-v0.4.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
   4. El bump es minor no-breaking medido contra **v0.3.1** (el predecesor real publicado, no v0.2.0): la superficie de lectura permanece compatible y los cambios de symbols son aditivos/ensanchantes. Única excepción documentada: el carve-out D-03 de `CalendarDay`, source-breaking pero pre-autorizado por D-13 y explicitado en el changelog.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 28-01-PLAN.md — Wave 1 · Release prep reversible: bump de las 3 sedes de versión + entrada `### v0.4.0` del changelog (callout `CalendarDay`, D-03) + `uv lock`, re-apuntado D-02 de REQUIREMENTS/ROADMAP + backlog v1.6 (D-16), mirror local del gate de CI, escaneo de credenciales y push fast-forward de la branch (C-1) — `autonomous: true`
+- [x] 28-01-PLAN.md — Wave 1 · Release prep reversible: bump de las 3 sedes de versión + entrada `### v0.4.0` del changelog (callout `CalendarDay`, D-03) + `uv lock`, re-apuntado D-02 de REQUIREMENTS/ROADMAP + backlog v1.6 (D-16), mirror local del gate de CI, escaneo de credenciales y push fast-forward de la branch (C-1) — `autonomous: true`
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -243,7 +243,7 @@ Plans:
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
-| 28. Release prep + publish v0.3.0                           | v1.5      | 0/3   | Not started | -          |
+| 28. Release prep + publish v0.3.0                           | v1.5      | 1/3 | In Progress|  |
 
 ## Backlog
 
