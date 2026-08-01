@@ -34,6 +34,7 @@ Y —agregado por el Plan 04— la matriz adversarial que prueba el contrato hos
 from __future__ import annotations
 
 import json as _json
+import time
 from typing import Any
 
 import pytest
@@ -521,3 +522,65 @@ def test_delete_holiday_path_safety_empty_and_query_emit_no_request(
         market_data_client.client._get_default().delete_holiday("2026-12-25?x=1")
 
     assert httpx_mock.get_requests() == []
+
+
+# ----------------------------------------------------------------------
+# No-retry a nivel dispatch (D-15 / T-26-07) + control positivo contrastante
+#
+# ``build_add_holidays_request`` es el ÚNICO builder ``idempotent=False`` del
+# paquete: el flag viaja como ``request.extensions["idempotent"]`` y
+# ``RetryTransport.handle_request`` corta el loop en su primera línea. El par de
+# tests mide el efecto observable de ese corte contra un hermano idempotente,
+# que con el mismo 503 repetido SÍ agota los 3 intentos.
+#
+# El marker ``assert_all_responses_were_requested=False`` es OBLIGATORIO: el
+# test no-retry deja 2 de las 3 respuestas encoladas sin consumir y pytest-httpx
+# fallaría en teardown por una razón que no tiene nada que ver con el retry.
+# El monkeypatch de ``time.sleep`` evita los ~4,4 s reales de jitter del control
+# positivo (patrón in-package de ``tests/test_transport.py``).
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
+def test_add_holidays_not_retried_on_repeated_503(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``idempotent=False``: 3x503 encolados → EXACTAMENTE 1 request y 0 sleeps.
+
+    Un reintento del append duplicaría los feriados del lado del servidor, así
+    que el ``POST`` sale una sola vez y el ``503`` se propaga tal cual.
+    """
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+    _open_gate()
+    for _ in range(3):
+        httpx_mock.add_response(method="POST", status_code=503)
+
+    with pytest.raises(MarketDataAPIError):
+        market_data_client.client._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
+
+    assert len(httpx_mock.get_requests()) == 1
+    assert sleeps == []
+
+
+@pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
+def test_delete_holiday_retries_three_times_on_repeated_503(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Control positivo ``idempotent=True``: 3x503 → 3 requests (max_retries=2).
+
+    El hermano idempotente del mismo par de feriados agota ``max_attempts=3``
+    (``max_retries`` default 2 + el intento inicial). El contraste con el test
+    anterior es la evidencia de que el corte lo produce el flag y no el mock.
+    """
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+    _open_gate()
+    for _ in range(3):
+        httpx_mock.add_response(method="DELETE", status_code=503)
+
+    with pytest.raises(MarketDataAPIError):
+        market_data_client.client._get_default().delete_holiday("2026-12-25")
+
+    assert len(httpx_mock.get_requests()) == 3
+    assert len(sleeps) == 2
