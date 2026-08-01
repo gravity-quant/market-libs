@@ -76,6 +76,7 @@ from market_data_client import (
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     Segment,
     Symbol,
     _core,
@@ -132,6 +133,17 @@ _MUTATING_SKIP_DETAIL = "SKIPPED (mutating, guard off)"
 # Status terminales que cuentan como "ciclo cerrado" en el findings file. Se usa
 # para que ``probe_cycle_closure`` no pueda pasar de forma vacua (D-18).
 _CLOSED_STATUS_RE = re.compile(r"\*\*Status:\*\*\s*`?(?:CONFIRMED|FIXED)`?")
+
+# Body usado por los probes de refusal del gate in-package. Se eligió
+# ``preview_calendar_config`` —el método mutante MÁS seguro del paquete: es un dry
+# run compute-only que NO persiste nada server-side— justamente para que, si el
+# gate fallara en rechazar, el peor caso sea un POST inocuo en lugar de una
+# escritura real sobre la config compartida de develop.
+_REFUSAL_PROBE_CONFIG = MarketHoursIn(
+    open_time="11:00",
+    close_time="17:00",
+    timezone="America/Argentina/Buenos_Aires",
+)
 
 # Contador module-level para asignar fids deterministicamente. NO arranca en 0 en
 # el run real: ``_seed_fid_counter()`` lo sube al máximo fid ya registrado antes
@@ -980,6 +992,83 @@ def probe_parity(
 
 
 # ---------------------------------------------------------------------------
+# Refuse-by-default probes del gate in-package (D-04) — sync + async
+# ---------------------------------------------------------------------------
+#
+# Estos dos probes son deliberadamente HTTP-free y corren IDÉNTICO con el gate
+# armado o apagado: fuerzan ``mutating_allowed=False`` y afirman que el paquete
+# rechaza. Eso es lo que hace que una corrida con el gate apagado NO sea vacua.
+# Un gate que NO rechaza es el defecto de mayor severidad que esta fase puede
+# encontrar, así que se emite un finding ``AUTH`` OPEN en vez de un PASS.
+
+
+def probe_mutation_gate_refusal_sync(client: Client) -> ProbeResult:
+    """Refuse-by-default sync (D-04): sin opt-in, una mutación pública debe levantar."""
+    name = "mutation_gate_refusal_sync"
+    base_url = client._state.base_url
+    previous = client._state.mutating_allowed
+    try:
+        # Se toca ``_state`` directamente (precedente in-package en
+        # ``packages/market-data-client/tests/test_mutation_gate.py``): no es un
+        # constructor ni un ``configure()``, así que ni la AST-guard de
+        # single-instance ni el singleton de módulo se ven afectados.
+        client._state.mutating_allowed = False
+        try:
+            client.preview_calendar_config(_REFUSAL_PROBE_CONFIG)
+        except md.MarketDataMutationNotAllowedError:
+            return ProbeResult(name, "PASS", "mutación rechazada sin opt-in (0 HTTP, 0 Auth0)")
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="sync",
+            status="OPEN",
+            title="el gate in-package NO rechazó una mutación con mutating_allowed=False",
+            expected="MarketDataMutationNotAllowedError antes de cualquier HTTP",
+            actual="ninguna excepción: la mutación salió a la red",
+            diff="refuse-by-default roto (D-04/GATE-MD-01)",
+            base_url=base_url,
+        )
+        return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:  # D-09: un error inesperado degrada, nunca voltea el driver
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    finally:
+        client._state.mutating_allowed = previous
+
+
+async def probe_mutation_gate_refusal_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_mutation_gate_refusal_sync` (D-04)."""
+    name = "mutation_gate_refusal_async"
+    base_url = aclient._state.base_url
+    previous = aclient._state.mutating_allowed
+    try:
+        aclient._state.mutating_allowed = False
+        try:
+            await aclient.preview_calendar_config(_REFUSAL_PROBE_CONFIG)
+        except md.MarketDataMutationNotAllowedError:
+            return ProbeResult(name, "PASS", "mutación rechazada sin opt-in (0 HTTP, 0 Auth0)")
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="AUTH",
+            surface="async",
+            status="OPEN",
+            title="el gate in-package async NO rechazó una mutación con mutating_allowed=False",
+            expected="MarketDataMutationNotAllowedError antes de cualquier HTTP",
+            actual="ninguna excepción: la mutación salió a la red",
+            diff="refuse-by-default roto (D-04/GATE-MD-01)",
+            base_url=base_url,
+        )
+        return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+    finally:
+        aclient._state.mutating_allowed = previous
+
+
+# ---------------------------------------------------------------------------
 # Terminal probes — cierre de ciclo (D-18) + limitación operativa (D-06)
 # ---------------------------------------------------------------------------
 
@@ -1098,6 +1187,8 @@ async def _async_main(mutating: bool) -> tuple[list[ProbeResult], list[Segment] 
         results.append(await probe_symbols_async(aclient))
         results.append(await probe_calendar_async(aclient))
         results.append(await probe_no_data_async(aclient))
+        # Refuse-by-default ANTES de cualquier probe destructivo (27-04).
+        results.append(await probe_mutation_gate_refusal_async(aclient))
     except Exception as exc:  # D-09 defensa en profundidad: ningún path escapa a FAILED
         results.append(
             ProbeResult(
@@ -1166,6 +1257,8 @@ def main() -> None:
         results.append(probe_param_encoding_sync(client))
         results.append(probe_no_data_sync(client))
         results.append(probe_auth_fail_sync(client))
+        # Refuse-by-default ANTES de cualquier probe destructivo (27-04).
+        results.append(probe_mutation_gate_refusal_sync(client))
         async_results, seg_async = asyncio.run(_async_main(mutating))
         results.extend(async_results)
         results.append(probe_parity(seg_sync, seg_async, client))
