@@ -11,7 +11,26 @@ from __future__ import annotations
 
 from pytest_httpx import HTTPXMock
 
+from typing import Any
+
 from market_data_client import CalendarConfig, CalendarDay, Instrument, Segment, Symbol, aio
+
+# Async twin of ``_CALENDAR_ENVELOPE`` in ``test_reference_client.py`` — the real
+# ``GET /calendar`` body whose rows live under ``days`` (D-12).
+_CALENDAR_ENVELOPE: dict[str, Any] = {
+    "config": {"open": "11:00", "close": "17:00"},
+    "coverage": {"current_year_covered": True, "years": [2026]},
+    "days": [
+        {
+            "day": "2026-01-02",
+            "closed": True,
+            "open_time": None,
+            "close_time": None,
+            "description": "Ano Nuevo",
+        }
+    ],
+    "market": {"is_open": False, "state": "CLOSED"},
+}
 
 
 async def test_async_get_instruments_sends_bearer_and_encodes_params(httpx_mock: HTTPXMock) -> None:
@@ -90,20 +109,31 @@ async def test_async_get_symbols_sends_bearer_and_preserves_false(httpx_mock: HT
 
 async def test_async_get_calendar_sends_bearer_and_year(httpx_mock: HTTPXMock) -> None:
     """Async ``get_calendar`` encodes ``year`` and dispatches ``GET /calendar``."""
-    httpx_mock.add_response(
-        method="GET",
-        json=[{"date": "2026-01-02", "marketId": "ROFX", "isBusinessDay": True}],
-    )
+    httpx_mock.add_response(method="GET", json=_CALENDAR_ENVELOPE)
 
     result = await aio._get_default().get_calendar(year=2026)
 
     assert len(result) == 1
     assert isinstance(result[0], CalendarDay)
-    assert result[0].date == "2026-01-02"
+    assert result[0].day == "2026-01-02"
     req = httpx_mock.get_requests()[0]
     assert req.headers["Authorization"] == "Bearer test-token"
     assert req.url.path == "/api/calendar"
     assert req.url.params.get("year") == "2026"
+
+
+async def test_async_get_calendar_unwraps_days_envelope(httpx_mock: HTTPXMock) -> None:
+    """Async ``get_calendar`` returns populated rows from the develop envelope (D-12)."""
+    httpx_mock.add_response(method="GET", json=_CALENDAR_ENVELOPE)
+
+    result = await aio._get_default().get_calendar()
+
+    assert [row.day for row in result] == ["2026-01-02"]
+    assert result[0].closed is True
+    assert result[0].description == "Ano Nuevo"
+    assert result[0].open_time is None
+    assert result[0].close_time is None
+    assert "year" not in httpx_mock.get_requests()[0].url.params
 
 
 async def test_async_get_calendar_config_returns_single_object(httpx_mock: HTTPXMock) -> None:
