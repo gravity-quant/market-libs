@@ -33,6 +33,7 @@ from market_data_client._state import (
 from market_data_client.exceptions import (
     MarketDataAPIError,
     MarketDataAuthError,
+    MarketDataError,
     MarketDataRateLimitError,
 )
 
@@ -454,3 +455,87 @@ def test_calendar_write_builders_are_state_independent() -> None:
     assert _core.build_delete_calendar_config_request(
         fresh
     ) == _core.build_delete_calendar_config_request(configured)
+
+
+# ----------------------------------------------------------------------
+# build_delete_holiday_request + path-safety guard (Plan 26-02, D-18 / T-26-01)
+# ----------------------------------------------------------------------
+
+
+def test_build_delete_holiday_request_shape() -> None:
+    state = _ClientState()
+    spec = _core.build_delete_holiday_request(state, "2026-12-25")
+    assert spec.method == "DELETE"
+    assert spec.path == "/calendar/holidays/2026-12-25"
+    assert spec.json_body is None
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "delete_holiday"
+
+
+def test_build_delete_holiday_request_interpolates_day_raw() -> None:
+    """A legit ISO day rides the path byte-for-byte — no percent-encoding (D-03)."""
+    spec = _core.build_delete_holiday_request(_ClientState(), "2026-01-02")
+    assert spec.path == "/calendar/holidays/2026-01-02"
+    assert "%" not in spec.path
+
+
+@pytest.mark.parametrize(
+    "hostile_day",
+    [
+        "",
+        "../config",
+        "a/b",
+        "2026-12-25?x=1",
+        "2026-12-25#frag",
+    ],
+)
+def test_build_delete_holiday_request_rejects_path_escapes(hostile_day: str) -> None:
+    """D-18: a ``day`` able to escape the path segment never builds a spec.
+
+    Without the guard, ``day="../config"`` normalizes to ``DELETE /api/calendar/config``
+    (a market-config reset) and ``day="X?a=1"`` injects a query string (T-26-01).
+    """
+    with pytest.raises(ValueError, match="day"):
+        _core.build_delete_holiday_request(_ClientState(), hostile_day)
+
+
+def test_build_delete_holiday_request_guard_raises_plain_value_error() -> None:
+    """The guard is a client-side rejection: plain ValueError, NOT MarketDataError."""
+    with pytest.raises(ValueError) as exc_info:
+        _core.build_delete_holiday_request(_ClientState(), "../config")
+    assert type(exc_info.value) is ValueError
+    assert not isinstance(exc_info.value, MarketDataError)
+
+
+def test_build_delete_holiday_request_guard_message_leaks_no_state() -> None:
+    """T-26-14: the message names only ``day`` and its value — no creds, no base_url."""
+    configured = _ClientState(
+        base_url="https://secret-host.test/api",
+        token="SUPERSECRET",
+        client_secret="SHHH",
+    )
+    with pytest.raises(ValueError) as exc_info:
+        _core.build_delete_holiday_request(configured, "../config")
+    message = str(exc_info.value)
+    assert "secret-host.test" not in message
+    assert "SUPERSECRET" not in message
+    assert "SHHH" not in message
+
+
+def test_build_delete_holiday_request_does_not_validate_date_format() -> None:
+    """D-13: the guard rejects escapes, not bad dates — 422 stays the server's job."""
+    spec = _core.build_delete_holiday_request(_ClientState(), "2026-13-45")
+    assert spec.path == "/calendar/holidays/2026-13-45"
+
+
+def test_build_delete_holiday_request_is_state_independent() -> None:
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    assert _core.build_delete_holiday_request(
+        fresh, "2026-12-25"
+    ) == _core.build_delete_holiday_request(configured, "2026-12-25")
