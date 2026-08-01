@@ -10,6 +10,9 @@ Covers the PURE ``_core`` surface for the five reference-data read endpoints
   (D-02).
 - Collection parsers (``instruments``/``segments``/``symbols``/``calendar``)
   return ``[]`` on a 204 or ``null`` body and capture NO ``received_at`` (D-05/D-06).
+- ``parse_calendar_response`` unwraps the develop envelope
+  ``{config, coverage, days[], market}`` via ``days`` (D-12), still accepts a bare
+  list, and collapses every other body shape to ``[]`` (T-27-11).
 - ``parse_calendar_config_response`` returns a single ``CalendarConfig`` and
   falls back to ``CalendarConfig.from_api(None)`` on an empty body, never raising
   (D-07).
@@ -27,7 +30,11 @@ import pytest
 
 from market_data_client import _core
 from market_data_client._state import _ClientState
-from market_data_client.exceptions import MarketDataAuthError
+from market_data_client.exceptions import (
+    MarketDataAPIError,
+    MarketDataAuthError,
+    MarketDataRateLimitError,
+)
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
@@ -44,6 +51,32 @@ def _resp(status_code: int, *, json_body: Any = None) -> httpx.Response:
     if json_body is not None:
         return httpx.Response(status_code, json=json_body, request=_DUMMY_REQUEST)
     return httpx.Response(status_code, request=_DUMMY_REQUEST)
+
+
+# The real ``GET /calendar`` body — shape (never values) copied from the committed
+# PII-free baseline .planning/verification/schemas/market-data-client/get-calendar.json
+# (D-12/T-27-13). The rows live under ``days``, NOT at the top level.
+_CALENDAR_ENVELOPE: dict[str, Any] = {
+    "config": {"open": "11:00", "close": "17:00", "timezone": "America/Argentina/Buenos_Aires"},
+    "coverage": {"current_year_covered": True, "warning": None, "years": [2099]},
+    "days": [
+        {
+            "day": "2099-12-29",
+            "closed": True,
+            "open_time": None,
+            "close_time": None,
+            "description": "GSD phase27 probe",
+        },
+        {
+            "day": "2099-12-30",
+            "closed": False,
+            "open_time": "11:00",
+            "close_time": "17:00",
+            "description": "media rueda",
+        },
+    ],
+    "market": {"is_open": False, "state": "CLOSED", "last_business_day": "2099-12-28"},
+}
 
 
 # ----------------------------------------------------------------------
@@ -171,6 +204,125 @@ def test_parse_symbols_response_returns_list_of_models() -> None:
     assert result[0].active is True
 
 
+# ----------------------------------------------------------------------
+# parse_symbols_response — mutation bodies (D-11 / D-22). F-41 / F-51.
+# ----------------------------------------------------------------------
+#
+# Shapes copied verbatim from the committed LIVE-MUT-01 baselines
+# (create-symbol-*-response.json, create-symbols-batch-*-response.json,
+# update-symbol-*-response.json). Values are synthetic; the KEY SETS are real.
+
+_CREATE_SYMBOL_BODY = {
+    "active": True,
+    "created": True,
+    "id": 8123,
+    "market_id": "ROFX",
+    "note": "created",
+    "symbol": "GSDPROBE/P27-SYNC",
+}
+
+_UPDATE_SYMBOL_BODY = {
+    "active": False,
+    "id": 8123,
+    "market_id": "ROFX",
+    "note": "updated",
+    "symbol": "GSDPROBE/P27-SYNC",
+}
+
+_CREATE_SYMBOLS_BATCH_BODY = {
+    "created": 2,
+    "items": [
+        {"active": True, "created": True, "id": 8124, "market_id": "ROFX", "symbol": "A"},
+        {"active": True, "created": False, "id": 8125, "market_id": "ROFX", "symbol": "B"},
+    ],
+    "note": "batch",
+    "reactivated": 0,
+    "requested": 2,
+}
+
+
+def test_parse_symbols_response_unwraps_flat_create_body() -> None:
+    # D-11: POST /symbols returns a FLAT symbol object. Iterating it yielded one
+    # all-default Symbol per KEY — six blanks for a six-key body, measured live.
+    result = _core.parse_symbols_response(_resp(200, json_body=_CREATE_SYMBOL_BODY))
+    assert len(result) == 1
+    assert result[0].symbol == "GSDPROBE/P27-SYNC"
+    assert result[0].id == 8123
+    assert result[0].market_id == "ROFX"
+    assert result[0].active is True
+
+
+def test_parse_symbols_response_unwraps_flat_patch_body() -> None:
+    # PATCH /symbols/{symbol_id} returns the same flat shape, one key shorter.
+    result = _core.parse_symbols_response(_resp(200, json_body=_UPDATE_SYMBOL_BODY))
+    assert len(result) == 1
+    assert result[0].id == 8123
+    assert result[0].active is False
+
+
+def test_parse_symbols_response_unwraps_batch_items_envelope() -> None:
+    # POST /symbols/batch returns {created, items[], note, reactivated, requested}
+    # — the same envelope shape parse_latest_response already unwraps via `items`.
+    result = _core.parse_symbols_response(_resp(200, json_body=_CREATE_SYMBOLS_BATCH_BODY))
+    assert len(result) == 2
+    assert [row.symbol for row in result] == ["A", "B"]
+    assert [row.id for row in result] == [8124, 8125]
+
+
+def test_parse_symbols_response_no_longer_yields_all_default_rows() -> None:
+    # The exact live signature of the bug: a six-key object produced SIX Symbols,
+    # all blank. Asserting only "len == 1" above would also pass if the parser
+    # returned one blank row, so pin the absence of blanks explicitly.
+    result = _core.parse_symbols_response(_resp(200, json_body=_CREATE_SYMBOL_BODY))
+    assert len(result) != len(_CREATE_SYMBOL_BODY)
+    assert [row for row in result if row.symbol == ""] == []
+
+
+def test_parse_symbols_response_read_path_is_unregressed() -> None:
+    # The GET /symbols bare-list path was never the defect; the unwrap ladder must
+    # not have broken it. Row shape from get-symbols-probe-prefix-sync.json.
+    body = [
+        {
+            "active": False,
+            "created_at": "2026-08-01T15:54:36",
+            "id": 8123,
+            "market_id": "ROFX",
+            "received_at": None,
+            "symbol": "GSDPROBE/P27-SYNC",
+            "updated_at": "2026-08-01T15:54:38",
+        }
+    ]
+    result = _core.parse_symbols_response(_resp(200, json_body=body))
+    assert len(result) == 1
+    assert result[0].symbol == "GSDPROBE/P27-SYNC"
+    assert result[0].created_at == "2026-08-01T15:54:36"
+
+
+def test_parse_symbols_response_dict_without_rows_returns_empty() -> None:
+    # Collection guard: a dict with neither `items` nor `symbol` → [] rather than
+    # one blank Symbol per key.
+    assert _core.parse_symbols_response(_resp(200, json_body={"note": "nothing here"})) == []
+
+
+def test_parse_symbols_response_non_list_items_returns_empty() -> None:
+    # Second guard: a scalar or object `items` value collapses to [].
+    assert _core.parse_symbols_response(_resp(200, json_body={"items": "nope"})) == []
+    assert _core.parse_symbols_response(_resp(200, json_body={"items": {"a": 1}})) == []
+
+
+def test_parse_symbols_response_scalar_body_returns_empty() -> None:
+    scalar_resp = httpx.Response(200, content=b"42", request=_DUMMY_REQUEST)
+    assert _core.parse_symbols_response(scalar_resp) == []
+
+
+def test_parse_symbols_response_items_wins_over_flat_symbol_key() -> None:
+    # Discrimination is by key and the precedence is explicit: an envelope that
+    # also happens to carry a top-level `symbol` is still read through `items`.
+    body = {"items": [{"symbol": "A"}], "symbol": "DECOY"}
+    result = _core.parse_symbols_response(_resp(200, json_body=body))
+    assert [row.symbol for row in result] == ["A"]
+
+
 def test_parse_calendar_response_null_and_204_return_empty() -> None:
     null_resp = httpx.Response(200, content=b"null", request=_DUMMY_REQUEST)
     assert _core.parse_calendar_response(null_resp) == []
@@ -178,12 +330,64 @@ def test_parse_calendar_response_null_and_204_return_empty() -> None:
     assert _core.parse_calendar_response(empty_resp) == []
 
 
-def test_parse_calendar_response_returns_list_of_models() -> None:
-    body = [{"date": "2026-07-30", "isBusinessDay": True}]
+def test_parse_calendar_response_unwraps_days_envelope() -> None:
+    # D-12: develop returns {config, coverage, days[], market}; iterating the body
+    # as a list yields the FOUR envelope KEYS, not the days. Shape copied from the
+    # committed .planning/verification/schemas/.../get-calendar.json baseline.
+    body = _CALENDAR_ENVELOPE
+    result = _core.parse_calendar_response(_resp(200, json_body=body))
+    assert len(result) == 2
+    assert all(isinstance(row, CalendarDay) for row in result)
+    assert result[0].day == "2099-12-29"
+    assert result[0].closed is True
+    assert result[0].description == "GSD phase27 probe"
+    assert result[0].open_time is None
+    assert result[1].day == "2099-12-30"
+    assert result[1].closed is False
+    assert result[1].open_time == "11:00"
+    assert result[1].close_time == "17:00"
+
+
+def test_parse_calendar_response_bare_list_still_parses() -> None:
+    # Backwards tolerance: a bare list of day dicts is still accepted as-is.
+    body = [{"day": "2026-07-30", "closed": True}]
     result = _core.parse_calendar_response(_resp(200, json_body=body))
     assert len(result) == 1
     assert isinstance(result[0], CalendarDay)
-    assert result[0].isBusinessDay is True
+    assert result[0].day == "2026-07-30"
+    assert result[0].closed is True
+
+
+def test_parse_calendar_response_dict_without_days_returns_empty() -> None:
+    # Collection guard: no `days` key → [] (no KeyError, no key-iteration rows).
+    assert _core.parse_calendar_response(_resp(200, json_body={"config": {}})) == []
+
+
+def test_parse_calendar_response_non_list_days_returns_empty() -> None:
+    # Second guard: a scalar or object `days` value collapses to [] (T-27-11).
+    assert _core.parse_calendar_response(_resp(200, json_body={"days": "nope"})) == []
+    assert _core.parse_calendar_response(_resp(200, json_body={"days": {"a": 1}})) == []
+
+
+def test_parse_calendar_response_scalar_body_returns_empty() -> None:
+    scalar_resp = httpx.Response(200, content=b"42", request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_response(scalar_resp) == []
+
+
+def test_parse_calendar_response_401_raises_auth() -> None:
+    # Body-consume-then-raise order is unchanged: error statuses still raise.
+    with pytest.raises(MarketDataAuthError):
+        _core.parse_calendar_response(_resp(401))
+
+
+def test_parse_calendar_response_429_raises_rate_limit() -> None:
+    with pytest.raises(MarketDataRateLimitError):
+        _core.parse_calendar_response(_resp(429))
+
+
+def test_parse_calendar_response_422_raises_api_error() -> None:
+    with pytest.raises(MarketDataAPIError):
+        _core.parse_calendar_response(_resp(422))
 
 
 def test_parse_instruments_response_401_raises_auth() -> None:

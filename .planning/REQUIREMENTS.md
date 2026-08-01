@@ -17,15 +17,15 @@ Requisitos del milestone v1.5. Cada uno mapea a una fase del roadmap. Plan fuent
 
 ### Calendar (write)
 
-- [ ] **MUT-MD-02**: El consumidor puede administrar el calendario — `PUT /calendar/config` (setear horario, `MarketHoursIn`, respeta `confirm`), `DELETE /calendar/config` (reset), `POST /calendar/config/preview` (preview sin persistir, `MarketHoursIn`), `POST /calendar/holidays` (agregar feriados, `HolidaysIn`) y `DELETE /calendar/holidays/{day}` (borrar un feriado) — con request-models tipados, sync y async, detrás del mutating-gate
+- [x] **MUT-MD-02**: El consumidor puede administrar el calendario — `PUT /calendar/config` (setear horario, `MarketHoursIn`, respeta `confirm`), `DELETE /calendar/config` (reset), `POST /calendar/config/preview` (preview sin persistir, `MarketHoursIn`), `POST /calendar/holidays` (agregar feriados, `HolidaysIn`) y `DELETE /calendar/holidays/{day}` (borrar un feriado) — con request-models tipados, sync y async, detrás del mutating-gate
 
 ### Verification
 
-- [ ] **LIVE-MUT-01**: La superficie de mutación completa (sync + async) se ejercita en vivo contra develop con credenciales Auth0 a través de `main_market_data.py`, **detrás del mutating-gate** y con **identificadores de prueba dedicados + cleanup** (create→verify→revert); NUNCA toca config real de mercado sin `confirm`. Toda divergencia (shape de respuesta, idempotencia real, códigos) se documenta y se corrige en el mismo ciclo, espejada sync/async. Revalida la idempotencia asumida por-endpoint (DM-03)
+- [x] **LIVE-MUT-01**: La superficie de mutación completa (sync + async) se ejercita en vivo contra develop con credenciales Auth0 a través de `main_market_data.py`, **detrás del mutating-gate** y con **identificadores de prueba dedicados + cleanup** (create→verify→revert); NUNCA toca config real de mercado sin `confirm`. Toda divergencia (shape de respuesta, idempotencia real, códigos) se documenta y se corrige en el mismo ciclo, espejada sync/async. Revalida la idempotencia asumida por-endpoint (DM-03)
 
 ### Release
 
-- [ ] **PUB-MUT-01**: `market-data-client` se publica como `v0.3.0` (minor bump — features nuevas, no rompe la superficie de lectura v0.2.0) por el pipeline de tags — bump `pyproject`+`__version__`, README changelog, `uv.lock` refresh, CI verde, PR → merge → tag `market-data-client-v0.3.0` → GitHub Release con wheel + sdist
+- [ ] **PUB-MUT-01**: `market-data-client` se publica como `v0.4.0` (minor bump — features nuevas, no rompe la superficie de lectura v0.2.0) por el pipeline de tags — bump `pyproject`+`__version__`, README changelog, `uv.lock` refresh, CI verde, PR → merge → tag `market-data-client-v0.4.0` → GitHub Release con wheel + sdist. **Constancia (2026-08-01, D-02):** `v0.3.0` (PR #8, `ea92dd8`) y `v0.3.1` (PR #9, `7b0e0b2`) ya se publicaron mid-milestone, fuera del flujo de fases; el requisito se satisface por la publicación de `0.4.0`, no por la de `0.3.0`
 
 ## v2 Requirements
 
@@ -60,8 +60,8 @@ Qué fases cubren qué requisitos. Confirmado en la creación del roadmap (2026-
 |-------------|-------|--------|
 | GATE-MD-01 | Phase 25 | Complete |
 | MUT-MD-01 | Phase 25 | Complete |
-| MUT-MD-02 | Phase 26 | Pending |
-| LIVE-MUT-01 | Phase 27 | Pending |
+| MUT-MD-02 | Phase 26 | Complete |
+| LIVE-MUT-01 | Phase 27 | Complete |
 | PUB-MUT-01 | Phase 28 | Pending |
 
 **Coverage:**

@@ -59,6 +59,40 @@ uv run mypy packages/market-data-client
 
 ## Changelog
 
+### v0.4.0
+
+**Nueva superficie de escritura: calendar, más los fixes verificados en vivo contra develop**
+(features nuevas, minor bump — la superficie de lectura v0.2.0 sigue intacta).
+
+- **Calendar write (MUT-MD-02):** ocho nombres públicos nuevos en el `__all__` plano — los
+  request-models `MarketHoursIn`, `HolidayIn` y `HolidaysIn`, y las funciones
+  `set_calendar_config`, `delete_calendar_config`, `preview_calendar_config`, `add_holidays` y
+  `delete_holiday` — sobre los endpoints `PUT /calendar/config`, `DELETE /calendar/config`,
+  `POST /calendar/config/preview`, `POST /calendar/holidays` y `DELETE /calendar/holidays/{day}`.
+  Las cinco funciones tienen contraparte async en `market_data_client.aio`
+  (`set_calendar_config`, `delete_calendar_config`, `preview_calendar_config`, `add_holidays`,
+  `delete_holiday`; shims a nivel de módulo, no re-exportados al namespace plano según la
+  convención del monorepo). El guardrail `confirm` se expone explícitamente con default `False`,
+  así que nunca se persiste configuración real de mercado de forma implícita. Toda la superficie
+  vive detrás del mutating-gate opt-in ya existente (`mutating_allowed=True` + `expected_host`).
+- **Fixes verificados en vivo (LIVE-MUT-01):** `update_symbol(symbol_id)` fue **ensanchado** de
+  `str` a `int | str` en los cuatro routes (el builder de `_core`, `Client`, `AsyncClient` y
+  ambos shims de módulo); `Symbol` gana cinco campos **con default** (`id`, `market_id`,
+  `created_at`, `updated_at`, `received_at`); `Symbol.marketId` se **preserva** como alias
+  deprecado, espejado desde el `market_id` del wire vía override de `from_api`; y el envelope de
+  las respuestas de symbols-write se desenvuelve preservando `list[Symbol]`. Todos son cambios
+  estrictamente aditivos o de ensanchamiento — **no rompen** a ningún consumidor v0.3.1.
+
+**Breaking changes** (semver minor bump en línea 0.x) — reemplazo de campos de `CalendarDay`:
+
+- `CalendarDay` **removió** `date`, `marketId` e `isBusinessDay` (sin aliases de compatibilidad)
+  y los reemplazó por `day`, `closed`, `description`, `open_time` y `close_time`, reconciliados
+  contra el wire real de develop.
+- Se shippea dentro de un minor bump porque `parse_calendar_response` iteraba las claves del
+  envelope en vez de `days[]`: ningún consumidor publicado pudo haber tenido nunca una instancia
+  poblada de `CalendarDay`, de modo que los campos viejos no eran legibles en la práctica. Aun
+  así se documenta explícitamente acá para que el reemplazo sea descubrible y no silencioso.
+
 ### v0.3.1
 
 **Bugfix (patch):** `get_latest_batch` devolvía snapshots vacíos.

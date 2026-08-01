@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: market-data-client · mutaciones
-current_phase: 26
-current_phase_name: Calendar write
-status: verifying
-stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-07-31T20:51:44.770Z"
-last_activity: 2026-07-31
-last_activity_desc: Phase 25 complete, transitioned to Phase 26
+current_phase: 28
+current_phase_name: release-prep-publish-v0-3-0
+status: executing
+stopped_at: Completed 28-01-PLAN.md — v0.4.0 release prep pushed to origin
+last_updated: "2026-08-01T21:01:42.036Z"
+last_activity: 2026-08-01
+last_activity_desc: Phase 28 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 25
+  completed_phases: 3
+  total_plans: 17
+  completed_plans: 15
+  percent: 75
 ---
 
 # Project State
@@ -25,20 +25,20 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.5 extiende `market-data-client` v0.2.0 —solo lectura— con la superficie de **escritura** de la API primary-extractor: symbols + calendar, detrás de un mutating-gate de seguridad load-bearing, verificada en vivo de forma segura contra develop, y publicada v0.3.0.)
 
-**Current focus:** Phase 25 — Mutating-gate + Symbols write
+**Current focus:** Phase 28 — release-prep-publish-v0-3-0
 
 ## Current Position
 
-Phase: 26 — Calendar write
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-31 — Phase 25 complete, transitioned to Phase 26
+Phase: 28 (release-prep-publish-v0-3-0) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-01 — Phase 28 execution started
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 79 (v1.0)
+- Total plans completed: 83 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -105,6 +105,7 @@ Last activity: 2026-07-31 — Phase 25 complete, transitioned to Phase 26
 | Phase 25 P01 | 10 | 3 tasks | 7 files |
 | Phase 25 P02 | 4min | 2 tasks | 4 files |
 | Phase 25 P03 | 7min | 2 tasks | 7 files |
+| Phase 28 P01 | 12min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,11 @@ Recent decisions affecting current work:
 - [Phase ?]: 25-02: NewSymbol emits snake_case market_id wire key (not camelCase marketId) per source-plan schema; confirmed live Phase 27 (A2)
 - [Phase ?]: 25-02: NewSymbols 1-500 batch guard raises plain ValueError in __post_init__, not a MarketData* error (D-11)
 - [Phase ?]: 25-02: all three symbols write builders idempotent=True (DM-03); PATCH symbol_id interpolated raw, percent-encoding deferred to Phase 27 (D-08)
+- [Phase ?]: [Phase 28-01]: Release publicada como 0.4.0 (minor), no 0.3.2 ni 1.0.0 — el diff sin publicar agrega 13 nombres públicos nuevos, un patch bump violaría semver para todo pin ~=0.3.1 (D-01)
+- [Phase ?]: [Phase 28-01]: CalendarDay se documenta en el changelog v0.4.0 en vez de blindarse con compat shim — D-03 rechazó el shim de aliases deprecados; el callout ES la mitigación lockeada. Riesgo residual D-13 aceptado (nunca auditado independientemente)
+- [Phase ?]: [Phase 28-01]: Los strings de título 'Phase 28: Release prep + publish v0.3.0' quedan textuales en ROADMAP; solo se re-apuntó el target de release adentro — la tooling GSD resuelve el directorio de fase desde ese string
+- [Phase ?]: [Phase 28-01]: D-16 (market-data-client ausente de mypy files / import-linter root_packages / ci.yml:85) sigue diferido pero archivado en ROADMAP § Backlog 'Deferred to v1.6+' — gap de cobertura, no CI failure
+- [Phase ?]: [Phase 28-01]: Branch publicada con fast-forward plano (behind=0, ahead=104); sin force flag y sin rebase/merge de origin/main — preserva los ~99 SHAs que los SUMMARY de Phases 25-27 cross-referencian (D-10, T-28-08)
 
 ### Pending Todos
 
@@ -222,8 +228,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-07-31T20:45:23.415Z
-Stopped at: Completed 25-03-PLAN.md
+Last session: 2026-08-01T21:01:42.031Z
+Stopped at: Completed 28-01-PLAN.md — v0.4.0 release prep pushed to origin
 Resume file: None
 
 ## Operator Next Steps

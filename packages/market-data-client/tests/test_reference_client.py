@@ -11,10 +11,30 @@ Bearer`` injection, (c) httpx-native bool encoding (``True → "true"`` /
 
 from __future__ import annotations
 
+from typing import Any
+
 from pytest_httpx import HTTPXMock
 
 import market_data_client
 from market_data_client import CalendarConfig, CalendarDay, Instrument, Segment, Symbol
+
+# The real ``GET /calendar`` body: rows live under ``days``, not at the top level
+# (D-12). Shape mirrors the committed PII-free baseline
+# .planning/verification/schemas/market-data-client/get-calendar.json.
+_CALENDAR_ENVELOPE: dict[str, Any] = {
+    "config": {"open": "11:00", "close": "17:00"},
+    "coverage": {"current_year_covered": True, "years": [2026]},
+    "days": [
+        {
+            "day": "2026-01-02",
+            "closed": True,
+            "open_time": None,
+            "close_time": None,
+            "description": "Ano Nuevo",
+        }
+    ],
+    "market": {"is_open": False, "state": "CLOSED"},
+}
 
 
 def test_get_instruments_sends_bearer_and_encodes_params(httpx_mock: HTTPXMock) -> None:
@@ -95,20 +115,31 @@ def test_get_symbols_sends_bearer_and_preserves_false(httpx_mock: HTTPXMock) -> 
 
 def test_get_calendar_sends_bearer_and_year(httpx_mock: HTTPXMock) -> None:
     """``get_calendar`` encodes the ``year`` filter and dispatches ``GET /calendar``."""
-    httpx_mock.add_response(
-        method="GET",
-        json=[{"date": "2026-01-02", "marketId": "ROFX", "isBusinessDay": True}],
-    )
+    httpx_mock.add_response(method="GET", json=_CALENDAR_ENVELOPE)
 
     result = market_data_client.client._get_default().get_calendar(year=2026)
 
     assert len(result) == 1
     assert isinstance(result[0], CalendarDay)
-    assert result[0].date == "2026-01-02"
+    assert result[0].day == "2026-01-02"
     req = httpx_mock.get_requests()[0]
     assert req.headers["Authorization"] == "Bearer test-token"
     assert req.url.path == "/api/calendar"
     assert req.url.params.get("year") == "2026"
+
+
+def test_get_calendar_unwraps_days_envelope(httpx_mock: HTTPXMock) -> None:
+    """``get_calendar`` returns populated rows from the real develop envelope (D-12)."""
+    httpx_mock.add_response(method="GET", json=_CALENDAR_ENVELOPE)
+
+    result = market_data_client.client._get_default().get_calendar()
+
+    assert [row.day for row in result] == ["2026-01-02"]
+    assert result[0].closed is True
+    assert result[0].description == "Ano Nuevo"
+    assert result[0].open_time is None
+    assert result[0].close_time is None
+    assert "year" not in httpx_mock.get_requests()[0].url.params
 
 
 def test_get_calendar_config_returns_single_object(httpx_mock: HTTPXMock) -> None:

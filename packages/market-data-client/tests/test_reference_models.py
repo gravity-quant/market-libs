@@ -16,6 +16,8 @@ Pins the D-04/D-05 behaviors for the five reference models
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from market_data_client.models import (
@@ -59,10 +61,59 @@ def test_symbol_from_api_extra_keys_ignored_and_false_preserved() -> None:
 
 
 def test_calendar_day_from_api_partial_fills_typed_zeros() -> None:
-    day = CalendarDay.from_api({"date": "2026-07-30"})
-    assert day.date == "2026-07-30"
-    assert day.marketId == ""
-    assert day.isBusinessDay is False
+    # D-12: the wire row is the HolidayIn shape — `day`, not `date`.
+    day = CalendarDay.from_api({"day": "2026-07-30"})
+    assert day.day == "2026-07-30"
+    assert day.closed is False
+    assert day.description == ""
+    assert day.open_time is None
+    assert day.close_time is None
+
+
+def test_calendar_day_from_api_populated_wire_row() -> None:
+    # D-12: shape copied from the committed get-calendar.json baseline —
+    # a closed holiday sends both hour fields as wire `null`.
+    day = CalendarDay.from_api(
+        {
+            "day": "2099-12-29",
+            "closed": True,
+            "open_time": None,
+            "close_time": None,
+            "description": "GSD phase27 probe",
+        }
+    )
+    assert day.day == "2099-12-29"
+    assert day.closed is True
+    assert day.description == "GSD phase27 probe"
+    assert day.open_time is None
+    assert day.close_time is None
+
+
+def test_calendar_day_from_api_session_hours_populate_str_fields() -> None:
+    # An open day with custom session hours carries both times as strings.
+    day = CalendarDay.from_api(
+        {"day": "2026-07-30", "closed": False, "open_time": "11:00", "close_time": "17:00"}
+    )
+    assert day.closed is False
+    assert day.open_time == "11:00"
+    assert day.close_time == "17:00"
+
+
+def test_calendar_day_from_api_none_and_non_dict_return_defaults() -> None:
+    # SafeModel tolerance: neither a None nor a scalar payload may raise.
+    for payload in (None, "not-a-dict"):
+        day = CalendarDay.from_api(payload)
+        assert day.day == ""
+        assert day.closed is False
+        assert day.description == ""
+        assert day.open_time is None
+        assert day.close_time is None
+
+
+def test_calendar_day_from_api_extra_keys_ignored() -> None:
+    day = CalendarDay.from_api({"day": "2026-07-30", "extraKey": 1})
+    assert day.day == "2026-07-30"
+    assert not hasattr(day, "extraKey")
 
 
 def test_calendar_config_from_api_none_returns_defaulted_instance() -> None:
@@ -107,8 +158,131 @@ def test_calendar_config_from_api_populated() -> None:
     assert cfg.updated_at is None
 
 
-@pytest.mark.parametrize("model", _ALL_MODELS)
+def test_calendar_config_field_set_matches_reconciled_wire() -> None:
+    # LIVE-MD-01 / F-08 / F-26: the reconciliation REMOVED the model-only
+    # ``businessDays`` field (it never existed on the develop wire) and added the
+    # ten real ones. ``test_calendar_config_from_api_populated`` proves the added
+    # fields parse, but a stale ``businessDays`` would just default to [] and keep
+    # it green — only an exact field-set assertion proves the removal.
+    assert {f.name for f in dataclasses.fields(CalendarConfig)} == {
+        "open",
+        "close",
+        "enabled",
+        "editable",
+        "env_bypass",
+        "pre_open_minutes",
+        "source",
+        "timezone",
+        "updated_by",
+        "warnings",
+        "updated_at",
+    }
+    assert not hasattr(CalendarConfig.from_api({}), "businessDays")
+
+
+@pytest.mark.parametrize("model", [m for m in _ALL_MODELS if m is not Symbol])
 def test_reference_models_have_no_received_at(model: type[SafeModel]) -> None:
     # D-05: reference-data models are unstamped — no client-side received_at.
+    # ``Symbol`` is parametrized OUT because it declares a ``received_at`` that is
+    # a WIRE field, not a client stamp; ``test_symbol_received_at_is_a_wire_field``
+    # below pins that distinction instead of waiving it.
     instance = model.from_api({})
     assert not hasattr(instance, "received_at")
+
+
+# ----------------------------------------------------------------------
+# Symbol — reconciled against the first populated row ever observed
+# (LIVE-MUT-01, armed run 2026-08-01). F-42..F-47 / F-52..F-57.
+# ----------------------------------------------------------------------
+
+# The exact row shape of ``get-symbols-probe-prefix-sync.json``. Values are
+# synthetic; only the KEY SET and the value TYPES come from the live baseline.
+_WIRE_SYMBOL_ROW = {
+    "active": False,
+    "created_at": "2026-08-01T15:54:36.123456",
+    "id": 8123,
+    "market_id": "ROFX",
+    "received_at": None,
+    "symbol": "GSDPROBE/P27-SYNC",
+    "updated_at": "2026-08-01T15:54:38.654321",
+}
+
+
+def test_symbol_field_set_matches_reconciled_wire() -> None:
+    # F-43..F-47 / F-53..F-57 are wire-only field findings: the wire sends five
+    # keys ``Symbol`` did not declare. ``test_symbol_from_api_populated_wire_row``
+    # proves the added fields PARSE, but it would stay green if only some of them
+    # had been added — and, worse, a silent REMOVAL of the published ``marketId``
+    # alias would also keep it green (every other assertion reads the new fields).
+    # Only an exact field-set assertion proves both directions at once: the five
+    # additions landed AND the published alias survived (D-22 forbids the rename).
+    assert {f.name for f in dataclasses.fields(Symbol)} == {
+        "symbol",
+        "marketId",
+        "active",
+        "id",
+        "market_id",
+        "created_at",
+        "updated_at",
+        "received_at",
+    }
+
+
+def test_symbol_from_api_populated_wire_row() -> None:
+    # Every key of the live row lands on a real field — no data is dropped.
+    sym = Symbol.from_api(_WIRE_SYMBOL_ROW)
+    assert sym.symbol == "GSDPROBE/P27-SYNC"
+    assert sym.market_id == "ROFX"
+    assert sym.active is False
+    assert sym.id == 8123
+    assert sym.created_at == "2026-08-01T15:54:36.123456"
+    assert sym.updated_at == "2026-08-01T15:54:38.654321"
+    assert sym.received_at is None
+
+
+def test_symbol_from_api_partial_leaves_row_id_at_typed_default() -> None:
+    # A partial payload must not raise: ``id`` falls back to the typed zero, which
+    # is what makes the field safe to add to a published model.
+    sym = Symbol.from_api({"symbol": "GGAL"})
+    assert sym.symbol == "GGAL"
+    assert sym.id == 0
+    assert sym.market_id == ""
+    assert sym.received_at is None
+
+
+def test_symbol_row_id_is_an_int_not_a_string() -> None:
+    # The id feeds ``PATCH /symbols/{symbol_id}``, whose live spec types the path
+    # parameter as an INTEGER. A str-typed id would have kept the client's old
+    # ``symbol_id: str`` looking correct.
+    sym = Symbol.from_api(_WIRE_SYMBOL_ROW)
+    assert isinstance(sym.id, int)
+    assert not isinstance(sym.id, bool)
+
+
+def test_symbol_market_id_alias_mirrors_wire_snake_case() -> None:
+    # F-42 / F-52: ``marketId`` was model-only while ``market_id`` was wire-only in
+    # the SAME diff. The alias is kept (published surface, D-22) but is no longer
+    # dead: ``from_api`` mirrors the wire value into it. Before this fix a real
+    # payload left it permanently "".
+    sym = Symbol.from_api(_WIRE_SYMBOL_ROW)
+    assert sym.marketId == "ROFX"
+    assert sym.marketId == sym.market_id
+
+
+def test_symbol_explicit_camel_case_payload_key_still_wins() -> None:
+    # The mirror only FILLS an absent key. An older fixture or hand-built dict
+    # that sends ``marketId`` explicitly keeps its own value.
+    sym = Symbol.from_api({"symbol": "GGAL", "marketId": "LEGACY", "market_id": "ROFX"})
+    assert sym.marketId == "LEGACY"
+    assert sym.market_id == "ROFX"
+
+
+def test_symbol_received_at_is_a_wire_field_not_a_client_stamp() -> None:
+    # Same name as ``MarketDataSnapshot.received_at``, opposite provenance: this
+    # one is read off the payload by the inherited ``_coerce``, never injected by
+    # the client. An absent key stays ``None`` (it is ``str | None``), and a wire
+    # value is preserved verbatim rather than collapsed to a float.
+    assert Symbol.from_api({}).received_at is None
+    assert Symbol.from_api({"received_at": "2026-08-01T16:00:00"}).received_at == (
+        "2026-08-01T16:00:00"
+    )

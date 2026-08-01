@@ -1,0 +1,10 @@
+{
+  "endpoint": "DELETE /calendar/holidays/{day}",
+  "client_function": "delete_holiday_async_response",
+  "captured_at": "2026-08-01T15:54:35.550647+00:00",
+  "base_url": "https://market-data-develop.bbsa.com.ar/api",
+  "schema": {
+    "day": "str",
+    "deleted": "bool"
+  }
+}

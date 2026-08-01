@@ -48,9 +48,11 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
+    HolidaysIn,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     NewSymbol,
     NewSymbols,
     Segment,
@@ -573,11 +575,15 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_symbols_response(resp)
 
-    async def update_symbol(self, symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+    async def update_symbol(self, symbol_id: int | str, patch: SymbolPatch) -> list[Symbol]:
         """Gated ``PATCH {base_url}/symbols/{symbol_id}`` → ``list[Symbol]`` (D-15).
 
-        Gate-first (D-04/D-05). ``symbol_id`` se interpola raw en Phase 25
-        (percent-encoding de ids con ``/`` es D-08, diferido a Phase 27).
+        Gate-first (D-04/D-05). ``symbol_id`` es el ID ENTERO DE FILA (``Symbol.id``),
+        no el nombre del símbolo; la anotación se ENSANCHA a ``int | str`` para que
+        la forma ``str`` publicada en v0.3.x siga funcionando (D-22). Se interpola
+        RAW y sigue raw: el ítem D-08 de percent-encoding queda DISUELTO, no
+        diferido — el path param es un entero (D-09). La evidencia medida está en
+        :func:`_core.build_update_symbol_request`.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_update_symbol_request(self._state, symbol_id, patch.to_dict())
@@ -595,6 +601,116 @@ class AsyncClient:
         spec = _core.build_calendar_config_request(self._state)
         resp = await self._request(spec)
         return _core.parse_calendar_config_response(resp)
+
+    # ------------------------------------------------------------------
+    # Public endpoint methods — calendar writes (gated, MUT-MD-02 / GATE-MD-01)
+    # ------------------------------------------------------------------
+
+    async def set_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
+        """Gated ``PUT {base_url}/calendar/config`` → ``CalendarConfig`` (MUT-MD-02).
+
+        Espejo async: ``_ensure_mutation_allowed()`` es la PRIMERA sentencia
+        literal (no-awaited), antes del builder, de ``await self._request`` y de
+        cualquier token fetch — un refusal emite CERO HTTP + CERO grant a Auth0
+        (D-14). El modelo se serializa ACÁ, en el shell: ``config.to_dict()``
+        llega al builder ya aplanado (precedente Phase 25).
+
+        ``confirm`` es un CAMPO de :class:`MarketHoursIn` con default ``False``
+        (D-09) y SIEMPRE viaja en el wire. Según la OpenAPI en vivo es una SEGUNDA
+        OPINIÓN requerida, no un force flag: el servidor la exige sólo cuando la
+        ventana pedida produce warnings. El flujo previsto es
+        ``preview_calendar_config(...)`` → inspeccionar ``warnings`` → reemitir con
+        ``confirm=True``.
+
+        Reusa ``_core.parse_calendar_config_response`` SIN modificar (D-05) y no
+        agrega manejo de status: un ``422`` fluye por el
+        ``_core.raise_for_response`` existente (D-13 — los formatos de hora y
+        timezone los valida el servidor).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_set_calendar_config_request(self._state, config.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    async def delete_calendar_config(self) -> CalendarConfig:
+        """Gated ``DELETE {base_url}/calendar/config`` → ``CalendarConfig`` (MUT-MD-02).
+
+        Resetea la config de horarios a sus defaults. Gate-first (D-14). El builder
+        omite ``json_body`` por completo, así que el request sale con
+        ``content == b""`` y SIN header ``Content-Type`` (D-02) — un objeto JSON
+        vacío sería un body que el servidor tendría que interpretar. Reusa
+        ``_core.parse_calendar_config_response`` sin modificar (D-05).
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_delete_calendar_config_request(self._state)
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    async def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+
+        Dry-run compute-only: NO persiste nada del lado del servidor, así que en
+        efecto es read-safe. Esa excepción queda DOCUMENTADA acá, NO implementada
+        como carve-out del gate (D-14): sigue siendo un ``POST`` sobre la
+        superficie de mutación, y un segundo camino —más débil— hacia esa
+        superficie costaría más que la comodidad. Por eso
+        ``_ensure_mutation_allowed()`` sigue siendo la primera sentencia literal,
+        igual que en los dos métodos que sí persisten.
+
+        Mismo body de ``MarketHoursIn`` serializado que
+        :meth:`set_calendar_config` (``confirm`` incluido) y el mismo
+        ``_core.parse_calendar_config_response`` (D-05); leé ``warnings`` en la
+        config devuelta para decidir si la escritura real necesita ``confirm=True``.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_calendar_config_response(resp)
+
+    async def add_holidays(self, holidays: HolidaysIn) -> dict[str, Any]:
+        """Gated ``POST {base_url}/calendar/holidays`` → ``dict`` tolerante (MUT-MD-02).
+
+        Gate-first (D-14). El builder marca este spec ``idempotent=False`` — el
+        ÚNICO del paquete (DM-03 / D-04) — así que ``RetryTransport`` NO lo
+        reintenta: dar de alta feriados no es replay-safe y un reintento
+        duplicaría los días. El bound 1-500 ya cortó client-side en
+        ``HolidaysIn.__post_init__``, antes de llegar acá.
+
+        Retorna el body del ``200`` tal cual como ``dict`` vía
+        ``_core.parse_calendar_write_response`` (D-06): la OpenAPI en vivo declara
+        este ``200`` como un ``object`` pelado sin schema, así que no hay nada
+        contra qué tipar hasta que Phase 27 capture la forma real. El modelo de
+        lectura del calendario y ``parse_calendar_response`` NO se usan a
+        propósito — ese par de lectura está roto contra el wire real (D-16), un bug
+        que esta fase registra en vez de arreglar. Un body ausente degrada a ``{}``
+        (D-07); un ``422`` fluye por el ``_core.raise_for_response`` existente.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_calendar_write_response(resp)
+
+    async def delete_holiday(self, day: str) -> dict[str, Any]:
+        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → ``dict`` tolerante.
+
+        Gate-first (D-14). ``day`` es una fecha ISO ``YYYY-MM-DD`` (la OpenAPI
+        declara el path param como ``format: date``). El builder aplica el guard de
+        path-safety D-18 y levanta un ``ValueError`` pelado ante cualquier ``day``
+        capaz de escapar su segmento de path — ``/``, ``?``, ``#`` o ``..``
+        retargetearían el request a OTRO endpoint, algo que el ``422`` del servidor
+        no puede mitigar porque el request nunca llega al endpoint que lo
+        validaría. El guard NO es validación de formato de fecha: ``"2026-13-45"``
+        lo pasa y se gana el ``422`` del servidor (D-13).
+
+        El builder omite ``json_body``, así que el DELETE sale con
+        ``content == b""`` y sin ``Content-Type`` (D-02). Retorna el body como
+        ``dict`` vía ``_core.parse_calendar_write_response`` (D-06 / D-16), ``{}``
+        cuando el body está ausente.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_delete_holiday_request(self._state, day)
+        resp = await self._request(spec)
+        return _core.parse_calendar_write_response(resp)
 
 
 # ----------------------------------------------------------------------
@@ -780,7 +896,7 @@ async def create_symbols(new_symbols: NewSymbols) -> list[Symbol]:
     return await _get_default().create_symbols(new_symbols)
 
 
-async def update_symbol(symbol_id: str, patch: SymbolPatch) -> list[Symbol]:
+async def update_symbol(symbol_id: int | str, patch: SymbolPatch) -> list[Symbol]:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().update_symbol(symbol_id, patch)
 
@@ -793,6 +909,31 @@ async def get_calendar(*, year: int | None = None) -> list[CalendarDay]:
 async def get_calendar_config() -> CalendarConfig:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_calendar_config()
+
+
+async def set_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().set_calendar_config(config)
+
+
+async def delete_calendar_config() -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().delete_calendar_config()
+
+
+async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().preview_calendar_config(config)
+
+
+async def add_holidays(holidays: HolidaysIn) -> dict[str, Any]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().add_holidays(holidays)
+
+
+async def delete_holiday(day: str) -> dict[str, Any]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().delete_holiday(day)
 
 
 async def aclose() -> None:

@@ -40,9 +40,12 @@ from market_data_client.aio import AsyncClient  # noqa: E402
 from market_data_client.client import (  # noqa: E402
     Client,
     _get_default,
+    add_holidays,
     configure,
     create_symbol,
     create_symbols,
+    delete_calendar_config,
+    delete_holiday,
     get_calendar,
     get_calendar_config,
     get_health,
@@ -53,6 +56,8 @@ from market_data_client.client import (  # noqa: E402
     get_market_data,
     get_segments,
     get_symbols,
+    preview_calendar_config,
+    set_calendar_config,
     update_symbol,
 )
 from market_data_client.exceptions import (  # noqa: E402
@@ -65,9 +70,12 @@ from market_data_client.exceptions import (  # noqa: E402
 from market_data_client.models import (  # noqa: E402
     CalendarConfig,
     CalendarDay,
+    HolidayIn,
+    HolidaysIn,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
+    MarketHoursIn,
     NewSymbol,
     NewSymbols,
     Segment,
@@ -83,6 +91,8 @@ __all__ = [
     "CalendarConfig",
     "CalendarDay",
     "Client",
+    "HolidayIn",
+    "HolidaysIn",
     "Instrument",
     "LatestRequest",
     "MarketDataAPIError",
@@ -91,14 +101,18 @@ __all__ = [
     "MarketDataMutationNotAllowedError",
     "MarketDataRateLimitError",
     "MarketDataSnapshot",
+    "MarketHoursIn",
     "NewSymbol",
     "NewSymbols",
     "Segment",
     "Symbol",
     "SymbolPatch",
+    "add_holidays",
     "configure",
     "create_symbol",
     "create_symbols",
+    "delete_calendar_config",
+    "delete_holiday",
     "get_calendar",
     "get_calendar_config",
     "get_health",
@@ -109,10 +123,12 @@ __all__ = [
     "get_market_data",
     "get_segments",
     "get_symbols",
+    "preview_calendar_config",
+    "set_calendar_config",
     "update_symbol",
 ]
 
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

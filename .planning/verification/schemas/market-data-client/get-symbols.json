@@ -1,7 +1,17 @@
 {
   "endpoint": "/symbols",
   "client_function": "get_symbols",
-  "captured_at": "2026-07-31T16:49:31.404962+00:00",
+  "captured_at": "2026-08-01T16:22:04.632598+00:00",
   "base_url": "https://market-data-develop.bbsa.com.ar/api",
-  "schema": []
+  "schema": [
+    {
+      "active": "bool",
+      "created_at": "str",
+      "id": "int",
+      "market_id": "str",
+      "received_at": "NoneType",
+      "symbol": "str",
+      "updated_at": "str"
+    }
+  ]
 }

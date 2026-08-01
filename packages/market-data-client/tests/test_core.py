@@ -20,6 +20,7 @@ directamente — no requiere conftest ni fixtures (imports puros).
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import httpx
 import pytest
@@ -33,6 +34,7 @@ from market_data_client._state import (
 from market_data_client.exceptions import (
     MarketDataAPIError,
     MarketDataAuthError,
+    MarketDataError,
     MarketDataRateLimitError,
 )
 
@@ -356,6 +358,21 @@ def test_build_update_symbol_request_patches_id_path() -> None:
     assert spec.endpoint_name == "update_symbol"
 
 
+def test_build_update_symbol_request_accepts_int_row_id() -> None:
+    """D-09/D-22: el builder acepta el id ENTERO y lo interpola sin encodear."""
+    spec = _core.build_update_symbol_request(_ClientState(), 8123, {"active": False})
+    assert spec.path == "/symbols/8123"
+
+
+def test_build_update_symbol_request_int_and_str_forms_agree() -> None:
+    """El ensanche no bifurca: ``8123`` y ``"8123"`` producen el mismo path."""
+    body = {"active": False}
+    assert (
+        _core.build_update_symbol_request(_ClientState(), 8123, body).path
+        == _core.build_update_symbol_request(_ClientState(), "8123", body).path
+    )
+
+
 def test_symbols_write_builders_are_state_independent() -> None:
     """Same payload yields identical specs for a fresh vs a configured state."""
     fresh = _ClientState()
@@ -376,3 +393,302 @@ def test_symbols_write_builders_are_state_independent() -> None:
     assert _core.build_update_symbol_request(
         fresh, "X", patch_body
     ) == _core.build_update_symbol_request(configured, "X", patch_body)
+
+
+# ----------------------------------------------------------------------
+# calendar write builders (Plan 26-02, MUT-MD-02) — D-01 / D-02 / D-04
+# ----------------------------------------------------------------------
+
+
+def test_build_set_calendar_config_request_puts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"market_hours": [{"weekday": 1, "open": "10:00", "close": "17:00"}]}
+    spec = _core.build_set_calendar_config_request(state, body)
+    assert spec.method == "PUT"
+    assert spec.path == "/calendar/config"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "set_calendar_config"
+
+
+def test_build_preview_calendar_config_request_posts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"market_hours": []}
+    spec = _core.build_preview_calendar_config_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/calendar/config/preview"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "preview_calendar_config"
+
+
+def test_build_add_holidays_request_is_idempotent() -> None:
+    """CORRECTED on measurement: the endpoint UPSERTS by date (D-20 / F-49 / F-59).
+
+    Phase 26 declared this the package's only ``idempotent=False`` builder,
+    reasoning that a replayed append would duplicate days. The LIVE-MUT-01 armed
+    run measured the opposite by ROW COUNT: two identical POSTs left exactly one
+    row per date on both surfaces. D-20 makes the measurement authoritative over
+    the reasoning, so the flag is now ``True``.
+    """
+    state = _ClientState()
+    body = {"days": [{"day": "2026-12-25", "description": "Navidad"}]}
+    spec = _core.build_add_holidays_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/calendar/holidays"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "add_holidays"
+
+
+def test_build_delete_calendar_config_request_has_no_body() -> None:
+    """``json_body`` stays ``None`` so httpx emits b"" and no Content-Type (D-02)."""
+    state = _ClientState()
+    spec = _core.build_delete_calendar_config_request(state)
+    assert spec.method == "DELETE"
+    assert spec.path == "/calendar/config"
+    assert spec.json_body is None
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "delete_calendar_config"
+
+
+def test_calendar_write_builders_are_state_independent() -> None:
+    """Same payload yields identical specs for a fresh vs a configured state."""
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    config_body = {"market_hours": [{"weekday": 1}]}
+    holidays_body = {"days": [{"day": "2026-12-25"}]}
+    assert _core.build_set_calendar_config_request(
+        fresh, config_body
+    ) == _core.build_set_calendar_config_request(configured, config_body)
+    assert _core.build_preview_calendar_config_request(
+        fresh, config_body
+    ) == _core.build_preview_calendar_config_request(configured, config_body)
+    assert _core.build_add_holidays_request(
+        fresh, holidays_body
+    ) == _core.build_add_holidays_request(configured, holidays_body)
+    assert _core.build_delete_calendar_config_request(
+        fresh
+    ) == _core.build_delete_calendar_config_request(configured)
+
+
+# ----------------------------------------------------------------------
+# build_delete_holiday_request + path-safety guard (Plan 26-02, D-18 / T-26-01)
+# ----------------------------------------------------------------------
+
+
+def test_build_delete_holiday_request_shape() -> None:
+    state = _ClientState()
+    spec = _core.build_delete_holiday_request(state, "2026-12-25")
+    assert spec.method == "DELETE"
+    assert spec.path == "/calendar/holidays/2026-12-25"
+    assert spec.json_body is None
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "delete_holiday"
+
+
+def test_build_delete_holiday_request_interpolates_day_raw() -> None:
+    """A legit ISO day rides the path byte-for-byte — no percent-encoding (D-03)."""
+    spec = _core.build_delete_holiday_request(_ClientState(), "2026-01-02")
+    assert spec.path == "/calendar/holidays/2026-01-02"
+    assert "%" not in spec.path
+
+
+@pytest.mark.parametrize(
+    "hostile_day",
+    [
+        "",
+        "../config",
+        "a/b",
+        "2026-12-25?x=1",
+        "2026-12-25#frag",
+        # CR-01: a LONE dot. RFC 3986 dot-segment removal deletes the segment at
+        # httpx ``build_request``, collapsing the URL onto the holidays COLLECTION.
+        ".",
+        "..",
+        "...",
+        # CR-02: percent-encoded escapes. httpx does not double-encode these, so
+        # they reach the wire and the server decodes them back into the tokens the
+        # old enumeration thought it had blocked.
+        "%2e",
+        "%2E%2E%2Fconfig",
+        "%2e%2e%2fconfig",
+        "%2Fconfig",
+        "config%3Fx=1",
+        "2026-12-25%23frag",
+        # Backslash: WHATWG-normalizing proxies read it as ``/``.
+        "a\\b",
+        # Whitespace / control characters never belong in a path segment.
+        " 2026-12-25 ",
+        "2026-12-25\n",
+        "2026-12-25\ttail",
+    ],
+)
+def test_build_delete_holiday_request_rejects_path_escapes(hostile_day: str) -> None:
+    """D-18: a ``day`` able to escape the path segment never builds a spec.
+
+    Without the guard, ``day="../config"`` normalizes to ``DELETE /api/calendar/config``
+    (a market-config reset) and ``day="X?a=1"`` injects a query string (T-26-01).
+    The guard is a charset allow-list, so it also refuses every percent-encoded
+    spelling of those tokens (CR-02) and the lone ``.`` that RFC 3986 dot-segment
+    removal would otherwise erase, retargeting the collection endpoint (CR-01).
+    """
+    with pytest.raises(ValueError, match="single path segment"):
+        _core.build_delete_holiday_request(_ClientState(), hostile_day)
+
+
+@pytest.mark.parametrize(
+    "non_str_day",
+    [
+        None,
+        20261225,
+        ["2026-12-25"],
+        ("2026-12-25",),
+        {"day": "2026-12-25"},
+        object(),
+    ],
+)
+def test_build_delete_holiday_request_rejects_non_str_day(non_str_day: Any) -> None:
+    """WR-04: a non-``str`` ``day`` is a path-safety refusal, not a ``TypeError``.
+
+    The old containment guard needed ``day`` to support ``in``: an ``int`` blew up
+    with ``TypeError: argument of type 'int' is not iterable`` from INSIDE the
+    guard, and a ``list`` passed it outright (``"/" in ["2026-12-25"]`` is
+    ``False``) so its ``repr`` got interpolated into the path. Untyped callers —
+    notebooks, ``main_*.py``, a date read from JSON as an int — reach here without
+    mypy in the loop, so both must land on the same ``ValueError``.
+    """
+    with pytest.raises(ValueError, match="single path segment"):
+        _core.build_delete_holiday_request(_ClientState(), non_str_day)
+
+
+def test_build_delete_holiday_request_guard_raises_plain_value_error() -> None:
+    """The guard is a client-side rejection: plain ValueError, NOT MarketDataError."""
+    with pytest.raises(ValueError, match="day") as exc_info:
+        _core.build_delete_holiday_request(_ClientState(), "../config")
+    assert type(exc_info.value) is ValueError
+    assert not isinstance(exc_info.value, MarketDataError)
+
+
+def test_build_delete_holiday_request_guard_message_leaks_no_state() -> None:
+    """T-26-14: the message names only ``day`` and its value — no creds, no base_url."""
+    configured = _ClientState(
+        base_url="https://secret-host.test/api",
+        token="SUPERSECRET",
+        client_secret="SHHH",
+    )
+    with pytest.raises(ValueError, match="day") as exc_info:
+        _core.build_delete_holiday_request(configured, "../config")
+    message = str(exc_info.value)
+    assert "secret-host.test" not in message
+    assert "SUPERSECRET" not in message
+    assert "SHHH" not in message
+
+
+def test_build_delete_holiday_request_does_not_validate_date_format() -> None:
+    """D-13: the guard rejects escapes, not bad dates — 422 stays the server's job.
+
+    ``%`` is out of the allow-list because it introduces percent-encoding (CR-02),
+    NOT because the segment has to look like a date. A structurally impossible
+    ISO date is still the server's ``422`` to issue: no client-side scalar or
+    format validation lives here.
+    """
+    spec = _core.build_delete_holiday_request(_ClientState(), "2026-13-45")
+    assert spec.path == "/calendar/holidays/2026-13-45"
+
+
+@pytest.mark.parametrize("legit_day", ["2026-12-25", "2026-13-45", "2026-01-02"])
+def test_build_delete_holiday_request_passes_legit_day_byte_for_byte(legit_day: str) -> None:
+    """D-03 intact: an allowed ``day`` reaches the path unencoded and unaltered."""
+    spec = _core.build_delete_holiday_request(_ClientState(), legit_day)
+    assert spec.path == f"/calendar/holidays/{legit_day}"
+    assert "%" not in spec.path
+
+
+def test_build_delete_holiday_request_is_state_independent() -> None:
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    assert _core.build_delete_holiday_request(
+        fresh, "2026-12-25"
+    ) == _core.build_delete_holiday_request(configured, "2026-12-25")
+
+
+# ----------------------------------------------------------------------
+# parse_calendar_write_response (Plan 26-02, D-06 / D-07 / T-26-13)
+# ----------------------------------------------------------------------
+
+
+def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
+    """Build a synthetic ``httpx.Response`` from a RAW body (no json= helper)."""
+    return httpx.Response(status_code, content=content, request=_DUMMY_REQUEST)
+
+
+def test_parse_calendar_write_response_passes_dict_through() -> None:
+    resp = _raw_resp(200, b'{"deleted": true, "count": 1}')
+    assert _core.parse_calendar_write_response(resp) == {"deleted": True, "count": 1}
+
+
+def test_parse_calendar_write_response_tolerates_empty_body() -> None:
+    """An empty 200 body collapses to {} — ``parse_health_response`` would raise here."""
+    resp = _raw_resp(200, b"")
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_null_body() -> None:
+    resp = httpx.Response(200, json=None, request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_list_body() -> None:
+    resp = httpx.Response(200, json=[], request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_scalar_body() -> None:
+    resp = _raw_resp(200, b'"texto"')
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_raises_on_422() -> None:
+    resp = _raw_resp(422, b'{"detail": "bad day"}')
+    with pytest.raises(MarketDataAPIError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_parse_calendar_write_response_raises_on_401() -> None:
+    resp = _raw_resp(401, b'{"detail": "nope"}')
+    with pytest.raises(MarketDataAuthError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_parse_calendar_write_response_raises_on_429() -> None:
+    resp = _raw_resp(429, b'{"detail": "slow down"}')
+    with pytest.raises(MarketDataRateLimitError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_core_all_exports_calendar_write_surface_in_order() -> None:
+    """The six new names are exported and ``__all__`` stays ASCII-sorted (RUF022)."""
+    expected = {
+        "build_add_holidays_request",
+        "build_delete_calendar_config_request",
+        "build_delete_holiday_request",
+        "build_preview_calendar_config_request",
+        "build_set_calendar_config_request",
+        "parse_calendar_write_response",
+    }
+    assert expected <= set(_core.__all__)
+    assert list(_core.__all__) == sorted(_core.__all__)

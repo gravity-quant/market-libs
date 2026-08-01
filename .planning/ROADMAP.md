@@ -7,16 +7,16 @@
 - ✅ **v1.2 Architecture + Auth/Ergonomics Carry-forwards** — Phases 12-17 (shipped 2026-06-25) — see [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Codegen Single-Source (libcst)** — Phases 18-19 (closed 2026-07-03 on signed SPIKE-006 NO-GO; Phase 19 REFAC-06 dropped) — see [`milestones/v1.3-ROADMAP.md`](./milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 market-data-client** — Phases 20-24 (shipped 2026-07-31) — nuevo paquete cliente (solo lectura) contra la API primary-extractor con Auth0 client-credentials, verificado en vivo y publicado v0.1.0 — see [`milestones/v1.4-ROADMAP.md`](./milestones/v1.4-ROADMAP.md)
-- 🚧 **v1.5 market-data-client · mutaciones** — Phases 25-28 (in progress) — extiende `market-data-client` (v0.2.0, lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad, verificada en vivo de forma segura, y publicada v0.3.0
+- 🚧 **v1.5 market-data-client · mutaciones** — Phases 25-28 (in progress) — extiende `market-data-client` (v0.2.0, lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad, verificada en vivo de forma segura, y publicada v0.4.0
 
 ## Phases
 
 ### 🚧 v1.5 market-data-client · mutaciones (Phases 25-28) — IN PROGRESS
 
 - [x] **Phase 25: Mutating-gate + Symbols write** — safety gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes) + `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}` — GATE-MD-01 + MUT-MD-01 (completed 2026-07-31)
-- [ ] **Phase 26: Calendar write** — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con `confirm` guardrail — MUT-MD-02
+- [x] **Phase 26: Calendar write** — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con `confirm` guardrail — MUT-MD-02 (completed 2026-08-01)
 - [ ] **Phase 27: Verificación en vivo segura + fixes** — probes de mutación detrás del gate contra develop (create→verify→revert), revalida idempotencia DM-03, fixes in-cycle — LIVE-MUT-01
-- [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release — PUB-MUT-01
+- [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.4.0` → GitHub Release (la release efectiva es **v0.4.0**: `v0.3.0` y `v0.3.1` ya se publicaron mid-milestone fuera del flujo de fases — D-02) — PUB-MUT-01
 
 <details>
 <summary>✅ v1.4 market-data-client (Phases 20-24) — SHIPPED 2026-07-31</summary>
@@ -128,7 +128,21 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. La idempotencia por-endpoint se setea per DM-03 (`POST /calendar/holidays` con `idempotent=False` → no retry; el resto retry-safe).
   5. Paridad sync/async y enforcement del gate idénticos a Phase 25; tests mockeados (gate, serialización, defaults, `confirm`, `422`, paridad) y 4 gates verdes.
 
-**Plans**: TBD
+**Plans**: 4/4 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 26-01-PLAN.md — request-models `MarketHoursIn`/`HolidayIn`/`HolidaysIn` (defaults OpenAPI, `confirm=False`, `drop_none`, bound 1–500) [wave 1]
+- [x] 26-02-PLAN.md — 5 builders puros en `_core.py` + guard de path-safety D-18 + parser passthrough tolerante [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 26-03-PLAN.md — los 5 métodos gated + 10 shims en `client.py`/`aio.py` + tests de dispatch y serialización [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 26-04-PLAN.md — matriz adversarial del gate + no-retry D-15 + re-exports/paridad + 4 gates verdes [wave 3]
 
 ### Phase 27: Verificación en vivo segura + fixes
 
@@ -143,21 +157,60 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. Toda divergencia (shape de respuesta, códigos, idempotencia real) se documenta en findings y se corrige in-cycle, espejada sync/async, con un test de regresión mockeado por fix.
   5. Cycle closure PASS.
 
-**Plans**: TBD
+**Plans**: 7/7 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 27-01-PLAN.md — Wave 1 · Harness: preservar prosa de findings (D-23) + `max_existing_fid` (D-16/D-24) + backfill de los 34 `Regression:` legacy (D-21) → cycle closure deja de fallar
+- [x] 27-02-PLAN.md — Wave 1 · Fix offline: `parse_calendar_response` desenvuelve el envelope `days[]` + `CalendarDay` retipado al wire real (D-12/D-13) — prerequisito del criterio 2
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 27-03-PLAN.md — Wave 2 · Gate driver-side parametrizado (D-01/D-02) + seed del allocator + `verify_cycle_closure` cableado (D-18) + probes de refusal + guard de línea SKIPPED (D-03/D-04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 27-04-PLAN.md — Wave 3 · Plumbing de mutación gate-checked + ciclo destructivo de symbols create→verify→revert sync+async con descubrimiento de id e idempotencia por conteo de filas (D-05/D-10/D-11/D-19/D-27)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 27-05-PLAN.md — Wave 4 · Calendar: config preview-only (D-06) + ciclo completo de holidays (D-07) + sweep de residuos + recheck de `/health/feed` + política de snapshots (D-08/D-17/D-26)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 27-06-PLAN.md — Wave 5 · Corrida destructiva armada contra develop con checkpoint de operator; captura de evidencia (id, shapes de mutación, dedupe) — `autonomous: false`
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [x] 27-07-PLAN.md — Wave 6 · Fixes in-cycle no-breaking (D-09/D-22), flip de `idempotent=` si la medición lo contradice (D-20), promoción de findings a FIXED, re-baseline y re-run → cycle closure PASS — `autonomous: false`
 
 ### Phase 28: Release prep + publish v0.3.0
 
-**Goal**: `market-data-client` se publica como `v0.3.0` (minor bump, no breaking sobre la superficie de lectura v0.2.0) por el pipeline de tags.
+**Goal**: `market-data-client` se publica como `v0.4.0` (minor bump, no breaking sobre la superficie de lectura) por el pipeline de tags. La versión efectiva es `0.4.0` y no `0.3.0` porque `v0.3.0` y `v0.3.1` ya se publicaron mid-milestone fuera del flujo de fases (D-01/D-02); el título de esta sección se conserva textual porque la tooling de GSD resuelve el directorio `28-release-prep-publish-v0-3-0` a partir de él.
 **Depends on**: Phase 27 (la superficie de mutación verificada en vivo)
 **Requirements**: PUB-MUT-01
 **Success Criteria** (what must be TRUE):
 
-  1. Versión bumpeada a `0.3.0` en `pyproject` + `__version__`; README changelog documenta las nuevas mutaciones + el opt-in del gate; `uv.lock` refrescado.
+  1. Versión bumpeada a `0.4.0` en `pyproject` + `__version__`; README changelog documenta la superficie de calendar-write (MUT-MD-02) + el opt-in del gate **y** el reemplazo de campos de `CalendarDay` (`date`/`marketId`/`isBusinessDay` → `day`/`closed`/`description`/`open_time`/`close_time`, D-03); `uv.lock` refrescado.
   2. PR abierto; los 15 checks de CI verdes (incl. los jobs de `market-data-client` en la matrix py3.12 + py3.13).
-  3. Merge a `main`; tag `market-data-client-v0.3.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
-  4. El bump es minor no-breaking: la superficie de lectura v0.2.0 permanece 100% compatible.
+  3. Merge a `main`; tag `market-data-client-v0.4.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
+  4. El bump es minor no-breaking medido contra **v0.3.1** (el predecesor real publicado, no v0.2.0): la superficie de lectura permanece compatible y los cambios de symbols son aditivos/ensanchantes. Única excepción documentada: el carve-out D-03 de `CalendarDay`, source-breaking pero pre-autorizado por D-13 y explicitado en el changelog.
 
-**Plans**: TBD
+**Plans**: 1/3 plans executed
+
+Plans:
+**Wave 1**
+
+- [x] 28-01-PLAN.md — Wave 1 · Release prep reversible: bump de las 3 sedes de versión + entrada `### v0.4.0` del changelog (callout `CalendarDay`, D-03) + `uv lock`, re-apuntado D-02 de REQUIREMENTS/ROADMAP + backlog v1.6 (D-16), mirror local del gate de CI, escaneo de credenciales y push fast-forward de la branch (C-1) — `autonomous: true`
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 28-02-PLAN.md — Wave 2 · Abrir el PR (D-12), aserción **por conteo** de 15/15 checks en verde (C-2), checkpoint bloqueante D-18(a) y merge con merge commit real (D-11) — `autonomous: false`
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 28-03-PLAN.md — Wave 3 · Checkpoint bloqueante D-18(b), tag anotado `market-data-client-v0.4.0` sobre el merge commit + push → `release.yml` → GitHub Release con wheel + sdist, y refresh de las 6 regiones del release memory (C-3) — `autonomous: false`
 
 ## Progress
 
@@ -188,13 +241,17 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
-| 26. Calendar write                                          | v1.5      | 0/?   | Not started | -          |
-| 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
-| 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
+| 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
+| 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
+| 28. Release prep + publish v0.3.0                           | v1.5      | 1/3 | In Progress|  |
 
 ## Backlog
 
 *(Candidate items for next milestone; see `.planning/todos/pending/` + v1.0/v1.1/v1.2/v1.3 milestone audits deferred sections)*
+
+### Deferred to v1.6+ (from v1.5)
+
+- **D-16 — enrolar `market-data-client` en el typecheck global** — el paquete sigue ausente de tres listas: el `files` de mypy del root (`pyproject.toml:97`, hoy 5 paquetes), el `root_packages` de import-linter (`pyproject.toml:141-146`, hoy 4) y el loop mypy-tests per-package de `ci.yml:85` (hoy 5). Enrolarlo requiere además **escribir un contrato de import-linter** para `market_data_client._core` (los otros 4 paquetes ya tienen el suyo). Es un gap de **COBERTURA de typecheck, no un CI failure**: todos los checks package-scoped están verdes hoy, y la cobertura real de mypy sobre este paquete la da el hook de pre-commit scoped `files: ^packages/.*/src/` (`.pre-commit-config.yaml:32`). Diferido desde Phase 24 y re-confirmado en Phase 28 (**rechazado** enrolarlo en el PR de release: expandiría el diff). Se archiva acá explícitamente para que deje de rodar en silencio release tras release.
 
 ### Deferred to v1.5+ (from v1.4 — market-data-client v2 requirements)
 
