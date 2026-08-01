@@ -127,6 +127,12 @@ None - no external service configuration required.
 - `__version__` sigue en `"0.3.1"` — el bump es Phase 28, como manda el plan.
 - Assumption abierta A3 (dropear la clave vs. mandar `null` para `open_time`/`close_time`): se revalida en vivo en Phase 27.
 
+## Self-Check: PASSED
+
+- Archivos verificados en disco: `packages/market-data-client/src/market_data_client/models.py`, `packages/market-data-client/tests/test_models.py`, `.planning/phases/26-calendar-write/26-01-SUMMARY.md`.
+- Commits verificados en `git log`: `7597ad8`, `cd913f0`, `36526b6`, `5f793f3`, `c25b8b1`.
+- Working tree limpio; sin cambios en STATE.md ni ROADMAP.md (worktree mode — los escribe el orquestador).
+
 ---
 *Phase: 26-calendar-write*
 *Completed: 2026-08-01*
