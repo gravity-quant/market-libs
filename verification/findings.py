@@ -154,7 +154,18 @@ def write_findings(pkg: str, *, overwrite: bool = False) -> Path:
 
 @dataclass(frozen=True, slots=True)
 class _Finding:
-    """Modelo interno de un finding parseado/serializable."""
+    """Modelo interno de un finding parseado/serializable.
+
+    ``extra_bullets`` (D-23) transporta los bullets del bloque de detalle que NO
+    son canónicos — típicamente prosa de triage humana (``Classification:``,
+    ``Rationale:``, ``Resolution:``) añadida al promover un finding fuera de
+    OPEN. Sin este campo el round trip parse→serialize los descartaba: el
+    parser capturaba **todos** los bullets pero el modelo sólo transportaba
+    cuatro, así que agregar un fid nuevo (que fuerza la re-serialización
+    completa del archivo) borraba la prosa de todos los findings vecinos.
+    Declarado último y con ``default_factory`` para no romper los call-sites
+    existentes bajo mypy strict.
+    """
 
     fid: str
     class_: str
@@ -165,6 +176,7 @@ class _Finding:
     actual: str
     diff: str
     regression: str | None = None
+    extra_bullets: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -198,6 +210,9 @@ _DETAIL_META_RE = re.compile(
 )
 # Bullet `- **<Label>:** <valor>`.
 _DETAIL_BULLET_RE = re.compile(r"^- \*\*(?P<label>[^:]+):\*\*\s*(?P<value>.*)$")
+# Labels que `_Finding` transporta como campos first-class. Todo lo demás va a
+# `_Finding.extra_bullets` (D-23) para sobrevivir el round trip.
+_CANONICAL_BULLET_LABELS = frozenset({"Expected", "Actual", "Diff", "Regression"})
 
 # Regex para refrescar in-place las 3 líneas del ART block sin re-serializar
 # el archivo completo (CR-01 — preserva prosa/bullets/notas que añade un humano
@@ -401,6 +416,14 @@ def _parse_findings(text: str) -> _ParsedFile:
         diff = bullets.get("Diff", "")
         regression_raw = bullets.get("Regression")
         regression: str | None = regression_raw if regression_raw else None
+        # D-23: todo bullet no-canónico (prosa de triage humana) se transporta
+        # tal cual, preservando el orden de captura — los dicts de Python son
+        # insertion-ordered, así que NO se ordena.
+        extra_bullets = {
+            label: value
+            for label, value in bullets.items()
+            if label not in _CANONICAL_BULLET_LABELS
+        }
         findings.append(
             _Finding(
                 fid=fid,
@@ -412,6 +435,7 @@ def _parse_findings(text: str) -> _ParsedFile:
                 actual=actual,
                 diff=diff,
                 regression=regression,
+                extra_bullets=extra_bullets,
             )
         )
 
@@ -503,6 +527,11 @@ def _serialize_findings(
             out.append(f"- **Diff:** {f.diff}")
             if f.regression is not None:
                 out.append(f"- **Regression:** {f.regression}")
+            # D-23: bullets no-canónicos DESPUÉS de los cuatro conocidos, en
+            # orden de captura, con la misma forma que matchea
+            # `_DETAIL_BULLET_RE` para que el próximo round trip sea estable.
+            for label, value in f.extra_bullets.items():
+                out.append(f"- **{label}:** {value}")
 
     # HARN-07: marker END delimita el fin de la auto-zone.
     out.append(_AUTO_END_MARKER)
