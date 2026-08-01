@@ -77,8 +77,11 @@ from market_data_client import (
     LatestRequest,
     MarketDataSnapshot,
     MarketHoursIn,
+    NewSymbol,
+    NewSymbols,
     Segment,
     Symbol,
+    SymbolPatch,
     _core,
 )
 from market_data_client._core import RequestSpec
@@ -1192,6 +1195,403 @@ async def probe_mutation_gate_refusal_async(aclient: AsyncClient) -> ProbeResult
 
 
 # ---------------------------------------------------------------------------
+# Ciclo destructivo de symbols (D-05) — create -> confirm -> revert
+# ---------------------------------------------------------------------------
+#
+# NO existe ``DELETE /symbols`` en la spec en vivo (la fila queda referenciada
+# por ``market_data``), así que la única reversión posible es
+# ``PATCH active=false`` y el residuo es permanente por diseño — acotado a los
+# seis identificadores fijos de arriba y barrible por su prefijo.
+#
+# Los ocho probes de esta sección se saltean a nivel PROBE cuando el gate está
+# cerrado (D-03): el read sweep sigue corriendo y el driver nunca sale != 0.
+
+
+def _discover_row_id(row: dict[str, Any]) -> tuple[str, object] | None:
+    """Localiza el id de fila escaneando las CLAVES de un item crudo de ``/symbols`` (D-10).
+
+    ``Symbol`` no declara ningún campo de id y la spec en vivo tipa ``symbol_id``
+    como ENTERO mientras el cliente lo tipa ``str``, así que el nombre de la clave
+    NO se hardcodea: se elige el primer valor ENTERO (excluyendo ``bool``, que en
+    Python es subclase de ``int``) con esta precedencia determinística:
+
+      1. la clave exacta ``id``;
+      2. cualquier clave que termine en ``id`` (case-insensitive), en orden de wire;
+      3. cualquier otra clave de valor entero, en orden de wire.
+
+    Devuelve ``(nombre_de_clave, valor)``, o ``None`` si la fila no trae enteros.
+    """
+    candidates = [(k, v) for k, v in row.items() if isinstance(v, int) and not isinstance(v, bool)]
+    if not candidates:
+        return None
+    for key, value in candidates:
+        if key.lower() == "id":
+            return key, value
+    for key, value in candidates:
+        if key.lower().endswith("id"):
+            return key, value
+    return candidates[0]
+
+
+def _describe_symbols_misparse(raw: Any, parsed: list[Symbol]) -> str | None:
+    """Describe la evidencia D-11 sin arreglarla: parser de lectura sobre body de escritura.
+
+    ``_core.parse_symbols_response`` itera el body directamente. Contra una
+    respuesta de MUTACIÓN que sea un objeto JSON bare, eso produce UN ``Symbol``
+    all-default por CLAVE del objeto en vez de filas reales. Devuelve una
+    descripción cuando el resultado tiene esa firma; ``None`` cuando el body es
+    una lista (el caso para el que el parser fue escrito).
+    """
+    if isinstance(raw, list):
+        return None
+    if isinstance(raw, dict):
+        blanks = sum(1 for p in parsed if p.symbol == "")
+        return (
+            f"body objeto JSON de {len(raw)} clave(s); parse_symbols_response devolvió "
+            f"{len(parsed)} Symbol, {blanks} all-default"
+        )
+    return f"body de tipo {type(raw).__name__}; parse_symbols_response devolvió {len(parsed)} filas"
+
+
+def _prefixed_rows(raw: Any) -> list[Any]:
+    """Filas crudas de un ``GET /symbols?prefix=`` (bare list o envelope ``items``)."""
+    return _unwrap_rows(raw, "items")
+
+
+def _count_symbol_rows(raw_rows: list[Any], symbol: str) -> int:
+    """Cuenta filas crudas cuyo ``symbol`` es exactamente ``symbol`` (observable D-19)."""
+    return sum(1 for r in raw_rows if isinstance(r, dict) and r.get("symbol") == symbol)
+
+
+def probe_create_symbol_sync(client: Client) -> ProbeResult:
+    """Alta sync del símbolo de prueba: método público + re-fire crudo (D-05/D-11/D-19).
+
+    Fire 1 va por el método PÚBLICO ``create_symbol`` — es lo que el criterio 1
+    del ROADMAP pide literalmente y lo que ejercita el gate in-package. Fire 2 va
+    por el helper con gate, que devuelve el ``httpx.Response`` y por lo tanto el
+    status code y el body crudo. Como el endpoint está documentado idempotente,
+    esos dos fires SON el doble-fire del experimento D-19; el veredicto de
+    idempotencia, sin embargo, no se emite acá sino en el probe de lectura, por
+    CONTEO DE FILAS (el 201 -> 200 sólo es observable contra un símbolo virgen,
+    así que un experimento basado en el status no sería reproducible).
+    """
+    name = "create_symbol_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        new_symbol = NewSymbol(symbol=_SYM_SYNC)
+        created = client.create_symbol(new_symbol)
+        refire = _mutate_raw_sync(
+            client,
+            _core.build_create_symbol_request(client._state, new_symbol.to_dict()),
+        )
+        raw = refire.json()
+        parsed = _core.parse_symbols_response(refire)
+        # D-09: todo el post-procesado dentro del try.
+        _write_schema_snapshot(
+            endpoint="POST /symbols",
+            client_function="create_symbol_sync_response",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        misparse = _describe_symbols_misparse(raw, parsed)
+        if misparse is not None:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title="create_symbol parsea la respuesta de escritura con el parser de lectura",
+                expected="list[Symbol] con filas reales desde el body de POST /symbols",
+                actual=misparse,
+                diff=(
+                    "parse_symbols_response itera el body: contra un objeto bare devuelve "
+                    "un Symbol all-default por clave (D-11; se captura, no se arregla acá)"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) refire_status={refire.status_code}")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"public_rows={len(created)} refire_status={refire.status_code}",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+def probe_symbols_after_create_sync(client: Client) -> ProbeResult:
+    """Confirma el alta sync, DESCUBRE el id y juzga idempotencia por filas (D-10/D-19).
+
+    La lectura va por el helper SIN gate a propósito: es un GET. El veredicto de
+    idempotencia se toma sobre el conteo de filas leído del servidor —una sola
+    fila = el server dedupeó; dos o más = el doble-fire duplicó estado y el
+    ``idempotent=True`` del builder es demasiado permisivo (D-20)—, nunca sobre un
+    status code.
+    """
+    name = "symbols_after_create_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        rows = client.get_symbols(prefix=_PROBE_PREFIX)
+        raw = _raw_via_request_sync(
+            client, _core.build_symbols_request(client._state, prefix=_PROBE_PREFIX)
+        )
+        # D-09: todo el post-procesado dentro del try. El snapshot lleva un
+        # ``client_function`` PROPIO para que el payload filtrado por prefijo no
+        # pise ni derive el baseline del read sin filtrar (D-17).
+        raw_rows = _prefixed_rows(raw)
+        _write_schema_snapshot(
+            endpoint="GET /symbols?prefix=GSDPROBE/",
+            client_function="get_symbols_probe_prefix_sync",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        hits = [r for r in raw_rows if isinstance(r, dict) and r.get("symbol") == _SYM_SYNC]
+        if hits:
+            # Primera vez que se observa una fila de symbols POBLADA: es también la
+            # evidencia de si ``Symbol.marketId`` debería ser ``market_id``.
+            _emit_shape(hits[0], Symbol, "Symbol", "sync", base_url)
+        if not hits:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"{_SYM_SYNC} ausente de GET /symbols tras el alta",
+                expected="la fila creada visible al filtrar por el prefijo del probe",
+                actual=f"0 filas con ese symbol sobre {len(raw_rows)} leídas por prefijo",
+                diff="el alta no persistió o el param prefix no filtra como se asume",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        if len(hits) > 1:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"POST /symbols duplicó estado con el doble-fire de {_SYM_SYNC}",
+                expected="exactamente 1 fila tras 2 POST idénticos (idempotent=True, DM-03)",
+                actual=f"{len(hits)} filas con ese symbol",
+                diff=(
+                    "idempotent=True en build_create_symbol_request es DEMASIADO PERMISIVO: "
+                    "un retry del RetryTransport duplicaría estado (D-20)"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) filas={len(hits)}")
+        found = _discover_row_id(hits[0])
+        if found is None:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title="ninguna clave de valor entero en la fila de GET /symbols (id no hallado)",
+                expected="un id de fila entero, el que PATCH /symbols/{symbol_id} espera",
+                actual=f"claves observadas: {sorted(hits[0])}",
+                diff="sólo se registran NOMBRES de clave, nunca valores (T-27-24)",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        key, value = found
+        _discovered_symbol_ids[_SYM_SYNC] = value
+        return ProbeResult(
+            name,
+            "PASS",
+            f"1 fila; id descubierto en clave {key!r} (prefijo devolvió {len(rows)} filas)",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+def probe_create_symbols_batch_sync(client: Client) -> ProbeResult:
+    """Alta batch sync doble-fire + conteo de filas por identificador (D-05/D-19).
+
+    El ``finally`` revierte los DOS identificadores del batch a ``active=false``
+    apenas terminada la medición: dejarlos activos envenenaría el ingestor de
+    develop de forma permanente (un símbolo desconocido se rechaza en el feed y
+    aflora como ``last_error``). Un fallo de esa reversión emite un finding, nunca
+    se suprime (D-08).
+    """
+    name = "create_symbols_batch_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    batch = (_SYM_SYNC_B1, _SYM_SYNC_B2)
+    try:
+        new_symbols = NewSymbols(
+            symbols=[NewSymbol(symbol=_SYM_SYNC_B1), NewSymbol(symbol=_SYM_SYNC_B2)]
+        )
+        created = client.create_symbols(new_symbols)
+        refire = _mutate_raw_sync(
+            client,
+            _core.build_create_symbols_request(client._state, new_symbols.to_dict()),
+        )
+        raw = refire.json()
+        # D-09: todo el post-procesado dentro del try.
+        _write_schema_snapshot(
+            endpoint="POST /symbols/batch",
+            client_function="create_symbols_batch_sync_response",
+            raw=raw,
+            base_url=base_url,
+            surface="sync",
+        )
+        readback = _raw_via_request_sync(
+            client, _core.build_symbols_request(client._state, prefix=_PROBE_PREFIX)
+        )
+        readback_rows = _prefixed_rows(readback)
+        counts = {sym: _count_symbol_rows(readback_rows, sym) for sym in batch}
+        for sym in batch:
+            match = next(
+                (r for r in readback_rows if isinstance(r, dict) and r.get("symbol") == sym),
+                None,
+            )
+            found = _discover_row_id(match) if isinstance(match, dict) else None
+            if found is not None:
+                _discovered_symbol_ids[sym] = found[1]
+        if any(n != 1 for n in counts.values()):
+            fid = _next_fid()
+            duplicated = sorted(s for s, n in counts.items() if n > 1)
+            missing = sorted(s for s, n in counts.items() if n == 0)
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title="POST /symbols/batch no dejó exactamente 1 fila por identificador",
+                expected="1 fila por identificador tras 2 batches idénticos (idempotent=True, DM-03)",
+                actual=f"conteos={counts}",
+                diff=(
+                    f"duplicados={duplicated} ausentes={missing}; si hay duplicados, "
+                    "idempotent=True en build_create_symbols_request es DEMASIADO PERMISIVO (D-20)"
+                ),
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) conteos={counts}")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"1 fila por identificador; public_rows={len(created)} refire_status={refire.status_code}",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    finally:
+        # D-08: el fallo de cleanup es un finding, NUNCA un suppress. Nada de
+        # _emit_shape / _write_schema_snapshot acá (rompería el guard de D-09).
+        for sym in batch:
+            row_id = _discovered_symbol_ids.get(sym)
+            try:
+                if row_id is not None:
+                    client.update_symbol(str(row_id), SymbolPatch(active=False))
+            except Exception as exc:
+                _emit_cleanup_finding(
+                    name,
+                    surface="sync",
+                    base_url=base_url,
+                    exc=exc,
+                    detail=f"{sym} pudo quedar ACTIVO en el catálogo de develop",
+                )
+
+
+def probe_update_symbol_sync(client: Client) -> ProbeResult:
+    """Reversión sync: ``PATCH active=false`` doble-fire + confirmación (D-05/D-19).
+
+    Es el cierre del ciclo: la ÚNICA reversión que la API ofrece. El id se toma
+    del registro poblado por el probe de lectura; si no está, el probe emite un
+    finding en vez de adivinar uno (un PATCH sobre un id inventado tocaría una
+    fila ajena de develop).
+    """
+    name = "update_symbol_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    row_id: object | None = None
+    try:
+        row_id = _discovered_symbol_ids.get(_SYM_SYNC)
+        if row_id is None:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"ciclo create->revert incompleto: sin id descubierto para {_SYM_SYNC}",
+                expected="un id de fila descubierto en vivo por el probe de lectura (D-10)",
+                actual="registro de ids vacío para este identificador",
+                diff="no se adivina: un PATCH sobre un id inventado tocaría una fila ajena",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        patch = SymbolPatch(active=False)
+        reverted = client.update_symbol(str(row_id), patch)
+        refire = _mutate_raw_sync(
+            client,
+            _core.build_update_symbol_request(client._state, str(row_id), patch.to_dict()),
+        )
+        # D-09: todo el post-procesado dentro del try.
+        _write_schema_snapshot(
+            endpoint="PATCH /symbols/{symbol_id}",
+            client_function="update_symbol_sync_response",
+            raw=refire.json(),
+            base_url=base_url,
+            surface="sync",
+        )
+        still_active = [s.symbol for s in client.get_symbols(prefix=_PROBE_PREFIX) if s.active]
+        if _SYM_SYNC in still_active:
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"{_SYM_SYNC} sigue activo tras PATCH active=false",
+                expected="active=false tras la reversión (única reversión que la API ofrece)",
+                actual=f"activos con prefijo del probe: {sorted(still_active)}",
+                diff=f"refire_status={refire.status_code}; residuo ACTIVO en develop",
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN)")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"revertido; public_rows={len(reverted)} refire_status={refire.status_code}",
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    finally:
+        # D-08: reintento defensivo de la reversión; su fallo es un finding, NUNCA
+        # un suppress. Nada de _emit_shape / _write_schema_snapshot acá.
+        try:
+            if row_id is not None:
+                client.update_symbol(str(row_id), SymbolPatch(active=False))
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="sync",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{_SYM_SYNC} pudo quedar ACTIVO en el catálogo de develop",
+            )
+
+
+# ---------------------------------------------------------------------------
 # Terminal probes — cierre de ciclo (D-18) + limitación operativa (D-06)
 # ---------------------------------------------------------------------------
 
@@ -1384,6 +1784,15 @@ def main() -> None:
         results.append(probe_mutation_gate_refusal_sync(client))
         async_results, seg_async = asyncio.run(_async_main(mutating))
         results.extend(async_results)
+        # Ciclo destructivo de symbols (D-05), DESPUÉS de TODO el read sweep —
+        # sync arriba y async dentro de ``_async_main``. El orden es load-bearing:
+        # el ingestor de develop repollea el catálogo, así que un símbolo de prueba
+        # activo puede aflorar como ``last_error`` en ``/health/feed`` y derivar un
+        # baseline de salud si alguna lectura corriera después de una mutación.
+        results.append(probe_create_symbol_sync(client))
+        results.append(probe_symbols_after_create_sync(client))
+        results.append(probe_create_symbols_batch_sync(client))
+        results.append(probe_update_symbol_sync(client))
         results.append(probe_parity(seg_sync, seg_async, client))
         # Terminales: la limitación operativa D-06 y, último de todo, el cierre
         # de ciclo — que debe ver el findings file ya completo de este run.
