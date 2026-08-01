@@ -145,6 +145,47 @@ _REFUSAL_PROBE_CONFIG = MarketHoursIn(
     timezone="America/Argentina/Buenos_Aires",
 )
 
+# ---------------------------------------------------------------------------
+# Identificadores de prueba del ciclo destructivo de symbols (D-05)
+# ---------------------------------------------------------------------------
+#
+# La API NO expone ``DELETE /symbols`` (la fila queda referenciada por
+# ``market_data``), así que la ÚNICA reversión posible de un alta es
+# ``PATCH active=false``. Cada identificador que este driver crea deja, por lo
+# tanto, UNA FILA PERMANENTE E INACTIVA en el catálogo de develop, para siempre.
+#
+# De ahí las dos propiedades de estos identificadores:
+#
+#   1. **Estables, NO timestampeados.** Un ``GSDPROBE/<timestamp>`` dejaría una
+#      fila permanente NUEVA por cada corrida — residuo creciente sin techo. Los
+#      identificadores fijos de acá acotan el residuo a EXACTAMENTE SEIS filas
+#      para siempre y, además, hacen el ciclo re-ejecutable: el re-POST del mismo
+#      símbolo es una reactivación documentada (200), no un conflicto.
+#   2. **Prefijo dedicado y compartido `GSDPROBE/`.** Es lo que convierte un
+#      residuo permanente en un residuo AUDITABLE: ``GET /symbols?prefix=GSDPROBE/``
+#      lo lista server-side y el sweep terminal (27-05) lo barre. Los literales se
+#      escriben completos —en vez de derivarse por f-string— para que un
+#      ``grep GSDPROBE/`` sobre el repo encuentre los seis.
+#
+# Sync y async usan identificadores DISJUNTOS: así un fallo en una superficie no
+# contamina el conteo de filas de la otra (el observable de idempotencia, D-19).
+_PROBE_PREFIX = "GSDPROBE/"
+_SYM_SYNC = "GSDPROBE/P27-SYNC"
+_SYM_ASYNC = "GSDPROBE/P27-ASYNC"
+_SYM_SYNC_B1 = "GSDPROBE/P27-SYNC-B1"
+_SYM_SYNC_B2 = "GSDPROBE/P27-SYNC-B2"
+_SYM_ASYNC_B1 = "GSDPROBE/P27-ASYNC-B1"
+_SYM_ASYNC_B2 = "GSDPROBE/P27-ASYNC-B2"
+
+# Registro de ids de fila DESCUBIERTOS en vivo (D-10). ``Symbol`` no declara
+# ningún campo de id y la spec en vivo tipa ``symbol_id`` como ENTERO mientras el
+# cliente lo tipa ``str``, así que el id NO se asume: el probe de lectura lo
+# localiza escaneando las claves de la fila cruda y lo deposita acá, y el probe de
+# reversión lo consume. La clave del dict es el identificador de símbolo; el valor
+# es ``object`` a propósito — no se presume ni el tipo ni el nombre de la clave de
+# origen.
+_discovered_symbol_ids: dict[str, object] = {}
+
 # Contador module-level para asignar fids deterministicamente. NO arranca en 0 en
 # el run real: ``_seed_fid_counter()`` lo sube al máximo fid ya registrado antes
 # del primer probe (D-16/D-24). Sin ese seed, cada finding nuevo re-emitiría un
@@ -320,6 +361,88 @@ async def _raw_via_request_async(aclient: AsyncClient, spec: RequestSpec) -> Any
     """Espejo async de :func:`_raw_via_request_sync`."""
     resp = await aclient._request(spec)
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Despacho de MUTACIONES con el gate chequeado primero (LIVE-MUT-01 / T-27-20)
+# ---------------------------------------------------------------------------
+#
+# CONTRASTE LOAD-BEARING con los dos helpers de arriba: ``_raw_via_request_sync``
+# y ``_raw_via_request_async`` llaman ``_request`` DIRECTAMENTE, y ``_request``
+# NO invoca ``_ensure_mutation_allowed()``. Son correctos para LECTURAS y sólo
+# para lecturas: pasarles un spec de MUTACIÓN dispararía una escritura real sin
+# pasar por el gate —con el gate posiblemente cerrado, contra el host que sea—.
+# Esa es exactamente la elevación de privilegio que
+# ``verification/test_main_market_data_no_gate_bypass.py`` vuelve imposible de
+# reintroducir.
+
+
+def _mutate_raw_sync(client: Client, spec: RequestSpec) -> httpx.Response:
+    """Despacha un spec de MUTACIÓN sync con el gate chequeado ANTES (no bypass).
+
+    ``_ensure_mutation_allowed()`` es la primera sentencia, exactamente como en
+    cada método mutador público del paquete: un refusal emite CERO HTTP y CERO
+    grant a Auth0.
+
+    Devuelve el ``httpx.Response`` MATERIALIZADO en vez del JSON decodificado, a
+    propósito: un único round trip rinde entonces el status code (evidencia
+    D-19), el body crudo para el snapshot y el descubrimiento del id (D-10), y un
+    response que el parser de ``_core`` también puede consumir (evidencia D-11).
+    """
+    client._ensure_mutation_allowed()
+    return client._request(spec)
+
+
+async def _mutate_raw_async(aclient: AsyncClient, spec: RequestSpec) -> httpx.Response:
+    """Espejo async de :func:`_mutate_raw_sync` (gate primero, luego dispatch)."""
+    aclient._ensure_mutation_allowed()
+    return await aclient._request(spec)
+
+
+def _emit_cleanup_finding(
+    name: str,
+    *,
+    surface: str,
+    base_url: str,
+    exc: Exception,
+    detail: str,
+) -> None:
+    """Emite un finding porque el CLEANUP de estado creado en develop falló (D-08).
+
+    Un cleanup fallido es en sí mismo un hallazgo: deja estado huérfano en una
+    infraestructura compartida y nadie se entera. Por eso NUNCA se traga con
+    ``contextlib.suppress``. (Los dos teardowns de transporte del driver —
+    ``client.close()`` / ``aclient.aclose()`` — sí conservan el idiom de suppress:
+    ahí no hay estado remoto que quede huérfano, sólo un socket local.)
+    """
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="OPEN",
+        title=f"cleanup falló en {name}",
+        expected="el estado creado por el probe revertido antes de terminar",
+        actual=repr(exc),
+        diff=f"{detail}; residuo huérfano en develop — el sweep terminal debe perseguirlo",
+        base_url=base_url,
+    )
+
+
+def _skipped_when_gated(name: str) -> ProbeResult:
+    """``ProbeResult`` uniforme de los probes destructivos con el gate cerrado (D-03).
+
+    El detalle NO lleva dos puntos y la línea renderizada empieza con ``PROBE ``,
+    así que el clasificador de ``main_verify.py`` ni la mira: el read sweep sigue
+    clasificándose por sus propios méritos.
+    """
+    return ProbeResult(name, "SKIPPED", "(mutating, guard off)")
+
+
+def _gate_open(state: Any) -> bool:
+    """``True`` si el doble gate resuelto en ``main()`` llegó abierto a este cliente."""
+    return bool(state.mutating_allowed)
 
 
 def _unwrap_rows(raw: Any, key: str) -> list[Any]:
