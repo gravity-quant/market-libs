@@ -45,9 +45,12 @@ from market_data_client import _params
 __all__ = [
     "CalendarConfig",
     "CalendarDay",
+    "HolidayIn",
+    "HolidaysIn",
     "Instrument",
     "LatestRequest",
     "MarketDataSnapshot",
+    "MarketHoursIn",
     "NewSymbol",
     "NewSymbols",
     "SafeModel",
@@ -359,6 +362,31 @@ class HolidayIn:
                 "description": self.description,
             }
         )
+
+
+@dataclass(frozen=True, slots=True)
+class HolidaysIn:
+    """Typed request body for the batch ``POST /calendar/holidays`` endpoint (D-08).
+
+    NOT a :class:`SafeModel` — serializes OUT via :meth:`to_dict`. Enforces the
+    client-side 1-500 batch-size bound the live OpenAPI declares
+    (``days: {minItems: 1, maxItems: 500}``) in :meth:`__post_init__`, raising a
+    plain :class:`ValueError` (NOT a ``MarketData*`` error — that hierarchy is
+    reserved for server contract errors, D-12) before any spec build or HTTP
+    dispatch. The ``ValueError``-only ``__post_init__`` reads but never mutates
+    fields, so it is valid on a frozen dataclass without ``object.__setattr__``.
+    """
+
+    days: list[HolidayIn]
+
+    def __post_init__(self) -> None:
+        """Enforce the 1-500 batch-size bound (D-12) — plain ValueError."""
+        if not 1 <= len(self.days) <= 500:
+            raise ValueError(f"HolidaysIn requires 1-500 days, got {len(self.days)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to ``{"days": [each element's to_dict()]}`` — pure wrapper (D-11)."""
+        return {"days": [d.to_dict() for d in self.days]}
 
 
 # ----------------------------------------------------------------------
