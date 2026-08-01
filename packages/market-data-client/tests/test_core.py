@@ -376,3 +376,81 @@ def test_symbols_write_builders_are_state_independent() -> None:
     assert _core.build_update_symbol_request(
         fresh, "X", patch_body
     ) == _core.build_update_symbol_request(configured, "X", patch_body)
+
+
+# ----------------------------------------------------------------------
+# calendar write builders (Plan 26-02, MUT-MD-02) — D-01 / D-02 / D-04
+# ----------------------------------------------------------------------
+
+
+def test_build_set_calendar_config_request_puts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"market_hours": [{"weekday": 1, "open": "10:00", "close": "17:00"}]}
+    spec = _core.build_set_calendar_config_request(state, body)
+    assert spec.method == "PUT"
+    assert spec.path == "/calendar/config"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "set_calendar_config"
+
+
+def test_build_preview_calendar_config_request_posts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"market_hours": []}
+    spec = _core.build_preview_calendar_config_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/calendar/config/preview"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "preview_calendar_config"
+
+
+def test_build_add_holidays_request_is_not_idempotent() -> None:
+    """The ONLY ``idempotent=False`` builder of the package (D-04 / T-26-07)."""
+    state = _ClientState()
+    body = {"days": [{"day": "2026-12-25", "description": "Navidad"}]}
+    spec = _core.build_add_holidays_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/calendar/holidays"
+    assert spec.json_body == body
+    assert spec.idempotent is False
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "add_holidays"
+
+
+def test_build_delete_calendar_config_request_has_no_body() -> None:
+    """``json_body`` stays ``None`` so httpx emits b"" and no Content-Type (D-02)."""
+    state = _ClientState()
+    spec = _core.build_delete_calendar_config_request(state)
+    assert spec.method == "DELETE"
+    assert spec.path == "/calendar/config"
+    assert spec.json_body is None
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "delete_calendar_config"
+
+
+def test_calendar_write_builders_are_state_independent() -> None:
+    """Same payload yields identical specs for a fresh vs a configured state."""
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    config_body = {"market_hours": [{"weekday": 1}]}
+    holidays_body = {"days": [{"day": "2026-12-25"}]}
+    assert _core.build_set_calendar_config_request(
+        fresh, config_body
+    ) == _core.build_set_calendar_config_request(configured, config_body)
+    assert _core.build_preview_calendar_config_request(
+        fresh, config_body
+    ) == _core.build_preview_calendar_config_request(configured, config_body)
+    assert _core.build_add_holidays_request(
+        fresh, holidays_body
+    ) == _core.build_add_holidays_request(configured, holidays_body)
+    assert _core.build_delete_calendar_config_request(
+        fresh
+    ) == _core.build_delete_calendar_config_request(configured)
