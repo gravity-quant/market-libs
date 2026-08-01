@@ -59,6 +59,16 @@ uv run mypy packages/market-data-client
 
 ## Changelog
 
+### v0.3.1
+
+**Bugfix (patch):** `get_latest_batch` devolvía snapshots vacíos.
+
+- `parse_latest_response` asumía que `POST /marketdata/latest` (batch) devolvía una lista bare,
+  pero el servidor devuelve un envelope `{"requested", "count", "not_found", "server_time", "items": [...]}`.
+  Iteraba las claves del dict en vez de `items[]`, produciendo N `MarketDataSnapshot` vacíos. Ahora
+  desenvuelve `items` (igual que su hermano `parse_market_data_response`) preservando el path bare-list
+  del single `get_latest`; un dict sin `items` degrada a `[]`. Sync y async (fix en `_core.py` compartido).
+
 ### v0.3.0
 
 **Nueva superficie de escritura: symbols detrás de un mutating-gate de seguridad**

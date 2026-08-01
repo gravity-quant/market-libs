@@ -212,6 +212,33 @@ def test_parse_latest_response_stamps_received_at_once() -> None:
     assert before <= snapshots[0].received_at <= after
 
 
+def test_parse_latest_response_batch_envelope_parses() -> None:
+    """The batch POST envelope items[] parse to N POPULATED snapshots (not empty)."""
+    body = {
+        "requested": 2,
+        "count": 2,
+        "not_found": [],
+        "server_time": "2026-07-31T00:00:00Z",
+        "items": [
+            {"symbol": "AAA", "market_id": "M", "entries": []},
+            {"symbol": "BBB", "market_id": "M", "entries": []},
+        ],
+    }
+    resp = _resp(200, json_body=body)
+    snapshots = _core.parse_latest_response(resp)
+    assert len(snapshots) == 2
+    assert snapshots[0].symbol == "AAA"
+    assert snapshots[0].market_id == "M"
+    assert snapshots[1].symbol == "BBB"
+
+
+def test_parse_latest_response_dict_without_items_returns_empty() -> None:
+    """A dict body lacking ``items`` degrades to [] (no KeyError)."""
+    body = {"requested": 0, "not_found": ["ZZZ"]}
+    resp = _resp(200, json_body=body)
+    assert _core.parse_latest_response(resp) == []
+
+
 def test_parse_latest_response_null_body_returns_empty() -> None:
     null_resp = httpx.Response(200, content=b"null", request=_DUMMY_REQUEST)
     assert _core.parse_latest_response(null_resp) == []

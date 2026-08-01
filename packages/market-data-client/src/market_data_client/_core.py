@@ -620,11 +620,19 @@ def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     """Pure: parse a ``GET/POST /marketdata/latest`` response → list of snapshots.
 
     Same one-stamp-per-response contract as ``parse_market_data_response``.
-    Return type is PROVISIONAL (A1/A2 — OpenAPI response shapes not vendored):
-    the batch ``POST`` naturally returns multiple symbols, so a ``list`` is the
-    common shape for both the single-symbol GET and the batch POST; Phase 23
-    reconciles against real develop payloads (a single-snapshot GET shape, if
-    confirmed, is a one-line adjustment absorbed by ``from_api`` tolerance).
+    Two confirmed live shapes (develop) are handled by one parser:
+
+    * single-symbol ``GET /marketdata/latest`` returns a bare list ``[{...}]``,
+      iterated as-is;
+    * batch ``POST /marketdata/latest`` returns an envelope
+      ``{requested, count, not_found, server_time, items:[...]}`` whose rows are
+      unwrapped via ``items``.
+
+    A dict body without ``items`` (or a non-list ``items``), a ``null``/empty, or
+    any other body collapses to ``[]`` (collection guard — no KeyError). The
+    ``not_found`` list is intentionally not surfaced here (batch omits not-found
+    symbols); surfacing it would be a future enhancement requiring a return-type
+    change.
     """
     resp.read()
     received_at = time.time()
@@ -634,7 +642,15 @@ def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     raw = resp.json()
     if raw is None:
         return []
-    return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in raw]
+    if isinstance(raw, dict):
+        rows = raw.get("items", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in rows]
 
 
 # ----------------------------------------------------------------------

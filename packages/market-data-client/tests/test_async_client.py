@@ -265,13 +265,21 @@ async def test_async_get_latest_requires_symbol() -> None:
 async def test_async_get_latest_batch_sends_bearer_and_body(httpx_mock: HTTPXMock) -> None:
     """Async ``get_latest_batch`` POSTs the serialized ``LatestRequest`` with the Bearer."""
     httpx_mock.add_response(
-        method="POST", json=[{"symbol": "GGAL", "marketId": "ROFX", "entries": []}]
+        method="POST",
+        json={
+            "requested": 1,
+            "count": 1,
+            "not_found": [],
+            "server_time": "2026-07-31T00:00:00Z",
+            "items": [{"symbol": "GGAL", "market_id": "ROFX", "entries": []}],
+        },
     )
 
     latest_request = LatestRequest(symbols=["GGAL", "YPFD"], marketId="ROFX")
     result = await aio._get_default().get_latest_batch(latest_request)
 
     assert len(result) == 1
+    assert result[0].symbol == "GGAL"
     req = httpx_mock.get_requests()[0]
     assert req.method == "POST"
     assert req.url.path == "/api/marketdata/latest"
