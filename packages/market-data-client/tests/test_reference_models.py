@@ -59,10 +59,59 @@ def test_symbol_from_api_extra_keys_ignored_and_false_preserved() -> None:
 
 
 def test_calendar_day_from_api_partial_fills_typed_zeros() -> None:
-    day = CalendarDay.from_api({"date": "2026-07-30"})
-    assert day.date == "2026-07-30"
-    assert day.marketId == ""
-    assert day.isBusinessDay is False
+    # D-12: the wire row is the HolidayIn shape — `day`, not `date`.
+    day = CalendarDay.from_api({"day": "2026-07-30"})
+    assert day.day == "2026-07-30"
+    assert day.closed is False
+    assert day.description == ""
+    assert day.open_time is None
+    assert day.close_time is None
+
+
+def test_calendar_day_from_api_populated_wire_row() -> None:
+    # D-12: shape copied from the committed get-calendar.json baseline —
+    # a closed holiday sends both hour fields as wire `null`.
+    day = CalendarDay.from_api(
+        {
+            "day": "2099-12-29",
+            "closed": True,
+            "open_time": None,
+            "close_time": None,
+            "description": "GSD phase27 probe",
+        }
+    )
+    assert day.day == "2099-12-29"
+    assert day.closed is True
+    assert day.description == "GSD phase27 probe"
+    assert day.open_time is None
+    assert day.close_time is None
+
+
+def test_calendar_day_from_api_session_hours_populate_str_fields() -> None:
+    # An open day with custom session hours carries both times as strings.
+    day = CalendarDay.from_api(
+        {"day": "2026-07-30", "closed": False, "open_time": "11:00", "close_time": "17:00"}
+    )
+    assert day.closed is False
+    assert day.open_time == "11:00"
+    assert day.close_time == "17:00"
+
+
+def test_calendar_day_from_api_none_and_non_dict_return_defaults() -> None:
+    # SafeModel tolerance: neither a None nor a scalar payload may raise.
+    for payload in (None, "not-a-dict"):
+        day = CalendarDay.from_api(payload)
+        assert day.day == ""
+        assert day.closed is False
+        assert day.description == ""
+        assert day.open_time is None
+        assert day.close_time is None
+
+
+def test_calendar_day_from_api_extra_keys_ignored() -> None:
+    day = CalendarDay.from_api({"day": "2026-07-30", "extraKey": 1})
+    assert day.day == "2026-07-30"
+    assert not hasattr(day, "extraKey")
 
 
 def test_calendar_config_from_api_none_returns_defaulted_instance() -> None:
