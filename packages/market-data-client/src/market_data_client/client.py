@@ -58,6 +58,7 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
+    HolidaysIn,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
@@ -650,6 +651,51 @@ class Client:
         resp = self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
+    def add_holidays(self, holidays: HolidaysIn) -> dict[str, Any]:
+        """Gated ``POST {base_url}/calendar/holidays`` → tolerant ``dict`` (MUT-MD-02).
+
+        Gate-first (D-14). The builder marks this spec ``idempotent=False`` — the
+        ONLY such spec in the package (DM-03 / D-04) — so ``RetryTransport`` does
+        NOT retry it: appending holidays is not replay-safe and a retried append
+        would duplicate the days. The 1-500 batch bound already cut client-side in
+        ``HolidaysIn.__post_init__``, before this method ran.
+
+        Returns the ``200`` body verbatim as a ``dict`` via
+        ``_core.parse_calendar_write_response`` (D-06): the live OpenAPI declares
+        this ``200`` as a bare ``object`` with no schema, so there is nothing to
+        type against until Phase 27 captures the real shape. The calendar-read
+        model and ``parse_calendar_response`` are deliberately NOT used — that read
+        pair is broken against the real wire (D-16), a bug this phase records
+        rather than fixes. An absent body degrades to ``{}`` (D-07); a ``422``
+        flows through the existing ``_core.raise_for_response``.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
+        resp = self._request(spec)
+        return _core.parse_calendar_write_response(resp)
+
+    def delete_holiday(self, day: str) -> dict[str, Any]:
+        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → tolerant ``dict``.
+
+        Gate-first (D-14). ``day`` is an ISO ``YYYY-MM-DD`` date (the OpenAPI
+        declares the path param as ``format: date``). The builder applies the D-18
+        path-safety guard and raises a plain ``ValueError`` for any ``day`` able to
+        escape its path segment — ``/``, ``?``, ``#`` or ``..`` would otherwise
+        retarget the request at a DIFFERENT endpoint, which the server's ``422``
+        cannot mitigate because the request never reaches the endpoint that would
+        validate it. The guard is NOT date-format validation: ``"2026-13-45"``
+        passes it and earns the server's ``422`` instead (D-13).
+
+        The builder omits ``json_body``, so the DELETE goes out with
+        ``content == b""`` and no ``Content-Type`` (D-02). Returns the body as a
+        ``dict`` via ``_core.parse_calendar_write_response`` (D-06 / D-16), ``{}``
+        when the body is absent.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_delete_holiday_request(self._state, day)
+        resp = self._request(spec)
+        return _core.parse_calendar_write_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-client lazy singleton + top-level shims
@@ -864,3 +910,13 @@ def delete_calendar_config() -> CalendarConfig:
 def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().preview_calendar_config(config)
+
+
+def add_holidays(holidays: HolidaysIn) -> dict[str, Any]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().add_holidays(holidays)
+
+
+def delete_holiday(day: str) -> dict[str, Any]:
+    """Top-level shim: delega al default Client (gated)."""
+    return _get_default().delete_holiday(day)

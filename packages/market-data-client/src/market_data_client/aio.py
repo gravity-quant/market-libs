@@ -48,6 +48,7 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
+    HolidaysIn,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
@@ -662,6 +663,51 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
+    async def add_holidays(self, holidays: HolidaysIn) -> dict[str, Any]:
+        """Gated ``POST {base_url}/calendar/holidays`` → ``dict`` tolerante (MUT-MD-02).
+
+        Gate-first (D-14). El builder marca este spec ``idempotent=False`` — el
+        ÚNICO del paquete (DM-03 / D-04) — así que ``RetryTransport`` NO lo
+        reintenta: dar de alta feriados no es replay-safe y un reintento
+        duplicaría los días. El bound 1-500 ya cortó client-side en
+        ``HolidaysIn.__post_init__``, antes de llegar acá.
+
+        Retorna el body del ``200`` tal cual como ``dict`` vía
+        ``_core.parse_calendar_write_response`` (D-06): la OpenAPI en vivo declara
+        este ``200`` como un ``object`` pelado sin schema, así que no hay nada
+        contra qué tipar hasta que Phase 27 capture la forma real. El modelo de
+        lectura del calendario y ``parse_calendar_response`` NO se usan a
+        propósito — ese par de lectura está roto contra el wire real (D-16), un bug
+        que esta fase registra en vez de arreglar. Un body ausente degrada a ``{}``
+        (D-07); un ``422`` fluye por el ``_core.raise_for_response`` existente.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
+        resp = await self._request(spec)
+        return _core.parse_calendar_write_response(resp)
+
+    async def delete_holiday(self, day: str) -> dict[str, Any]:
+        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → ``dict`` tolerante.
+
+        Gate-first (D-14). ``day`` es una fecha ISO ``YYYY-MM-DD`` (la OpenAPI
+        declara el path param como ``format: date``). El builder aplica el guard de
+        path-safety D-18 y levanta un ``ValueError`` pelado ante cualquier ``day``
+        capaz de escapar su segmento de path — ``/``, ``?``, ``#`` o ``..``
+        retargetearían el request a OTRO endpoint, algo que el ``422`` del servidor
+        no puede mitigar porque el request nunca llega al endpoint que lo
+        validaría. El guard NO es validación de formato de fecha: ``"2026-13-45"``
+        lo pasa y se gana el ``422`` del servidor (D-13).
+
+        El builder omite ``json_body``, así que el DELETE sale con
+        ``content == b""`` y sin ``Content-Type`` (D-02). Retorna el body como
+        ``dict`` vía ``_core.parse_calendar_write_response`` (D-06 / D-16), ``{}``
+        cuando el body está ausente.
+        """
+        self._ensure_mutation_allowed()
+        spec = _core.build_delete_holiday_request(self._state, day)
+        resp = await self._request(spec)
+        return _core.parse_calendar_write_response(resp)
+
 
 # ----------------------------------------------------------------------
 # Default-async-client lazy singleton + top-level module surface
@@ -874,6 +920,16 @@ async def delete_calendar_config() -> CalendarConfig:
 async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().preview_calendar_config(config)
+
+
+async def add_holidays(holidays: HolidaysIn) -> dict[str, Any]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().add_holidays(holidays)
+
+
+async def delete_holiday(day: str) -> dict[str, Any]:
+    """Shim async top-level: delega al default AsyncClient (gated)."""
+    return await _get_default().delete_holiday(day)
 
 
 async def aclose() -> None:
