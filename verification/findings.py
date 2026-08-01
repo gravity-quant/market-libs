@@ -46,6 +46,7 @@ __all__ = [
     "STATUS_LIFECYCLE",
     "append_finding",
     "findings_path",
+    "max_existing_fid",
     "new_findings",
     "write_findings",
 ]
@@ -101,6 +102,36 @@ def findings_path(pkg: str) -> Path:
     """
     _validate_pkg_slug(pkg)
     return _FINDINGS_DIR / f"{pkg}-findings.md"
+
+
+def max_existing_fid(pkg: str) -> int:
+    """Devuelve el número de fid más alto ya registrado en ``<pkg>-findings.md`` (D-16/D-24).
+
+    Pensado para **seedear** el allocator de fids de un driver: con
+    ``_fid_counter = max_existing_fid(pkg)`` el próximo ``F-NN`` cae por encima
+    de todo lo ya escrito, en vez de re-emitir un fid que
+    :func:`append_finding` va a tragarse por el short-circuit de status no-OPEN.
+    Ese short-circuit convierte el write en un no-op silencioso mientras el
+    driver sigue reportando ``FINDING=N``: el run pierde su entregable creyendo
+    que tuvo éxito.
+
+    Contrato:
+
+    - Devuelve ``0`` si el archivo no existe (un primer run sigue funcionando).
+    - Devuelve ``0`` si no hay ningún bloque de detalle (skeleton fresco).
+    - No asume ancho fijo: ``F-100`` devuelve ``100``.
+    - Fids con suffix no numérico (``F-XYZ``) se saltean, no rompen el scan.
+    - Resuelve la ruta vía :func:`findings_path`, así que reusa —sin
+      duplicarlo— el guard de slug/path-traversal (WR-04).
+    """
+    path = findings_path(pkg)
+    if not path.exists():
+        return 0
+    text = path.read_text(encoding="utf-8")
+    return max(
+        (int(m.group("num")) for m in _DETAIL_HEADER_FID_NUM_RE.finditer(text)),
+        default=0,
+    )
 
 
 def new_findings(pkg: str) -> str:
@@ -202,6 +233,12 @@ _INDEX_ROW_RE = re.compile(
 )
 # Header de detalle: `### F-NN -- <título>`.
 _DETAIL_HEADER_RE = re.compile(r"^###\s+(?P<fid>F-[^\s]+)\s+--\s+(?P<title>.*?)\s*$")
+# Parte numérica de un header de detalle, para :func:`max_existing_fid` (D-16/D-24).
+# Ancho libre (``F-01`` y ``F-100`` matchean por igual — el archivo de market-data
+# cruzará 99 en ciclos posteriores). El ``\b`` final descarta suffixes no numéricos
+# como ``F-XYZ`` o ``F-1a`` en vez de crashear el helper. La forma del fid coincide
+# con ``_FINDING_BLOCK_HEADER_RE`` en :mod:`verification.cycle_report`.
+_DETAIL_HEADER_FID_NUM_RE = re.compile(r"^###\s+F-(?P<num>\d+)\b", re.MULTILINE)
 # Línea Class/Surface/Status del detalle.
 _DETAIL_META_RE = re.compile(
     r"^\*\*Class:\*\*\s+`(?P<class_>[^`]+)`\s+\.\s+"
