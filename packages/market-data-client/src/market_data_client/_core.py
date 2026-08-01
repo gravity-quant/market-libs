@@ -70,22 +70,28 @@ from market_data_client.models import (
 
 __all__ = [
     "RequestSpec",
+    "build_add_holidays_request",
     "build_calendar_config_request",
     "build_calendar_request",
     "build_create_symbol_request",
     "build_create_symbols_request",
+    "build_delete_calendar_config_request",
+    "build_delete_holiday_request",
     "build_health_feed_request",
     "build_health_request",
     "build_instruments_request",
     "build_latest_batch_request",
     "build_latest_request",
     "build_market_data_request",
+    "build_preview_calendar_config_request",
     "build_segments_request",
+    "build_set_calendar_config_request",
     "build_symbols_request",
     "build_token_request",
     "build_update_symbol_request",
     "parse_calendar_config_response",
     "parse_calendar_response",
+    "parse_calendar_write_response",
     "parse_health_response",
     "parse_instruments_response",
     "parse_latest_response",
@@ -885,3 +891,37 @@ def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
         return CalendarConfig.from_api(None)
     raw = resp.json()
     return CalendarConfig.from_api(raw)
+
+
+def parse_calendar_write_response(resp: httpx.Response) -> dict[str, Any]:
+    """Pure: parse a calendar-write ``200`` → tolerant dict passthrough (D-06 / D-07).
+
+    Serves BOTH holiday endpoints (``POST /calendar/holidays`` and
+    ``DELETE /calendar/holidays/{day}``) — same contract, same tolerance, one
+    function. The live OpenAPI declares every calendar-write ``200`` as a bare
+    ``object`` with no schema, so there is nothing to type against until Phase 27
+    (LIVE-MUT-01) captures the real shape; until then the body is handed back
+    verbatim.
+
+    Tolerance is deliberate (T-26-13): an absent body, a ``null``, a list or a
+    scalar all degrade to an empty dict instead of raising a raw
+    :class:`json.JSONDecodeError` or silently returning a value that contradicts
+    the annotation. This is why it is a NEW function rather than a reuse of
+    ``parse_health_response`` — that one copies only the body-consume-then-raise
+    ORDER, not its (missing) guards. Transport errors keep flowing through
+    ``raise_for_response`` (401/403 → Auth, 429 → RateLimit, 422 and the rest →
+    API error) before any decoding happens.
+
+    The config trio (``set`` / ``delete`` / ``preview``) does NOT use this parser:
+    it reuses ``parse_calendar_config_response`` unmodified (D-05). Neither
+    holiday endpoint is typed against the calendar-read model — that read pair is
+    broken against the real wire (D-16).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return {}
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        return {}
+    return raw
