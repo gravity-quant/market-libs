@@ -114,6 +114,25 @@ def test_from_api_marketdata_item_parses_new_fields() -> None:
     assert snap.note is None
 
 
+def test_marketdata_snapshot_field_set_matches_reconciled_wire() -> None:
+    # LIVE-MD-01 / F-20: the reconciliation REMOVED the model-only camelCase
+    # ``marketId`` in favour of the wire's snake_case ``market_id``. The
+    # from_api tests above prove the surviving fields parse, but only an exact
+    # field-set assertion proves the removed one is actually gone — a stale
+    # ``marketId`` would silently default to "" and keep those tests green.
+    assert {f.name for f in dataclasses.fields(MarketDataSnapshot)} == {
+        "symbol",
+        "market_id",
+        "active",
+        "entries",
+        "market_data",
+        "staleness_seconds",
+        "received_at",
+        "note",
+    }
+    assert not hasattr(MarketDataSnapshot.from_api({}), "marketId")
+
+
 def test_from_api_latest_nodata_item() -> None:
     # Mirrors get-latest.json: a /marketdata/latest no-data row collapses the null
     # fields tolerantly while note carries the message and received_at stays injected.

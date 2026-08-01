@@ -46,6 +46,7 @@ __all__ = [
     "STATUS_LIFECYCLE",
     "append_finding",
     "findings_path",
+    "max_existing_fid",
     "new_findings",
     "write_findings",
 ]
@@ -103,6 +104,36 @@ def findings_path(pkg: str) -> Path:
     return _FINDINGS_DIR / f"{pkg}-findings.md"
 
 
+def max_existing_fid(pkg: str) -> int:
+    """Devuelve el número de fid más alto ya registrado en ``<pkg>-findings.md`` (D-16/D-24).
+
+    Pensado para **seedear** el allocator de fids de un driver: con
+    ``_fid_counter = max_existing_fid(pkg)`` el próximo ``F-NN`` cae por encima
+    de todo lo ya escrito, en vez de re-emitir un fid que
+    :func:`append_finding` va a tragarse por el short-circuit de status no-OPEN.
+    Ese short-circuit convierte el write en un no-op silencioso mientras el
+    driver sigue reportando ``FINDING=N``: el run pierde su entregable creyendo
+    que tuvo éxito.
+
+    Contrato:
+
+    - Devuelve ``0`` si el archivo no existe (un primer run sigue funcionando).
+    - Devuelve ``0`` si no hay ningún bloque de detalle (skeleton fresco).
+    - No asume ancho fijo: ``F-100`` devuelve ``100``.
+    - Fids con suffix no numérico (``F-XYZ``) se saltean, no rompen el scan.
+    - Resuelve la ruta vía :func:`findings_path`, así que reusa —sin
+      duplicarlo— el guard de slug/path-traversal (WR-04).
+    """
+    path = findings_path(pkg)
+    if not path.exists():
+        return 0
+    text = path.read_text(encoding="utf-8")
+    return max(
+        (int(m.group("num")) for m in _DETAIL_HEADER_FID_NUM_RE.finditer(text)),
+        default=0,
+    )
+
+
 def new_findings(pkg: str) -> str:
     """Renderiza el esqueleto (encabezado ART + índice vacío) de un archivo de hallazgos.
 
@@ -154,7 +185,18 @@ def write_findings(pkg: str, *, overwrite: bool = False) -> Path:
 
 @dataclass(frozen=True, slots=True)
 class _Finding:
-    """Modelo interno de un finding parseado/serializable."""
+    """Modelo interno de un finding parseado/serializable.
+
+    ``extra_bullets`` (D-23) transporta los bullets del bloque de detalle que NO
+    son canónicos — típicamente prosa de triage humana (``Classification:``,
+    ``Rationale:``, ``Resolution:``) añadida al promover un finding fuera de
+    OPEN. Sin este campo el round trip parse→serialize los descartaba: el
+    parser capturaba **todos** los bullets pero el modelo sólo transportaba
+    cuatro, así que agregar un fid nuevo (que fuerza la re-serialización
+    completa del archivo) borraba la prosa de todos los findings vecinos.
+    Declarado último y con ``default_factory`` para no romper los call-sites
+    existentes bajo mypy strict.
+    """
 
     fid: str
     class_: str
@@ -165,6 +207,7 @@ class _Finding:
     actual: str
     diff: str
     regression: str | None = None
+    extra_bullets: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -190,6 +233,12 @@ _INDEX_ROW_RE = re.compile(
 )
 # Header de detalle: `### F-NN -- <título>`.
 _DETAIL_HEADER_RE = re.compile(r"^###\s+(?P<fid>F-[^\s]+)\s+--\s+(?P<title>.*?)\s*$")
+# Parte numérica de un header de detalle, para :func:`max_existing_fid` (D-16/D-24).
+# Ancho libre (``F-01`` y ``F-100`` matchean por igual — el archivo de market-data
+# cruzará 99 en ciclos posteriores). El ``\b`` final descarta suffixes no numéricos
+# como ``F-XYZ`` o ``F-1a`` en vez de crashear el helper. La forma del fid coincide
+# con ``_FINDING_BLOCK_HEADER_RE`` en :mod:`verification.cycle_report`.
+_DETAIL_HEADER_FID_NUM_RE = re.compile(r"^###\s+F-(?P<num>\d+)\b", re.MULTILINE)
 # Línea Class/Surface/Status del detalle.
 _DETAIL_META_RE = re.compile(
     r"^\*\*Class:\*\*\s+`(?P<class_>[^`]+)`\s+\.\s+"
@@ -198,6 +247,9 @@ _DETAIL_META_RE = re.compile(
 )
 # Bullet `- **<Label>:** <valor>`.
 _DETAIL_BULLET_RE = re.compile(r"^- \*\*(?P<label>[^:]+):\*\*\s*(?P<value>.*)$")
+# Labels que `_Finding` transporta como campos first-class. Todo lo demás va a
+# `_Finding.extra_bullets` (D-23) para sobrevivir el round trip.
+_CANONICAL_BULLET_LABELS = frozenset({"Expected", "Actual", "Diff", "Regression"})
 
 # Regex para refrescar in-place las 3 líneas del ART block sin re-serializar
 # el archivo completo (CR-01 — preserva prosa/bullets/notas que añade un humano
@@ -401,6 +453,14 @@ def _parse_findings(text: str) -> _ParsedFile:
         diff = bullets.get("Diff", "")
         regression_raw = bullets.get("Regression")
         regression: str | None = regression_raw if regression_raw else None
+        # D-23: todo bullet no-canónico (prosa de triage humana) se transporta
+        # tal cual, preservando el orden de captura — los dicts de Python son
+        # insertion-ordered, así que NO se ordena.
+        extra_bullets = {
+            label: value
+            for label, value in bullets.items()
+            if label not in _CANONICAL_BULLET_LABELS
+        }
         findings.append(
             _Finding(
                 fid=fid,
@@ -412,6 +472,7 @@ def _parse_findings(text: str) -> _ParsedFile:
                 actual=actual,
                 diff=diff,
                 regression=regression,
+                extra_bullets=extra_bullets,
             )
         )
 
@@ -503,6 +564,11 @@ def _serialize_findings(
             out.append(f"- **Diff:** {f.diff}")
             if f.regression is not None:
                 out.append(f"- **Regression:** {f.regression}")
+            # D-23: bullets no-canónicos DESPUÉS de los cuatro conocidos, en
+            # orden de captura, con la misma forma que matchea
+            # `_DETAIL_BULLET_RE` para que el próximo round trip sea estable.
+            for label, value in f.extra_bullets.items():
+                out.append(f"- **{label}:** {value}")
 
     # HARN-07: marker END delimita el fin de la auto-zone.
     out.append(_AUTO_END_MARKER)
