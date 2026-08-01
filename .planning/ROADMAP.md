@@ -128,7 +128,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. La idempotencia por-endpoint se setea per DM-03 (`POST /calendar/holidays` con `idempotent=False` → no retry; el resto retry-safe).
   5. Paridad sync/async y enforcement del gate idénticos a Phase 25; tests mockeados (gate, serialización, defaults, `confirm`, `422`, paridad) y 4 gates verdes.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -138,7 +138,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 26-03-PLAN.md — los 5 métodos gated + 10 shims en `client.py`/`aio.py` + tests de dispatch y serialización [wave 2]
+- [x] 26-03-PLAN.md — los 5 métodos gated + 10 shims en `client.py`/`aio.py` + tests de dispatch y serialización [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -202,7 +202,7 @@ Plans:
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
-| 26. Calendar write                                          | v1.5      | 2/4 | In Progress|  |
+| 26. Calendar write                                          | v1.5      | 3/4 | In Progress|  |
 | 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
 
