@@ -16,6 +16,7 @@ end-to-end con el gate ABIERTO.
 
 from __future__ import annotations
 
+import asyncio
 import json as _json
 from typing import Any
 
@@ -547,3 +548,89 @@ async def test_delete_holiday_path_safety_non_str_day_emits_no_request(
             await aio._get_default().delete_holiday(bad_day)  # type: ignore[arg-type]
 
     assert httpx_mock.get_requests() == []
+
+
+# ----------------------------------------------------------------------
+# Retry dispatch-level (async) — el flag ``idempotent`` observado (D-20)
+# ----------------------------------------------------------------------
+#
+# Espejo async del par que hasta ahora vivía SÓLO en la superficie sync. Se
+# agrega acá porque el flip de ``build_add_holidays_request``
+# (``idempotent`` False → True, F-49/F-59) cambia el comportamiento de AMBOS
+# transports, y la regla dual sync/async exige probar los dos: sin este espejo
+# la corrección quedaría medida en una sola mitad del paquete.
+#
+# ``AsyncRetrying`` espera el wait vía ``asyncio.sleep``, así que ése es el
+# target del monkeypatch — el equivalente async del patrón ``time.sleep``
+# in-package de ``tests/test_transport.py``. Sin el patch cada test pagaría los
+# ~4,4 s reales de jitter.
+
+
+async def test_add_holidays_retries_three_times_on_repeated_503(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``idempotent=True`` CORREGIDO (async): 3x503 → 3 requests y 2 sleeps."""
+    sleeps: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    _open_gate()
+    for _ in range(3):
+        httpx_mock.add_response(method="POST", status_code=503)
+
+    with pytest.raises(MarketDataAPIError):
+        await aio._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
+
+    assert len(httpx_mock.get_requests()) == 3
+    assert len(sleeps) == 2
+
+
+async def test_delete_holiday_retries_three_times_on_repeated_503(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Control positivo async ``idempotent=True``: 3x503 → 3 requests y 2 sleeps."""
+    sleeps: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    _open_gate()
+    for _ in range(3):
+        httpx_mock.add_response(method="DELETE", status_code=503)
+
+    with pytest.raises(MarketDataAPIError):
+        await aio._get_default().delete_holiday("2026-12-25")
+
+    assert len(httpx_mock.get_requests()) == 3
+    assert len(sleeps) == 2
+
+
+async def test_delete_holiday_retry_after_lost_response_surfaces_404(
+    httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F-50 async: idempotente en ESTADO, no en STATUS — el retry ve el ``404``.
+
+    Mismo razonamiento que en la superficie sync: el flag se MANTIENE en ``True``
+    porque sin retry el caller habría levantado igual sobre el ``503``; lo que
+    cambia es la IDENTIDAD del error, no el resultado. El test fija esa
+    consecuencia en vez de dejarla como sorpresa.
+    """
+    sleeps: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    _open_gate()
+    httpx_mock.add_response(method="DELETE", status_code=503)
+    httpx_mock.add_response(method="DELETE", status_code=404, json={"detail": "not found"})
+
+    with pytest.raises(MarketDataAPIError):
+        await aio._get_default().delete_holiday("2026-12-25")
+
+    # 2 requests: el 404 NO es retryable, así que el loop corta ahí.
+    assert len(httpx_mock.get_requests()) == 2
+    assert len(sleeps) == 1

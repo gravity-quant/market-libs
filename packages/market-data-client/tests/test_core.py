@@ -424,15 +424,22 @@ def test_build_preview_calendar_config_request_posts_serialized_body() -> None:
     assert spec.endpoint_name == "preview_calendar_config"
 
 
-def test_build_add_holidays_request_is_not_idempotent() -> None:
-    """The ONLY ``idempotent=False`` builder of the package (D-04 / T-26-07)."""
+def test_build_add_holidays_request_is_idempotent() -> None:
+    """CORRECTED on measurement: the endpoint UPSERTS by date (D-20 / F-49 / F-59).
+
+    Phase 26 declared this the package's only ``idempotent=False`` builder,
+    reasoning that a replayed append would duplicate days. The LIVE-MUT-01 armed
+    run measured the opposite by ROW COUNT: two identical POSTs left exactly one
+    row per date on both surfaces. D-20 makes the measurement authoritative over
+    the reasoning, so the flag is now ``True``.
+    """
     state = _ClientState()
     body = {"days": [{"day": "2026-12-25", "description": "Navidad"}]}
     spec = _core.build_add_holidays_request(state, body)
     assert spec.method == "POST"
     assert spec.path == "/calendar/holidays"
     assert spec.json_body == body
-    assert spec.idempotent is False
+    assert spec.idempotent is True
     assert spec.authenticated is True
     assert spec.endpoint_name == "add_holidays"
 

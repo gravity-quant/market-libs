@@ -204,6 +204,125 @@ def test_parse_symbols_response_returns_list_of_models() -> None:
     assert result[0].active is True
 
 
+# ----------------------------------------------------------------------
+# parse_symbols_response — mutation bodies (D-11 / D-22). F-41 / F-51.
+# ----------------------------------------------------------------------
+#
+# Shapes copied verbatim from the committed LIVE-MUT-01 baselines
+# (create-symbol-*-response.json, create-symbols-batch-*-response.json,
+# update-symbol-*-response.json). Values are synthetic; the KEY SETS are real.
+
+_CREATE_SYMBOL_BODY = {
+    "active": True,
+    "created": True,
+    "id": 8123,
+    "market_id": "ROFX",
+    "note": "created",
+    "symbol": "GSDPROBE/P27-SYNC",
+}
+
+_UPDATE_SYMBOL_BODY = {
+    "active": False,
+    "id": 8123,
+    "market_id": "ROFX",
+    "note": "updated",
+    "symbol": "GSDPROBE/P27-SYNC",
+}
+
+_CREATE_SYMBOLS_BATCH_BODY = {
+    "created": 2,
+    "items": [
+        {"active": True, "created": True, "id": 8124, "market_id": "ROFX", "symbol": "A"},
+        {"active": True, "created": False, "id": 8125, "market_id": "ROFX", "symbol": "B"},
+    ],
+    "note": "batch",
+    "reactivated": 0,
+    "requested": 2,
+}
+
+
+def test_parse_symbols_response_unwraps_flat_create_body() -> None:
+    # D-11: POST /symbols returns a FLAT symbol object. Iterating it yielded one
+    # all-default Symbol per KEY — six blanks for a six-key body, measured live.
+    result = _core.parse_symbols_response(_resp(200, json_body=_CREATE_SYMBOL_BODY))
+    assert len(result) == 1
+    assert result[0].symbol == "GSDPROBE/P27-SYNC"
+    assert result[0].id == 8123
+    assert result[0].market_id == "ROFX"
+    assert result[0].active is True
+
+
+def test_parse_symbols_response_unwraps_flat_patch_body() -> None:
+    # PATCH /symbols/{symbol_id} returns the same flat shape, one key shorter.
+    result = _core.parse_symbols_response(_resp(200, json_body=_UPDATE_SYMBOL_BODY))
+    assert len(result) == 1
+    assert result[0].id == 8123
+    assert result[0].active is False
+
+
+def test_parse_symbols_response_unwraps_batch_items_envelope() -> None:
+    # POST /symbols/batch returns {created, items[], note, reactivated, requested}
+    # — the same envelope shape parse_latest_response already unwraps via `items`.
+    result = _core.parse_symbols_response(_resp(200, json_body=_CREATE_SYMBOLS_BATCH_BODY))
+    assert len(result) == 2
+    assert [row.symbol for row in result] == ["A", "B"]
+    assert [row.id for row in result] == [8124, 8125]
+
+
+def test_parse_symbols_response_no_longer_yields_all_default_rows() -> None:
+    # The exact live signature of the bug: a six-key object produced SIX Symbols,
+    # all blank. Asserting only "len == 1" above would also pass if the parser
+    # returned one blank row, so pin the absence of blanks explicitly.
+    result = _core.parse_symbols_response(_resp(200, json_body=_CREATE_SYMBOL_BODY))
+    assert len(result) != len(_CREATE_SYMBOL_BODY)
+    assert [row for row in result if row.symbol == ""] == []
+
+
+def test_parse_symbols_response_read_path_is_unregressed() -> None:
+    # The GET /symbols bare-list path was never the defect; the unwrap ladder must
+    # not have broken it. Row shape from get-symbols-probe-prefix-sync.json.
+    body = [
+        {
+            "active": False,
+            "created_at": "2026-08-01T15:54:36",
+            "id": 8123,
+            "market_id": "ROFX",
+            "received_at": None,
+            "symbol": "GSDPROBE/P27-SYNC",
+            "updated_at": "2026-08-01T15:54:38",
+        }
+    ]
+    result = _core.parse_symbols_response(_resp(200, json_body=body))
+    assert len(result) == 1
+    assert result[0].symbol == "GSDPROBE/P27-SYNC"
+    assert result[0].created_at == "2026-08-01T15:54:36"
+
+
+def test_parse_symbols_response_dict_without_rows_returns_empty() -> None:
+    # Collection guard: a dict with neither `items` nor `symbol` → [] rather than
+    # one blank Symbol per key.
+    assert _core.parse_symbols_response(_resp(200, json_body={"note": "nothing here"})) == []
+
+
+def test_parse_symbols_response_non_list_items_returns_empty() -> None:
+    # Second guard: a scalar or object `items` value collapses to [].
+    assert _core.parse_symbols_response(_resp(200, json_body={"items": "nope"})) == []
+    assert _core.parse_symbols_response(_resp(200, json_body={"items": {"a": 1}})) == []
+
+
+def test_parse_symbols_response_scalar_body_returns_empty() -> None:
+    scalar_resp = httpx.Response(200, content=b"42", request=_DUMMY_REQUEST)
+    assert _core.parse_symbols_response(scalar_resp) == []
+
+
+def test_parse_symbols_response_items_wins_over_flat_symbol_key() -> None:
+    # Discrimination is by key and the precedence is explicit: an envelope that
+    # also happens to carry a top-level `symbol` is still read through `items`.
+    body = {"items": [{"symbol": "A"}], "symbol": "DECOY"}
+    result = _core.parse_symbols_response(_resp(200, json_body=body))
+    assert [row.symbol for row in result] == ["A"]
+
+
 def test_parse_calendar_response_null_and_204_return_empty() -> None:
     null_resp = httpx.Response(200, content=b"null", request=_DUMMY_REQUEST)
     assert _core.parse_calendar_response(null_resp) == []

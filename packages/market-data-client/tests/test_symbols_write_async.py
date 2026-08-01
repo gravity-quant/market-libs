@@ -14,7 +14,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from market_data_client import MarketDataAPIError, MarketDataMutationNotAllowedError, aio
-from market_data_client.models import NewSymbol, NewSymbols, SymbolPatch
+from market_data_client.models import NewSymbol, NewSymbols, Symbol, SymbolPatch
 
 _BASE = "https://market-data-develop.test/api"
 _TOKEN_URL = "https://auth.test/oauth/token"
@@ -218,3 +218,96 @@ async def test_update_symbol_module_shim_accepts_int_row_id(httpx_mock: HTTPXMoc
 
     req = httpx_mock.get_requests()[0]
     assert req.url.path == "/api/symbols/8123"
+
+
+# ----------------------------------------------------------------------
+# Los tres mutadores async devuelven filas REALES sin cambiar list[Symbol]
+# ----------------------------------------------------------------------
+#
+# Espejo async de la sección homónima de ``test_symbols_write.py``. El bug D-11
+# se midió en vivo en AMBAS superficies (F-41 async / F-51 sync), así que la
+# corrección se prueba en las dos.
+
+_CREATE_SYMBOL_BODY = {
+    "active": True,
+    "created": True,
+    "id": 8123,
+    "market_id": "ROFX",
+    "note": "created",
+    "symbol": "GSDPROBE/P27-ASYNC",
+}
+
+_CREATE_SYMBOLS_BATCH_BODY = {
+    "created": 2,
+    "items": [
+        {"active": True, "created": True, "id": 8124, "market_id": "ROFX", "symbol": "A"},
+        {"active": True, "created": False, "id": 8125, "market_id": "ROFX", "symbol": "B"},
+    ],
+    "note": "batch",
+    "reactivated": 0,
+    "requested": 2,
+}
+
+_UPDATE_SYMBOL_BODY = {
+    "active": False,
+    "id": 8123,
+    "market_id": "ROFX",
+    "note": "updated",
+    "symbol": "GSDPROBE/P27-ASYNC",
+}
+
+
+async def test_create_symbol_returns_real_rows_not_key_blanks(httpx_mock: HTTPXMock) -> None:
+    """El body plano de ``POST /symbols`` se desenvuelve a UNA fila poblada."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=201, json=_CREATE_SYMBOL_BODY)
+
+    result = await aio._get_default().create_symbol(NewSymbol("GSDPROBE/P27-ASYNC"))
+
+    assert len(result) == 1
+    assert result[0].symbol == "GSDPROBE/P27-ASYNC"
+    assert result[0].id == 8123
+    assert len(result) != len(_CREATE_SYMBOL_BODY)
+    assert [row for row in result if row.symbol == ""] == []
+
+
+async def test_create_symbols_returns_real_rows_from_items_envelope(httpx_mock: HTTPXMock) -> None:
+    """El envelope de ``POST /symbols/batch`` se desenvuelve por ``items``."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=201, json=_CREATE_SYMBOLS_BATCH_BODY)
+
+    result = await aio._get_default().create_symbols(NewSymbols([NewSymbol("A"), NewSymbol("B")]))
+
+    assert [row.symbol for row in result] == ["A", "B"]
+    assert [row.id for row in result] == [8124, 8125]
+
+
+async def test_update_symbol_returns_real_rows(httpx_mock: HTTPXMock) -> None:
+    """El body plano de ``PATCH /symbols/{id}`` se desenvuelve a UNA fila poblada."""
+    _open_gate()
+    httpx_mock.add_response(method="PATCH", status_code=200, json=_UPDATE_SYMBOL_BODY)
+
+    result = await aio._get_default().update_symbol(8123, SymbolPatch(active=False))
+
+    assert len(result) == 1
+    assert result[0].id == 8123
+    assert result[0].active is False
+
+
+async def test_symbols_mutations_still_return_lists_of_symbol(httpx_mock: HTTPXMock) -> None:
+    """El tipo de retorno publicado se preserva en la superficie async también."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=201, json=_CREATE_SYMBOL_BODY)
+    httpx_mock.add_response(method="POST", status_code=201, json=_CREATE_SYMBOLS_BATCH_BODY)
+    httpx_mock.add_response(method="PATCH", status_code=200, json=_UPDATE_SYMBOL_BODY)
+
+    aclient = aio._get_default()
+    results = [
+        await aclient.create_symbol(NewSymbol("GSDPROBE/P27-ASYNC")),
+        await aclient.create_symbols(NewSymbols([NewSymbol("A")])),
+        await aclient.update_symbol(8123, SymbolPatch(active=False)),
+    ]
+
+    for result in results:
+        assert isinstance(result, list)
+        assert all(isinstance(row, Symbol) for row in result)
