@@ -33,6 +33,7 @@ from market_data_client._state import (
 from market_data_client.exceptions import (
     MarketDataAPIError,
     MarketDataAuthError,
+    MarketDataError,
     MarketDataRateLimitError,
 )
 
@@ -376,3 +377,233 @@ def test_symbols_write_builders_are_state_independent() -> None:
     assert _core.build_update_symbol_request(
         fresh, "X", patch_body
     ) == _core.build_update_symbol_request(configured, "X", patch_body)
+
+
+# ----------------------------------------------------------------------
+# calendar write builders (Plan 26-02, MUT-MD-02) — D-01 / D-02 / D-04
+# ----------------------------------------------------------------------
+
+
+def test_build_set_calendar_config_request_puts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"market_hours": [{"weekday": 1, "open": "10:00", "close": "17:00"}]}
+    spec = _core.build_set_calendar_config_request(state, body)
+    assert spec.method == "PUT"
+    assert spec.path == "/calendar/config"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "set_calendar_config"
+
+
+def test_build_preview_calendar_config_request_posts_serialized_body() -> None:
+    state = _ClientState()
+    body = {"market_hours": []}
+    spec = _core.build_preview_calendar_config_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/calendar/config/preview"
+    assert spec.json_body == body
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "preview_calendar_config"
+
+
+def test_build_add_holidays_request_is_not_idempotent() -> None:
+    """The ONLY ``idempotent=False`` builder of the package (D-04 / T-26-07)."""
+    state = _ClientState()
+    body = {"days": [{"day": "2026-12-25", "description": "Navidad"}]}
+    spec = _core.build_add_holidays_request(state, body)
+    assert spec.method == "POST"
+    assert spec.path == "/calendar/holidays"
+    assert spec.json_body == body
+    assert spec.idempotent is False
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "add_holidays"
+
+
+def test_build_delete_calendar_config_request_has_no_body() -> None:
+    """``json_body`` stays ``None`` so httpx emits b"" and no Content-Type (D-02)."""
+    state = _ClientState()
+    spec = _core.build_delete_calendar_config_request(state)
+    assert spec.method == "DELETE"
+    assert spec.path == "/calendar/config"
+    assert spec.json_body is None
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "delete_calendar_config"
+
+
+def test_calendar_write_builders_are_state_independent() -> None:
+    """Same payload yields identical specs for a fresh vs a configured state."""
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    config_body = {"market_hours": [{"weekday": 1}]}
+    holidays_body = {"days": [{"day": "2026-12-25"}]}
+    assert _core.build_set_calendar_config_request(
+        fresh, config_body
+    ) == _core.build_set_calendar_config_request(configured, config_body)
+    assert _core.build_preview_calendar_config_request(
+        fresh, config_body
+    ) == _core.build_preview_calendar_config_request(configured, config_body)
+    assert _core.build_add_holidays_request(
+        fresh, holidays_body
+    ) == _core.build_add_holidays_request(configured, holidays_body)
+    assert _core.build_delete_calendar_config_request(
+        fresh
+    ) == _core.build_delete_calendar_config_request(configured)
+
+
+# ----------------------------------------------------------------------
+# build_delete_holiday_request + path-safety guard (Plan 26-02, D-18 / T-26-01)
+# ----------------------------------------------------------------------
+
+
+def test_build_delete_holiday_request_shape() -> None:
+    state = _ClientState()
+    spec = _core.build_delete_holiday_request(state, "2026-12-25")
+    assert spec.method == "DELETE"
+    assert spec.path == "/calendar/holidays/2026-12-25"
+    assert spec.json_body is None
+    assert spec.idempotent is True
+    assert spec.authenticated is True
+    assert spec.endpoint_name == "delete_holiday"
+
+
+def test_build_delete_holiday_request_interpolates_day_raw() -> None:
+    """A legit ISO day rides the path byte-for-byte — no percent-encoding (D-03)."""
+    spec = _core.build_delete_holiday_request(_ClientState(), "2026-01-02")
+    assert spec.path == "/calendar/holidays/2026-01-02"
+    assert "%" not in spec.path
+
+
+@pytest.mark.parametrize(
+    "hostile_day",
+    [
+        "",
+        "../config",
+        "a/b",
+        "2026-12-25?x=1",
+        "2026-12-25#frag",
+    ],
+)
+def test_build_delete_holiday_request_rejects_path_escapes(hostile_day: str) -> None:
+    """D-18: a ``day`` able to escape the path segment never builds a spec.
+
+    Without the guard, ``day="../config"`` normalizes to ``DELETE /api/calendar/config``
+    (a market-config reset) and ``day="X?a=1"`` injects a query string (T-26-01).
+    """
+    with pytest.raises(ValueError, match="day"):
+        _core.build_delete_holiday_request(_ClientState(), hostile_day)
+
+
+def test_build_delete_holiday_request_guard_raises_plain_value_error() -> None:
+    """The guard is a client-side rejection: plain ValueError, NOT MarketDataError."""
+    with pytest.raises(ValueError, match="day") as exc_info:
+        _core.build_delete_holiday_request(_ClientState(), "../config")
+    assert type(exc_info.value) is ValueError
+    assert not isinstance(exc_info.value, MarketDataError)
+
+
+def test_build_delete_holiday_request_guard_message_leaks_no_state() -> None:
+    """T-26-14: the message names only ``day`` and its value — no creds, no base_url."""
+    configured = _ClientState(
+        base_url="https://secret-host.test/api",
+        token="SUPERSECRET",
+        client_secret="SHHH",
+    )
+    with pytest.raises(ValueError, match="day") as exc_info:
+        _core.build_delete_holiday_request(configured, "../config")
+    message = str(exc_info.value)
+    assert "secret-host.test" not in message
+    assert "SUPERSECRET" not in message
+    assert "SHHH" not in message
+
+
+def test_build_delete_holiday_request_does_not_validate_date_format() -> None:
+    """D-13: the guard rejects escapes, not bad dates — 422 stays the server's job."""
+    spec = _core.build_delete_holiday_request(_ClientState(), "2026-13-45")
+    assert spec.path == "/calendar/holidays/2026-13-45"
+
+
+def test_build_delete_holiday_request_is_state_independent() -> None:
+    fresh = _ClientState()
+    configured = _ClientState(
+        base_url="https://other.test/api",
+        token="TOK",
+        client_id="cid",
+    )
+    assert _core.build_delete_holiday_request(
+        fresh, "2026-12-25"
+    ) == _core.build_delete_holiday_request(configured, "2026-12-25")
+
+
+# ----------------------------------------------------------------------
+# parse_calendar_write_response (Plan 26-02, D-06 / D-07 / T-26-13)
+# ----------------------------------------------------------------------
+
+
+def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
+    """Build a synthetic ``httpx.Response`` from a RAW body (no json= helper)."""
+    return httpx.Response(status_code, content=content, request=_DUMMY_REQUEST)
+
+
+def test_parse_calendar_write_response_passes_dict_through() -> None:
+    resp = _raw_resp(200, b'{"deleted": true, "count": 1}')
+    assert _core.parse_calendar_write_response(resp) == {"deleted": True, "count": 1}
+
+
+def test_parse_calendar_write_response_tolerates_empty_body() -> None:
+    """An empty 200 body collapses to {} — ``parse_health_response`` would raise here."""
+    resp = _raw_resp(200, b"")
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_null_body() -> None:
+    resp = httpx.Response(200, json=None, request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_list_body() -> None:
+    resp = httpx.Response(200, json=[], request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_scalar_body() -> None:
+    resp = _raw_resp(200, b'"texto"')
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_raises_on_422() -> None:
+    resp = _raw_resp(422, b'{"detail": "bad day"}')
+    with pytest.raises(MarketDataAPIError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_parse_calendar_write_response_raises_on_401() -> None:
+    resp = _raw_resp(401, b'{"detail": "nope"}')
+    with pytest.raises(MarketDataAuthError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_parse_calendar_write_response_raises_on_429() -> None:
+    resp = _raw_resp(429, b'{"detail": "slow down"}')
+    with pytest.raises(MarketDataRateLimitError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_core_all_exports_calendar_write_surface_in_order() -> None:
+    """The six new names are exported and ``__all__`` stays ASCII-sorted (RUF022)."""
+    expected = {
+        "build_add_holidays_request",
+        "build_delete_calendar_config_request",
+        "build_delete_holiday_request",
+        "build_preview_calendar_config_request",
+        "build_set_calendar_config_request",
+        "parse_calendar_write_response",
+    }
+    assert expected <= set(_core.__all__)
+    assert list(_core.__all__) == sorted(_core.__all__)

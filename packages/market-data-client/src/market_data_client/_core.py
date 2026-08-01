@@ -70,22 +70,28 @@ from market_data_client.models import (
 
 __all__ = [
     "RequestSpec",
+    "build_add_holidays_request",
     "build_calendar_config_request",
     "build_calendar_request",
     "build_create_symbol_request",
     "build_create_symbols_request",
+    "build_delete_calendar_config_request",
+    "build_delete_holiday_request",
     "build_health_feed_request",
     "build_health_request",
     "build_instruments_request",
     "build_latest_batch_request",
     "build_latest_request",
     "build_market_data_request",
+    "build_preview_calendar_config_request",
     "build_segments_request",
+    "build_set_calendar_config_request",
     "build_symbols_request",
     "build_token_request",
     "build_update_symbol_request",
     "parse_calendar_config_response",
     "parse_calendar_response",
+    "parse_calendar_write_response",
     "parse_health_response",
     "parse_instruments_response",
     "parse_latest_response",
@@ -581,6 +587,147 @@ def build_calendar_config_request(state: _ClientState) -> RequestSpec:
 
 
 # ----------------------------------------------------------------------
+# Calendar write builders (MUT-MD-02) — PUT/POST/DELETE, authenticated
+# ----------------------------------------------------------------------
+#
+# Pure builders mirroring the Phase 25 symbols-write shape (``del state``, no
+# I/O): the ones carrying a body take the ALREADY-serialized model dict as
+# ``json_body`` (the shell serializes — NOT ``build_latest_batch_request``, which
+# calls ``to_dict()`` inside the builder; Phase 25 is the precedent to follow).
+# Idempotency is assigned per DM-03 / D-04: ``True`` for the config trio and for
+# the holiday delete, ``False`` ONLY for ``POST /calendar/holidays`` (an append).
+# The DELETE builders OMIT ``json_body`` entirely so it stays ``None`` — with
+# httpx 0.28.1 that emits ``content == b""`` and NO ``Content-Type`` header,
+# whereas ``json={}`` would emit ``b"{}"`` plus ``Content-Type: application/json``
+# (D-02 / T-26-08). The mutation gate does NOT live here — the shell checks it
+# before calling these.
+
+
+def build_set_calendar_config_request(
+    state: _ClientState, json_body: dict[str, Any]
+) -> RequestSpec:
+    """Pure: build spec for ``PUT /calendar/config`` (market hours replace, MUT-MD-02).
+
+    ``idempotent=True`` (DM-03 / D-04 — a full replace is retry-safe; revalidated
+    live in Phase 27); ``authenticated=True``. ``json_body`` is the
+    already-serialized ``MarketHoursIn.to_dict()`` (the payload, not state).
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="PUT",
+        path="/calendar/config",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="set_calendar_config",
+        authenticated=True,
+    )
+
+
+def build_preview_calendar_config_request(
+    state: _ClientState, json_body: dict[str, Any]
+) -> RequestSpec:
+    """Pure: build spec for ``POST /calendar/config/preview`` (dry-run, MUT-MD-02).
+
+    A write expressed as POST that mutates nothing server-side, so it keeps the
+    same ``idempotent=True`` / ``authenticated=True`` contract as
+    ``build_set_calendar_config_request``; ``json_body`` is the already-serialized
+    payload dict.
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="POST",
+        path="/calendar/config/preview",
+        json_body=json_body,
+        idempotent=True,
+        endpoint_name="preview_calendar_config",
+        authenticated=True,
+    )
+
+
+def build_add_holidays_request(state: _ClientState, json_body: dict[str, Any]) -> RequestSpec:
+    """Pure: build spec for ``POST /calendar/holidays`` (holiday append, MUT-MD-02).
+
+    ``idempotent=False`` — the ONLY such builder in the package, written
+    explicitly even though :class:`RequestSpec` already defaults to ``False``
+    because the value is load-bearing (DM-03 / D-04) and an implicit default would
+    make it invisible in review. Appending holidays is NOT idempotent: a replay
+    would duplicate the days, so ``RetryTransport`` must not retry it — the flag
+    reaches the transport as ``request.extensions["idempotent"]`` and short-circuits
+    the retry loop on its first line (T-26-07). ``authenticated=True``;
+    ``json_body`` is the already-serialized ``HolidaysIn.to_dict()``.
+    """
+    del state  # state-independent (payload comes via json_body)
+    return RequestSpec(
+        method="POST",
+        path="/calendar/holidays",
+        json_body=json_body,
+        idempotent=False,
+        endpoint_name="add_holidays",
+        authenticated=True,
+    )
+
+
+def build_delete_calendar_config_request(state: _ClientState) -> RequestSpec:
+    """Pure: build spec for ``DELETE /calendar/config`` (reset to defaults, MUT-MD-02).
+
+    Zero-kwarg counterpart of ``build_calendar_config_request`` — no filters, no
+    body. ``json_body`` is OMITTED on purpose so it stays ``None``: httpx then
+    sends an empty body with no ``Content-Type``, whereas ``json_body={}`` would
+    put ``b"{}"`` on the wire for the server to interpret (D-02 / T-26-08).
+    ``idempotent=True`` (DM-03 — a reset replayed is still a reset).
+    """
+    del state  # state-independent
+    return RequestSpec(
+        method="DELETE",
+        path="/calendar/config",
+        idempotent=True,
+        endpoint_name="delete_calendar_config",
+        authenticated=True,
+    )
+
+
+# Tokens that let a ``day`` value escape its path segment (D-18): ``/`` and
+# ``..`` retarget the request at a DIFFERENT endpoint, ``?`` appends a query
+# string and ``#`` truncates the path at a fragment.
+_PATH_SEGMENT_ESCAPES = ("/", "?", "#", "..")
+
+
+def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
+    """Pure: build spec for ``DELETE /calendar/holidays/{day}`` (MUT-MD-02).
+
+    ``idempotent=True`` (DM-03 — deleting a day twice leaves the same state);
+    ``authenticated=True``; ``json_body`` is OMITTED so it stays ``None`` and the
+    DELETE goes out with an empty body and no ``Content-Type`` (D-02). The
+    response is parsed by the tolerant passthrough
+    :func:`parse_calendar_write_response`, not by any calendar-read parser (D-16).
+
+    Path-safety guard (D-18 / T-26-01): ``day`` is interpolated RAW into the path
+    — no percent-encoding, so a legitimate ISO date rides the wire byte for byte
+    (D-03) — which makes an unvalidated ``day`` able to change WHICH endpoint runs.
+    Verified against httpx 0.28.1: ``day="../config"`` normalizes to
+    ``DELETE /api/calendar/config``, i.e. a market-config reset, and
+    ``day="2026-12-25?x=1"`` injects a query string. The server's ``422`` is NOT a
+    mitigation for this: the request never reaches the endpoint that would
+    validate it. So the guard REJECTS rather than sanitizes — a plain
+    :class:`ValueError` (the ``MarketData*`` hierarchy stays reserved for server
+    contract errors, D-12) raised BEFORE the ``RequestSpec`` is built. Nothing is
+    percent-encoded here, so the guard is strictly narrower than a quoting escape
+    and it is NOT date-format validation: ``"2026-13-45"`` passes and goes on to
+    earn the server's ``422`` (D-13).
+    """
+    if not day or any(token in day for token in _PATH_SEGMENT_ESCAPES):
+        raise ValueError(f"day must be a single path segment, got {day!r}")
+    del state  # state-independent
+    return RequestSpec(
+        method="DELETE",
+        path=f"/calendar/holidays/{day}",
+        idempotent=True,
+        endpoint_name="delete_holiday",
+        authenticated=True,
+    )
+
+
+# ----------------------------------------------------------------------
 # Market-data read parsers (D-01) — client-stamped received_at
 # ----------------------------------------------------------------------
 
@@ -744,3 +891,37 @@ def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
         return CalendarConfig.from_api(None)
     raw = resp.json()
     return CalendarConfig.from_api(raw)
+
+
+def parse_calendar_write_response(resp: httpx.Response) -> dict[str, Any]:
+    """Pure: parse a calendar-write ``200`` → tolerant dict passthrough (D-06 / D-07).
+
+    Serves BOTH holiday endpoints (``POST /calendar/holidays`` and
+    ``DELETE /calendar/holidays/{day}``) — same contract, same tolerance, one
+    function. The live OpenAPI declares every calendar-write ``200`` as a bare
+    ``object`` with no schema, so there is nothing to type against until Phase 27
+    (LIVE-MUT-01) captures the real shape; until then the body is handed back
+    verbatim.
+
+    Tolerance is deliberate (T-26-13): an absent body, a ``null``, a list or a
+    scalar all degrade to an empty dict instead of raising a raw
+    :class:`json.JSONDecodeError` or silently returning a value that contradicts
+    the annotation. This is why it is a NEW function rather than a reuse of
+    ``parse_health_response`` — that one copies only the body-consume-then-raise
+    ORDER, not its (missing) guards. Transport errors keep flowing through
+    ``raise_for_response`` (401/403 → Auth, 429 → RateLimit, 422 and the rest →
+    API error) before any decoding happens.
+
+    The config trio (``set`` / ``delete`` / ``preview``) does NOT use this parser:
+    it reuses ``parse_calendar_config_response`` unmodified (D-05). Neither
+    holiday endpoint is typed against the calendar-read model — that read pair is
+    broken against the real wire (D-16).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return {}
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        return {}
+    return raw
