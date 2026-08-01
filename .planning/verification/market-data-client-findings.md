@@ -83,6 +83,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en active
 - **Actual:** wire-only: active
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-04 -- wire-only field market_data en MarketDataSnapshot
 
@@ -94,6 +95,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en market_data
 - **Actual:** wire-only: market_data
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-05 -- wire-only field market_id en MarketDataSnapshot
 
@@ -105,6 +107,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en market_id
 - **Actual:** wire-only: market_id
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-06 -- wire-only field note en MarketDataSnapshot
 
@@ -116,6 +119,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en note
 - **Actual:** wire-only: note
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-07 -- wire-only field staleness_seconds en MarketDataSnapshot
 
@@ -127,6 +131,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en staleness_seconds
 - **Actual:** wire-only: staleness_seconds
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-08 -- model-only field businessDays en CalendarConfig
 
@@ -138,6 +143,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en businessDays
 - **Actual:** model-only: businessDays
 - **Diff:** path=<root> direction=model-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_field_set_matches_reconciled_wire
 
 ### F-09 -- wire-only field close en CalendarConfig
 
@@ -149,6 +155,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en close
 - **Actual:** wire-only: close
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-10 -- wire-only field editable en CalendarConfig
 
@@ -160,6 +167,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en editable
 - **Actual:** wire-only: editable
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-11 -- wire-only field enabled en CalendarConfig
 
@@ -171,6 +179,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en enabled
 - **Actual:** wire-only: enabled
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-12 -- wire-only field env_bypass en CalendarConfig
 
@@ -182,6 +191,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en env_bypass
 - **Actual:** wire-only: env_bypass
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-13 -- wire-only field open en CalendarConfig
 
@@ -193,6 +203,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en open
 - **Actual:** wire-only: open
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-14 -- wire-only field pre_open_minutes en CalendarConfig
 
@@ -204,6 +215,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en pre_open_minutes
 - **Actual:** wire-only: pre_open_minutes
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-15 -- wire-only field source en CalendarConfig
 
@@ -215,6 +227,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en source
 - **Actual:** wire-only: source
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-16 -- wire-only field updated_at en CalendarConfig
 
@@ -226,6 +239,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en updated_at
 - **Actual:** wire-only: updated_at
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-17 -- wire-only field updated_by en CalendarConfig
 
@@ -237,6 +251,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en updated_by
 - **Actual:** wire-only: updated_by
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-18 -- wire-only field warnings en CalendarConfig
 
@@ -248,6 +263,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en warnings
 - **Actual:** wire-only: warnings
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-19 -- model-only field entries en MarketDataSnapshot
 
@@ -259,6 +275,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en entries
 - **Actual:** model-only: entries
 - **Diff:** path=<root> direction=model-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_latest_nodata_item
 
 ### F-20 -- model-only field marketId en MarketDataSnapshot
 
@@ -270,6 +287,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en marketId
 - **Actual:** model-only: marketId
 - **Diff:** path=<root> direction=model-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_marketdata_snapshot_field_set_matches_reconciled_wire
 
 ### F-21 -- wire-only field active en MarketDataSnapshot
 
@@ -281,6 +299,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en active
 - **Actual:** wire-only: active
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-22 -- wire-only field market_data en MarketDataSnapshot
 
@@ -292,6 +311,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en market_data
 - **Actual:** wire-only: market_data
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-23 -- wire-only field market_id en MarketDataSnapshot
 
@@ -303,6 +323,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en market_id
 - **Actual:** wire-only: market_id
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-24 -- wire-only field note en MarketDataSnapshot
 
@@ -314,6 +335,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en note
 - **Actual:** wire-only: note
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-25 -- wire-only field staleness_seconds en MarketDataSnapshot
 
@@ -325,6 +347,7 @@
 - **Expected:** MarketDataSnapshot y wire concuerdan en staleness_seconds
 - **Actual:** wire-only: staleness_seconds
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_models.py::test_from_api_marketdata_item_parses_new_fields
 
 ### F-26 -- model-only field businessDays en CalendarConfig
 
@@ -336,6 +359,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en businessDays
 - **Actual:** model-only: businessDays
 - **Diff:** path=<root> direction=model-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_field_set_matches_reconciled_wire
 
 ### F-27 -- wire-only field close en CalendarConfig
 
@@ -347,6 +371,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en close
 - **Actual:** wire-only: close
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-28 -- wire-only field editable en CalendarConfig
 
@@ -358,6 +383,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en editable
 - **Actual:** wire-only: editable
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-29 -- wire-only field enabled en CalendarConfig
 
@@ -369,6 +395,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en enabled
 - **Actual:** wire-only: enabled
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-30 -- wire-only field env_bypass en CalendarConfig
 
@@ -380,6 +407,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en env_bypass
 - **Actual:** wire-only: env_bypass
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-31 -- wire-only field open en CalendarConfig
 
@@ -391,6 +419,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en open
 - **Actual:** wire-only: open
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-32 -- wire-only field pre_open_minutes en CalendarConfig
 
@@ -402,6 +431,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en pre_open_minutes
 - **Actual:** wire-only: pre_open_minutes
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-33 -- wire-only field source en CalendarConfig
 
@@ -413,6 +443,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en source
 - **Actual:** wire-only: source
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-34 -- wire-only field updated_at en CalendarConfig
 
@@ -424,6 +455,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en updated_at
 - **Actual:** wire-only: updated_at
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-35 -- wire-only field updated_by en CalendarConfig
 
@@ -435,6 +467,7 @@
 - **Expected:** CalendarConfig y wire concuerdan en updated_by
 - **Actual:** wire-only: updated_by
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 
 ### F-36 -- wire-only field warnings en CalendarConfig
 
@@ -446,4 +479,5 @@
 - **Expected:** CalendarConfig y wire concuerdan en warnings
 - **Actual:** wire-only: warnings
 - **Diff:** path=<root> direction=wire-only
+- **Regression:** packages/market-data-client/tests/test_reference_models.py::test_calendar_config_from_api_populated
 <!-- END AUTO-GENERATED -->

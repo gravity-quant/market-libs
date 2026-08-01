@@ -16,6 +16,8 @@ Pins the D-04/D-05 behaviors for the five reference models
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from market_data_client.models import (
@@ -105,6 +107,28 @@ def test_calendar_config_from_api_populated() -> None:
     assert cfg.updated_by == "sys"
     assert cfg.warnings == []
     assert cfg.updated_at is None
+
+
+def test_calendar_config_field_set_matches_reconciled_wire() -> None:
+    # LIVE-MD-01 / F-08 / F-26: the reconciliation REMOVED the model-only
+    # ``businessDays`` field (it never existed on the develop wire) and added the
+    # ten real ones. ``test_calendar_config_from_api_populated`` proves the added
+    # fields parse, but a stale ``businessDays`` would just default to [] and keep
+    # it green — only an exact field-set assertion proves the removal.
+    assert {f.name for f in dataclasses.fields(CalendarConfig)} == {
+        "open",
+        "close",
+        "enabled",
+        "editable",
+        "env_bypass",
+        "pre_open_minutes",
+        "source",
+        "timezone",
+        "updated_by",
+        "warnings",
+        "updated_at",
+    }
+    assert not hasattr(CalendarConfig.from_api({}), "businessDays")
 
 
 @pytest.mark.parametrize("model", _ALL_MODELS)
