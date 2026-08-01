@@ -226,9 +226,19 @@ The 19 failures + 19 errors in `verification/` from Phase-15 matriz signature dr
 **pre-existing at the base SHA** — independently established by both 27-01 and 27-02 and recorded in
 `deferred-items.md`. Nothing in this plan touches matriz's driver or its tests.
 
-The full `verification/` directory run was not completed inside budget (it is dominated by tests
-that sleep for real and by driver subprocess sweeps). Every test file this plan created or could
-affect was run directly and is green — see Verification above.
+A full `verification/` run (minus `test_retry_after_cap.py`, which sleeps for real) did complete:
+**20 failed, 254 passed, 19 errors in 12m49s**. Nineteen of the failures and all nineteen errors are
+the pre-existing matriz drift above. The **20th** failure,
+`test_phase06_nyquist_gaps.py::test_snapshot_regen_is_idempotent`, is a **worktree-environment
+artifact, not a regression**: it shells out to `uv run python verification/regen_snapshots.py`, and
+`uv run` invoked with the worktree as cwd provisions a bare `.venv` inside the worktree with no
+workspace packages installed, so the script dies on
+`ModuleNotFoundError: No module named 'ambito_financiero_client'` before it ever reads a snapshot.
+Proof it is unrelated to this plan: `verification/snapshots/` contains only the four **client
+package** public-surface files, and this plan changed no package `__all__` — the only `__all__`
+touched is `verification.mutation_gate`'s, which is not snapshotted. The stray worktree `.venv` is
+gitignored (`git status` clean) and dies with the worktree; the main checkout's `.venv` was verified
+intact afterwards (all six packages importable).
 
 ## Requirement
 
