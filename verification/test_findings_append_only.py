@@ -1,15 +1,29 @@
-"""HARN-07 / HARN-09 — append_finding preserves operator content cross-runs.
+"""HARN-07 / HARN-09 / D-23 — append_finding preserves operator content cross-runs.
 
 Invariant: after N re-runs of ``append_finding`` against a temp findings file
 that has operator-added narrative (BEFORE ``<!-- BEGIN AUTO-GENERATED -->``
 and AFTER ``<!-- END AUTO-GENERATED -->``), the operator content survives
 byte-identical (modulo the ART block timestamp refresh, which is permitted by
-contract). Operator-added bullet labels (``Classification:``, ``Rationale:``,
-``Resolution:``) INSIDE existing finding sections also survive verbatim when
-the finding status is promoted off OPEN (existing preservation guard kicks
-in — line 473 of ``verification/findings.py``).
+contract).
 
-The regression covers HARN-07 (zone parser) + HARN-09 (operator bullets).
+Operator-added bullet labels (``Classification:``, ``Rationale:``,
+``Resolution:``) INSIDE existing finding sections survive through **two**
+independent mechanisms, and the distinction matters:
+
+1. **Same-fid re-run** — the non-OPEN short-circuit in ``append_finding``
+   returns before re-serializing, so the file is never rewritten. This is the
+   only guarantee this module claimed before Phase 27.
+2. **New-fid append (D-23)** — a brand-new ``fid`` bypasses that short-circuit
+   and forces a full re-serialization of the whole file. Until Phase 27 the
+   ``_parse_findings`` → ``_serialize_findings`` round trip captured every
+   bullet but forwarded only ``Expected``/``Actual``/``Diff``/``Regression``,
+   so every neighbour finding's human-triage prose was silently destroyed
+   (reproduced against the real 36-finding market-data file: ``Classification:``
+   36→0, ``Resolution:`` 34→0, 22,201→11,561 bytes). ``_Finding.extra_bullets``
+   now round-trips the unknown labels, which is what the D-23 tests below lock.
+
+The regressions cover HARN-07 (zone parser), HARN-09 (operator bullets under
+the short-circuit) and D-23 (operator bullets under re-serialization).
 """
 
 from __future__ import annotations
@@ -189,3 +203,197 @@ def test_operator_bullets_inside_findings_survive(
     )
     # Status promotion también preservado.
     assert "| F-01 | SHAPE | sync | EXPECTED |" in final
+
+
+# ---------------------------------------------------------------------------
+# D-23 — unknown bullets survive a FULL re-serialization (new-fid append)
+# ---------------------------------------------------------------------------
+
+_TRIAGE_BULLETS = (
+    "- **Classification:** FIXED\n"
+    "- **Rationale:** wire reconciled against develop\n"
+    "- **Resolution:** fixed in quick task 260731-jim\n"
+)
+
+
+def _seed_promoted_finding_with_triage(
+    tmp_path, *, fid: str = "F-01", regression: str | None = None
+) -> None:
+    """Crea ``fid`` vía append_finding, lo promueve a FIXED e inyecta triage prose.
+
+    Reproduce la forma real de ``.planning/verification/market-data-client-findings.md``:
+    bullets operator-added (``Classification``/``Rationale``/``Resolution``) dentro
+    del bloque de detalle de un finding con status humano promovido.
+    """
+    append_finding(
+        "test-pkg",
+        fid=fid,
+        class_="SHAPE",
+        surface="sync",
+        status="OPEN",
+        title=f"neighbour finding {fid}",
+        expected=f"expected {fid}",
+        actual=f"actual {fid}",
+        diff=f"diff {fid}",
+        regression=regression,
+    )
+    path = findings_path("test-pkg")
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(f"| {fid} | SHAPE | sync | OPEN |", f"| {fid} | SHAPE | sync | FIXED |")
+    text = text.replace(
+        "**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`",
+        "**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`",
+    )
+    anchor = f"- **Diff:** diff {fid}\n"
+    if regression is not None:
+        anchor += f"- **Regression:** {regression}\n"
+    text = text.replace(anchor, anchor + _TRIAGE_BULLETS)
+    path.write_text(text, encoding="utf-8")
+
+
+def _append_brand_new_fid(fid: str = "F-99") -> None:
+    """Fuerza la re-serialización completa del archivo (fid nuevo => no short-circuit)."""
+    append_finding(
+        "test-pkg",
+        fid=fid,
+        class_="SHAPE",
+        surface="async",
+        status="OPEN",
+        title=f"brand new finding {fid}",
+        expected="e-new",
+        actual="a-new",
+        diff="d-new",
+    )
+
+
+def test_unknown_bullets_survive_new_fid_append(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-23 — un fid NUEVO re-serializa todo; los bullets del vecino sobreviven.
+
+    Labels, valores y orden relativo se preservan. Antes de Phase 27 los tres
+    bullets desaparecían porque ``_Finding`` sólo transportaba cuatro labels.
+    """
+    monkeypatch.setattr("verification.findings._FINDINGS_DIR", tmp_path)
+    _seed_promoted_finding_with_triage(tmp_path)
+
+    _append_brand_new_fid()
+
+    final = findings_path("test-pkg").read_text(encoding="utf-8")
+    assert "- **Classification:** FIXED" in final, (
+        f"Classification bullet lost on new-fid append.\n--- final ---\n{final}"
+    )
+    assert "- **Rationale:** wire reconciled against develop" in final, (
+        f"Rationale bullet lost on new-fid append.\n--- final ---\n{final}"
+    )
+    assert "- **Resolution:** fixed in quick task 260731-jim" in final, (
+        f"Resolution bullet lost on new-fid append.\n--- final ---\n{final}"
+    )
+    # Orden relativo de captura preservado (dicts son insertion-ordered).
+    assert (
+        final.index("**Classification:**")
+        < final.index("**Rationale:**")
+        < final.index("**Resolution:**")
+    ), f"relative bullet order not preserved.\n--- final ---\n{final}"
+    # Y el finding nuevo efectivamente se agregó.
+    assert "### F-99 -- brand new finding F-99" in final
+
+
+def test_triage_bullet_counts_unchanged_after_new_fid_append(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-23 — el conteo de Classification/Resolution es idéntico antes y después.
+
+    Esta es la forma exacta del bug reproducido contra el archivo real
+    (``Classification:`` 36→0, ``Resolution:`` 34→0).
+    """
+    monkeypatch.setattr("verification.findings._FINDINGS_DIR", tmp_path)
+    for fid in ("F-01", "F-02", "F-03"):
+        _seed_promoted_finding_with_triage(tmp_path, fid=fid)
+
+    path = findings_path("test-pkg")
+    before = path.read_text(encoding="utf-8")
+    counts_before = {
+        label: before.count(f"- **{label}:**")
+        for label in ("Classification", "Rationale", "Resolution")
+    }
+    assert counts_before == {"Classification": 3, "Rationale": 3, "Resolution": 3}
+
+    _append_brand_new_fid()
+
+    after = path.read_text(encoding="utf-8")
+    counts_after = {
+        label: after.count(f"- **{label}:**")
+        for label in ("Classification", "Rationale", "Resolution")
+    }
+    assert counts_after == counts_before, (
+        f"triage bullet counts changed: {counts_before} -> {counts_after}"
+    )
+
+
+def test_serializer_output_unchanged_when_no_unknown_bullets(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-23 — la preservación es puramente aditiva: sin bullets extra, nada cambia.
+
+    Un archivo cuyos findings sólo tienen los cuatro bullets canónicos se
+    serializa exactamente igual que antes del cambio: el bloque de detalle es
+    byte-idéntico al golden y el set de labels emitidos no crece.
+    """
+    monkeypatch.setattr("verification.findings._FINDINGS_DIR", tmp_path)
+    append_finding(
+        "test-pkg",
+        fid="F-01",
+        class_="SHAPE",
+        surface="sync",
+        status="OPEN",
+        title="plain finding",
+        expected="e1",
+        actual="a1",
+        diff="d1",
+    )
+    path = findings_path("test-pkg")
+    golden_block = (
+        "### F-01 -- plain finding\n"
+        "\n"
+        "**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`\n"
+        "\n"
+        "- **Expected:** e1\n"
+        "- **Actual:** a1\n"
+        "- **Diff:** d1\n"
+    )
+    assert golden_block in path.read_text(encoding="utf-8")
+
+    _append_brand_new_fid()
+
+    final = path.read_text(encoding="utf-8")
+    # El bloque de F-01 sigue byte-idéntico tras la re-serialización completa.
+    assert golden_block in final, f"F-01 block changed.\n--- final ---\n{final}"
+    # Y no aparecieron labels nuevos en ninguna parte del archivo.
+    emitted_labels = {
+        line.split("**")[1].rstrip(":") for line in final.splitlines() if line.startswith("- **")
+    }
+    assert emitted_labels == {"Expected", "Actual", "Diff"}, emitted_labels
+
+
+def test_regression_bullet_not_duplicated_into_extras(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-23 — ``Regression`` sigue siendo first-class y NO se duplica en los extras.
+
+    Un finding que lleva ``Regression`` **y** bullets desconocidos debe emitir
+    exactamente un ``- **Regression:**`` tras el round trip.
+    """
+    monkeypatch.setattr("verification.findings._FINDINGS_DIR", tmp_path)
+    regression = (
+        "packages/market-data-client/tests/test_models.py::test_from_api_none_does_not_raise"
+    )
+    _seed_promoted_finding_with_triage(tmp_path, regression=regression)
+
+    _append_brand_new_fid()
+
+    final = findings_path("test-pkg").read_text(encoding="utf-8")
+    assert final.count("- **Regression:**") == 1, (
+        f"Regression bullet duplicated or lost.\n--- final ---\n{final}"
+    )
+    assert f"- **Regression:** {regression}" in final
+    # Y los extras siguen presentes junto al Regression canónico.
+    assert "- **Classification:** FIXED" in final
