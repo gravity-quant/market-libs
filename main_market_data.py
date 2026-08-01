@@ -216,6 +216,12 @@ _HOLIDAY_SYNC = "2099-12-29"
 _HOLIDAY_ASYNC = "2099-12-30"
 _HOLIDAY_DESCRIPTION = "GSD verification harness probe holiday"
 
+# Los DOS días que este driver puede haber creado. El sweep terminal borra
+# EXCLUSIVAMENTE días de esta tupla: 2099 es un año dedicado, pero borrar una
+# fila que no creamos nosotros sería un daño peor que el residuo que se quiere
+# limpiar. Lo que sobreviva y no sea nuestro se REPORTA, no se toca.
+_PROBE_HOLIDAYS = (_HOLIDAY_SYNC, _HOLIDAY_ASYNC)
+
 # ``updated_by`` del preview: identifica al HARNESS, nunca a una persona, y NO
 # se deriva de ninguna variable de entorno (T-27-30). El body del preview se
 # snapshotea, así que nada operator-identifying puede entrar en él.
@@ -2670,6 +2676,213 @@ async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
 
 
 # ---------------------------------------------------------------------------
+# Sweep terminal de residuos (D-08) — la red DEBAJO de los ``finally``
+# ---------------------------------------------------------------------------
+#
+# Este sweep NO reemplaza los ``finally`` de cada probe: es la red que atrapa lo
+# que ellos no pudieron revertir (una excepción a mitad del ciclo, un cleanup que
+# falló y emitió su finding, o residuo dejado por una corrida ANTERIOR). Corre
+# con el gate abierto o cerrado, porque sus DOS lecturas son GETs: con el gate
+# cerrado no puede reintentar la limpieza, pero sí puede —y debe— NOMBRAR lo que
+# quedó, que es justamente lo que un operador necesita antes del próximo run.
+
+
+def _residue_symbols_sync(client: Client) -> list[str]:
+    """Símbolos ACTIVOS que aún llevan el prefijo dedicado del probe."""
+    return sorted(s.symbol for s in client.get_symbols(prefix=_PROBE_PREFIX) if s.active)
+
+
+def _residue_days_sync(client: Client) -> list[str]:
+    """Días presentes en el año dedicado del probe (cualquiera, no sólo los nuestros)."""
+    raw = _raw_via_request_sync(
+        client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
+    )
+    return sorted(
+        str(d.get("day")) for d in _unwrap_rows(raw, "days") if isinstance(d, dict) and d.get("day")
+    )
+
+
+async def _residue_symbols_async(aclient: AsyncClient) -> list[str]:
+    """Espejo async de :func:`_residue_symbols_sync`."""
+    rows = await aclient.get_symbols(prefix=_PROBE_PREFIX)
+    return sorted(s.symbol for s in rows if s.active)
+
+
+async def _residue_days_async(aclient: AsyncClient) -> list[str]:
+    """Espejo async de :func:`_residue_days_sync`."""
+    raw = await _raw_via_request_async(
+        aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
+    )
+    return sorted(
+        str(d.get("day")) for d in _unwrap_rows(raw, "days") if isinstance(d, dict) and d.get("day")
+    )
+
+
+def _retry_residue_cleanup_sync(
+    client: Client, symbols: list[str], days: list[str], *, name: str, base_url: str
+) -> None:
+    """Reintenta UNA vez la limpieza de cada residuo; cada fallo emite un finding (D-08).
+
+    Se itera por ítem con su propio ``try`` a propósito: un símbolo que no se deja
+    desactivar no debe impedir que el feriado siguiente se borre. Los ids se
+    redescubren en vivo (D-10) porque el registro puede estar vacío si el residuo
+    lo dejó una corrida anterior.
+    """
+    raw = _raw_via_request_sync(
+        client, _core.build_symbols_request(client._state, prefix=_PROBE_PREFIX)
+    )
+    rows = _prefixed_rows(raw)
+    for symbol in symbols:
+        try:
+            match = next(
+                (r for r in rows if isinstance(r, dict) and r.get("symbol") == symbol), None
+            )
+            found = _discover_row_id(match) if isinstance(match, dict) else None
+            row_id = found[1] if found is not None else _discovered_symbol_ids.get(symbol)
+            if row_id is not None:
+                client.update_symbol(str(row_id), SymbolPatch(active=False))
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="sync",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{symbol} sigue ACTIVO tras el reintento del sweep",
+            )
+    for day in days:
+        if day not in _PROBE_HOLIDAYS:
+            continue  # NUNCA se borra una fila que este driver no creó
+        try:
+            client.delete_holiday(day)
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="sync",
+                base_url=base_url,
+                exc=exc,
+                detail=f"el feriado {day} sigue en el calendario tras el reintento del sweep",
+            )
+
+
+async def _retry_residue_cleanup_async(
+    aclient: AsyncClient, symbols: list[str], days: list[str], *, name: str, base_url: str
+) -> None:
+    """Espejo async de :func:`_retry_residue_cleanup_sync`."""
+    raw = await _raw_via_request_async(
+        aclient, _core.build_symbols_request(aclient._state, prefix=_PROBE_PREFIX)
+    )
+    rows = _prefixed_rows(raw)
+    for symbol in symbols:
+        try:
+            match = next(
+                (r for r in rows if isinstance(r, dict) and r.get("symbol") == symbol), None
+            )
+            found = _discover_row_id(match) if isinstance(match, dict) else None
+            row_id = found[1] if found is not None else _discovered_symbol_ids.get(symbol)
+            if row_id is not None:
+                await aclient.update_symbol(str(row_id), SymbolPatch(active=False))
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="async",
+                base_url=base_url,
+                exc=exc,
+                detail=f"{symbol} sigue ACTIVO tras el reintento del sweep",
+            )
+    for day in days:
+        if day not in _PROBE_HOLIDAYS:
+            continue  # NUNCA se borra una fila que este driver no creó
+        try:
+            await aclient.delete_holiday(day)
+        except Exception as exc:
+            _emit_cleanup_finding(
+                name,
+                surface="async",
+                base_url=base_url,
+                exc=exc,
+                detail=f"el feriado {day} sigue en el calendario tras el reintento del sweep",
+            )
+
+
+def _emit_residue_finding(
+    *, surface: str, symbols: list[str], days: list[str], retried: bool, base_url: str
+) -> str:
+    """Finding OPEN que NOMBRA exactamente qué residuo sobrevivió al sweep (D-08)."""
+    fid = _next_fid()
+    append_finding(
+        _PKG,
+        fid=fid,
+        class_="ERROR-MAP",
+        surface=surface,
+        status="OPEN",
+        title=f"residuo de los probes de mutación sobrevivió en develop ({surface})",
+        expected=f"0 símbolos {_PROBE_PREFIX} activos y 0 días en {_HOLIDAY_YEAR}",
+        actual=f"activos={symbols} dias_{_HOLIDAY_YEAR}={days}",
+        diff=(
+            f"reintento de cleanup {'ejecutado' if retried else 'NO ejecutado (gate cerrado)'}; "
+            f"barrer manualmente antes del próximo run — si no, la próxima corrida "
+            f"leerá su propio residuo como una divergencia"
+        ),
+        base_url=base_url,
+    )
+    return fid
+
+
+def probe_residue_sweep_sync(client: Client) -> ProbeResult:
+    """Sweep terminal sync: cero residuo, o un finding que nombra qué sobrevivió (D-08)."""
+    name = "residue_sweep_sync"
+    base_url = client._state.base_url
+    try:
+        symbols = _residue_symbols_sync(client)
+        days = _residue_days_sync(client)
+        retried = False
+        if (symbols or days) and _gate_open(client._state):
+            retried = True
+            _retry_residue_cleanup_sync(client, symbols, days, name=name, base_url=base_url)
+            symbols = _residue_symbols_sync(client)
+            days = _residue_days_sync(client)
+        if symbols or days:
+            fid = _emit_residue_finding(
+                surface="sync",
+                symbols=symbols,
+                days=days,
+                retried=retried,
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) activos={symbols} dias={days}")
+        return ProbeResult(name, "PASS", f"sin residuo (reintento={retried})")
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+
+
+async def probe_residue_sweep_async(aclient: AsyncClient) -> ProbeResult:
+    """Espejo async de :func:`probe_residue_sweep_sync` (D-08)."""
+    name = "residue_sweep_async"
+    base_url = aclient._state.base_url
+    try:
+        symbols = await _residue_symbols_async(aclient)
+        days = await _residue_days_async(aclient)
+        retried = False
+        if (symbols or days) and _gate_open(aclient._state):
+            retried = True
+            await _retry_residue_cleanup_async(aclient, symbols, days, name=name, base_url=base_url)
+            symbols = await _residue_symbols_async(aclient)
+            days = await _residue_days_async(aclient)
+        if symbols or days:
+            fid = _emit_residue_finding(
+                surface="async",
+                symbols=symbols,
+                days=days,
+                retried=retried,
+                base_url=base_url,
+            )
+            return ProbeResult(name, "FINDING", f"{fid} (OPEN) activos={symbols} dias={days}")
+        return ProbeResult(name, "PASS", f"sin residuo (reintento={retried})")
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
+
+
+# ---------------------------------------------------------------------------
 # Terminal probes — cierre de ciclo (D-18) + limitación operativa (D-06)
 # ---------------------------------------------------------------------------
 
@@ -2711,6 +2924,109 @@ def probe_cycle_closure(client: Client) -> ProbeResult:
         base_url=base_url,
     )
     return ProbeResult(name, "FAIL", f"{fid} (OPEN) missing: {', '.join(missing)}")
+
+
+def probe_health_feed_recheck_sync(client: Client) -> ProbeResult:
+    """Re-lectura terminal de ``/health/feed``: nuestra propia contaminación, clasificada (D-26).
+
+    El spec en vivo documenta que un símbolo NO validado contra el exchange
+    *"will be rejected by the feed and surface as ``last_error`` in the ingestor
+    status"*. Es decir: los símbolos que este harness crea pueden poblar un campo
+    que el baseline ``get-health-feed.json`` tiene tipado ``NoneType``.
+
+    Cuando eso pasa, la clasificación correcta es ``EXPECTED`` + auto-infligido,
+    NUNCA ``SHAPE``: un drift "inexplicado" acá sería una atribución falsa y, peor,
+    inflaría el conteo de divergencias del criterio 4 con ruido propio. Se registra
+    el **tipo** observado del campo, jamás su valor (T-27-30), y con
+    ``idempotent_by_title=True`` para que no se acumule corrida tras corrida.
+
+    Se saltea con el gate cerrado porque es literalmente una RE-verificación
+    *después* de nuestras mutaciones: sin mutaciones no hay nada que reverificar, y
+    un ``last_error`` poblado en ese caso NO sería auto-infligido —clasificarlo así
+    sería exactamente la misatribución que este probe existe para evitar—.
+    """
+    name = "health_feed_recheck_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        feed = client.get_health_feed()
+        ingestor = feed.get("ingestor")
+        last_error = ingestor.get("last_error") if isinstance(ingestor, dict) else None
+        if last_error is None:
+            return ProbeResult(name, "PASS", "ingestor.last_error sigue vacío tras las mutaciones")
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="EXPECTED",
+            title="ingestor.last_error poblado por los símbolos de prueba de este harness (auto-infligido)",
+            expected="ingestor.last_error NoneType, como en el baseline get-health-feed.json",
+            actual=f"tipo observado del campo: {type(last_error).__name__} (valor NO registrado)",
+            diff=(
+                "contaminación PROPIA del harness, no drift inexplicado: el spec en vivo "
+                "documenta que un símbolo no validado contra el exchange aflora justo ahí. "
+                "Clasificarlo SHAPE sería una misatribución y inflaría el conteo del criterio 4"
+            ),
+            base_url=base_url,
+            idempotent_by_title=True,
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
+    return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
+
+
+def probe_snapshot_rebaseline_notice_sync(client: Client) -> ProbeResult:
+    """Terminal EXPECTED (D-17/D-26): la política de snapshots frente a las mutaciones.
+
+    Deja registrado, en el mismo archivo donde vive la evidencia, POR QUÉ un
+    baseline va a derivar y qué se hace con él — la diferencia entre un
+    re-baseline deliberado y un baseline pisado en silencio.
+
+    Se saltea con el gate cerrado: sin mutaciones no hay snapshots de mutación que
+    explicar, y así una corrida con el gate apagado no agrega NINGÚN bloque nuevo
+    al findings file.
+    """
+    name = "snapshot_rebaseline_notice_sync"
+    base_url = client._state.base_url
+    if not _gate_open(client._state):
+        return _skipped_when_gated(name)
+    try:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="both",
+            status="EXPECTED",
+            title="política de snapshots de mutación y re-baseline deliberado de get-symbols.json (D-17/D-26)",
+            expected=(
+                "los baselines write-once siguen detectando drift real en los endpoints "
+                "de lectura de primera clase"
+            ),
+            actual=(
+                "cada body de mutación y cada lectura de verificación FILTRADA usa un "
+                "client_function dedicado, distinto por superficie, así que ninguno puede "
+                "derivar el baseline de una lectura; get-calendar.json NO deriva porque "
+                "schema_of muestrea sólo days[0] y el feriado de prueba tiene shape "
+                "idéntica al item commiteado; get-symbols.json SÍ deriva de forma "
+                "permanente, porque el símbolo revertido vive en active=False para siempre "
+                "y probe_symbols_sync lee justamente con active=False"
+            ),
+            diff=(
+                "get-symbols.json se RE-BASELINEA a propósito en el plan 27-07, no se "
+                "excluye: excluirlo apagaría la detección de drift sobre un endpoint de "
+                "lectura de primera clase, mientras que re-baselinearlo captura por primera "
+                "vez la shape REAL de Symbol (hoy el baseline es 'schema': [])"
+            ),
+            base_url=base_url,
+            idempotent_by_title=True,
+        )
+    except Exception as exc:  # D-09
+        return _finding_for_exc(exc, name=name, surface="both", base_url=base_url)
+    return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
 
 
 def probe_expected_put_config_operator_gated(client: Client) -> ProbeResult:
@@ -2807,6 +3123,9 @@ async def _async_main(mutating: bool) -> tuple[list[ProbeResult], list[Segment] 
         results.append(await probe_add_holidays_async(aclient))
         results.append(await probe_calendar_after_holiday_async(aclient))
         results.append(await probe_delete_holiday_async(aclient))
+        # Sweep terminal de la superficie async: LO ÚLTIMO que corre acá, para que
+        # vea el estado final de todos los ciclos destructivos async (D-08).
+        results.append(await probe_residue_sweep_async(aclient))
     except Exception as exc:  # D-09 defensa en profundidad: ningún path escapa a FAILED
         results.append(
             ProbeResult(
@@ -2896,9 +3215,17 @@ def main() -> None:
         results.append(probe_add_holidays_sync(client))
         results.append(probe_calendar_after_holiday_sync(client))
         results.append(probe_delete_holiday_sync(client))
+        # Sweep terminal de la superficie sync: LO ÚLTIMO de esta superficie (D-08).
+        results.append(probe_residue_sweep_sync(client))
+        # Paridad: no emite HTTP, sólo compara las dos listas de segments ya
+        # capturadas, así que no altera el estado que el sweep acaba de constatar.
         results.append(probe_parity(seg_sync, seg_async, client))
-        # Terminales: la limitación operativa D-06 y, último de todo, el cierre
-        # de ciclo — que debe ver el findings file ya completo de este run.
+        # Terminales, en orden: la re-lectura del feed (nuestra contaminación,
+        # clasificada EXPECTED en vez de SHAPE), la política de snapshots, la
+        # limitación operativa D-06 y, último de todo, el cierre de ciclo — que
+        # debe ver el findings file ya completo de este run.
+        results.append(probe_health_feed_recheck_sync(client))
+        results.append(probe_snapshot_rebaseline_notice_sync(client))
         results.append(probe_expected_put_config_operator_gated(client))
         results.append(probe_cycle_closure(client))
     except Exception as exc:  # D-09 defensa en profundidad: el driver NUNCA exit != 0
