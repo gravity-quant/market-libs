@@ -200,8 +200,16 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 28-01-PLAN.md — Wave 1 · Release prep reversible: bump de las 3 sedes de versión + entrada `### v0.4.0` del changelog (callout `CalendarDay`, D-03) + `uv lock`, re-apuntado D-02 de REQUIREMENTS/ROADMAP + backlog v1.6 (D-16), mirror local del gate de CI, escaneo de credenciales y push fast-forward de la branch (C-1) — `autonomous: true`
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 28-02-PLAN.md — Wave 2 · Abrir el PR (D-12), aserción **por conteo** de 15/15 checks en verde (C-2), checkpoint bloqueante D-18(a) y merge con merge commit real (D-11) — `autonomous: false`
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 28-03-PLAN.md — Wave 3 · Checkpoint bloqueante D-18(b), tag anotado `market-data-client-v0.4.0` sobre el merge commit + push → `release.yml` → GitHub Release con wheel + sdist, y refresh de las 6 regiones del release memory (C-3) — `autonomous: false`
 
 ## Progress

@@ -1335,7 +1335,10 @@ commit added during the phase.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three were resolved during planning (2026-08-01) and are incorporated into the plans.
+> Each carries an inline `**RESOLVED:**` line naming the plan/task that implements it.
 
 1. **Where does the release-memory commit land (D-04 site 5 timing)?**
    - *What we know:* the "Latest published" block cites the `release.yml` run ID and the merge
@@ -1348,12 +1351,18 @@ commit added during the phase.
    - *Recommendation:* follow the precedent — a final Plan 02 task committing the memory update
      to `milestone/v1.5-mutations` after `gh release view` confirms the assets. Flag it in the
      phase SUMMARY so it isn't lost. Do not block the release on it.
+   - **RESOLVED:** precedent followed. Implemented as `28-03` Task 3 — the memory update runs
+     after `28-03` Task 2's `gh release view` confirms both assets, and is committed to
+     `milestone/v1.5-mutations`. Scope grew from 2 regions to 6 (see C-3).
 
 2. **Should the D-02 re-point and D-16 backlog entry be one commit or two?**
    - *What we know:* both are `.planning/` edits, both are Claude's discretion for wording.
    - *Recommendation:* one `docs(28):` commit covering `REQUIREMENTS.md` + `ROADMAP.md`, separate
      from the `chore(market-data-client): bump to v0.4.0` commit (which should stay at the exact
      4-file shape of `7f051ae`).
+   - **RESOLVED:** recommendation adopted. `28-01` Task 1 produces the 4-file
+     `chore(market-data-client):` commit; `28-01` Task 2 produces the separate `docs(28):`
+     commit covering `REQUIREMENTS.md` + `ROADMAP.md`.
 
 3. **Does the residual D-03 risk need any pre-release probe?**
    - *What we know:* D-13's non-breaking claim for `CalendarDay` was never independently audited
@@ -1363,6 +1372,10 @@ commit added during the phase.
    - *Recommendation:* none beyond the D-03 changelog callout — the mitigation is already locked
      and the probe (searching GitHub for dependents of an unpublished-to-PyPI, git-installed
      package) is not reliably answerable. Note the risk in the phase SUMMARY.
+   - **RESOLVED:** no probe added. The D-03 changelog callout is the locked mitigation and is
+     machine-enforced by `28-01` Task 1's gate (all eight backticked `CalendarDay` field names
+     asserted inside the sliced `### v0.4.0` section). The residual risk is recorded as a
+     SUMMARY requirement in both `28-01` and `28-03`.
 
 ---
 

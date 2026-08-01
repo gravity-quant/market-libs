@@ -1,8 +1,8 @@
 ---
 phase: 28
 slug: release-prep-publish-v0-3-0
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-01
 ---
@@ -86,11 +86,16 @@ already-green 387-test package suite.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references *(N/A — no Wave 0 gaps)*
-- [ ] No watch-mode flags *(exception: `gh pr checks --watch` is a bounded blocking wait on a remote gate, not a local file watcher)*
-- [ ] Feedback latency < 120s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references *(N/A — no Wave 0 gaps)*
+- [x] No watch-mode flags *(exception: `gh pr checks --watch` is a bounded blocking wait on a remote gate, not a local file watcher)*
+- [x] Feedback latency < 120s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-08-01 — all 13 Per-Task Verification Map rows are reproduced in
+`28-01` / `28-02` / `28-03` `<verify><automated>` blocks, and all 3 Manual-Only rows are
+represented (D-18a checkpoint in `28-02` Task 2, D-18b checkpoint in `28-03` Task 1, D-03
+residual-risk acknowledgement as a SUMMARY requirement in `28-01` and `28-03`). Verified by
+gsd-plan-checker; the D-03 changelog gate was subsequently tightened from 4 partial greps to a
+section-scoped assertion over all 8 backticked `CalendarDay` field names.
