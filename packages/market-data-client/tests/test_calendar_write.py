@@ -13,10 +13,13 @@ Cubre el contrato observable de wire de los cinco métodos mutadores gated del
 - El trío de config parsea a ``CalendarConfig`` vía el
   ``parse_calendar_config_response`` existente (D-05), tolerante ante un ``200``
   con body vacío (D-07).
+- El par de feriados retorna ``dict`` passthrough (D-06) y degrada a ``{}`` ante
+  un ``200`` con body vacío (D-07).
 - ``422`` levanta ``MarketDataAPIError`` vía el ``raise_for_response`` existente
   (sin manejo de status nuevo en los métodos).
 
-La matriz adversarial de refusals (cero requests) vive en el Plan 04.
+La matriz adversarial de refusals (cero requests) y el test dispatch-level de
+no-retry (D-15) viven en el Plan 04.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from pytest_httpx import HTTPXMock
 
 import market_data_client
 from market_data_client import MarketDataAPIError
-from market_data_client.models import CalendarConfig, MarketHoursIn
+from market_data_client.models import CalendarConfig, HolidayIn, HolidaysIn, MarketHoursIn
 
 _BASE = "https://market-data-develop.test/api"
 _TOKEN_URL = "https://auth.test/oauth/token"
@@ -234,4 +237,153 @@ def test_config_trio_module_shims_dispatch(httpx_mock: HTTPXMock) -> None:
         ("PUT", "/api/calendar/config"),
         ("DELETE", "/api/calendar/config"),
         ("POST", "/api/calendar/config/preview"),
+    ]
+
+
+# ----------------------------------------------------------------------
+# add_holidays — POST /calendar/holidays
+# ----------------------------------------------------------------------
+
+
+def test_add_holidays_sends_nested_body_without_null_hours(httpx_mock: HTTPXMock) -> None:
+    """``add_holidays`` POSTea ``/calendar/holidays`` sin las horas ``None`` (ROADMAP SC#3)."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=200, json={"created": 1})
+
+    market_data_client.client._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
+
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "POST"
+    assert req.url.path == "/api/calendar/holidays"
+    assert req.headers["Authorization"] == "Bearer test-token"
+    assert _json.loads(req.content) == {
+        "days": [{"day": "2026-12-25", "closed": True, "description": ""}]
+    }
+
+
+def test_add_holidays_emits_hours_when_present(httpx_mock: HTTPXMock) -> None:
+    """Un ``HolidayIn`` con horas emite ambas claves en su elemento."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=200, json={})
+
+    market_data_client.client._get_default().add_holidays(
+        HolidaysIn(
+            [
+                HolidayIn(
+                    "2026-12-24",
+                    closed=False,
+                    open_time="10:00",
+                    close_time="13:00",
+                    description="media rueda",
+                )
+            ]
+        )
+    )
+
+    assert _json.loads(httpx_mock.get_requests()[0].content) == {
+        "days": [
+            {
+                "day": "2026-12-24",
+                "closed": False,
+                "open_time": "10:00",
+                "close_time": "13:00",
+                "description": "media rueda",
+            }
+        ]
+    }
+
+
+def test_add_holidays_returns_body_passthrough(httpx_mock: HTTPXMock) -> None:
+    """``add_holidays`` devuelve el dict del ``200`` tal cual (D-06)."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=200, json={"created": 1, "skipped": 0})
+
+    out = market_data_client.client._get_default().add_holidays(
+        HolidaysIn([HolidayIn("2026-12-25")])
+    )
+
+    assert isinstance(out, dict)
+    assert out == {"created": 1, "skipped": 0}
+
+
+def test_add_holidays_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
+    """Un ``200`` con body vacío degrada a ``{}`` (D-07 visto desde el shell)."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=200, content=b"")
+
+    out = market_data_client.client._get_default().add_holidays(
+        HolidaysIn([HolidayIn("2026-12-25")])
+    )
+
+    assert out == {}
+
+
+def test_add_holidays_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
+    """Un ``422`` en el alta de feriados levanta ``MarketDataAPIError``."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=422, json={"detail": "invalid"})
+
+    with pytest.raises(MarketDataAPIError):
+        market_data_client.client._get_default().add_holidays(HolidaysIn([HolidayIn("bad")]))
+
+
+# ----------------------------------------------------------------------
+# delete_holiday — DELETE /calendar/holidays/{day} (sin body, D-02)
+# ----------------------------------------------------------------------
+
+
+def test_delete_holiday_interpolates_day_and_sends_no_body(httpx_mock: HTTPXMock) -> None:
+    """``delete_holiday`` DELETEa el día interpolado, sin body ni ``Content-Type``."""
+    _open_gate()
+    httpx_mock.add_response(method="DELETE", status_code=200, json={"deleted": 1})
+
+    out = market_data_client.client._get_default().delete_holiday("2026-12-25")
+
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "DELETE"
+    assert req.url.path == "/api/calendar/holidays/2026-12-25"
+    assert req.headers["Authorization"] == "Bearer test-token"
+    assert req.content == b""
+    assert "content-type" not in req.headers
+    assert isinstance(out, dict)
+    assert out == {"deleted": 1}
+
+
+def test_delete_holiday_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
+    """Un ``200`` con body vacío degrada a ``{}`` también en el borrado."""
+    _open_gate()
+    httpx_mock.add_response(method="DELETE", status_code=200, content=b"")
+
+    out = market_data_client.client._get_default().delete_holiday("2026-12-25")
+
+    assert out == {}
+
+
+def test_delete_holiday_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
+    """Un ``422`` (p.ej. fecha mal formada, D-13) levanta ``MarketDataAPIError``."""
+    _open_gate()
+    httpx_mock.add_response(method="DELETE", status_code=422, json={"detail": "bad date"})
+
+    with pytest.raises(MarketDataAPIError):
+        market_data_client.client._get_default().delete_holiday("2026-13-45")
+
+
+# ----------------------------------------------------------------------
+# Shims module-level del par de feriados
+# ----------------------------------------------------------------------
+
+
+def test_holiday_pair_module_shims_dispatch(httpx_mock: HTTPXMock) -> None:
+    """Los dos shims module-level del par de feriados delegan al default Client."""
+    _open_gate()
+    httpx_mock.add_response(method="POST", status_code=200, json={})
+    httpx_mock.add_response(method="DELETE", status_code=200, json={})
+
+    market_data_client.client.add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
+    market_data_client.client.delete_holiday("2026-12-25")
+
+    paths = [(r.method, r.url.path) for r in httpx_mock.get_requests()]
+    assert paths == [
+        ("POST", "/api/calendar/holidays"),
+        ("DELETE", "/api/calendar/holidays/2026-12-25"),
     ]
