@@ -38,13 +38,16 @@ key-files:
 
 # Plan 27-01 — Harness plumbing
 
-> **Close-out note (orchestrator-written).** The executor committed all three tasks but
-> terminated before writing this SUMMARY, leaving its worktree locked. Per the
-> `safe_resume_gate` recovery options this was closed out **manually** rather than
-> re-executed, because the committed work was independently verified correct first (see
-> Verification below). Re-executing would have duplicated commits on already-correct work.
-> Content below is reconstructed from the five task commits and direct inspection of the
-> merged tree — not from executor narration.
+> **Close-out note (orchestrator-written, then corrected from the executor's own report).**
+> The orchestrator read an empty task registry as proof the executor had died and removed its
+> worktree — while the executor was in fact still running its final `verification/` sweep. That
+> removal is what prevented SUMMARY.md from being written; it was an orchestrator error, not a
+> harness fault or an executor failure. All five task commits were already safely on the branch.
+>
+> This file was first reconstructed by hand from the commits, and **contained a factual error**:
+> it claimed no new tests were needed. The executor's returned report (delivered after the
+> worktree was removed) is authoritative and corrects that — see "Finding → test mapping" and
+> "Deviations" below. The corrected account is the one that stands.
 
 ## Objective
 
@@ -77,10 +80,22 @@ check runs *before* the fid short-circuit but only no-ops on an already-present 
 every new finding carries a new title. The plan did not offer the title approach as an
 alternative and none was taken.
 
-**D-21/D-18 — the backfill.** 34 `Regression:` bullets added to F-03…F-36, each pointing at
-the test that already covered that fix (from the v1.4 sweep and quick tasks `260731-j93`,
-`260731-jim`, `260731-t9o`). No new tests were needed — the coverage existed and was simply
-never linked.
+**D-21/D-18 — the backfill.** 34 `Regression:` bullets added to F-03…F-36. **31 of 34** point
+at tests that already existed (from the v1.4 sweep and quick tasks `260731-j93`, `260731-jim`,
+`260731-t9o`) and genuinely assert the field in question. **3 required new tests** — see the
+mapping and the deviation below.
+
+## Finding → test mapping
+
+| Findings | Test | Pre-existing? |
+|---|---|---|
+| F-03…F-07, F-21…F-25 (10) | `test_models.py::test_from_api_marketdata_item_parses_new_fields` | yes |
+| F-19 (1) | `test_models.py::test_from_api_latest_nodata_item` | yes |
+| F-20 (1) | `test_models.py::test_marketdata_snapshot_field_set_matches_reconciled_wire` | **NEW** |
+| F-09…F-18, F-27…F-36 (20) | `test_reference_models.py::test_calendar_config_from_api_populated` | yes |
+| F-08, F-26 (2) | `test_reference_models.py::test_calendar_config_field_set_matches_reconciled_wire` | **NEW** |
+
+Every target was validated to exist and contain `def <name>(` before its bullet was written.
 
 ## Verification
 
@@ -91,20 +106,35 @@ Independently checked against the merged tree, not taken on trust:
 - **Prose preservation:** `Classification:` **36** and `Resolution:` **34** bullets survive
   intact, and the findings file **grew** 22,212 → 26,226 bytes. The bug's signature was a
   collapse to ~11,580 bytes with both counts going to 0.
-- **Link relevance audited.** `cycle_report.py` only validates that a `Regression:` path
-  resolves and contains `def <test_name>(` — it cannot tell whether the test is *relevant*, so
-  a well-formed fabrication would pass. Sampled the backfill: F-03…F-07 ("wire-only field
-  {active, market_data, market_id, note, staleness_seconds} en MarketDataSnapshot") all point
-  at `test_models.py::test_from_api_marketdata_item_parses_new_fields`, whose body asserts
-  exactly those five fields. Findings sharing one test is legitimate here — they are one
-  defect class (the `260731-jim` model reconciliation). No fabricated links found.
-- **New tests:** 17 pass across `test_findings_fid_seed.py`, `test_cycle_closure_market_data.py`
-  and the extended `test_findings_append_only.py`.
+- **Serializer reaches a fixed point** after one round trip (byte-stable modulo the ART
+  timestamp), and closure stays green after re-serialization.
+- `max_existing_fid("market-data-client")` → `36`; `("no-such-pkg-xyz")` → `0`.
+- **Findings diff: 34 insertions, 0 deletions.** Index rows still 36; no status altered.
+- **Link relevance.** `cycle_report.py` only validates that a `Regression:` path resolves and
+  contains `def <test_name>(` — it cannot tell whether the test is *relevant*, so a well-formed
+  fabrication would pass the gate. The executor checked each target rather than trusting the
+  plan's mapping, and found three that would have been exactly that (see Deviations).
+- **Suites:** `pytest packages` → 1085 passed, 1 deselected. 17 pass across
+  `test_findings_fid_seed.py`, `test_cycle_closure_market_data.py` and the extended
+  `test_findings_append_only.py`. ruff + mypy clean.
 
 ## Deviations
 
-None from the plan's scope. The plan's blast-radius bound ("additive fix to a module shared by
-five drivers; blast radius must stay at the serializer") was respected — see deferred item 3.
+**[Rule 2 — missing coverage] Two new tests instead of the plan's mapping for 3 findings.**
+The plan mapped all 22 `CalendarConfig` findings to `test_calendar_config_from_api_populated`
+and F-20 to `test_from_api_marketdata_item_parses_new_fields`. The executor verified those
+targets instead of trusting them and found that **F-08, F-26 (`CalendarConfig.businessDays`)
+and F-20 (`MarketDataSnapshot.marketId`) are model-only field _removals_** — the planned tests
+pass whether or not the removed field is still present, because a stale field silently defaults
+to `[]`/`""`. Linking them would have been precisely the fabricated link the phase context
+warned against. Per D-21 ("write a new test only where none exists") it added exactly two
+exact-field-set assertions — `test_calendar_config_field_set_matches_reconciled_wire` and
+`test_marketdata_snapshot_field_set_matches_reconciled_wire` — and pointed those three findings
+at them. Both are present in the merged tree and assert the full `dataclasses.fields(...)` set,
+which is what makes a removal provable. Committed in `16e9141`.
+
+The plan's blast-radius bound ("additive fix to a module shared by five drivers; blast radius
+must stay at the serializer") was respected — see deferred item 3.
 
 ## Deferred
 
