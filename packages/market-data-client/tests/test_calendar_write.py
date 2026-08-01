@@ -524,6 +524,72 @@ def test_delete_holiday_path_safety_empty_and_query_emit_no_request(
     assert httpx_mock.get_requests() == []
 
 
+def test_delete_holiday_path_safety_single_dot_emits_no_request(httpx_mock: HTTPXMock) -> None:
+    """CR-01: un ``day`` de un solo punto NO llega al cable y NO retarget la colección.
+
+    Con el enumerado viejo (``("/", "?", "#", "..")``) ``"."`` pasaba el guard, y
+    httpx 0.28.1 aplica ``remove_dot_segments`` (RFC 3986) en ``build_request``:
+    el segmento no queda como ``/holidays/.``, **desaparece**. El request que
+    salía era ``DELETE /api/calendar/holidays`` — el endpoint COLECCIÓN, o sea un
+    borrado masivo si esa ruta existe del lado del servidor, o una mutación que
+    nadie pidió si no existe. El colapso es 100% client-side: no requiere ninguna
+    cooperación del servidor. Assertar sólo el ``ValueError`` no alcanza — lo que
+    importa es que ``get_requests()`` quede vacío.
+    """
+    _open_gate()
+
+    with pytest.raises(ValueError, match="single path segment"):
+        market_data_client.client._get_default().delete_holiday(".")
+
+    assert httpx_mock.get_requests() == []
+
+
+@pytest.mark.parametrize(
+    "hostile_day",
+    [
+        "..",
+        "%2e",
+        "%2e%2e%2fconfig",
+        "%2Fconfig",
+        "config%3Fx=1",
+        "2026-12-25%23frag",
+        "a\\b",
+        "a/b",
+    ],
+)
+def test_delete_holiday_path_safety_encoded_escapes_emit_no_request(
+    httpx_mock: HTTPXMock, hostile_day: str
+) -> None:
+    """CR-02: los escapes percent-encoded tampoco llegan al cable.
+
+    httpx preserva las secuencias ya percent-encodeadas sin doble-encodearlas, así
+    que con el guard viejo ``"%2e%2e%2fconfig"`` viajaba tal cual y el servidor lo
+    decodificaba a ``../config`` antes de rutear (uvicorn ``unquote()`` el raw path
+    antes del router). El allow-list de charset los rechaza por construcción.
+    """
+    _open_gate()
+
+    with pytest.raises(ValueError, match="single path segment"):
+        market_data_client.client._get_default().delete_holiday(hostile_day)
+
+    assert httpx_mock.get_requests() == []
+
+
+def test_delete_holiday_path_safety_non_str_day_emits_no_request(httpx_mock: HTTPXMock) -> None:
+    """WR-04: un ``day`` no-``str`` es ``ValueError`` (no ``TypeError``) y 0 requests.
+
+    La ``list`` es el caso feo: con el guard viejo ``"/" in ["2026-12-25"]`` era
+    ``False``, así que pasaba y su ``repr`` se interpolaba en el path.
+    """
+    _open_gate()
+
+    for bad_day in (None, 20261225, ["2026-12-25"]):
+        with pytest.raises(ValueError, match="single path segment"):
+            market_data_client.client._get_default().delete_holiday(bad_day)  # type: ignore[arg-type]
+
+    assert httpx_mock.get_requests() == []
+
+
 # ----------------------------------------------------------------------
 # No-retry a nivel dispatch (D-15 / T-26-07) + control positivo contrastante
 #

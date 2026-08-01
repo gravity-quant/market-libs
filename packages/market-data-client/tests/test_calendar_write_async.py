@@ -490,3 +490,60 @@ async def test_delete_holiday_path_safety_empty_and_query_emit_no_request(
         await aio._get_default().delete_holiday("2026-12-25?x=1")
 
     assert httpx_mock.get_requests() == []
+
+
+async def test_delete_holiday_path_safety_single_dot_emits_no_request(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """CR-01 async: ``delete_holiday(".")`` → ``ValueError`` y CERO requests.
+
+    httpx 0.28.1 aplica ``remove_dot_segments`` (RFC 3986) en ``build_request``, así
+    que un ``"."`` no queda como ``/holidays/.`` — el segmento DESAPARECE y el
+    request colapsa a ``DELETE /api/calendar/holidays``, el endpoint COLECCIÓN. El
+    colapso es client-side puro: no necesita ninguna cooperación del servidor. Por
+    eso la lista vacía de requests es la mitad que importa del assert.
+    """
+    _open_gate()
+
+    with pytest.raises(ValueError, match="single path segment"):
+        await aio._get_default().delete_holiday(".")
+
+    assert httpx_mock.get_requests() == []
+
+
+@pytest.mark.parametrize(
+    "hostile_day",
+    [
+        "..",
+        "%2e",
+        "%2e%2e%2fconfig",
+        "%2Fconfig",
+        "config%3Fx=1",
+        "2026-12-25%23frag",
+        "a\\b",
+        "a/b",
+    ],
+)
+async def test_delete_holiday_path_safety_encoded_escapes_emit_no_request(
+    httpx_mock: HTTPXMock, hostile_day: str
+) -> None:
+    """CR-02 async: los escapes percent-encoded se rechazan con 0 requests."""
+    _open_gate()
+
+    with pytest.raises(ValueError, match="single path segment"):
+        await aio._get_default().delete_holiday(hostile_day)
+
+    assert httpx_mock.get_requests() == []
+
+
+async def test_delete_holiday_path_safety_non_str_day_emits_no_request(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """WR-04 async: ``day`` no-``str`` → ``ValueError`` (no ``TypeError``), 0 requests."""
+    _open_gate()
+
+    for bad_day in (None, 20261225, ["2026-12-25"]):
+        with pytest.raises(ValueError, match="single path segment"):
+            await aio._get_default().delete_holiday(bad_day)  # type: ignore[arg-type]
+
+    assert httpx_mock.get_requests() == []

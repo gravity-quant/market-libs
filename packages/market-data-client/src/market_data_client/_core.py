@@ -41,6 +41,7 @@ stale y despache (Wave 3) a la URL absoluta de Auth0, no a ``base_url``
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -686,10 +687,17 @@ def build_delete_calendar_config_request(state: _ClientState) -> RequestSpec:
     )
 
 
-# Tokens that let a ``day`` value escape its path segment (D-18): ``/`` and
-# ``..`` retarget the request at a DIFFERENT endpoint, ``?`` appends a query
-# string and ``#`` truncates the path at a fragment.
-_PATH_SEGMENT_ESCAPES = ("/", "?", "#", "..")
+# D-18: a ``day`` is ONE path segment. This is an allow-list of the characters a
+# segment may contain, not an enumeration of hostile tokens — an enumeration is
+# only ever as good as the reviewer's imagination and the first one shipped here
+# missed both a lone ``.`` (RFC 3986 dot-segment removal DELETES the segment) and
+# every percent-encoded form of the tokens it did list (``%2e%2e%2f`` → ``../``).
+# The charset is RFC 3986 ``unreserved`` (ALPHA / DIGIT / ``-`` / ``.`` / ``_`` /
+# ``~``): it needs no encoding to travel a path, so D-03's byte-for-byte
+# interpolation stays intact for every legitimate ISO date. Everything else —
+# ``/``, ``?``, ``#``, ``\``, whitespace, control and unicode characters, and
+# critically ``%``, the percent-encoding introducer — is rejected by construction.
+_DAY_SEGMENT_RE = re.compile(r"\A[A-Za-z0-9._~-]+\Z")
 
 
 def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
@@ -704,18 +712,40 @@ def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
     Path-safety guard (D-18 / T-26-01): ``day`` is interpolated RAW into the path
     — no percent-encoding, so a legitimate ISO date rides the wire byte for byte
     (D-03) — which makes an unvalidated ``day`` able to change WHICH endpoint runs.
-    Verified against httpx 0.28.1: ``day="../config"`` normalizes to
-    ``DELETE /api/calendar/config``, i.e. a market-config reset, and
-    ``day="2026-12-25?x=1"`` injects a query string. The server's ``422`` is NOT a
-    mitigation for this: the request never reaches the endpoint that would
-    validate it. So the guard REJECTS rather than sanitizes — a plain
-    :class:`ValueError` (the ``MarketData*`` hierarchy stays reserved for server
-    contract errors, D-12) raised BEFORE the ``RequestSpec`` is built. Nothing is
-    percent-encoded here, so the guard is strictly narrower than a quoting escape
-    and it is NOT date-format validation: ``"2026-13-45"`` passes and goes on to
-    earn the server's ``422`` (D-13).
+    The guard is the ``_DAY_SEGMENT_RE`` charset allow-list plus an all-dots
+    rejection, and it blocks exactly three failure modes, all verified against the
+    pinned httpx 0.28.1:
+
+    * **Segment retargeting.** ``day="../config"`` normalizes to
+      ``DELETE /api/calendar/config`` — a market-config reset. Worse, a lone
+      ``day="."`` is removed entirely by RFC 3986 dot-segment removal at
+      ``build_request``, collapsing the request to ``DELETE /api/calendar/holidays``
+      — the COLLECTION endpoint, i.e. a mutation the caller never asked for. Hence
+      the ``day.strip(".")`` check: ``.`` and ``..`` are inside the charset (they
+      are RFC 3986 ``unreserved``) but an all-dots segment is never a day.
+    * **Percent-encoded escapes.** httpx preserves already-encoded sequences
+      without double-encoding, so ``"%2e%2e%2fconfig"``, ``"%2Fconfig"`` and
+      ``"config%3Fx=1"`` reach the wire and decode server-side to ``../config``,
+      ``//config`` and a query string — the classic decode-then-route traversal
+      (ASGI servers ``unquote()`` before routing). ``%`` is therefore not in the
+      charset. ``\\`` is excluded for the same reason: WHATWG-normalizing proxies
+      read it as ``/``.
+    * **Non-``str`` input.** Untyped callers (notebooks, ``main_*.py``, config
+      read from JSON) can arrive with an ``int`` or a ``list``; the ``isinstance``
+      check turns both into the same path-safety refusal instead of a
+      ``TypeError`` (or, for a ``list``, a silently interpolated ``repr``).
+
+    The server's ``422`` is NOT a mitigation for any of these: the request never
+    reaches the endpoint that would validate it. So the guard REJECTS rather than
+    sanitizes — a plain :class:`ValueError` (the ``MarketData*`` hierarchy stays
+    reserved for server contract errors, D-12) raised BEFORE the ``RequestSpec`` is
+    built, naming only ``day`` and its value so no credential or client state
+    leaks. Nothing is percent-encoded here, so the guard stays strictly narrower
+    than a quoting escape, and it is NOT date-format validation: ``"2026-13-45"``
+    passes and goes on to earn the server's ``422`` (D-13). ``%`` is excluded as
+    the encoding introducer, not because of date shape.
     """
-    if not day or any(token in day for token in _PATH_SEGMENT_ESCAPES):
+    if not isinstance(day, str) or not _DAY_SEGMENT_RE.fullmatch(day) or day.strip(".") == "":
         raise ValueError(f"day must be a single path segment, got {day!r}")
     del state  # state-independent
     return RequestSpec(
