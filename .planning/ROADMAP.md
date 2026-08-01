@@ -197,7 +197,12 @@ Plans:
   3. Merge a `main`; tag `market-data-client-v0.3.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
   4. El bump es minor no-breaking: la superficie de lectura v0.2.0 permanece 100% compatible.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 28-01-PLAN.md — Wave 1 · Release prep reversible: bump de las 3 sedes de versión + entrada `### v0.4.0` del changelog (callout `CalendarDay`, D-03) + `uv lock`, re-apuntado D-02 de REQUIREMENTS/ROADMAP + backlog v1.6 (D-16), mirror local del gate de CI, escaneo de credenciales y push fast-forward de la branch (C-1) — `autonomous: true`
+- [ ] 28-02-PLAN.md — Wave 2 · Abrir el PR (D-12), aserción **por conteo** de 15/15 checks en verde (C-2), checkpoint bloqueante D-18(a) y merge con merge commit real (D-11) — `autonomous: false`
+- [ ] 28-03-PLAN.md — Wave 3 · Checkpoint bloqueante D-18(b), tag anotado `market-data-client-v0.4.0` sobre el merge commit + push → `release.yml` → GitHub Release con wheel + sdist, y refresh de las 6 regiones del release memory (C-3) — `autonomous: false`
 
 ## Progress
 
@@ -230,7 +235,7 @@ Plans:
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
-| 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
+| 28. Release prep + publish v0.3.0                           | v1.5      | 0/3   | Not started | -          |
 
 ## Backlog
 
