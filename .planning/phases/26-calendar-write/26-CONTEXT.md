@@ -130,6 +130,22 @@ and the pre-existing `get_calendar` read-surface bug (see D-16 / Deferred).
   through `__init__.py` `__all__`. Parity is enforced by the in-package
   `tests/test_public_surface_market_data.py` (Phase-25 D-15/D-16).
 
+### F. Path safety (added post-research, 2026-07-31)
+
+- **D-18:** `build_delete_holiday_request` MUST guard `day` against **path-segment escape**
+  before interpolation: raise a bare `ValueError` if `day` is empty or contains `/`, `?`,
+  `#`, or `..`. Rationale (26-RESEARCH.md Open Question 1, verified against the pinned
+  httpx 0.28.1): raw interpolation lets a consumer-supplied `day="../config"` normalize to
+  `DELETE /api/calendar/config` — a **market-config reset**, a different endpoint of this
+  same phase — and `day="X?a=1"` injects a query string. The server's `422` never fires
+  because the request never reaches the endpoint that would validate it.
+  This guard is **strictly narrower than `urllib.parse.quote()`**, so **D-03 still holds
+  byte-for-byte** for every legitimate ISO date, and it is **not** a format validation, so
+  **D-13 still holds** (`"2026-13-45"` passes the guard and goes to the server `422`).
+  Cost: ~3 lines + 1 test. Operator decision taken at plan-phase after the researcher
+  escalated it under `security_block_on: "high"`; must appear in the `<threat_model>` block
+  of the plan that owns the delete-holiday builder.
+
 ### Claude's Discretion
 
 - Exact builder/parser/helper naming beyond the DM-locked public method names
