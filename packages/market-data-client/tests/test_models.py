@@ -21,8 +21,11 @@ import dataclasses
 
 import pytest
 
+from market_data_client import models as models_module
+from market_data_client.exceptions import MarketDataError
 from market_data_client.models import (
     HolidayIn,
+    HolidaysIn,
     LatestRequest,
     MarketDataSnapshot,
     MarketHoursIn,
@@ -295,3 +298,57 @@ def test_holiday_in_is_frozen() -> None:
     holiday = HolidayIn("2026-12-25")
     with pytest.raises(dataclasses.FrozenInstanceError):
         holiday.day = "2026-12-26"  # type: ignore[misc]
+
+
+def test_holidays_in_to_dict_wraps_each_day() -> None:
+    """Pure wrapper: ``{"days": [each element's to_dict()]}`` — no drop_none (D-11)."""
+    out = HolidaysIn([HolidayIn("2026-12-25")]).to_dict()
+    assert out == {"days": [{"day": "2026-12-25", "closed": True, "description": ""}]}
+
+
+def test_holidays_in_to_dict_nests_per_day_drop_none() -> None:
+    """Each nested to_dict() keeps its own drop_none effect."""
+    out = HolidaysIn(
+        [
+            HolidayIn("2026-12-25"),
+            HolidayIn("2026-12-24", closed=False, open_time="10:00"),
+        ]
+    ).to_dict()
+    assert len(out["days"]) == 2
+    second = out["days"][1]
+    assert second["open_time"] == "10:00"
+    assert "close_time" not in second
+
+
+def test_holidays_in_empty_raises_value_error() -> None:
+    """Lower-bound guard: an empty batch raises before any dispatch (D-12)."""
+    with pytest.raises(ValueError, match="1-500"):
+        HolidaysIn([])
+
+
+def test_holidays_in_over_500_raises_value_error() -> None:
+    """Upper-bound guard: 501 days raises before any dispatch (D-12)."""
+    with pytest.raises(ValueError, match="1-500"):
+        HolidaysIn([HolidayIn(f"2026-01-{i:02d}") for i in range(501)])
+
+
+def test_holidays_in_boundary_1_and_500_construct() -> None:
+    """Exactly 1 and exactly 500 days construct successfully."""
+    one = HolidaysIn([HolidayIn("2026-12-25")])
+    assert len(one.days) == 1
+    full = HolidaysIn([HolidayIn(f"2026-01-{i:02d}") for i in range(500)])
+    assert len(full.days) == 500
+
+
+def test_holidays_in_bound_error_is_plain_value_error() -> None:
+    """The bound error is a BARE ValueError — the MarketData* hierarchy stays
+    reserved for server contract errors (D-12)."""
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011
+        HolidaysIn([])
+    assert type(excinfo.value) is ValueError
+    assert not isinstance(excinfo.value, MarketDataError)
+
+
+def test_calendar_write_models_exported_in_models_all() -> None:
+    assert {"HolidayIn", "HolidaysIn", "MarketHoursIn"} <= set(models_module.__all__)
+    assert list(models_module.__all__) == sorted(models_module.__all__)
