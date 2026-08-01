@@ -539,3 +539,71 @@ def test_build_delete_holiday_request_is_state_independent() -> None:
     assert _core.build_delete_holiday_request(
         fresh, "2026-12-25"
     ) == _core.build_delete_holiday_request(configured, "2026-12-25")
+
+
+# ----------------------------------------------------------------------
+# parse_calendar_write_response (Plan 26-02, D-06 / D-07 / T-26-13)
+# ----------------------------------------------------------------------
+
+
+def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
+    """Build a synthetic ``httpx.Response`` from a RAW body (no json= helper)."""
+    return httpx.Response(status_code, content=content, request=_DUMMY_REQUEST)
+
+
+def test_parse_calendar_write_response_passes_dict_through() -> None:
+    resp = _raw_resp(200, b'{"deleted": true, "count": 1}')
+    assert _core.parse_calendar_write_response(resp) == {"deleted": True, "count": 1}
+
+
+def test_parse_calendar_write_response_tolerates_empty_body() -> None:
+    """An empty 200 body collapses to {} — ``parse_health_response`` would raise here."""
+    resp = _raw_resp(200, b"")
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_null_body() -> None:
+    resp = httpx.Response(200, json=None, request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_list_body() -> None:
+    resp = httpx.Response(200, json=[], request=_DUMMY_REQUEST)
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_tolerates_scalar_body() -> None:
+    resp = _raw_resp(200, b'"texto"')
+    assert _core.parse_calendar_write_response(resp) == {}
+
+
+def test_parse_calendar_write_response_raises_on_422() -> None:
+    resp = _raw_resp(422, b'{"detail": "bad day"}')
+    with pytest.raises(MarketDataAPIError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_parse_calendar_write_response_raises_on_401() -> None:
+    resp = _raw_resp(401, b'{"detail": "nope"}')
+    with pytest.raises(MarketDataAuthError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_parse_calendar_write_response_raises_on_429() -> None:
+    resp = _raw_resp(429, b'{"detail": "slow down"}')
+    with pytest.raises(MarketDataRateLimitError):
+        _core.parse_calendar_write_response(resp)
+
+
+def test_core_all_exports_calendar_write_surface_in_order() -> None:
+    """The six new names are exported and ``__all__`` stays ASCII-sorted (RUF022)."""
+    expected = {
+        "build_add_holidays_request",
+        "build_delete_calendar_config_request",
+        "build_delete_holiday_request",
+        "build_preview_calendar_config_request",
+        "build_set_calendar_config_request",
+        "parse_calendar_write_response",
+    }
+    assert expected <= set(_core.__all__)
+    assert list(_core.__all__) == sorted(_core.__all__)
