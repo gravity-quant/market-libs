@@ -5,8 +5,8 @@ milestone_name: market-data-client · mutaciones
 current_phase: 27
 current_phase_name: Verificación en vivo segura + fixes
 status: executing
-stopped_at: Phase 27 complete — LIVE-MUT-01 satisfied with real live evidence; verifier 5/5
-last_updated: "2026-08-01T16:47:31.263Z"
+stopped_at: Phase 28 context gathered (assumptions mode) — release re-pointed to v0.4.0
+last_updated: "2026-08-01T17:48:39.090Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 27 execution started
 progress:
@@ -222,9 +222,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-01T16:47:31.257Z
-Stopped at: Phase 27 complete — LIVE-MUT-01 satisfied with real live evidence; verifier 5/5
-Resume file: .planning/phases/27-verificaci-n-en-vivo-segura-fixes/27-VERIFICATION.md
+Last session: 2026-08-01T17:48:39.084Z
+Stopped at: Phase 28 context gathered (assumptions mode) — release re-pointed to v0.4.0
+Resume file: .planning/phases/28-release-prep-publish-v0-3-0/28-CONTEXT.md
 
 ## Operator Next Steps
 
