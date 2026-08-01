@@ -157,7 +157,16 @@ Plans:
   4. Toda divergencia (shape de respuesta, códigos, idempotencia real) se documenta en findings y se corrige in-cycle, espejada sync/async, con un test de regresión mockeado por fix.
   5. Cycle closure PASS.
 
-**Plans**: TBD
+**Plans**: 7 plans (6 waves — el orden es dependencia dura, no preferencia: el plumbing roto invalida el run en vivo, y el run en vivo es el único insumo de los fixes)
+
+Plans:
+- [ ] 27-01-PLAN.md — Wave 1 · Harness: preservar prosa de findings (D-23) + `max_existing_fid` (D-16/D-24) + backfill de los 34 `Regression:` legacy (D-21) → cycle closure deja de fallar
+- [ ] 27-02-PLAN.md — Wave 1 · Fix offline: `parse_calendar_response` desenvuelve el envelope `days[]` + `CalendarDay` retipado al wire real (D-12/D-13) — prerequisito del criterio 2
+- [ ] 27-03-PLAN.md — Wave 2 · Gate driver-side parametrizado (D-01/D-02) + seed del allocator + `verify_cycle_closure` cableado (D-18) + probes de refusal + guard de línea SKIPPED (D-03/D-04)
+- [ ] 27-04-PLAN.md — Wave 3 · Plumbing de mutación gate-checked + ciclo destructivo de symbols create→verify→revert sync+async con descubrimiento de id e idempotencia por conteo de filas (D-05/D-10/D-11/D-19/D-27)
+- [ ] 27-05-PLAN.md — Wave 4 · Calendar: config preview-only (D-06) + ciclo completo de holidays (D-07) + sweep de residuos + recheck de `/health/feed` + política de snapshots (D-08/D-17/D-26)
+- [ ] 27-06-PLAN.md — Wave 5 · Corrida destructiva armada contra develop con checkpoint de operator; captura de evidencia (id, shapes de mutación, dedupe) — `autonomous: false`
+- [ ] 27-07-PLAN.md — Wave 6 · Fixes in-cycle no-breaking (D-09/D-22), flip de `idempotent=` si la medición lo contradice (D-20), promoción de findings a FIXED, re-baseline y re-run → cycle closure PASS — `autonomous: false`
 
 ### Phase 28: Release prep + publish v0.3.0
 
