@@ -128,7 +128,7 @@ Requirements archive: [`milestones/v1.3-REQUIREMENTS.md`](./milestones/v1.3-REQU
   4. La idempotencia por-endpoint se setea per DM-03 (`POST /calendar/holidays` con `idempotent=False` → no retry; el resto retry-safe).
   5. Paridad sync/async y enforcement del gate idénticos a Phase 25; tests mockeados (gate, serialización, defaults, `confirm`, `422`, paridad) y 4 gates verdes.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -142,7 +142,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 26-04-PLAN.md — matriz adversarial del gate + no-retry D-15 + re-exports/paridad + 4 gates verdes [wave 3]
+- [x] 26-04-PLAN.md — matriz adversarial del gate + no-retry D-15 + re-exports/paridad + 4 gates verdes [wave 3]
 
 ### Phase 27: Verificación en vivo segura + fixes
 
@@ -202,7 +202,7 @@ Plans:
 | 23. Live verification against develop + fixes               | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 24. Release prep + publish v0.1.0                           | v1.4      | 2/2   | Complete    | 2026-07-31 |
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
-| 26. Calendar write                                          | v1.5      | 3/4 | In Progress|  |
+| 26. Calendar write                                          | v1.5      | 4/4 | Complete   | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 0/?   | Not started | -          |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 0/?   | Not started | -          |
 
