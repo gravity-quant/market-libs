@@ -1,7 +1,7 @@
 # Findings: market-data-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-08-01T15:54:42.284490+00:00
+- Timestamp: 2026-08-01T16:22:56.504010+00:00
 - Resolved base URL / env: https://market-data-develop.bbsa.com.ar/api
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -74,6 +74,10 @@
 | F-60 | ERROR-MAP | sync | EXPECTED |
 | F-61 | SHAPE | both | EXPECTED |
 | F-62 | SHAPE | both | EXPECTED |
+| F-63 | SHAPE | sync | EXPECTED |
+| F-64 | NO-DATA | sync | EXPECTED |
+| F-65 | SHAPE | async | EXPECTED |
+| F-66 | NO-DATA | async | EXPECTED |
 
 ## Detalle por hallazgo
 
@@ -748,4 +752,44 @@
 - **Diff:** limitación operativa reconocida, no drift detectado; ambos endpoints siguen cubiertos por packages/market-data-client/tests (mocked)
 - **Classification:** EXPECTED
 - **Resolution:** Limitación operativa reconocida, sin cambios en 27-07 y fuera del alcance autorizado por el operator: `PUT`/`DELETE /calendar/config` siguen prohibidos en el run armado (D-06). El par sigue cubierto por tests mockeados in-package. La cobertura en vivo requiere una decisión de operator sobre alterar la config compartida de develop.
+
+### F-63 -- schema drift en get_market_data
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `EXPECTED`
+
+- **Expected:** {"count": "int", "items": [{"active": "bool", "entries": ["str"], "market_data": {"BI": [{"price": "int", "size": "int"}], "CL": {"date": "int", "price": "int"}, "HI": "int", "LA": {"date": "int", "price": "int", "size": "int"}, "LO": "int", "OF": [{"price": "int", "size": "int"}], "OI": "NoneType", "OP": "int", "SE": {"price": "int"}, "TV": "NoneType"}, "market_id": "str", "received_at": "str", "staleness_seconds": "float", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Actual:** {"count": "int", "items": [{"active": "bool", "entries": [], "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+- **Classification:** EXPECTED
+- **Resolution:** Misma condición ya adjudicada en F-37/F-39: el KEY SET del baseline y el del run son IDÉNTICOS y sólo difieren los TIPOS que `schema_of` infiere de los valores, según haya o no datos de mercado al momento de leer. No es drift de contrato ni del cliente. El baseline NO se sobreescribe (D-25). El emisor de drift asigna un fid NUEVO en cada run a propósito y no dedupea por título: dos drifts con el mismo título pero distinto schema real son hallazgos distintos, y colapsarlos por título haría desaparecer en silencio al segundo.
+
+### F-64 -- market_data vacío para prefix '__no_such_symbol__'
+
+**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `EXPECTED`
+
+- **Expected:** lista vacía para un prefix inexistente
+- **Actual:** []
+- **Diff:** empty/closed-market clasificado NO-DATA, nunca un crash
+- **Classification:** EXPECTED
+- **Resolution:** Misma condición ya adjudicada en F-38/F-40: es el resultado ESPERADO del probe, que consulta un prefix inexistente a propósito para verificar que un resultado vacío se clasifica `NO-DATA` y nunca crashea (D-09). El probe registra la observación en cada run por diseño.
+
+### F-65 -- schema drift en get_market_data
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `EXPECTED`
+
+- **Expected:** {"count": "int", "items": [{"active": "bool", "entries": ["str"], "market_data": {"BI": [{"price": "int", "size": "int"}], "CL": {"date": "int", "price": "int"}, "HI": "int", "LA": {"date": "int", "price": "int", "size": "int"}, "LO": "int", "OF": [{"price": "int", "size": "int"}], "OI": "NoneType", "OP": "int", "SE": {"price": "int"}, "TV": "NoneType"}, "market_id": "str", "received_at": "str", "staleness_seconds": "float", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Actual:** {"count": "int", "items": [{"active": "bool", "entries": [], "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+- **Classification:** EXPECTED
+- **Resolution:** Misma condición ya adjudicada en F-37/F-39: el KEY SET del baseline y el del run son IDÉNTICOS y sólo difieren los TIPOS que `schema_of` infiere de los valores, según haya o no datos de mercado al momento de leer. No es drift de contrato ni del cliente. El baseline NO se sobreescribe (D-25). El emisor de drift asigna un fid NUEVO en cada run a propósito y no dedupea por título: dos drifts con el mismo título pero distinto schema real son hallazgos distintos, y colapsarlos por título haría desaparecer en silencio al segundo.
+
+### F-66 -- market_data async vacío para prefix '__no_such_symbol__'
+
+**Class:** `NO-DATA` . **Surface:** `async` . **Status:** `EXPECTED`
+
+- **Expected:** lista vacía para un prefix inexistente
+- **Actual:** []
+- **Diff:** empty/closed-market clasificado NO-DATA, nunca un crash
+- **Classification:** EXPECTED
+- **Resolution:** Misma condición ya adjudicada en F-38/F-40: es el resultado ESPERADO del probe, que consulta un prefix inexistente a propósito para verificar que un resultado vacío se clasifica `NO-DATA` y nunca crashea (D-09). El probe registra la observación en cada run por diseño.
 <!-- END AUTO-GENERATED -->
