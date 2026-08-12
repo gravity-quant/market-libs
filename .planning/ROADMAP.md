@@ -197,7 +197,7 @@ Plans:
   3. Merge a `main`; tag `market-data-client-v0.4.0` empujado → `release.yml` (unedited) → GitHub Release con wheel + sdist.
   4. El bump es minor no-breaking medido contra **v0.3.1** (el predecesor real publicado, no v0.2.0): la superficie de lectura permanece compatible y los cambios de symbols son aditivos/ensanchantes. Única excepción documentada: el carve-out D-03 de `CalendarDay`, source-breaking pero pre-autorizado por D-13 y explicitado en el changelog.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -210,7 +210,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 28-03-PLAN.md — Wave 3 · Checkpoint bloqueante D-18(b), tag anotado `market-data-client-v0.4.0` sobre el merge commit + push → `release.yml` → GitHub Release con wheel + sdist, y refresh de las 6 regiones del release memory (C-3) — `autonomous: false`
+- [x] 28-03-PLAN.md — Wave 3 · Checkpoint bloqueante D-18(b), tag anotado `market-data-client-v0.4.0` sobre el merge commit + push → `release.yml` → GitHub Release con wheel + sdist, y refresh de las 6 regiones del release memory (C-3) — `autonomous: false`
 
 ## Progress
 
