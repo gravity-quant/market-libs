@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: market-data-client · mutaciones
-current_phase: 27
-current_phase_name: Verificación en vivo segura + fixes
-status: planning
-stopped_at: "Completed 28-02-PLAN.md — PR #10 merged to main at 5d0825d; tag still pending 28-03 gate"
+current_phase: 28
+current_phase_name: Release prep + publish v0.3.0
+status: milestone_complete
+stopped_at: "Phase 28 complete — v0.4.0 published (tag on 5d0825d, release run 31549711805); milestone v1.5 ready to close"
 last_updated: "2026-08-12T00:51:36.965Z"
 last_activity: 2026-08-11
-last_activity_desc: Phase 28 execution started
+last_activity_desc: Phase 28 verified passed (15/15) — milestone v1.5 complete
 progress:
   total_phases: 4
   completed_phases: 4
