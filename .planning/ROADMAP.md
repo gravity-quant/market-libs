@@ -16,7 +16,7 @@
 - [x] **Phase 25: Mutating-gate + Symbols write** — safety gate load-bearing (opt-in `mutating_allowed` + env gate + no-retry de no-idempotentes) + `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{id}` — GATE-MD-01 + MUT-MD-01 (completed 2026-07-31)
 - [x] **Phase 26: Calendar write** — `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` con `confirm` guardrail — MUT-MD-02 (completed 2026-08-01)
 - [ ] **Phase 27: Verificación en vivo segura + fixes** — probes de mutación detrás del gate contra develop (create→verify→revert), revalida idempotencia DM-03, fixes in-cycle — LIVE-MUT-01
-- [ ] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.4.0` → GitHub Release (la release efectiva es **v0.4.0**: `v0.3.0` y `v0.3.1` ya se publicaron mid-milestone fuera del flujo de fases — D-02) — PUB-MUT-01
+- [x] **Phase 28: Release prep + publish v0.3.0** — bump minor + README changelog + PR → tag `market-data-client-v0.4.0` → GitHub Release (la release efectiva es **v0.4.0**: `v0.3.0` y `v0.3.1` ya se publicaron mid-milestone fuera del flujo de fases — D-02) — PUB-MUT-01 (completed 2026-08-11)
 
 <details>
 <summary>✅ v1.4 market-data-client (Phases 20-24) — SHIPPED 2026-07-31</summary>
@@ -243,7 +243,7 @@ Plans:
 | 25. Mutating-gate + Symbols write                           | v1.5      | 3/3 | Complete    | 2026-07-31 |
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
-| 28. Release prep + publish v0.3.0                           | v1.5      | 2/3 | In Progress|  |
+| 28. Release prep + publish v0.3.0                           | v1.5      | 2/3 | Complete    | 2026-08-11 |
 
 ## Backlog
 
