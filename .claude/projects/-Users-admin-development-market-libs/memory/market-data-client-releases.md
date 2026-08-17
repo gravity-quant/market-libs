@@ -22,9 +22,13 @@ carries a documented `CalendarDay` field replacement (detailed below).
   `PUT /calendar/config`, `DELETE /calendar/config`, `POST /calendar/config/preview`,
   `POST /calendar/holidays` and `DELETE /calendar/holidays/{day}`. All five functions have async
   counterparts in `market_data_client.aio` (module-level shims, not re-exported into the flat
-  namespace, per the monorepo convention). The `confirm` guardrail is exposed explicitly with
-  default `False`, so real market configuration is never persisted implicitly. The whole surface
-  sits behind the existing opt-in mutating-gate (`mutating_allowed=True` + `expected_host`).
+  namespace, per the monorepo convention). `confirm` is a FIELD of `MarketHoursIn` (default
+  `False`), so it rides `set_calendar_config` / `preview_calendar_config` only. It is a *second
+  opinion*, NOT a persistence gate: the server demands it only when the requested window produces
+  warnings — a warning-free config is written with `confirm=False`. `delete_calendar_config`,
+  `add_holidays` and `delete_holiday` have NO `confirm` argument at all. The real guard on the
+  whole surface — and the only guard on those three — is the existing opt-in mutating-gate
+  (`mutating_allowed=True` + `expected_host`).
 - **Live-verified fixes (LIVE-MUT-01):** `update_symbol(symbol_id)` was **widened** from `str` to
   `int | str` across all four routes (the `_core` request builder, `Client`, `AsyncClient` and both
   module shims); `Symbol` gains five **defaulted** fields (`id`, `market_id`, `created_at`,

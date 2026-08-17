@@ -72,9 +72,13 @@ uv run mypy packages/market-data-client
   Las cinco funciones tienen contraparte async en `market_data_client.aio`
   (`set_calendar_config`, `delete_calendar_config`, `preview_calendar_config`, `add_holidays`,
   `delete_holiday`; shims a nivel de módulo, no re-exportados al namespace plano según la
-  convención del monorepo). El guardrail `confirm` se expone explícitamente con default `False`,
-  así que nunca se persiste configuración real de mercado de forma implícita. Toda la superficie
-  vive detrás del mutating-gate opt-in ya existente (`mutating_allowed=True` + `expected_host`).
+  convención del monorepo). `confirm` es un **campo de `MarketHoursIn`** (default `False`), así
+  que sólo viaja en `set_calendar_config` / `preview_calendar_config`. **No es un gate de
+  persistencia**: es una *segunda opinión* que el servidor exige únicamente cuando la ventana
+  pedida produce warnings — una config sin warnings se persiste igual con `confirm=False`.
+  `delete_calendar_config`, `add_holidays` y `delete_holiday` **no tienen** argumento `confirm`.
+  El guard real de toda la superficie — y el único de esas tres — es el mutating-gate opt-in ya
+  existente (`mutating_allowed=True` + `expected_host`).
 - **Fixes verificados en vivo (LIVE-MUT-01):** `update_symbol(symbol_id)` fue **ensanchado** de
   `str` a `int | str` en los cuatro routes (el builder de `_core`, `Client`, `AsyncClient` y
   ambos shims de módulo); `Symbol` gana cinco campos **con default** (`id`, `market_id`,
