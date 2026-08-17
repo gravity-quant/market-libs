@@ -19,7 +19,7 @@ uv sync
 ```python
 import market_data_client
 
-snapshots = market_data_client.get_marketdata()
+snapshots = market_data_client.get_market_data()
 ```
 
 ### Async
@@ -27,7 +27,7 @@ snapshots = market_data_client.get_marketdata()
 ```python
 from market_data_client import aio
 
-snapshots = await aio.get_marketdata()
+snapshots = await aio.get_market_data()
 ```
 
 ## Autenticación
