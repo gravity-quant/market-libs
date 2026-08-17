@@ -6,10 +6,22 @@ client-credentials** (grant `client_credentials`, token cacheado y refrescado po
 
 ## Instalación
 
+> **Este paquete NO está publicado en PyPI.** El pipeline de release sólo crea GitHub Releases
+> (wheel + sdist). Un `uv add market-data-client` a secas falla — y si algún día ese nombre
+> aparece en PyPI, no sería este paquete.
+
 ```bash
-uv add market-data-client
+# git, pineado al tag (recomendado)
+uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.4.0#subdirectory=packages/market-data-client"
+
 # o, dentro del workspace:
 uv sync
+```
+
+Alternativa, wheel de la GitHub Release:
+
+```bash
+pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.4.0/market_data_client-0.4.0-py3-none-any.whl"
 ```
 
 ## Uso
