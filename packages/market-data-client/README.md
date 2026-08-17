@@ -56,6 +56,57 @@ variables de entorno (ver `.env.example`):
 
 Nunca commitear el archivo `.env` con credenciales reales.
 
+## Mutaciones (opt-in)
+
+Además de la superficie de lectura, el paquete expone una superficie de **escritura**:
+
+- **symbols** (v0.3.0): `create_symbol` (`NewSymbol`), `create_symbols` (batch 1–500,
+  `NewSymbols`) y `update_symbol` (`SymbolPatch`).
+- **calendar** (v0.4.0): `set_calendar_config`, `delete_calendar_config`,
+  `preview_calendar_config` (`MarketHoursIn`), `add_holidays` (`HolidaysIn` / `HolidayIn`) y
+  `delete_holiday`.
+
+Todas existen en sync y async, y **todas están cerradas por default**.
+
+### Los dos gates
+
+1. **`mutating_allowed`** — un `Client()` / `AsyncClient()` por default **rehúsa toda mutación**
+   con `MarketDataMutationNotAllowedError` (⊂ `MarketDataError`), **sin emitir ni un request HTTP
+   ni un round-trip a Auth0**. Se habilita explícitamente con `mutating_allowed=True` (constructor
+   o `configure()`).
+2. **`expected_host`** — segundo gate: el hostname de `base_url` debe coincidir **exactamente**
+   con `expected_host` (match exacto, nunca substring), para que una mutación no pueda dispararse
+   contra un entorno inesperado. Dejarlo en `None` deshabilita **sólo** esta segunda pata.
+
+Si cualquiera de las dos falla, la llamada levanta `MarketDataMutationNotAllowedError` antes de
+tocar la red.
+
+```python
+from market_data_client import Client, MarketHoursIn
+
+with Client(
+    mutating_allowed=True,
+    expected_host="market-data-develop.bbsa.com.ar",
+) as c:
+    config = MarketHoursIn(
+        open_time="11:00",
+        close_time="17:00",
+        timezone="America/Argentina/Buenos_Aires",
+    )
+    preview = c.preview_calendar_config(config)
+    # inspeccionar preview.warnings; si el servidor pide segunda opinión,
+    # re-emitir con confirm=True:
+    #   c.set_calendar_config(dataclasses.replace(config, confirm=True))
+    c.set_calendar_config(config)
+```
+
+Sobre `confirm`: es un **campo de `MarketHoursIn`** (default `False`) y viaja sólo en
+`set_calendar_config` / `preview_calendar_config`. **No es un gate de persistencia** — es la
+segunda opinión que el servidor exige cuando la ventana pedida produce warnings; una config sin
+warnings se persiste igual con `confirm=False`. `delete_calendar_config`, `add_holidays` y
+`delete_holiday` **no tienen** `confirm`: para esas tres, los dos gates de arriba son el único
+resguardo.
+
 ## Desarrollo
 
 ```bash
