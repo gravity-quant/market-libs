@@ -68,8 +68,12 @@ tests (which hid the bug) were corrected to the real envelope.
 
 **Scope note:** as of v0.4.0 the mutation surface is **symbols + calendar**. Both surfaces were
 exercised **live against develop** under LIVE-MUT-01 (v1.5 Phase 27) — no longer mocked tests only —
-using dedicated test identifiers and a create → verify → revert cleanup, so no live market
-configuration was left mutated. Everything still sits behind the opt-in mutating-gate
+using dedicated test identifiers and a create → verify → revert cleanup. Measured end state: zero
+ACTIVE residue — the calendar was fully restored (0 probe holidays), and the six `GSDPROBE/*`
+symbol rows remain permanently `active=false` because the live API has NO `DELETE /symbols` (the
+only revert is `PATCH active=false`). The identifiers are stable, not timestamped, so the residue
+is capped at exactly six rows; `grep GSDPROBE/` is the handle for them. Everything still sits
+behind the opt-in mutating-gate
 (`mutating_allowed=True` + a matching `expected_host`); the default client still refuses every
 mutation with zero HTTP requests and zero Auth0 round-trips.
 
