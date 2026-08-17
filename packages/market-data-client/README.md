@@ -62,7 +62,8 @@ uv run mypy packages/market-data-client
 ### v0.4.0
 
 **Nueva superficie de escritura: calendar, más los fixes verificados en vivo contra develop**
-(features nuevas, minor bump — la superficie de lectura v0.2.0 sigue intacta).
+(features nuevas, minor bump — la superficie de lectura v0.2.0 sigue intacta **excepto
+`CalendarDay`**, que reemplaza campos; ver "Reemplazo de campos de `CalendarDay`" abajo).
 
 - **Calendar write (MUT-MD-02):** ocho nombres públicos nuevos en el `__all__` plano — los
   request-models `MarketHoursIn`, `HolidayIn` y `HolidaysIn`, y las funciones
@@ -87,7 +88,8 @@ uv run mypy packages/market-data-client
   las respuestas de symbols-write se desenvuelve preservando `list[Symbol]`. Todos son cambios
   estrictamente aditivos o de ensanchamiento — **no rompen** a ningún consumidor v0.3.1.
 
-**Breaking changes** (semver minor bump en línea 0.x) — reemplazo de campos de `CalendarDay`:
+**Reemplazo de campos de `CalendarDay`** (breaking en sentido estricto, documentado y shippeado
+dentro de un minor en línea 0.x — el porqué, abajo):
 
 - `CalendarDay` **removió** `date`, `marketId` e `isBusinessDay` (sin aliases de compatibilidad)
   y los reemplazó por `day`, `closed`, `description`, `open_time` y `close_time`, reconciliados

@@ -36,10 +36,10 @@ carries a documented `CalendarDay` field replacement (detailed below).
   from the wire's `market_id` via a `from_api` override; and the symbols-write response envelope is
   unwrapped while preserving `list[Symbol]`. All strictly additive or widening — no v0.3.1 consumer
   breaks.
-- **`CalendarDay` field replacement (documented, shipped inside a minor):** `date`, `marketId` and
-  `isBusinessDay` were **removed** (no compatibility aliases) and replaced by `day`, `closed`,
-  `description`, `open_time` and `close_time`, reconciled against develop's real wire. It ships in a
-  minor bump because `parse_calendar_response` used to iterate the envelope's keys instead of
+- **`CalendarDay` field replacement (strictly breaking, documented, shipped inside a minor):**
+  `date`, `marketId` and `isBusinessDay` were **removed** (no compatibility aliases) and replaced
+  by `day`, `closed`, `description`, `open_time` and `close_time`, reconciled against develop's
+  real wire. It ships in a minor bump because `parse_calendar_response` used to iterate the envelope's keys instead of
   `days[]`: no published consumer could ever have held a populated `CalendarDay`, so the old fields
   were not readable in practice. Called out explicitly so the replacement is discoverable rather
   than silent.
