@@ -1,5 +1,29 @@
 # Milestones
 
+## v1.5 market-data-client · mutaciones (Shipped: 2026-08-17)
+
+**Phases completed:** 4 phases (25-28), 17 plans, 63 tasks
+**Milestone tag:** `v1.5` · **Package release:** `market-data-client-v0.4.0` (merge commit `5d0825d`, PR #10, release.yml run `31549711805`, GitHub Release with wheel + sdist)
+**Source delta:** 42 files, +9,188/−174 LOC (packages/: 27 files, +5,059/−58) · **Package tests:** 392 green; ruff + ruff-format clean; regression gate 387 green
+
+**Key accomplishments:**
+
+- **Mutating-gate default-refuse (Phase 25, GATE-MD-01):** `Client()`/`AsyncClient()` rechazan por defecto toda mutación con cero tráfico HTTP/Auth0 (`MarketDataMutationNotAllowedError`); doble gate opt-in `mutating_allowed` + hostname exacto (`urlsplit().hostname ==`, nunca substring) compuesto en `_ensure_mutation_allowed()`, primer statement literal de cada método de mutación en ambas superficies (AST-verified), heredado por `with_options`.
+- **Symbols write (Phase 25, MUT-MD-01):** `create_symbol` / `create_symbols` (batch 1-500) / `update_symbol` sync+async vía builders puros de `_core.py`, modelos de request tipados frozen (`NewSymbol`/`NewSymbols`/`SymbolPatch`), 422→error tipado, test in-package de paridad de superficie pública.
+- **Calendar write (Phase 26, MUT-MD-02):** `set_calendar_config` / `delete_calendar_config` / `preview_calendar_config` / `add_holidays` / `delete_holiday` sync+async con `MarketHoursIn`/`HolidayIn`/`HolidaysIn` — 13 nombres públicos nuevos, todos detrás del mismo gate de la Phase 25 (verificado por el integration checker: 8/8 métodos gated 1:1).
+- **Verificación en vivo segura (Phase 27, LIVE-MUT-01):** superficie de mutación ejercitada contra develop con identificadores dedicados `GSDPROBE/*` y ciclo create→verify→revert; 5 divergencias corregidas in-cycle (`update_symbol(symbol_id)` str→int|str, 5 campos defaulted de `Symbol`, alias deprecado `Symbol.marketId`, unwrap de envelope symbols-write, reconciliación de campos de `CalendarDay`).
+- **Publish v0.4.0 (Phase 28, PUB-MUT-01):** doble gate humano D-18 (merge 2026-08-01, tag push 2026-08-12, nunca colapsados); tag anotado sobre el merge commit real de PR #10; `release.yml` sin editar publicó wheel + sdist; memoria de releases refrescada en 6 regiones; verificador 15/15 contra estado vivo de GitHub.
+- **Hardening post-release:** 28-REVIEW (3 critical + 5 warning) corregido 8/8 en commits atómicos — claim falso del guardrail `confirm`, ejemplos `get_marketdata()` del README, índice MEMORY.md 2 releases desactualizado — + `test_version_metadata.py` atando `__version__` a `pyproject`. Audit de milestone: passed (5/5 reqs, 6/6 integración).
+
+**Known deferred at close:**
+
+- El wheel v0.4.0 publicado embebe el README pre-fix; las correcciones llegan en el próximo release. Las líneas de instalación hardcodean el tag por release.
+- `28-SECURITY.md` ausente (capability security activa) → `/gsd-secure-phase 28`. `25-VALIDATION.md` en draft (Nyquist TODO). 4 INFO del 28-REVIEW abiertos.
+- Deuda pre-existente cross-milestone: `verification/test_matriz_sweep_snapshot.py` (era fase 07) y 66 ítems UAT diferidos (fases 3-27).
+- Diferidos a v1.6+: D-16 typecheck coverage (ROADMAP § Backlog); v2: SSE streaming, disk token cache, JWT validation.
+
+---
+
 ## v1.4 market-data-client (Shipped: 2026-07-31)
 
 **Phases completed:** 5 phases (20-24), 16 plans, 36 tasks
