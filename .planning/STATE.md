@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: market-data-client · mutaciones
-current_phase: 28
-current_phase_name: Release prep + publish v0.3.0
-status: milestone_complete
-stopped_at: "Phase 28 complete — v0.4.0 published (tag on 5d0825d, release run 31549711805); milestone v1.5 ready to close"
-last_updated: "2026-08-12T00:51:36.965Z"
-last_activity: 2026-08-11
-last_activity_desc: Phase 28 verified passed (15/15) — milestone v1.5 complete
+milestone: v1.6
+milestone_name: Tipado homogéneo de la superficie pública
+status: planning
+last_updated: "2026-08-18T23:37:21.345Z"
+last_activity: 2026-08-18
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
 
 ## Current Position
 
-Phase: 27 — Verificación en vivo segura + fixes
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-11 — Phase 28 complete, transitioned to Phase 27
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-18 — Milestone v1.6 started
 
 ## Performance Metrics
 

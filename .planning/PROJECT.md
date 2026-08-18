@@ -79,91 +79,23 @@ corregida.
 
 </details>
 
-## Current Milestone: v1.5 market-data-client · mutaciones
+## Current Milestone: v1.6 Tipado homogéneo de la superficie pública
 
-**Goal:** Extender `market-data-client` (v0.2.0, sólo lectura) con la superficie de **escritura** de la API primary-extractor —symbols + calendar— detrás de un **mutating-gate de seguridad** que espeja el patrón de `matriz-client`, verificarla en vivo de forma segura (create→verify→revert, sólo develop), y **publicar v0.3.0** por el pipeline de tags.
+**Goal:** Que las seis librerías expongan un **contrato de tipos idéntico y verificable por máquina** — cero `Any`/`dict[str, Any]` en la superficie pública de datos, una única decodificación de política **observable** (nunca silenciosa), parámetros de dominio como `Literal`, y gates de CI que sostengan la homogeneidad sin código compartido entre paquetes.
 
-**Target features:**
-- **Mutating-gate de seguridad** (GATE-MD-01): opt-in explícito `mutating_allowed` (constructor + `configure()`) + gate de entorno (host/base_url esperado) + no-retry de operaciones no idempotentes; error tipado `MarketDataMutationNotAllowedError` si no está habilitado. Dual sync/async.
-- **Symbols write** (MUT-MD-01): `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{symbol_id}` + request-models (`NewSymbol`/`NewSymbols`/`SymbolPatch`).
-- **Calendar write** (MUT-MD-02): `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` + request-models (`MarketHoursIn`/`HolidayIn`/`HolidaysIn`).
-- **Verificación en vivo segura** (LIVE-MUT-01): probes de mutación detrás del gate, con identificadores de prueba dedicados y cleanup; toda divergencia corregida in-cycle.
-- **Release v0.3.0** (PUB-MUT-01): bump + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release.
+**Core value del milestone:** que sea **imposible cometer un typo al consumir la lib** (acceso por atributo verificado por mypy) y que **ninguna divergencia con la API en vivo sea silenciosa** — hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.
 
-**Key context:** minor bump (features nuevas, no rompe la superficie de lectura v0.2.0). Riesgo central = **mutación accidental** → el mutating-gate es load-bearing y lo primero a construir. La verificación en vivo es **destructiva** (crea/modifica estado en develop) → requiere identificadores de prueba + cleanup + confirmación del operator sobre qué es seguro tocar. La idempotencia real de los POST se revalida en vivo antes de confiar el retry-behavior. Plan fuente: `.planning/future-plans/market_data_mutations.md`.
+**Target features (7 requisitos → fases 29-34):**
+- **DEC-01** (F29, load-bearing PRIMERO): decoder único de política observable — `msgspec` interno (NUNCA en firmas públicas, DT-01), divergencias emitidas estructuradas por el logger del paquete (`RedactingFilter` activo), modo estricto para drivers; copiado verbatim 6× (DT-03); `from_api` preservado como constructor público (DT-05).
+- **TYP-01** (F30): `iol-client` tipado — `models.py` nuevo, 16 firmas migradas (4 funciones × método/shim × sync/async), `mercado`/`plazo` → `Literal` con set derivado de verificación en vivo (DT-07), `main_iol.py` a acceso por atributo.
+- **TYP-02 + TYP-03** (F31): modelos para los 5 endpoints de ops (higyrus health; market-data health/health_feed/add_holidays/delete_holiday) + `models.py`/`types.py` presentes en los 6 paquetes.
+- **GATE-TYP-01** (F32): gate AST de superficie (cero `Any`/`dict[str,Any]` en retornos de `__all__`, exenciones DT-06) + test de paridad sync/async por introspección no-vacuo (DT-04, sustituto afirmativo de REFAC-06) + cierre de **D-16** (market-data-client en mypy files/import-linter/ci.yml:85 + contrato `_core`).
+- **LIVE-TYP-01** (F33): drivers en modo estricto contra APIs reales; cierre de Literals con evidencia; divergencias corregidas in-cycle.
+- **PUB-TYP-01** (F34): releases sólo de paquetes cuya superficie cambió; iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); doble gate humano para ops irreversibles (precedente D-18).
 
-**Backlog no incluido en v1.5 (v2):** streaming SSE `GET /marketdata/stream` (STREAM-MD-01), token cache en disco (SEC-MD-01), validación de firma JWT RS256 (SEC-MD-02) — más los carry-forwards del monorepo (prod-vs-remarkets D-MATZ-27, `ws_client` live, token encryption at-rest).
+**Key context:** 9 decisiones bloqueadas DT-01..DT-09 con verificación empírica (2026-08-18): `msgspec` 0.21.1 decodifica directo a dataclasses stdlib frozen+slots; `TypedDict` descartado (mypy no reporta typos vía `.get()`, el estilo real de los drivers); Pydantic v2 descartado (coerción lenient + peso en 6 wheels). El cambio de política es *silencioso → observable*, NO *tolerante → fatal* (DT-02). Riesgo central: descubrimiento masivo de divergencias en F33 — mitigación: corrida estricta exploratoria al final de F29 para dimensionar antes de comprometer F30-32. Evaluar en F29 si `msgspec` (extensión C) debe ser extra opcional con fallback. Plan fuente: `.planning/future-plans/tipado_homogeneo.md`.
 
-<details>
-<summary>v1.4 Current Milestone block (shipped 2026-07-31 as market-data-client v0.1.0→v0.2.0, archived for reference)</summary>
-
-**Goal:** Crear un nuevo paquete cliente `market-data-client` en el monorepo que exponga la superficie de **lectura** de la API primary-extractor con Auth0 client-credentials, verificarlo en vivo contra develop y publicarlo como v0.1.0. **Outcome:** 6/6 requisitos validados; publicado v0.1.0 y luego v0.2.0 (fixes de la primera verificación credencial-real: `get_latest.symbol` requerido + reconciliación de modelos + envelope-unwrap). Ver `milestones/v1.4-ROADMAP.md`.
-
-</details>
-
-<details>
-<summary>v1.3 Current Milestone block (closed 2026-07-03 on signed NO-GO, archived for reference)</summary>
-
-### v1.3 Codegen Single-Source (libcst)
-
-**Goal:** Cerrar el único unknown arquitectónico residual de la codebase — eliminar la duplicación estructural sync/async de los transport shells `client.py`/`aio.py` × 4 paquetes vía codegen single-source con `libcst`, resolviendo (o descartando definitivamente) el NO-GO de unasync de v1.2 Phase 12 mediante una spike AST-level que cierre los 3 items FAIL del gate anterior (source-shape asymmetry).
-
-**Target features:**
-- **SPIKE-006 (libcst codegen spike):** evaluar `libcst >=1.8.0,<2` (AST-level codemod) contra un gate `D-RIGOR-02` de 10 items sobre el canary ámbito en su forma v1.2-head (sin migración de source) + matriz worst-case; produce la decisión binaria GO/NO-GO firmada. Cierra los items 1/4/6 que unasync no pudo (import-direction asymmetry, single-line import order, docstring localization).
-- **REFAC-06 codegen single-source (CONDITIONAL on SPIKE-006 GO):** los transport shells `client.py`/`aio.py` de los 4 paquetes verificables se single-sourcean vía libcst con `@generated` marker + CI `lint-codegen` verify-clean + B8 identity preservada.
-
-**Key context:** REFAC-06 está **spike-gated** por la decisión locked D-NOGO-01 (Phase 12 NO-GO). El milestone honra el gate: SPIKE-006 corre PRIMERO; REFAC-06 se implementa **solo si** el spike retorna GO. Si los items 1/4/6 vuelven a FAIL en libcst, REFAC-06 se archiva permanentemente y los shells duplicados `client.py`/`aio.py` quedan como feature estructural aceptado. Scope acotado a REFAC-06 (los otros deferrals de v1.3 — prod-vs-remarkets D-MATZ-27, `ws_client` live verification, token encryption at-rest — quedan en backlog). Non-breaking: refactor 100% interno, la API top-level `pkg.get_X(...)` no cambia.
-
-**Outcome:** SPIKE-006 returned a signed **NO-GO** (`sebadlf`, 2026-07-03; 7 PASS / 3 FAIL on the D-RIGOR-02 gate, items 1/3/6). REFAC-06 permanently shelved, Phase 19 dropped, duplicate shells accepted as a structural feature. Full archive: [`milestones/v1.3-ROADMAP.md`](./milestones/v1.3-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>v1.2 Current Milestone block (shipped 2026-06-25, archived for reference)</summary>
-
-**Goal:** Cerrar la deuda arquitectónica residual de v1.1 — migrar los 4 drivers `main_*.py` a consumir `Client`/`AsyncClient` directamente (cierra el LOC drop residual iol -5.1% / matriz -20%), eliminar la duplicación estructural sync/async vía unasync/codegen single-source, agregar IOL refresh_token disk persistence (secure token storage), y exponer ergonomics cross-package (`Client.from_env()` + `client.with_options(max_retries=N)`).
-
-**Outcome:** 5/6 phases delivered (Phase 16 codegen DROPPED per Phase 12 NO-GO); 4/4 active requirements satisfied (REFAC-05, SEC-01, ERG-01, LIVE-03); REFAC-06 deferred to v1.3; integration audit 0-BLOCKER. `Client.from_env()` was SKIPPED (industry survey of 7 SDKs found ZERO with the pattern; implicit env fallback already exists). Full archive: [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md).
-
-**Target features (as planned):**
-
-### Arquitectura sync/async dedup
-- Driver migration × 4 packages (`main_ambito` → `main_iol` → `main_higyrus` → `main_matriz`) a consumir `Client`/`AsyncClient` directamente vía instancias — cierra el LOC drop residual (iol -5.1%, matriz client.py -20%). **✓ Phase 15 (REFAC-05)**
-- Single-source sync/async via unasync/codegen approach — spike-validated antes del plan. **✗ Phase 12 NO-GO; REFAC-06 → v1.3 libcst spike**
-- Re-verificación live `main_*.py --live × 4` al cierre del milestone (LIVE-01-equivalent). **✓ Phase 17 (LIVE-03)**
-
-### Auth/Token persistence + Client ergonomics
-- IOL refresh_token disk persistence — secure token storage. **✓ Phase 14 (SEC-01)**
-- `Client.from_env()` classmethod × 4 packages. **— SKIPPED (no industry precedent; implicit env fallback exists)**
-- `client.with_options(max_retries=N)` per-call override × 4 packages. **✓ Phase 13 (ERG-01)**
-
-**Non-breaking constraint:** v1.2 minor — top-level `pkg.get_X(...)` API 100% backwards-compatible vía el PEP 562 shim de v1.1; solo migraron los drivers `main_*.py` internos.
-
-</details>
-
-<details>
-<summary>v1.1 Current Milestone block (shipped, archived for reference)</summary>
-
-**Goal:** Saldar la deuda técnica arquitectónica y los hallazgos diferidos de v1.0 — refactor a clase Client por instancia (con compat layer no-breaking), deduplicación sync/async con creación de `aio.py` para matriz-client, retries/backoff con jitter, logging estructurado, fix de los 4 findings/bugs deferred, hardening del harness y cierre de los 8 concerns del code review final de Phase 5.
-
-**Target features:**
-- Refactor "clase `Client` por instancia" en los 4 paquetes — eliminar singleton de módulo, mantener API top-level vía compat layer (no breaking).
-- Deduplicación lógica sync/async por paquete + creación de `aio.py` para `matriz-client` (hoy sync-only) y su verificación live.
-- Retries/backoff transparente con jitter para 5xx/429/connection-errors — respeta el `mutating_allowed` double-gate (no retry de mutaciones).
-- Logging estructurado con stdlib `logging` por paquete — integrado con `verification/redaction.py` (Bearer + patrones existentes).
-- Fixes pendientes: F-09 matriz ERROR-MAP, higyrus F-02 (`get_listado_cuentas=0`), IOL refresh_token persistence, HIGY multi-account iteration.
-- Driver bug bundle: D-MATZ-27 dedupe + `verification/findings.py` append-only (preserva rationale operator) — aplica a los 4 drivers.
-- Code review concerns WR-01..WR-08 (8 ítems del review final de Phase 5).
-
-**Out of scope para v1.1:**
-- prod-vs-remarkets verification (D-MATZ-27 REQUIRED handoff) — defer a v1.2
-- `matriz_client.ws_client` live verification (capa WebSocket) — defer a v1.2
-- Extender alcance a `wallets-client` o nuevos paquetes — defer
-- Nuevos endpoints o superficies live nuevas — defer
-
-**Outcome:** 6/6 phases delivered; 29/29 requirements satisfied; integration audit `passed`. Full archive: [`milestones/v1.1-ROADMAP.md`](./milestones/v1.1-ROADMAP.md).
-
-</details>
+**Fuera de alcance v1.6:** Pydantic v2, TypedDict, paquete compartido `market-libs-core` (DT-03), codegen sync/async (REFAC-06 permanentemente archivado, DT-04), `wallets-client` más allá de estructura vacía; carry-forwards en backlog (SSE, disk token cache, JWT, D-MATZ-27, ws_client live).
 
 ## Requirements
 
