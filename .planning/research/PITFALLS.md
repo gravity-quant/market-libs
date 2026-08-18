@@ -1,872 +1,911 @@
-# Pitfalls Research — v1.2 Architecture + Auth/Ergonomics Carry-forwards
+# Pitfalls Research
 
-**Domain:** Driver migration × 4 + unasync/codegen single-source + IOL refresh_token disk persistence + cross-package ergonomics (`Client.from_env()`, `client.with_options()`)
-**Researched:** 2026-06-14
-**Confidence:** HIGH (rooted in v1.1 shipped architecture + RETROSPECTIVE lessons + existing code state of `packages/iol-client/src/iol_client/client.py` + `main_iol.py` INT-01 idiom + v1.1 archived PITFALLS.md)
-
-## Scope
-
-These pitfalls are SPECIFIC to v1.2 features over the already-shipped v1.1 architecture. v1.1 mitigations that are now CODIFIED (PEP 562 shim, `_core.py` extraction, `RetryTransport` mutation gate, per-package `RedactingFilter`, `TokenStore` 3-way concurrency, append-only `verification/findings.py` with BEGIN/END zones, exactly-one 401 re-auth, `Retry-After` cap 60s) are NOT re-derived here — they are assumed as the baseline. See `.planning/research/v1.0-v1.1-archived/PITFALLS.md` for the v1.1 mitigation catalog.
-
-The v1.2 features layered on top:
-
-- 4 driver migrations (`main_ambito` → `main_iol` → `main_higyrus` → `main_matriz`) from PEP-562-shim-mediated module-level calls to direct `Client()`/`AsyncClient()` instance methods. Drivers currently total ~7150 LOC and lean on `_get_default()._state.<attr>` (INT-01 idiom) for state inspection.
-- unasync/codegen single-source for `client.py` ↔ `aio.py` parity (eliminate the ~850 LOC duplicated 4×).
-- IOL `refresh_token` disk persistence (extends v1.1 BUG-03 lifecycle from in-instance to cross-process).
-- `Client.from_env()` classmethod × 4 packages (anthropic/openai SDK ergonomic).
-- `client.with_options(max_retries=N)` per-call override × 4 packages.
+**Domain:** Retrofitting strict/typed, observable decoding onto tolerant, already-published financial-API client libraries (6 standalone wheels, no shared code)
+**Researched:** 2026-08-18
+**Confidence:** HIGH for msgspec behavior (verified empirically against `msgspec 0.21.1` on CPython 3.12.13 + upstream docs) and for repo-state claims (read directly from source at `milestone/v1.5-mutations` head). MEDIUM for divergence-volume predictions (depends on live payloads not yet observed).
 
 ---
 
-## HIGHEST-RISK PITFALLS (CRITICAL test required before phase merge)
+## How this file was verified
 
-These four are flagged because they can silently produce wrong behavior that does not fail CI:
+Every msgspec claim below was produced by running the case, not by reading about it. Environment:
 
-| # | Pitfall | Risk Class | Why Critical |
-|---|---------|-----------|--------------|
-| 4 | Codegen breaks B8 identity (`aio._raise_for_response is client._raise_for_response is _core.raise_for_response`) | Silent invariant break | The identity check is enforced by an existing test; a wrong-shape codegen import (`from _core import raise_for_response as _raise_for_response` vs `_raise_for_response = _core.raise_for_response`) fails the test silently if the test is ALSO regenerated. v1.1 D-04 lesson. |
-| 5 | Codegen overwrites by-hand edit when operator edits BOTH `client.py` and `aio.py` in a single commit | Lost work + sync/async divergence | The race occurs at the next `pre-commit` regen. Without a marker-comment guard + CI verify-clean check, the by-hand edit silently vanishes. urllib3/elasticsearch-py mainstream practice. |
-| 7 | `refresh_token` disk persistence creates new log sites that bypass `RedactingFilter` | Token leak | Disk-write path is a new log site (`writing refresh_token to <path>`); if the path-write logger is not under `iol_client.*` namespace, the v1.1 LOG-02 `RedactingFilter` doesn't filter it. v1.1 LOG-02 + Pitfall 7 lesson carries forward. |
-| 14 | `client.with_options(max_retries=10).new_order(...)` retries a mutating call | Duplicate orders | The mutation gate at v1.1 Phase 8 lives in `RetryTransport` via `request.extensions["idempotent"]`. If `with_options(max_retries=10)` creates a NEW RetryTransport that doesn't honor the idempotent extension, the v1.1 Pitfall 4 mitigation is voided. Hard-fail on the first matriz live test. |
+```
+uv run --no-project --python 3.12 --with 'msgspec==0.21.1' python <probe>
+# msgspec 0.21.1 (uploaded 2026-04-12), py 3.12.13
+# 48 wheels published: cp310/cp311/cp312/cp313/cp314 × macOS(x86_64,arm64) / manylinux / musllinux / win-amd64 + sdist
+```
 
-The remaining pitfalls below are CRITICAL-adjacent (Pitfalls 1, 9, 15, 17) but have either lower probability or partial existing mitigation. All HIGHEST-RISK pitfalls require a regression test landed in the SAME phase that introduces the feature.
+Every repo claim cites a file and, where it matters, a line. Two claims in the source plan (`.planning/future-plans/tipado_homogeneo.md`) were **measured false** and are called out as Pitfalls 1 and 7.
 
 ---
 
-## Cluster 1 — Driver Migration Pitfalls (Phases: Driver migration × 4)
+## Critical Pitfalls
 
-### Pitfall 1: State leak between probes — per-instance state defeats the cross-probe singleton expectation
+### Pitfall 1: "`SafeModel`/`_coerce` duplicado verbatim ×3" is false — matriz has the OPPOSITE semantics
 
-**Symptom:**
-Currently each driver script does:
+**What goes wrong:**
+Phase 29 replaces "the three copies" of `_coerce` with one msgspec-backed decoder and treats them as interchangeable. They are not. Two of the three zero-default; the third passes values through untouched.
+
+| Package | Base class | Coercer | Missing `str` | Missing `float` | Missing nested | Missing `dict` | dataclass flags |
+|---|---|---|---|---|---|---|---|
+| `higyrus_client` | `SafeModel` (public, in `__all__`) | `_coerce` | `""` | `0.0` | `X.from_api(None)` | n/a | `frozen=True, slots=True` |
+| `market_data_client` | `SafeModel` (public, in `__all__`) | `_coerce` | `""` | `0.0` | `X.from_api(None)` | n/a | `frozen=True, slots=True` |
+| `matriz_client` | `_SafeModel` (**private**, not exported) | `_convert` | **`None`** | **`None`** | `X.empty()` | `{}` | `frozen=True` — **no `slots`**, uses `field(default_factory=...)` |
+
+`matriz_client/models.py::_convert` ends with a bare `return value` — scalars are never coerced. Its own docstring says so: *"missing scalars become `None`, missing dicts become `{}`"*. It also exposes an `empty()` classmethod that `higyrus`/`market-data` do not have, and that classmethod is **called inside the class bodies** (`instrumentId: InstrumentId = field(default_factory=InstrumentId.empty)`) — removing it breaks import, not just decode.
+
+So there are **two** contracts to preserve under DT-05, not one. A single decoder that zero-defaults will silently turn every absent matriz scalar from `None` into `0.0` — on a package whose untyped-surface count is already **0** and which therefore gains nothing from this milestone.
+
+**Why it happens:**
+The plan's evidence table says "`SafeModel` + `_coerce` **duplicados verbatim** (~90 LOC × 3)". That statement was inherited, not re-measured. The drift is real and predates this milestone — which is itself the strongest possible argument for Pitfall 17.
+
+**How to avoid:**
+- Phase 29 task 1 is a three-way `diff` of the three model bases, producing a written semantics table (the one above) checked into the phase artifacts *before* any decoder is written.
+- The decoder takes the default-policy as a parameter (`zero_defaults: bool` or a policy object), copied 6× with the per-package value baked in. Do not "harmonize" matriz onto zero-defaults in this milestone — that is a silent behavior change on a published package outside the milestone's stated scope.
+- The DT-05 merge gate must be run **per package, on all three suites, with zero test edits**. matriz's suite pins the `None`/`empty()`/`{}` contract; higyrus's and market-data's pin `""`/`0.0`/`[]`. If any of the three needs a test edit to go green, the contract broke.
+
+**Warning signs:**
+A Phase-29 plan that says "replace `_coerce` in the 3 packages" in one task. A matriz test asserting `is None` being changed to `== 0.0`. A reviewer comment saying "this test was wrong anyway".
+
+**Phase to address:** 29 (measurement + policy parameter + three-suite merge gate).
+
+---
+
+### Pitfall 2: matriz's `Literal`-typed **response** fields become runtime-enforced and flood Phase 33
+
+**What goes wrong:**
+`matriz_client/models.py` annotates response fields with `Literal` aliases from `types.py`: `Instrument.cficode: CFICode | None`, `Order.ordType: OrderType | None`, `Order.side: Side | None`, `Order.status: OrderStatus | None`, `Order.timeInForce: TimeInForce | None`, `InstrumentDetail.currency: Currency | None`, `InstrumentDetail.orderTypes: list[OrderType]`, `Segment.marketSegmentId: SegmentId | None`, `marketId: MarketId | None`.
+
+Today these are **decorative** — `_convert` returns the raw value untouched, so an exchange sending a new CFI code, a new order status, or an undocumented segment id flows through as a plain `str` and nothing notices. Under msgspec they become hard validation:
+
+```
+msgspec.convert({"marketId": "XXXX"}, type=Seg)
+→ ValidationError: Invalid enum value 'XXXX' - at `$.marketId`   [verified, 0.21.1]
+```
+
+MATBA ROFEX adds instruments, segments and order states over time. The first strict run against remarkets can produce a divergence per row on `get_instruments` / `get_orders` for a reason that is **not a bug** — the `Literal` set was written from a PDF spec in v1.0, never from a live census.
+
+**Why it happens:**
+DT-07 ("the `Literal` set comes from live verification, never assumptions; an incomplete `Literal` breaks legitimate calls") is written as a **parameter** rule. Nobody re-reads it as a **response-field** rule, because the response `Literal`s already exist and predate the decision.
+
+**How to avoid:**
+- Phase 29 makes an explicit D-lock on response-side `Literal`s. Recommended: decode them as `str` internally and *report* an out-of-set value as a divergence (observable), rather than letting msgspec raise. That keeps DT-02's "silencioso → observable, NO tolerante → fatal" honest for a case that today is tolerant.
+- If they stay `Literal`, they must be re-derived from live evidence in Phase 33 exactly like `mercado`/`plazo`, and matriz joins the DT-08 release list it otherwise would not.
+- Do the same audit for `market_data_client` and any Literal introduced in Phases 30-31.
+
+**Warning signs:**
+Phase-33 findings dominated by `Invalid enum value` on matriz. Any Phase-29 plan whose Literal discussion mentions only `mercado`/`plazo`.
+
+**Phase to address:** 29 (D-lock + decode policy), 33 (live census if kept).
+
+---
+
+### Pitfall 3: msgspec is fail-fast — one error per decode — so the Phase-29 sizing run undercounts
+
+**What goes wrong:**
+The plan's central risk mitigation is *"correr el modo estricto de forma exploratoria al final de Phase 29 para dimensionar el volumen real"*. msgspec reports **the first error and stops**:
+
+```
+msgspec.convert({"a":"x","b":"y","c":"z"}, type=Multi)
+→ ValidationError: Expected `int`, got `str` - at `$.a`        [b and c never inspected]
+
+msgspec.json.decode(b'[{ok},{bad}]', type=list[Quote])
+→ ValidationError: Object missing required field `ultimoPrecio` - at `$[1]`   [rows 2..N never inspected]
+```
+
+A payload with 5 divergent fields reports 1. A 5000-row list with 400 bad rows reports 1. The sizing number that authorizes committing Phases 30-32 will be an order of magnitude low, and Phase 33 becomes serialized whack-a-mole: fix one, re-run, discover the next.
+
+**Why it happens:**
+The natural implementation is `try: msgspec.convert(...) except ValidationError as e: log(e); return from_api(payload)`. It is correct, it is observable, and it structurally cannot enumerate.
+
+**How to avoid:**
+- The decoder needs an **enumerating** mode distinct from the runtime observable mode: on failure, walk the declared fields and probe each one independently (`msgspec.convert({k: v}, type=SingleFieldShim)` or a per-field `convert(value, type=hint)`), collecting all divergences. Per-row for collections. Cost is bounded — measured below — and it only runs when the fast path already failed.
+- The sizing report says **"≥ N"**, never "N", and states the enumeration mode used.
+- Phase 33's budget assumes the sizing number is a floor.
+
+**Warning signs:**
+A sizing report with a suspiciously round small number. A Phase-33 loop where each fix reveals exactly one new divergence in the same endpoint.
+
+**Phase to address:** 29 (enumerating mode + honest sizing), 33 (budget).
+
+---
+
+### Pitfall 4: log-spam flood — one divergence record per row on a 5000-row response
+
+**What goes wrong:**
+`iol.get_instruments("argentina")` returns the country-wide instrument list (today typed `-> Any`; `main_iol.py` logs only `type={type(data).__name__}` because it never counts it). `market_data.get_symbols` / `get_calendar` return catalogs. Live-measured higyrus row counts from v1.1 Phase 9: `get_posicion_valuada` = 390, `get_movimientos` = 139, and those were a single account. One structural divergence (a renamed field, a `null` where a `float` was declared) is present on **every row**, so a naive per-row emitter produces one record per row per call.
+
+Measured cost (5000 rows, `frozen=True, slots=True` dataclass, msgspec 0.21.1 / py3.12.13):
+
+```
+msgspec.json.decode(bytes, type=list[Row])  = 1.35 ms
+msgspec.convert(list, type=list[Row])       = 0.79 ms
+per-row msgspec.convert in a Python loop    = 2.06 ms
+```
+
+Decoding is free. The cost is **`logging.LogRecord` construction + `RedactingFilter`**, which runs 4 `re.sub` passes plus a full `record.__dict__` scan **per record** — and filters attached to the package logger run for every record that survives the level check, before any handler. With a consumer's Sentry/Datadog handler attached to `logging.getLogger("iol_client")`, a 5000-record burst per call is an incident, not a log line.
+
+**Why it happens:**
+"Emit a structured divergence" reads as a per-occurrence operation. Nobody sizes it against the widest endpoint.
+
+**How to avoid:**
+- Aggregate before emitting. Key = `(endpoint_name, json_path_normalized, expected_type, got_type)`; `json_path_normalized` collapses list indices (`$[1731].price` → `$[*].price`). Emit **one** record per distinct key per response, carrying `count` and `first_index`.
+- Hard cap distinct keys per response (e.g. 20) with a final `"... N more distinct divergences suppressed"` record.
+- Guard construction: `if logger.isEnabledFor(logging.WARNING):` **before** building the payload. Never `logger.debug(json.dumps(payload))` — that serializes unconditionally.
+- Merge gate for Phase 29: a mocked test decodes a 5000-row list where every row diverges the same way and asserts `len(caplog.records) == 1` and `record.count == 5000`. Assert the cap with 25 distinct divergence shapes.
+
+**Warning signs:**
+A `for row in rows: try/except: logger.warning(...)` shape. Any Phase-29 test whose fixture has fewer than ~100 rows.
+
+**Phase to address:** 29.
+
+---
+
+### Pitfall 5: `RedactingFilter` does not cover the divergence-record shape — verified gap, not a hypothesis
+
+**What goes wrong:**
+Two independent holes, both read directly from `packages/*/src/*/_logging.py` (six near-identical copies):
+
+**(a) Redaction is key-anchored.** `_redact()` only rewrites text that carries an anchoring token. Per package:
+
+| Package | Anchors it can redact |
+|---|---|
+| `market_data_client` | `Bearer <tok>`, `client_secret=<v>`, `"client_secret":"<v>"`, `"access_token":"<v>"` |
+| `iol_client` | `Bearer`, `X-Auth-Token`, `password=`, `"password"`, `refresh_token=`, `"refresh_token"`, `"access_token"` |
+| `higyrus_client` | `Bearer`, `X-Auth-Token`, `password=`, `"password"`, `"token"`, **`cuit=`** |
+| `matriz_client` | `Bearer`, `X-Auth-Token`, `X-Password`, `Authorization: Basic`, `password=`, `"password"` |
+
+A divergence record quotes a **value**, not a key/value pair: `Expected 'float', got 'str' at $.token — value 'eyJhbGciOiJI...'` has no anchor, so **nothing redacts it**. The milestone question framed this exactly right: divergence records quote VALUES, and value-only text is outside every one of the six pattern sets.
+
+**(b) The `extra=` scan only inspects `str`.** All six copies do:
+
 ```python
-base_url = iol_client.client._get_default()._state.base_url
-iol_client.login()                        # cached on _default_client
-iol_client.get_quote("GGAL")              # reuses cached token
+for key, value in list(record.__dict__.items()):
+    if isinstance(value, str) and any(m in value for m in _REDACTION_MARKERS):
+        record.__dict__[key] = _redact(value)
 ```
-After migration:
+
+The idiomatic structured shape — `logger.warning("divergence", extra={"divergence": {...}})` — puts a **dict** in `record.__dict__`. It is never scanned, never redacted, and lands verbatim in whatever handler the consumer attached. Same for lists and tuples.
+
+**(c) higyrus specifically.** `cuit=` is in higyrus's marker set: a CUIT is Argentine tax-ID PII on a brokerage back-office. A divergence on any field whose value happens to be a CUIT, emitted as a bare value, leaks PII with no marker to catch it.
+
+**Why it happens:**
+`RedactingFilter` was designed in v1.1 Phase 8 for *request/response debug strings* — text that always carries the header or JSON key next to the secret. Divergence records are a new record shape that violates that assumption. And the SEC-01 caplog no-leak sentinel (`verification/test_logging_no_token_leak.py`) tests the old shape, so it stays green while the new shape leaks.
+
+**How to avoid:**
+- **Contract, enforced by test: the divergence record never contains a wire value.** Emit `(endpoint_name, json_path, expected_type, got_type, count)` only. Type names, not values. If a value is ever genuinely needed for triage, emit `sha256(value)[:8]` and `len(value)`.
+- Extend the `record.__dict__` pass in **all six** `_logging.py` copies to recurse into `dict` / `list` / `tuple` values. Do it in one commit (Pitfall 17).
+- Add a per-package `caplog` no-leak sentinel for the **decoder** path, mirroring SEC-01: inject a payload whose divergent field's value is a sentinel token, assert the token appears in zero records. Six tests, one per package.
+- Ban `logger.*(..., exc_info=True)` on the decoder path: the `ValidationError` message embeds the offending value for some type errors, and tracebacks are not filtered by content.
+
+**Warning signs:**
+`extra={"payload": ...}`, `extra={"value": ...}`, `repr(payload)` or `str(e)` anywhere in the emitter. A Phase-29 test that asserts the record *contains* the bad value (that test is a leak, inverted).
+
+**Phase to address:** 29 (contract + filter recursion + 6 sentinels); re-verified in 33 when real credentialed payloads flow.
+
+---
+
+### Pitfall 6: `TYPE_CHECKING`-only annotations become a `NameError` at decode time
+
+**What goes wrong:**
+Every module in this repo carries `from __future__ import annotations` — CLAUDE.md calls it *"mandatory and applied uniformly"*. So all annotations are strings, and msgspec resolves them via `get_type_hints()` **when the type is first used for decoding**. A name imported only under `if TYPE_CHECKING:` resolves to nothing:
+
 ```python
-client = iol_client.Client()              # ← probe 1 instance
-client.login()
-client.get_quote("GGAL")
+if TYPE_CHECKING:
+    from decimal import Decimal as _Hidden
 
-client2 = iol_client.Client()             # ← probe 2 instance (NEW token)
-client2.get_quote("AL30")                 # ← triggers ANOTHER password grant
+@dataclass(frozen=True)
+class TC:
+    v: _Hidden | None = None
+
+msgspec.convert({"v": None}, type=TC)
+→ NameError: name '_Hidden' is not defined       [verified, 0.21.1 / py3.12.13]
 ```
-Two probes = two password grants = two refresh_tokens issued by IOL. For an OAuth provider, this looks like a credential brute-force pattern. The IOL `probe_auth_401` opt-in test (`VERIFY_IOL_BAD_CREDS=1`) consumes one bad-creds attempt; if probes are per-instance, each refresh_token rotation creates a NEW server-side OAuth session that the next probe's instance loses.
 
-For matriz: even worse. If each probe creates a fresh `Client()`, the `RetryTransport` mutation-gate state is per-instance. A `new_order` probe followed by a `cancel_order` probe (both per-instance) lose the request-id correlation that the operator-readable findings file expects. Worse: if probe N's `new_order` times out and retries on a fresh `Client()` instance because probe N+1 just created one, the v1.1 Pitfall 4 mutation gate doesn't help — the `RetryTransport` is fresh and has no idempotency context.
+Not at import. Not under mypy. Not in any test that does not decode that specific model. It surfaces in production, or in Phase 33 against a live API, as a `NameError` — which is neither observable-mode nor strict-mode, it is a crash.
 
-**Risk:** OAuth provider lockout (IOL), refresh_token churn (IOL), duplicate-order risk (matriz), broken deterministic state for the append-only findings file (all 4 drivers).
+**Why it happens:**
+`if TYPE_CHECKING:` is the standard idiom for breaking import cycles, and Phase 32's AST surface gate creates pressure to add type imports to modules that did not have them.
 
-**Prevention:**
-1. **Driver pattern: ONE `Client()` per driver run, NOT per probe.** Construct at top of `main()`, pass to each probe as `client: iol_client.Client` parameter. Lifecycle managed via `with Client() as c:` context manager (already implemented in v1.1 for all 4 packages).
-2. **Lint rule + integration check:** grep CI guard `grep -c "Client()" main_*.py` — must equal 1 per driver (for sync; +1 if async client is also constructed once). Document in commit message; enforce with a `verification/test_drivers_one_client_per_run.py` AST-walker test.
-3. **State-inspection idiom migration:** replace 15+ sites of `_get_default()._state.base_url` with `client._state.base_url`. The INT-01 idiom (`_get_default()._state.<attr>`) was a v1.1 transition pattern; v1.2 drivers should use `client._state.<attr>` directly. The PEP 562 shim REMAINS for backwards-compat callers, but drivers (internal repo code) should not depend on it.
+**How to avoid:**
+- `models.py` and `types.py` import every annotation name at **runtime**. No `TYPE_CHECKING` block in any module that defines a decodable model.
+- One cheap, non-vacuous test per package that catches the entire class: enumerate every model class in the package and call `typing.get_type_hints(cls)` on each, asserting it does not raise. That single test also catches typo'd forward refs and stale imports.
+- Phase 32's gate must operate on **AST**, not `get_type_hints()`, precisely so it cannot be satisfied by hiding an import (see Pitfall 15).
 
-**Phase that owns:** Phase 1 (`main_ambito` canary), Phase 2 (`main_iol`), Phase 3 (`main_higyrus`), Phase 4 (`main_matriz`). Phase 1 establishes the pattern; phases 2-4 reuse.
+**Warning signs:**
+`if TYPE_CHECKING:` appearing in a `models.py` diff. A gate implementation that imports the module to introspect it.
 
-**Test pattern (CRITICAL for matriz Phase 4):**
+**Phase to address:** 29 (models + the get_type_hints sweep test), 31 (new models), 32 (gate design must not incentivize it).
+
+---
+
+### Pitfall 7: there is **no** working field rename for stdlib dataclasses in msgspec 0.21.1 — and both attempts fail SILENTLY
+
+**What goes wrong:**
+Verified, both cases, no exception raised:
+
 ```python
-def test_main_matriz_uses_single_client_instance():
-    """v1.2 driver migration: enforce one Client() per main() run."""
-    src = (REPO_ROOT / "main_matriz.py").read_text()
-    tree = ast.parse(src)
-    constructor_calls = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr in {"Client", "AsyncClient"}
-        and isinstance(n.func.value, ast.Name)
-        and n.func.value.id == "matriz_client"
-    ]
-    # 1 sync + 1 async = 2 expected
-    assert len(constructor_calls) <= 2, (
-        f"{[ast.unparse(c) for c in constructor_calls]} — "
-        "Each probe must reuse the single Client() instance constructed in main()"
-    )
+@dataclass(frozen=True)
+class R2:
+    ultimo_precio: float = msgspec.field(name="ultimoPrecio")
+msgspec.convert({"ultimoPrecio": 1.5}, type=R2)
+→ R2(ultimo_precio=<msgspec._core.Field object at 0x...>)     # sentinel object in a float field
+msgspec.convert({"ultimo_precio": 1.5}, type=R2)
+→ R2(ultimo_precio=1.5)                                        # the "rename" did nothing
+
+@dataclass(frozen=True)
+class R1:
+    ultimo_precio: float = dataclasses.field(default=0.0, metadata={"msgspec": {"name": "ultimoPrecio"}})
+msgspec.convert({"ultimoPrecio": 1.5}, type=R1)
+→ R1(ultimo_precio=0.0)                                        # wire value silently dropped
 ```
 
-**v1.1 lesson:** INT-01 idiom emerged because `_default_client` is a process-wide singleton; multiple probes share state. v1.2 must NOT regress to per-probe instantiation. Source: `main_iol.py:1289` + RETROSPECTIVE Key Lesson #6 ("INT-01 idiom now documented pattern").
+`rename=` and `field(name=)` are `msgspec.Struct`-only; dataclass renaming is an open upstream request ([jcrist/msgspec#553](https://github.com/jcrist/msgspec/issues/553)). Neither failure mode raises. The first puts a `msgspec._core.Field` object where a `float` belongs — it will travel through the library, past mypy (the annotation says `float`), and blow up in consumer arithmetic.
+
+**Corollary that matters more: `forbid_unknown_fields` is also `Struct`-only.** Extra/unknown keys are ignored on dataclasses in **every** mode, `strict=True` included ([verified](https://msgspec.dev/supported-types): *"extra fields ignored"*). The Phase-29 test list in the plan includes *"campo extra"* — **msgspec will never raise on it.** If that test asserts a divergence is emitted, it fails; if it asserts nothing is emitted, it is vacuous and gives false confidence that a renamed server field would be caught.
+
+A renamed/new server field is one of the most likely real divergences (it is literally what killed `parse_latest_response` in Phase 25 WR-01 and what Phase 23's schema snapshots exist to catch). msgspec cannot see it.
+
+**Why it happens:**
+msgspec's docs lead with `Struct`; the dataclass support page mentions only `InitVar` as unsupported. The Struct feature set reads as the msgspec feature set.
+
+**How to avoid:**
+- Field names stay **camelCase verbatim**, matching the wire, in all six packages. The existing N815 per-file ignore is now **load-bearing, not cosmetic** — document it as such in `models.py` docstrings so a future tidy-up does not snake_case them.
+- Grep gate: `msgspec.field(` must not appear in any `models.py`. (`dataclasses.field(` is fine and already used by matriz.)
+- Implement **unknown-key detection by hand** in the decoder: `set(payload) - {f.name for f in fields(cls)}` → emit as a divergence with the key names (key names are safe to log; values are not — Pitfall 5). This is the piece that actually delivers "ninguna divergencia con la API en vivo sea silenciosa" for the schema-evolution case, and msgspec gives you none of it.
+- The "campo extra" test must assert **the hand-rolled detector** fires, not msgspec.
+
+**Warning signs:**
+Any `models.py` diff that introduces snake_case field names. A `<msgspec._core.Field object>` in a test failure or a `main_*.py` probe output. A Phase-29 "extra field" test that passes on the first try without a hand-rolled detector.
+
+**Phase to address:** 29.
 
 ---
 
-### Pitfall 2: Regression invisibility — driver migration regenerates findings file from scratch, losing operator dispositions
+### Pitfall 8: `msgspec.convert(resp.json())` and `msgspec.json.decode(resp.content)` are not interchangeable — and the difference is a `nan` price
 
-**Symptom:**
-The LIVE-01 gate at v1.1 Phase 11 compared baseline (`4d48e07`) findings against head findings using the append-only `verification/findings.py` BEGIN/END zone parser. The contract: re-running `main_*.py` preserves the operator-set Classification/Rationale/Regression/Resolution fields.
+**What goes wrong:**
+Every parser in this repo goes through `resp.json()`, i.e. httpx → stdlib `json.loads`. Verified differences that matter for a market-data client:
 
-After driver migration, every probe is now `client.get_X(...)` instead of `iol_client.get_X(...)`. If the migrating developer thinks "the findings file is auto-generated, let me regen from scratch" → operator dispositions are LOST. The next LIVE-01 gate at v1.2 milestone close compares head vs head (no v1.1 baseline preserved) — false PASS.
+| Case | `json.loads` → `msgspec.convert` | `msgspec.json.decode(bytes)` |
+|---|---|---|
+| `{"px": NaN}` | `json.loads` **accepts** it (`{'px': nan}`); `convert` then **accepts `float('nan')` into a `float` field with zero divergence** | `DecodeError: JSON is malformed: invalid character` |
+| `{"px": Infinity}` | `json.loads` accepts (`inf`) | `DecodeError` |
+| `{"px": 1.10}` → `Decimal` | `Decimal('1.1')` — routed through a Python float, scale lost | `Decimal('1.10')` — literal digits preserved |
+| `{"ts": <python datetime>}` | accepted (`convert` takes real objects) | N/A |
+| `{"ts": "2026-08-18T10:00:00"}` | accepted (naive) | accepted (naive) |
+| `{"ts": "2026-08-18 10:00:00"}` | accepted | accepted |
+| `{"ts": "18/08/2026"}` | `ValidationError: Invalid RFC3339 encoded datetime` | same |
 
-Even subtler: if a probe function is RENAMED (`probe_login_sync` → `probe_login`), the finding ID changes (content-addressed dedupe by title). Re-running produces a NEW finding with NEW IDs that don't match v1.1's IDs. The append-only parser preserves the OLD findings (because they're still in BEGIN/END zone) but ALSO adds the new ones. Operator-visible noise without API regression.
+The `NaN` row is the dangerous one. Python's `json.loads` accepts `NaN`/`Infinity`/`-Infinity` by default — they are not valid JSON, but stdlib emits and accepts them, and so do several JVM and .NET serializers upstream of financial feeds. A `float`-typed price field silently carrying `nan` is precisely the class of silent corruption this milestone exists to eliminate, and the strict decoder will report **nothing**.
 
-**Risk:** Loss of v1.1 operator dispositions across milestone boundary; baseline drift undetectable.
+The `Decimal` row is numerically harmless (`Decimal('1.1') == Decimal('1.10')`) but changes `as_tuple().exponent`, hence `str()`, `quantize()`, and any round-trip formatting.
 
-**Prevention:**
-1. **Driver migration is REFACTOR-ONLY for probe identity:** probe names, finding IDs, and finding titles stay constant. Only the BODY of each probe changes (from `iol_client.get_X(...)` to `client.get_X(...)`).
-2. **Diff-guard at phase open:** `git diff baseline..HEAD -- .planning/verification/*-findings.md` must show ZERO changes in BEGIN/END zones for unchanged-classification findings. If a probe MUST be renamed, the new probe constructs a finding with the same `title=` and the parser dedupes by title (existing v1.1 HARN-10 mechanism).
-3. **Test the parser explicitly survives the migration:** add `verification/test_findings_survives_driver_migration.py`:
-   ```python
-   def test_findings_preserve_operator_fields_after_probe_signature_change(tmp_path):
-       # Write a finding with operator fields set
-       f = tmp_path / "iol-client-findings.md"
-       write_initial_finding(f, title="F-02 PROBE_STALE", classification="FIXED",
-                              rationale="INT-01 idiom applied at main_iol.py:1289")
-       # Simulate driver migration: append the SAME finding-by-title via the new code path
-       append_finding(f, title="F-02 PROBE_STALE", body="...probe rewritten using client.method()...")
-       # Operator fields MUST survive
-       text = f.read_text()
-       assert "INT-01 idiom applied at main_iol.py:1289" in text
-       assert text.count("F-02 PROBE_STALE") == 1
-   ```
-4. **Operator-anchor pattern:** at the v1.1 → v1.2 milestone boundary, FREEZE the v1.1 findings markdown as the BASELINE for LIVE-01 v2. Any v1.2 re-run that produces a delta surfaces a new finding (operator triages with the same CONFIRMED/FIXED/EXPECTED/NO-FIX taxonomy).
+**Why it happens:**
+"msgspec decodes JSON" collapses two APIs with different front-ends. `convert` is the drop-in (it takes `resp.json()` output), so it will be chosen for free — along with `json.loads`'s permissiveness.
 
-**Phase that owns:** Phase 1 (`main_ambito` canary establishes the migration pattern; the parser test lands here too). Cross-cutting for phases 2-4.
+**How to avoid:**
+- Pick one, D-lock it, copy it 6×. Recommendation: **`convert(resp.json())`** — it preserves the CR-03 / D-06 body-consume-then-raise ordering and the 204/empty-body guards already live in every parser, which `json.decode(resp.content)` would force you to re-verify across ~20 parsers.
+- Then add the guard `convert` does not give you: for every `float`/`Decimal` field, `math.isfinite()` check → divergence if not. Cheap, and it closes the only hole the choice opens.
+- If you instead choose `json.decode(resp.content)`: re-test every parser's 204 / empty-body / `null`-body path, and re-check `parse_calendar_write_response` and the mutation parsers whose bodies were live-shaped in Phase 27/28.
+- Never pass `strict=False` (Pitfall 10).
 
-**v1.1 lesson:** HARN-07/08/09 + LIVE-01 INT-01 fix (`main_iol.py:1289`) — the LIVE-01 gate caught a probe-stale because operator fields were preserved across the iol F-02 fix; if the driver regen had wiped fields, the fix would have looked like a new finding. Source: RETROSPECTIVE What Worked #6 + v1.0-v1.1-archived/PITFALLS.md Pitfall 10.
+**Warning signs:**
+A price/quantity field that is `nan` in a driver probe output. A `Decimal` assertion that compares `str(px)` rather than the value.
+
+**Phase to address:** 29 (D-lock + isfinite guard), 33 (live confirmation that NaN actually appears — or does not).
 
 ---
 
-### Pitfall 3: Test fixture drift — 907 mocked tests break when `configure()` is bypassed for `Client(...)`
+### Pitfall 9: `MarketDataSnapshot.received_at` client-stamping silently breaks under whole-object decoding
 
-**Symptom:**
-The v1.1 mocked test suite (907 tests) uses two patterns to inject state:
+**What goes wrong:**
+`market_data_client/models.py` documents D-01 explicitly: `received_at` is **client-stamped**, injected as a keyword directly in `from_api`, *"and never routed through `_coerce` (which would collapse it to `0.0`)"*. msgspec decodes the whole object in one call, so it has no seam to inject through. Verified consequences:
+
 ```python
-# Pattern A (legacy, top-level shim):
-iol_client.configure(token="test-token-XYZ", token_expires_at=time.time() + 999)
-quote = iol_client.get_quote("GGAL")  # goes through _default_client
-
-# Pattern B (new, instance-based):
-client = iol_client.Client(token="test-token-XYZ", token_expires_at=time.time() + 999)
-quote = client.get_quote("GGAL")
+msgspec.convert({"symbol": "X"}, type=Snap)        → Snap(symbol='X', received_at=0.0)   # stamp lost
+msgspec.convert({"symbol":"X","received_at":1.0}, type=Snap) → received_at=1.0            # WIRE WINS
 ```
 
-Pattern A is the existing fixture pattern. Pattern B is what the v1.2 BUG-04 D-08 deferred-to-v1.2 `Client(account_id=X)` proposal will require for higyrus. If the migration adds Pattern B WITHOUT preserving Pattern A's invariants, then:
-- `monkeypatch.setattr(iol_client.client, "_token", "X")` (legacy) still goes through PEP 562 shim → forwarded to `_default_client._state.token`. Works.
-- `monkeypatch.setattr(iol_client.client._get_default()._state, "token", "X")` (INT-01 idiom) works.
-- BUT: `monkeypatch.setattr(iol_client.client, "_password", "X")` raises `AttributeError` (v1.1 `_DENIED_LEGACY` block). If any of the 907 tests does this, it's already failing in v1.1; ok.
-- The real risk: tests that construct `Client(account_id=X)` (BUG-04 proposal) assume `_state.account_id` exists. v1.1 Phase 9 D-09 REMOVED `_state.account_id` from higyrus AND iol (cross-leak sentinel). So the `Client(account_id=X)` constructor proposed for v1.2 has NO state field to write to. The migration must either re-add `_state.account_id` OR pass `account_id` per-call only (BUG-04 D-08 per-call only locked v1.1).
+If the field is left required instead of defaulted: `ValidationError: Object missing required field 'received_at'` on every single response — a total outage of the read surface, discovered on the first live call.
 
-**Risk:** 30+ tests silently fail on attribute access; or worse, silently succeed by writing to a transient attribute that no production code reads (v1.1 Pitfall 1 regressed).
+The second row is the subtle one: the server sending a `received_at` key would **silently override the client stamp**, converting a client-side staleness measurement into a server-side one with no signal. And `market_data_client.Symbol` **also declares `received_at`**, but there it is a genuine wire field (the server's ingest timestamp) — same name, opposite provenance, documented in the module docstring. Any generic "strip `received_at` before decode / re-inject after" helper corrupts `Symbol`.
 
-**Prevention:**
-1. **Test count + assertion count baseline:** record 907 + total assertions BEFORE Phase 1 driver migration. After each phase, count MUST be >= 907. Coverage drop > 1% requires explicit justification (v1.1 archived Pitfall 18 carry-forward).
-2. **BUG-04 carry-forward audit:** before any phase adds `Client(account_id=X)` constructor, run `grep -n "_state.account_id" packages/` — must return ZERO results (v1.1 Phase 9 D-09 cleanup). Either re-add the field (with documented rationale why D-09 is reversed) OR enforce per-call only (current locked behavior).
-3. **Three-way fixture guard:** add `conftest.py` invariant tests:
-   ```python
-   def test_fixture_three_paths_all_reach_production(monkeypatch, httpx_mock):
-       """Path A: configure(token=). Path B: Client(token=). Path C: PEP 562 shim read."""
-       # Path A
-       iol_client.configure(token="SENTINEL-A")
-       assert iol_client.client._token == "SENTINEL-A"  # PEP 562 read
+**Why it happens:**
+The stamp is one line in `from_api` and reads as an implementation detail. The name collision with `Symbol.received_at` is documented in prose only.
 
-       # Path B
-       c = iol_client.Client(token="SENTINEL-B")
-       assert c._state.token == "SENTINEL-B"
-       # The default singleton is UNAFFECTED
-       assert iol_client.client._token == "SENTINEL-A"
+**How to avoid:**
+- Keep `from_api` as the seam: msgspec decodes a model **without** `received_at`, and `from_api` constructs the final frozen instance with the stamp (`dataclasses.replace` does not work on `slots=True` frozen classes as cheaply as re-constructing — measure, do not assume).
+- Per-model opt-in, never a name-based rule. A `_CLIENT_STAMPED: ClassVar[frozenset[str]]` on the class, empty by default, `{"received_at"}` on `MarketDataSnapshot` only.
+- Two regression tests: (1) a payload containing `received_at` must NOT override the stamp on `MarketDataSnapshot`; (2) a payload containing `received_at` MUST be read verbatim on `Symbol`.
 
-       # Path C: writing via PEP 562 shim is now denied (v1.1 D-01 read-only)
-       # so attempting to write SENTINEL-C must raise
-       with pytest.raises(AttributeError):
-           setattr(iol_client.client, "_token", "SENTINEL-C")
-   ```
+**Warning signs:**
+`received_at == 0.0` in any market-data driver output. A helper named `_strip_stamped_fields` that takes only a field name.
 
-**Phase that owns:** Phase 1 (canary), with audit re-run at every phase merge. The BUG-04 D-08 audit is a Phase 3 (`main_higyrus`) gate.
-
-**v1.1 lesson:** v1.1 archived Pitfall 1 ("monkeypatch silent breakage") + RETROSPECTIVE Patterns Established "PEP 562 compat shim". The shim works for READS; v1.2 must preserve that without re-introducing the write side that v1.1 explicitly chose NOT to support.
+**Phase to address:** 29.
 
 ---
 
-## Cluster 2 — unasync/codegen Pitfalls (Phases: spike + unasync/codegen migration × 4)
+### Pitfall 10: `strict=False` is Pydantic-lenient coercion under another name, and it will look like a fix in Phase 33
 
-### Pitfall 4: B8 identity invariant breaks via codegen import shape — CRITICAL
+**What goes wrong:**
+Verified:
 
-**Symptom:**
-v1.1 Phase 7 D-04 locked the invariant:
 ```python
-# In aio.py and client.py, both packages must satisfy:
-assert aio._raise_for_response is client._raise_for_response is _core.raise_for_response
+msgspec.convert({"ultimoPrecio": "1.0"}, type=Quote, strict=False)          → ultimoPrecio=1.0
+msgspec.convert({"cantidadOperaciones": "5"}, type=Quote, strict=False)     → cantidadOperaciones=5
 ```
-This is enforced by `verification/test_public_surface.py` and is the linchpin of the `_core.py` extraction (single error-mapping codepath).
 
-The naive codegen rewrite `s/from iol_client._core import raise_for_response/from iol_client._core import raise_for_response as _raise_for_response/` produces:
+This is *exactly* the behavior cited in the plan as the reason to reject Pydantic v2 (*"coerciona lenient por default (`"123.5"` → `123.5` silenciosamente — exactamente la divergencia a cazar)"*). It is one keyword argument away in msgspec. In Phase 33, facing a noisy string-typed price from a real feed at 2am, `strict=False` is the fastest way to make the noise stop — and it re-creates the silence the whole milestone was built to remove.
+
+**Why it happens:**
+The flag is called `strict`. Turning off "strict" reads like turning off pedantry, not like turning off the product requirement.
+
+**How to avoid:**
+- Grep gate in Phase 32: `strict=False` and `strict = False` must not appear in any `packages/*/src/`. Add it alongside the surface AST gate — one line, permanently.
+- A string-shaped number on the wire is a **FINDING** to document and reconcile (the type annotation is wrong, or the server is wrong), never a flag flip.
+- Note the asymmetry that makes this tempting: `int` → `float` widening is accepted in strict mode already (`{"ultimoPrecio": 3}` → `3.0`, verified), so strict mode is not brittle about the common case. Only genuine type mismatches raise.
+
+**Warning signs:**
+`strict=False` in any diff. A Phase-33 finding closed with "adjusted decoder leniency" rather than a model or server correction.
+
+**Phase to address:** 29 (ban in the decoder), 32 (grep gate), 33 (the temptation point).
+
+---
+
+### Pitfall 11: iol `0.2.0 → 0.3.0` dict→model — the truthiness flip is the one that breaks silently
+
+**What goes wrong:**
+Migrating `get_quote -> dict[str, Any]` to `-> Quote` (frozen, slots) changes consumer behavior in five loud ways and **one silent** way:
+
+| Consumer pattern | Old (`dict`) | New (`Quote`, frozen+slots) | Signal |
+|---|---|---|---|
+| `q["ultimoPrecio"]` | works | `TypeError: 'Quote' object is not subscriptable` | **LOUD** |
+| `q.get("ultimoPrecio")` | works | `AttributeError: 'Quote' object has no attribute 'get'` (slots ⇒ no `__dict__`, so not even a stray attribute) | **LOUD** |
+| `f(**q)` | works | `TypeError: argument after ** must be a mapping` | **LOUD** |
+| `json.dumps(q)` | works | `TypeError: Object of type Quote is not JSON serializable` | **LOUD** |
+| `for k in q` / `q.keys()` / `len(q)` | works | TypeError / AttributeError | **LOUD** |
+| **`if not q:` / `if q:`** | `{}` is **falsy** | a dataclass instance is **always truthy** | **SILENT — behavior flips, no error** |
+
+Any consumer using `if not quote:` or `if data:` as an emptiness/absence check inverts. That is the one to call out in the DT-08 README callout, because it is the only one a consumer cannot discover by running their tests unless they happen to hit the empty case.
+
+Second-order: **`get_instruments` is annotated `-> Any` today.** mypy will flag *zero* call sites when it becomes `-> list[Instrument]`, because `Any` is compatible with everything. The other three functions (`dict[str, Any]`, `list[dict[str, Any]]`) do give a compile-time signal. So one of the four functions ships with no static migration aid at all.
+
+**Why it happens:**
+The loud failures dominate the review conversation, so the truthiness flip never comes up. And `Any → Model` feels like the *safest* migration when it is actually the least-instrumented one.
+
+**How to avoid:**
+- `main_iol.py` is the canary and must migrate in the **same commit**. Confirmed `.get()` sites: `main_iol.py:316` and `main_iol.py:395` (both `quote.get("ultimoPrecio")`). Note `:1182` / `:1192` are `committed.get("schema")` on the snapshot dict — **not** client output; do not migrate those.
+- Do **not** add `__bool__`, `__getitem__`, or a `get()` shim to the models. They would hide exactly the break DT-08 says to advertise.
+- Ship `to_dict()` on the new iol models as the documented one-line migration for JSON-serializing consumers. Precedent exists in-repo: market-data's request models (`HolidaysIn`, `NewSymbol`, `SymbolPatch`) already carry `to_dict()`.
+- Survey consumers before Phase 30 — PROJECT.md already flags *"conviene relevar quién consume iol antes de Phase 30"*. Treat that as a Phase-30 entry gate, not a nicety.
+- README changelog callout enumerates all six rows of the table above, with the truthiness row first.
+
+**Warning signs:**
+A Phase-30 plan whose migration section lists only `[]`/`.get()`. A `__bool__` or `keys()` method appearing on an iol model.
+
+**Phase to address:** 30 (implementation + canary + `to_dict`), 34 (callout).
+
+---
+
+### Pitfall 12: `main_iol.py` hard-codes a source line reference inside a finding record
+
+**What goes wrong:**
+`main_iol.py:1027` contains:
+
 ```python
-# Generated client.py:
-from iol_client._core import raise_for_response as _raise_for_response
-```
-which creates a NEW module-level binding that IS the same object — so `is` still works. BUT if the codegen emits:
-```python
-# Generated client.py:
-from iol_client import _core
-def _raise_for_response(resp):
-    return _core.raise_for_response(resp)
-```
-(wrapping in a thunk for "clarity") → identity breaks. `aio._raise_for_response is client._raise_for_response` becomes False. The existing test catches it.
-
-Worse: if codegen ALSO regenerates the test (because it's templated from `aio.py` test), the test is silently rewritten to compare wrong objects. Codegen-vs-test must be ANTAGONISTIC: tests stay hand-written for the codegen output.
-
-Other identity invariants to preserve (audit before Phase 2 codegen lands):
-- `aio.InstrumentType is client.InstrumentType` (iol-client; v1.1 has `aio.py:59` doing `from iol_client.client import InstrumentType`)
-- Exception class identity: `aio.IOLAuthError is client.IOLAuthError` (must — both import from `exceptions.py`)
-- `Client.__doc__` and `AsyncClient.__doc__` should NOT be identical (otherwise docstrings convey false equivalence to readers)
-- Import-linter contracts: 4 forbidden contracts (`_core` cannot import `client`/`aio`); codegen must NOT introduce new violations
-
-**Risk:** Silent breakage of v1.1 Phase 7 SC#1 sentinel. Diverging error-mapping logic in sync vs async. The test exists but does NOT survive a codegen-of-tests pattern.
-
-**Prevention:**
-1. **Codegen targets ONLY `aio.py` → `client.py` (or vice versa); test files are NEVER codegen targets.** Lint: pre-commit hook rejects commit if `verification/test_*.py` is in the same commit as a `client.py` regen unless explicitly tagged.
-2. **Identity-check test runs FIRST in CI** (before any other test) so the invariant break is the first reported failure, not the 47th.
-3. **Codegen template MUST emit `<name> = _core.<name>` aliases for all `_core` re-exports, NEVER thunks.** Document in `codegen-rules.md`; enforce by static analysis of the generated file.
-4. **Add a CI assertion:** `python -c "from iol_client import client, aio, _core; assert aio.raise_for_response is client._raise_for_response is _core.raise_for_response"` runs as a separate CI step.
-
-**Phase that owns:** Phase 2 (unasync/codegen spike + Phase 1 canary) MUST verify before any package codegen lands.
-
-**Test pattern (CRITICAL — must land before any package's codegen merges):**
-```python
-@pytest.mark.parametrize("pkg", ["ambito_financiero_client", "iol_client", "higyrus_client", "matriz_client"])
-def test_codegen_preserves_raise_for_response_identity(pkg):
-    """v1.1 Phase 7 D-04 (B8) invariant survives codegen."""
-    client_mod = importlib.import_module(f"{pkg}.client")
-    aio_mod = importlib.import_module(f"{pkg}.aio")
-    core_mod = importlib.import_module(f"{pkg}._core")
-    assert client_mod._raise_for_response is aio_mod._raise_for_response is core_mod.raise_for_response
+diff="client.py:254 hace data.get('titulos', []) y devuelve [] silenciosamente",
 ```
 
-**v1.1 lesson:** D-04 alias pattern was explicit, not implicit; v1.2 codegen must preserve the explicit shape. Source: `packages/iol-client/src/iol_client/client.py:78` (`_raise_for_response = _core.raise_for_response`) — this exact line is the contract.
+Phase 30 rewrites and renumbers `iol_client/client.py`. That string goes stale. Worse, it interacts with the HARN-07/08/09 findings machinery: `verification/findings.py` is append-only with **content-addressed `idempotent_by_title` dedupe** and cross-run preservation of operator fields (Classification / Rationale / Regression / Resolution). Change the text that feeds a finding's identity and you orphan the operator's disposition on the old record while creating a duplicate — and Phase 15 D-07 established a **static title-stability gate** (`git diff <baseline>..HEAD` over the `*-findings.md` files must show zero title/fid/probe-name changes) precisely because this is expensive to undo.
+
+**Why it happens:**
+It reads as a comment. It is data in an append-only ledger.
+
+**How to avoid:**
+- Before Phase 30 edits: `grep -rnE '(client|aio|_core)\.py:[0-9]+' main_*.py verification/` and inventory every hard-coded source coordinate.
+- If a finding's identity text must change, follow the Phase-15 D-07 protocol explicitly (re-baseline + operator sign-off), do not just edit it.
+- Prefer symbol references (`_core.parse_get_instruments_response`) over line numbers in any new finding text written in Phases 30-33.
+
+**Warning signs:**
+A `*-findings.md` diff in Phase 30 that was not intended. Duplicate findings with near-identical titles after a driver run.
+
+**Phase to address:** 30.
 
 ---
 
-### Pitfall 5: Concurrent edit race — codegen overwrites by-hand edit when operator edits both `client.py` and `aio.py` in one commit — CRITICAL
+### Pitfall 13: typing the **already-published** `add_holidays` / `delete_holiday` responses can perturb three live-verified contracts
 
-**Symptom:**
-Codegen runs at pre-commit. Operator hand-edits `client.py:_request` to add a new logging line, and hand-edits `aio.py:_request` the same way. They `git commit`. Pre-commit hook runs codegen with `aio.py` as source of truth → regenerates `client.py` from `aio.py` → if the codegen was run from `aio.py`'s last-committed state (not the staged version), the by-hand edit to `client.py` AND `aio.py` may be partially lost depending on ordering.
+**What goes wrong:**
+`market-data-client v0.4.0` is publicly released. `add_holidays` / `delete_holiday` are live-verified mutations. TYP-02 wants their `-> dict[str, Any]` returns typed. Three distinct ways that goes wrong:
 
-Even subtler: codegen reads `aio.py` from the working tree (with operator's edit) and writes `client.py` (overwriting the operator's parallel edit). The OPERATOR EDIT TO `client.py` IS SILENTLY LOST. Operator's commit looks clean; CI passes (both files now match codegen output); but the `client.py` log line is missing.
+**(a) Touching the REQUEST while typing the RESPONSE.**
+The request side is already typed: `add_holidays(self, holidays: HolidaysIn)` → `holidays.to_dict()` → `build_add_holidays_request(state, json_body)`. TYP-02 is a **response** job only. But `build_add_holidays_request`'s docstring records that `idempotent=True` was **corrected from `False` on measurement** during LIVE-MUT-01 (F-49/F-59: two identical POSTs left exactly 1 row for `2099-12-29` and 1 for `2099-12-30`, on both surfaces) — and D-20 states that the spec's prose alone was *never* sufficient authorization. Any change to `HolidaysIn.to_dict()` serialization changes what the server UPSERTs, and there is no cheap way to re-earn that measurement.
 
-This is the urllib3 / psycopg / elasticsearch-py pattern and they all use a marker comment + CI verify-clean check.
+**(b) Displacing the mutation gate from the first statement.**
+`_ensure_mutation_allowed()` is the **literal first statement** of every mutation method on both shells — `client.py:551, 562, 577, 619, 633, 653, 676, 698` and the `aio.py` mirrors at `562, 573, 588, 630, 644, 665, 688, 710`. This is AST-verified (`verification/test_main_market_data_no_gate_bypass.py`, in-package `tests/test_mutation_gate.py`), and Phase 25 proved adversarially with a force-expired token that a refused mutation emits **zero HTTP requests and zero Auth0 round-trips**. Inserting a validation line, a decoder warm-up, or a `models` lookup *above* that call breaks the invariant, and the failure mode is a request escaping before the gate.
 
-**Risk:** Silent loss of by-hand edits; sync/async divergence that is invisible until the next time `client.py` is hand-edited.
+**(c) Deleting the last proof that the non-idempotent short-circuit works.**
+`_core.py` documents: *"no builder in this package carries `idempotent=False` any more. The short-circuit itself is therefore pinned directly at the transport, in `tests/test_transport.py`, with a synthetic non-idempotent spec — otherwise this correction would have silently deleted the only proof that the flag does anything at all."* Anyone tidying transport tests while touching calendar-write can delete it without noticing.
 
-**Prevention:**
-1. **Generated-file marker at top of file:**
-   ```python
-   # @generated by unasync from aio.py — DO NOT EDIT.
-   # To modify, edit aio.py and run `make codegen` (or rely on pre-commit).
-   ```
-   The marker is the FIRST line below the shebang/encoding comment. Pre-commit hook + CI checks for the marker on every line that should be generated.
-2. **Codegen idempotency CI check:** `make codegen && git diff --exit-code packages/*/src/*/client.py` — if running codegen produces a diff against the committed file, CI fails. This catches the case where the operator forgot to run codegen.
-3. **Pre-commit hook for `client.py` edits:** if `client.py` is modified BUT `aio.py` is not in the same commit AND the marker is present, the hook refuses the commit with: "client.py is generated from aio.py; edit aio.py instead".
-4. **`make codegen-check` runs as separate CI job:** runs the codegen tool and compares output to committed file. Must produce zero diff. Same pattern as psycopg's async-to-sync workflow.
+**Why it happens:**
+"Add a response model" reads as a two-line change (annotation + parser), so it is planned as a small task and reviewed as one — in a file where the surrounding invariants are load-bearing and invisible.
 
-**Phase that owns:** Phase 2 (unasync/codegen spike + initial package). Spike must validate the marker + CI verify-clean pattern before the per-package rollout.
+**How to avoid:**
+- Scope Phase 31's market-data work to exactly three edits per endpoint: a new response model in `models.py`, `parse_calendar_write_response` returning it, and the return annotation on four call sites (method + shim × sync/async). **No other line in `client.py` / `aio.py` / `_core.py` builders.**
+- **Byte-identical request proof:** a `pytest-httpx` test that captures `request.method`, `request.url`, `request.headers` and `request.content` for `add_holidays` and `delete_holiday`, with the expected bytes hard-coded from the pre-change run. If the wire changes, it fails.
+- Re-run the gate-ordering AST test and `verification/test_mutation_gate_parametrized.py` as an explicit Phase-31 merge gate, not as incidental CI.
+- Re-run `tests/test_transport.py` and assert the synthetic non-idempotent spec test still exists by name.
+- Keep `parse_calendar_write_response` tolerant: the live 200/201 body shape for these endpoints was reconciled in Phase 27/28 and a strict model that gets it wrong turns a working published mutation into an exception.
 
-**Test pattern (CRITICAL — CI job, not pytest):**
-```yaml
-# .github/workflows/codegen-verify.yml
-- name: Verify codegen idempotent
-  run: |
-    make codegen
-    if ! git diff --exit-code packages/*/src/*/client.py; then
-      echo "ERROR: codegen drift detected. Run 'make codegen' locally and commit." >&2
-      exit 1
-    fi
+**Warning signs:**
+A Phase-31 diff touching `HolidaysIn`, `_core.build_*_request`, or any line above an `_ensure_mutation_allowed()` call. A green CI run where `test_mutation_gate.py` was not collected.
+
+**Phase to address:** 31.
+
+---
+
+### Pitfall 14: vacuous CI gates — three vectors that are *already true today*, not hypothetical
+
+**What goes wrong:**
+The project has a signed precedent. From `verification/test_main_matriz_uses_single_client_instance.py`, describing WR-02:
+
+> *"the `<=2`-ctor count alone was a **vacuous** guard for the singleton-leak it claims to prevent: a regression could thread a single `Client()` AND still route every sweep probe through the module singleton path ... that the ctor-count never sees."*
+
+The fix had two parts, and both are the recipe: a **lower bound** (*"the lower bound makes the gate non-vacuous — a driver that constructs ZERO classes, i.e. the un-migrated state, FAILS RED rather than passing trivially"*) and a **second, complementary assertion on the actual mechanism**.
+
+Three concrete vacuity vectors for GATE-TYP-01, measured now:
+
+**(a) A parity test keyed on `__all__` silently skips half the repo.** Measured: `aio.py` defines `__all__` in `higyrus`, `ambito_financiero`, `matriz` — and **not** in `iol_client`, `market_data_client`, or `wallets_client`. A test that reads `aio.__all__` either raises `AttributeError` on three packages (and gets wrapped in a `getattr(..., [])`), or compares two empty sets and passes.
+
+**(b) The AST surface gate is vacuous on two of six packages by construction.** `wallets_client.__all__` is exactly `["WalletsAPIError", "WalletsAuthError", "WalletsClientError", "WalletsRateLimitError", "configure"]` — **zero data functions**. TYP-03 adds empty `models.py`/`types.py`, which does not change that. `ambito_financiero_client` has one data function already returning `float`. So the gate can be green while enforcing nothing on 2/6 packages, and nobody will notice because green is green.
+
+**(c) The D-16 lists disagree today, so partial enrollment looks complete.** See Pitfall 16.
+
+**Why it happens:**
+A guard is written to pass against the intended end state. Nobody runs it against the *current* state to confirm it fails.
+
+**How to avoid — the repo's own recipe, applied to every Phase-32 gate:**
+1. **Lower bound per package.** Hard-code the expected count (`iol_client` exports ≥ 4 data functions, `market_data_client` ≥ 14, ...). A package dropping to zero fails RED.
+2. **RED proof.** Each gate ships with a deliberately-broken fixture — a throwaway module annotated `-> dict[str, Any]`, an `aio` shim with a mismatched signature — that the gate must reject. Commit the fixture; it is the gate's own test.
+3. **Second assertion on the mechanism.** For parity: not just "same names" but "same `get_type_hints()` return type per name", and not just "same signature" but "the sync name is a function and the async name is a coroutine function".
+4. **Run every gate against `HEAD~1` before the migration lands and record that it FAILED.** Put the failing output in the phase artifacts.
+
+**Warning signs:**
+A gate that passes on the first commit that introduces it. A `getattr(mod, "__all__", [])` fallback. Any gate whose test file has no fixture directory.
+
+**Phase to address:** 32.
+
+---
+
+### Pitfall 15: AST surface-gate false negatives (worse than false positives) given `from __future__ import annotations` everywhere
+
+**What goes wrong:**
+Every module has `from __future__ import annotations`, so annotations are strings at runtime and `ast` nodes at parse time. A gate looking for `Any` / `dict[str, Any]` in return position must handle all of these, and the ones it misses are **false negatives** that let the exact current shape through:
+
+| Shape | AST node | Miss risk |
+|---|---|---|
+| `-> Any` | `ast.Name(id='Any')` | low |
+| `-> dict[str, Any]` | `ast.Subscript` | low |
+| `-> list[dict[str, Any]]` | `Subscript` nested one level | **HIGH — this is iol's literal current shape for `get_historical_quotes` and `get_instruments_by_type`** |
+| `-> Quote \| None` | `ast.BinOp` (PEP 604), **not** `Subscript` | HIGH — a `Subscript`-only walker skips it entirely |
+| `-> dict[str, Any] \| None` | `BinOp` containing a `Subscript` | HIGH |
+| `-> Optional[Any]` | `Subscript(Name('Optional'))` | medium |
+| `-> "Quote"` | `ast.Constant(str)` | medium |
+| `import typing as t` → `-> t.Any` | `ast.Attribute` | medium |
+| `from typing import Any as _A` → `-> _A` | `Name('_A')` | medium — needs import-alias resolution |
+
+The gate must **recurse into the full annotation subtree** and flag `Any` anywhere in a return position, plus `dict[str, Any]` at any depth. Simple `isinstance(node.returns, ast.Name)` checks are the failure mode.
+
+Two more, specific to this repo:
+
+- **Walk the defining module, not `__init__.py`.** `__all__` lives in `__init__.py` but the annotated `def`s live in `client.py` / `aio.py` (and the module-level shims live in `client.py`/`aio.py` too). A gate that only parses `__init__.py` sees re-export names with no annotations attached.
+- **DT-06 exemptions rot.** Dunders (`__reduce__`, `__deepcopy__`, `__getattr__`), `_`-prefixed helpers including `_matriz_legacy_request`, and the `_request` transport methods returning `httpx.Response`. Encode them as an explicit allow-list with a **reason string per entry**, and make the gate **fail if an exemption matches nothing** — a dead exemption is a permanent, invisible hole. (`_matriz_legacy_request` is a deprecated back-compat wrapper for `main_matriz.py` probes; when the probes stop using it, the exemption must go, not linger.)
+
+**Why it happens:**
+PEP 604 unions and nested generics are recent enough that most example AST walkers on the internet predate them, and the code that gets copied checks `ast.Name` and `ast.Subscript` only.
+
+**How to avoid:**
+- The gate's RED fixture (Pitfall 14) contains **one function per row of the table above**. That is the acceptance test.
+- Prefer AST over `get_type_hints()` — the latter crashes on `TYPE_CHECKING`-only names (Pitfall 6) and cannot run against a module that fails to import.
+- Add the `strict=False` grep (Pitfall 10) and the `msgspec.field(` grep (Pitfall 7) to the same gate script — three checks, one CI step.
+
+**Phase to address:** 32.
+
+---
+
+### Pitfall 16: D-16 enrollment — the mypy backlog is trivial (2 errors, measured); the trap is four lists that disagree
+
+**What goes wrong:**
+The feared "backlog of pre-existing mypy errors" is small. Measured just now:
+
+```
+uv run mypy packages/market-data-client/src packages/market-data-client/tests
+packages/market-data-client/tests/test_reference_core.py:412: error: Need type annotation for "body"  [var-annotated]
+packages/market-data-client/tests/test_core.py:417: error: Need type annotation for "body"  [var-annotated]
+Found 2 errors in 2 files (checked 34 source files)
 ```
 
-**Prior-art:** [psycopg async-to-sync codegen](https://www.psycopg.org/articles/2024/09/23/async-to-sync/) (uses pre-commit + verify-clean); urllib3 unasync pipeline; elasticsearch-py unasync; [unasyncd README](https://pypi.org/project/unasyncd/) (proposes marker comments). The market consensus on this is unanimous: marker + verify-clean.
+`src` is **clean**. Both errors are `var-annotated` on a `body = {...}` literal — one-line fixes.
 
-**v1.1 lesson:** RETROSPECTIVE "What Was Inefficient" #1: "Sync/async logic duplication is now structural debt." The whole POINT of v1.2 codegen is to eliminate that — but the codegen itself becomes the new debt surface if hand-edits silently win.
+The real trap is that there are **four independent enrollment lists** and they currently disagree, so updating three of four looks green and enforces nothing:
+
+| List | Location | Currently contains | Missing |
+|---|---|---|---|
+| mypy `files` | `pyproject.toml` (`files = [...]`) | 5 (higyrus, wallets, matriz, iol, ambito) | **market-data** |
+| import-linter `root_packages` | `pyproject.toml` `[tool.importlinter]` | **4** (ambito, iol, higyrus, matriz) | **wallets, market-data** |
+| mypy-tests loop | `.github/workflows/ci.yml` (`for pkg in ...`) | 5 (higyrus, wallets, matriz, iol, ambito) | **market-data** |
+| cross-package surface net | `verification/test_public_surface.py::_PACKAGES` | **4** (ambito, iol, higyrus, matriz) | wallets, market-data — the latter **by design** (market-data uses in-package `tests/test_public_surface_market_data.py`; RESEARCH corrected CONTEXT in Phase 25) |
+
+Note also that `wallets_client` is missing from two of the four — an unowned gap that predates this milestone and will look like a D-16 regression if not stated up front.
+
+The `_core` contract itself should pass on first write: `market_data_client/_core.py` imports `re`, `time`, `dataclasses`, `typing`, `httpx`, `market_data_client._params`, `._state`, `.exceptions` — no `client`, no `aio`. Which makes it **vacuous on arrival**.
+
+**How to avoid:**
+- Treat D-16 as a single atomic commit touching all four lists (minus the deliberate market-data exclusion from the cross-package surface net, which must be **documented in the test file** so a future reader does not "fix" it).
+- Fix the two `var-annotated` errors first, in their own commit, so the enrollment commit is a pure config change.
+- **RED-prove the new import-linter contract:** temporarily add `from market_data_client import client` to `_core.py`, confirm `lint-imports` fails, revert. Record the failing output in the phase artifacts. Without that, the contract is a green line that has never once been exercised.
+- Decide explicitly whether `wallets_client` joins `root_packages` and `_PACKAGES` in this milestone or is deferred with a written reason. Do not leave it ambiguous.
+
+**Phase to address:** 32.
 
 ---
 
-### Pitfall 6: Naive textual rewrites miss async-only constructs that don't have direct sync equivalents
+### Pitfall 17: the 6× copies drift **during** the milestone — and there is proof it already happened
 
-**Symptom:**
-The minimal codegen pass is `s/async def /def /g; s/await //g; s/AsyncClient/Client/g`. This misses:
+**What goes wrong:**
+DT-03 copies the decoder verbatim into six packages in Phase 29. Phases 30, 31 and 33 will each find a bug in it while working on one package, fix the copy in front of them, and ship. Three copies of one fix, three copies of an old bug.
 
-| Async-only construct | Naive textual rewrite | Correct rewrite |
-|----------------------|----------------------|-----------------|
-| `async for x in stream:` | `for x in stream:` — works IF stream is sync-iterable | Fails on `httpx.AsyncClient.stream()`; must rewrite to `client.stream()` sync API |
-| `async with client.stream(...) as r:` | `with client.stream(...) as r:` | Works (httpx supports both); but if `client` is `httpx.AsyncClient` it's now a context-manager-error |
-| `asyncio.gather(t1, t2)` | `asyncio.gather(...)` left as-is | Must rewrite to sequential calls OR `concurrent.futures.ThreadPoolExecutor` |
-| `asyncio.Lock()` | left as-is | Must rewrite to `threading.Lock()` — and the `TokenStore` 3-way primitive (v1.1 `_token_store.py:54`) already provides this; codegen MUST NOT create a parallel implementation |
-| `asyncio.sleep(t)` | left as-is | Must rewrite to `time.sleep(t)` |
-| `async def __aenter__` | `def __enter__` | Correct in spirit, but `aio.py`'s `__aexit__` calls `await self.aclose()` which becomes `self.aclose()` — only correct if `Client.close()` exists with same semantics |
-| `_get_async_lock()` | (whatever the codegen does) | This is the v1.1 D-10 lazy-per-loop helper; sync version must NOT exist (it would create a parallel sync-only lock implementation that races with `TokenStore`'s `threading.Lock`) |
+This is not speculative. **It already happened**: `SafeModel`/`_coerce` was documented as "duplicado verbatim ×3" and is measurably not (Pitfall 1). The drift survived two milestones undetected because nothing checked.
 
-For matriz specifically: `_token_store.py:54` exposes a `threading.Lock` callable from sync REST, ws_client daemon thread, and asyncio context (via `asyncio.to_thread`). If the codegen runs `aio.py` → `client.py` and emits a parallel `threading.Lock` instance in `client.py` (because it doesn't know about `_token_store.py`), the v1.1 Phase 10 architectural lift is voided.
+The same hazard applies to `_logging.py`, which Pitfall 5 requires changing in all six.
 
-**Risk:** Codegen produces a `client.py` that imports asyncio (dead code) OR re-implements concurrency primitives that already live in `_token_store.py`.
+**How to avoid:**
+- Ship, in Phase 29, an intactness test in `verification/`: normalize each copy (strip the module docstring, apply an explicit substitution map for the intentional per-package deltas — logger name, exception class, package name) and assert all six normalized bodies hash identical. The technique has precedent in-repo: SPIKE-006 item 10b used sha256 byte-identity for deny-list intactness across four files.
+- Make the substitution map an explicit, reviewed list. Anything not in the map that differs is a failure. That is what turns "verbatim" from an aspiration into a gate.
+- Extend the same test to `_logging.py`'s `RedactingFilter` class body (the marker tuples and regex sets legitimately differ per package — those go in the substitution map; the `filter()` method body does not).
+- Any decoder fix is one commit touching six files. A five-of-six commit fails RED.
 
-**Prevention:**
-1. **Allow-list of patterns the codegen explicitly handles; deny-list of patterns that REQUIRE manual intervention.** The deny-list triggers a hard codegen error with file:line pointer and a suggested manual fix.
-2. **`_token_store` is OFF-LIMITS to codegen** — `_token_store.py` is hand-written, NEVER regenerated. Pre-commit hook rejects regen attempts on this file.
-3. **Spike-before-plan for the codegen tool choice:** the v1.2 PROJECT.md already calls for a spike. Use the spike to enumerate the matriz `aio.py` patterns (852 LOC) and prove each one survives the codegen pass OR is explicitly hand-overridden.
-4. **Codegen tool MUST emit a "transformations applied" report at every run.** The report lists every rule fired and on which line. Operator reviews the report before committing.
-5. **Per-package golden file:** for each package, maintain a small "golden input → golden output" file that exercises every rule. CI runs codegen on the golden input and compares to the expected output.
+**Warning signs:**
+A commit message like "fix decoder edge case in iol". A `git log --stat` for a decoder fix touching fewer than six `_decode.py` files.
 
-**Phase that owns:** Phase 2 (unasync/codegen spike) — the spike RESEARCH gate. The spike MUST surface every async-only construct in the current 4 packages' `aio.py` files and prove the codegen tool handles them.
+**Phase to address:** 29 (build the test), enforced through 30-33.
 
-**Test pattern:**
-```python
-def test_codegen_does_not_touch_token_store():
-    """_token_store.py is hand-written; codegen must not regenerate it."""
-    # Hash before regen
-    before = hashlib.sha256(Path("packages/matriz-client/src/matriz_client/_token_store.py").read_bytes()).hexdigest()
-    subprocess.check_call(["make", "codegen"])
-    after = hashlib.sha256(Path("packages/matriz-client/src/matriz_client/_token_store.py").read_bytes()).hexdigest()
-    assert before == after, "_token_store.py is not codegen-targeted"
+---
 
-def test_codegen_report_lists_every_transformation():
-    """Operator must see what codegen did."""
-    result = subprocess.run(["make", "codegen"], capture_output=True, text=True)
-    assert "Transformations applied:" in result.stdout
-    assert "async def -> def" in result.stdout
+### Pitfall 18: the decoder's logging turns "pure" `_core` parsers into side-effecting code
+
+**What goes wrong:**
+REFAC-03 made `_core.py` pure builders/parsers, with import-linter forbidding `_core → client|aio` in four packages. Divergence emission happens where decoding happens — inside the parsers. That is not forbidden by the existing contract, but it does mean `_core` unit tests become order-dependent on logging configuration, and `caplog` assertions in one test can be polluted by decode calls in another (`asyncio_mode = "auto"` and `--import-mode=importlib` make ordering non-obvious).
+
+`market_data_client/models.py` already imports `market_data_client._params`, so the models layer is not import-free either.
+
+**How to avoid:**
+- Put the decoder in its own module, `_decode.py`, per package. Dependencies: stdlib + `msgspec` + `logging.getLogger("<pkg>")` only. No `_state`, no `exceptions`, no `client`, no `aio`.
+- While the import-linter contracts are open for D-16 edits (Phase 32), extend each `forbidden` contract's `source_modules` to include `<pkg>._decode`. Six lines, and it is the one moment where the cost is zero.
+- Every decoder test uses `caplog.at_level(..., logger="<pkg>")` scoped to the package logger, never the root.
+
+**Phase to address:** 29 (module placement), 32 (contract extension).
+
+---
+
+### Pitfall 19: duplicate divergence emission, sync vs async
+
+**What goes wrong:**
+CLAUDE.md mandates that every logic fix be mirrored in `client.py` and `aio.py`. If emission is added to both shells *and* the `_core` parsers already emit, one response produces two records. In the async surface the duplicates interleave with other tasks' records, so the Phase-29 merge gate "observable mode emits exactly one record" becomes flaky rather than failing cleanly — the worst kind of failure, because it gets marked "known flaky" and disabled.
+
+**How to avoid:**
+- Emission happens in **exactly one layer**: the `_decode` helper, called from `_core` parsers. Never in `client.py` or `aio.py`. This is also the only arrangement that keeps the copy count at one per package (Pitfall 17).
+- Attach `endpoint_name` (already threaded through `RequestSpec.endpoint_name` in every package) to the record as a correlation field, so duplicates are detectable rather than merely suspected.
+- Run the "exactly one record" test on **both** surfaces (the repo's existing `test_*_async.py` mirroring convention), with the async case awaiting a single call and asserting on a logger-scoped `caplog`.
+
+**Phase to address:** 29.
+
+---
+
+### Pitfall 20: emission cost in hot async paths
+
+**What goes wrong:**
+`logging` is synchronous. The library only attaches `NullHandler`, so by default the cost after the level check is near-zero — but three things break that assumption:
+
+1. **Filters run before handlers.** `RedactingFilter` is attached to the package logger, so every constructed record pays 4 `re.sub` passes plus a full `record.__dict__` scan, `NullHandler` or not.
+2. **Consumers attach real handlers** to package loggers (Sentry, Datadog, structlog bridges). A 5000-record burst is an incident (Pitfall 4).
+3. **The strict-mode drivers attach real handlers by design.** Phase 33 runs with output on.
+
+An emitter that builds its payload before checking the level pays the construction cost unconditionally, even with `NullHandler`.
+
+**How to avoid:**
+- `if not logger.isEnabledFor(logging.WARNING): return` as the **first line** of the emitter, before any dict/string construction.
+- Never `logger.debug(json.dumps(payload))`. Pass the structured data via `extra=` (namespaced — Pitfall 21) and let the handler format it.
+- Aggregate before emitting (Pitfall 4). One record per distinct divergence shape per response, with a count.
+- Measured baseline for the sizing conversation: decoding is not the cost. 5000 rows = 0.79 ms via `convert`, 1.35 ms via `json.decode`, 2.06 ms per-row. Anything slower than that is logging.
+
+**Phase to address:** 29.
+
+---
+
+### Pitfall 21: "observable, not fatal" becomes fatal via a reserved `LogRecord` attribute collision
+
+**What goes wrong:**
+`logging.Logger.makeRecord` raises at the **call site** if an `extra=` key collides with an existing `LogRecord` attribute:
+
+```
+KeyError: "Attempt to overwrite 'name' in LogRecord"
 ```
 
-**v1.1 lesson:** Phase 10 spike-before-plan (`Skill("spike-findings-market-libs")`) validated the TokenStore primitive; v1.2 codegen must NOT undo that validated architecture. Source: PROJECT.md Auto-loaded Knowledge.
+Reserved names include `name`, `msg`, `args`, `levelname`, `levelno`, `pathname`, `filename`, `module`, `exc_info`, `lineno`, `funcName`, `created`, `msecs`, `thread`, `process`, `message`, `asctime`. Several of those — `name`, `module`, `filename`, `msg` — are entirely plausible keys for a decoder divergence record describing a *field name* or a *module*. A single collision converts an observation into a runtime exception, violating DT-02 in the most embarrassing possible way: the mechanism built to avoid crashing crashes.
+
+**How to avoid:**
+- Namespace every key: `divergence_endpoint`, `divergence_path`, `divergence_expected`, `divergence_got`, `divergence_count`. Or nest everything under one non-reserved key.
+- A test that emits a divergence whose field is literally named `name` and one named `module`, asserting no exception. Cheap; catches the whole class.
+- Related: Pitfall 5(b) — if you nest under one key, that key's value is a dict and `RedactingFilter` will not scan it. Both fixes are needed together.
+
+**Phase to address:** 29.
 
 ---
 
-## Cluster 3 — IOL refresh_token Disk Persistence Pitfalls (Phase: IOL persistence)
+### Pitfall 22: the Phase-29 sizing run returns "0 divergences" because it SKIPped
 
-### Pitfall 7: Token leak via new disk-persistence log sites bypassing `RedactingFilter` — CRITICAL
+**What goes wrong:**
+The sizing run is the decision gate for committing Phases 30-32. It depends on live APIs, and this project has a documented precedent of exactly this returning nothing:
 
-**Symptom:**
-v1.1 LOG-02 mandates per-package `RedactingFilter` over `logging.getLogger("iol_client")` with NullHandler. The filter strips Bearer tokens, `password=`, IOL refresh_token patterns, etc.
+- **Phase 23**: no develop Auth0 creds in-repo → the market-data driver took the sanctioned `require_env`-SKIP / D-09 NO-DATA path → *"`verify_cycle_closure("market-data-client")` returns `(True, [])` **vacuously**"*. An entire phase's live verification produced zero evidence, correctly, and the requirement stayed Pending for a full milestone.
+- matriz is **remarkets-only** (D-MATZ-27, still in backlog) — prod shapes are unobserved by construction.
+- IOL and higyrus depend on operator credentials and market hours (a PROJECT.md constraint: *"resultados pueden variar por horario de mercado"*).
 
-Adding disk persistence introduces new log sites:
-```python
-logger.debug("writing refresh_token to %s", token_path)         # path-only, safe
-logger.warning("failed to write refresh_token to %s: %s", path, exc)  # exc may contain token
-logger.info("loaded refresh_token from %s (age=%ds)", path, age)  # age leaks freshness, ok
-```
+Compounded by Pitfall 3 (one error per decode) and Pitfall 7 (renamed/new server fields invisible to msgspec), a run that *does* execute still undercounts.
 
-Risks:
-- The `exc` traceback for a disk-write OSError may contain `repr(self._state.refresh_token)` if the persistence helper does `logger.warning("save failed: %r", state)` (the state's `__repr__` ALREADY redacts per v1.1 Phase 7 D-18+T-06-05, but a quick `logger.exception(...)` with `extra={"state": state}` might serialize via `repr(state.refresh_token)` if the helper imports the token field separately).
-- The PATH may contain user info: XDG_CONFIG_HOME default is `~/.config`, which expands to `/home/sebadlf/.config/...` — username leaks. On CI runners (`/home/runner/.config/...`) the username is `runner`, less sensitive but still inferable.
-- If the persistence helper uses its OWN logger (`logging.getLogger("iol_client.persistence")`), it INHERITS `iol_client`'s RedactingFilter (filters propagate up). If it uses `logging.getLogger("market_libs.persistence")` or any name OUTSIDE `iol_client.*` namespace, NO filter applies.
+**How to avoid:**
+- The sizing report is a **per-package RUN / SKIP table**. A SKIP is not evidence and must not contribute a zero to the total. This is the same discipline the Phase-23 runner already applies (classify SKIPPED, never FAILED).
+- **Size offline against the committed schema snapshots.** `verification/snapshots/` holds 18 write-once schemas across 4 packages plus 9 market-data baselines from the credentialed 2026-07-31 sweep. Decoding every snapshot with the strict + enumerating decoder needs zero credentials, zero VPN, no market hours, and enumerates every field. That is the honest floor, and it is available on day one of Phase 29.
+- State the number as `≥ N (offline snapshots) + <live coverage table>`.
 
-**Risk:** Refresh token leak to Sentry/CloudWatch/Datadog via DEBUG logs from a downstream consumer that enabled DEBUG on iol_client.
-
-**Prevention:**
-1. **Persistence helper logger MUST be under `iol_client.*` namespace.** Specifically: `logging.getLogger("iol_client.persistence")` or `logging.getLogger(__name__)` from a module inside `packages/iol-client/src/iol_client/`.
-2. **NEVER log `exc` for token-write failures via `logger.exception()` — only `logger.warning("save failed: %s", type(exc).__name__)`.** The exception type is safe; the message/args may not be.
-3. **Path redaction in logs:** the persistence helper logs `pathlib.Path(p).name` (just the filename), NEVER the full path. Operator can find it via documented location.
-4. **Regression test mirroring v1.1's no-leak guard:**
-   ```python
-   def test_disk_persistence_never_logs_token(caplog, tmp_path, monkeypatch):
-       """Regression: refresh_token disk write/read lifecycle never logs the token."""
-       caplog.set_level(logging.DEBUG, logger="iol_client")
-       monkeypatch.setenv("IOL_TOKEN_PATH", str(tmp_path / "iol-token"))
-
-       SENTINEL = "REFRESH-TOKEN-SENTINEL-DO-NOT-LEAK-9876543210"
-       client = iol_client.Client(refresh_token=SENTINEL)
-       client._persist_refresh_token()  # whatever the v1.2 API is
-
-       # Force the read path too
-       client2 = iol_client.Client()
-       client2._load_refresh_token()
-
-       # Force a write failure (raises OSError) to exercise the warning path
-       monkeypatch.setattr("pathlib.Path.write_text", lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")))
-       try:
-           client._persist_refresh_token()
-       except OSError:
-           pass
-
-       all_log_text = " ".join(r.getMessage() for r in caplog.records) + " ".join(repr(r.args) for r in caplog.records)
-       assert SENTINEL not in all_log_text, "Refresh token leaked into a log record"
-   ```
-
-**Phase that owns:** Phase 5 (IOL refresh_token disk persistence) — MUST include the no-leak regression test.
-
-**v1.1 lesson:** LOG-02 + v1.1 archived Pitfall 7. The pattern is: in-library redaction, namespace-correct logger, exception-type-only on failure. Source: `verification/test_logging_no_token_leak.py` already exists; v1.2 extends to cover the disk lifecycle.
+**Phase to address:** 29 (method), 33 (execution).
 
 ---
 
-### Pitfall 8: Stale token after out-of-band rotation — bad disk token not deleted after failed refresh
+### Pitfall 23: narrowing `mercado` / `plazo` to `Literal` is itself a source break, and the evidence to close the set does not exist until Phase 33
 
-**Symptom:**
-IOL's refresh_token can be invalidated server-side via:
-- User changes password in the IOL web UI
-- Admin revokes the refresh_token via API
-- IOL OAuth2 server rotates refresh_token (the cached one becomes stale per v1.0/v1.1 BUG-03)
+**What goes wrong:**
+`iol.get_quote(simbolo, *, mercado: str = "bcba", plazo: str = "t2")` (`client.py:497-508`, plus the module shim at `:647` and the async mirrors). Narrowing to `Literal[...]` has two costs:
 
-The v1.1 in-instance refresh handling (BUG-03) is: 401 on refresh → password fallback. Disk persistence adds: if disk has refresh_token=X and X is stale, EVERY new process loads X, attempts refresh, gets 401, falls back to password — and X is STILL on disk. The next process repeats the cycle. The disk cache becomes a self-defeating cache.
+1. **DT-07's stated cost**: an incomplete `Literal` rejects legitimate values. The set must come from live evidence.
+2. **An unstated cost**: narrowing a *parameter* is source-breaking for **mypy-strict consumers even when every value they pass is valid**. `mercado=some_str_variable` now fails with `arg-type`. That belongs in the DT-08 callout next to dict→model, and it is easy to forget because it does not break at runtime.
 
-Worse: the password fallback succeeds (IOL issues a fresh refresh_token Y). If the disk-write happens BEFORE the password fallback path, the operator sees X on disk; if AFTER, Y. The implementation MUST clear the disk on refresh failure AND write the new Y on successful password grant.
+The evidence problem: `main_iol.py` only ever exercises `bcba` / `t2` plus a six-type instrument sanity sweep. That is evidence of *what works*, not of *the complete set*. IOL's API accepts other markets (`nyse`, `nasdaq`, `rofex`, ...) and other settlement terms; a `Literal["bcba"]` derived from driver coverage would break every non-BCBA consumer.
 
-**Risk:** Every IOL process hits the 401-then-password-fallback path, doubling latency. Worse for unattended scheduled jobs that depend on disk-persisted refresh_token to skip password storage.
+The pressure peaks in Phase 30, where the models work makes it feel natural to "finish the typing" — before Phase 33's live evidence exists.
 
-**Prevention:**
-1. **The disk-token lifecycle is: load → use → on 401: delete disk + clear in-memory → password fallback → write fresh disk.** The delete on 401 is non-negotiable.
-2. **Atomic write:** `pathlib.Path(path).write_text(token + "\n")` is not atomic; use `path.with_suffix(".tmp")` write + `os.replace(tmp, path)` for atomic-on-POSIX semantics.
-3. **Regression test:**
-   ```python
-   def test_disk_token_deleted_on_refresh_401(httpx_mock, tmp_path, monkeypatch):
-       monkeypatch.setenv("IOL_TOKEN_PATH", str(tmp_path / "iol-token"))
-       # Seed disk with a stale refresh token
-       (tmp_path / "iol-token").write_text("STALE-REFRESH-TOKEN\n")
-       # Server rejects the refresh
-       httpx_mock.add_response(url="...token", status_code=401, match_content=b"refresh_token=STALE")
-       # Server accepts password grant fallback
-       httpx_mock.add_response(url="...token", status_code=200,
-                               json={"access_token": "AT", "refresh_token": "FRESH", "expires_in": 900})
-       client = iol_client.Client(username="u", password="p")
-       client.login()
-       # Disk now has FRESH, not STALE
-       assert (tmp_path / "iol-token").read_text().strip() == "FRESH"
-   ```
+**How to avoid:**
+- Order the work: **Phase 30 ships `str`** with an explicit `# TYP-01 carry-forward: Literal pending live census (DT-07)` marker at each of the four sites. **Phase 33 promotes to `Literal`** only against a written per-value evidence table (value → probe name → live response). Never the reverse.
+- If Phase 33 cannot close the set, it stays `str` and is documented as a carry-forward. DT-07 already authorizes this outcome; the plan just has to not treat it as failure.
+- If it *is* closed: add the `Literal` narrowing as its own row in the iol README changelog callout, separate from the dict→model row.
 
-**Phase that owns:** Phase 5 (IOL disk persistence).
+**Warning signs:**
+A Phase-30 diff containing `Literal[` on `mercado` or `plazo`. A `Literal` set whose members exactly match the values `main_iol.py` happens to probe.
 
-**v1.1 lesson:** BUG-03 D-IOL-10 lifecycle was: in-instance refresh fallback to password. v1.2 extends to: across-process refresh fallback + disk cleanup. Source: `packages/iol-client/src/iol_client/client.py:282-286` (existing in-instance fallback) — extend to disk.
+**Phase to address:** 30 (hold at `str`), 33 (promote with evidence), 34 (callout if promoted).
 
 ---
 
-### Pitfall 9: Multi-process race — two parallel `main_iol.py --live` runs clobber each other's refresh_token
+### Pitfall 24: `msgspec` as a hard runtime dep silently expands the Phase-34 release set from 2 packages to 6
 
-**Symptom:**
-Operator launches `uv run --package iol-client python main_iol.py --live` in two terminals (or CI matrix runs 3.12 + 3.13 in parallel). Both processes:
-1. Load STALE refresh_token X from disk.
-2. Both call `_refresh()` → IOL issues two new tokens Y and Z (depending on order).
-3. Process A writes Y to disk. Process B writes Z to disk. Disk now has Z; A's in-memory token is Y.
-4. Next process loads Z. Process A's Y is orphaned. If IOL rotates refresh on use (some servers do), Y may be the only valid one — A keeps working, but the disk says Z is valid → next process uses Z → fails → falls back to password.
+**What goes wrong:**
+DT-08: only packages whose surface changed get republished. But DEC-01 adds `msgspec` to the runtime dependencies of all six `pyproject.toml` files and copies a decoder into all six. That is a **wheel-content and dependency-metadata change in every package**, including `ambito-financiero-client` (one function, already `-> float`) and `wallets-client` (zero data functions, and it would gain a C-extension runtime dependency to support an empty `models.py`).
 
-The thrashing is invisible to either process.
+Dependency profile today is minimal and pure-Python: `httpx`, `python-dotenv`, `tenacity`, plus `platformdirs` in iol and `websocket-client` in matriz. `msgspec` is a C extension. Wheel availability is good — 48 wheels for 0.21.1, tags `cp310`–`cp314`, macOS x86_64/arm64, manylinux, musllinux, win-amd64 — so the CI matrix (ubuntu, py3.12 + py3.13) is covered. The residual risk is a consumer on a platform or Python version without a wheel needing a compiler, with **no pure-Python fallback** (sdist only).
 
-**Risk:** Refresh-token churn; intermittent password-fallback latency; correlated CI failures when 3.12 and 3.13 runners share the same `~/.config/iol-client/token` (if the path doesn't include the Python version or runner ID).
+`uv.lock` refresh touches the whole workspace, and the Phase-24/28 release flow validates `uv lock --check` + version alignment.
 
-**Prevention:**
-1. **File lock during write:** `fcntl.flock(f.fileno(), fcntl.LOCK_EX)` on POSIX. Python stdlib only — no portalocker dependency. Lock duration: only the write transaction.
-2. **OR (simpler): treat the disk path as PER-PROCESS via `IOL_TOKEN_PATH` env var.** Document: "set `IOL_TOKEN_PATH=/path/to/per-user-token` if running multiple iol_client processes." Default path: `~/.config/iol-client/token` is a single-user assumption.
-3. **OR: check `os.environ.get("CI") == "true"` → use `/tmp/iol-token-${PID}` (not persisted across CI runs).** CI runs don't benefit from disk persistence anyway (token re-issued per workflow).
-4. **Regression test for the race (mocked):**
-   ```python
-   def test_disk_token_write_under_concurrent_processes(tmp_path):
-       """Two processes refreshing simultaneously: last-writer-wins is acceptable; corruption is not."""
-       token_path = tmp_path / "token"
-       results = []
-       def writer(tok):
-           # Simulate the persistence call path
-           from iol_client._persistence import write_refresh_token  # v1.2 API
-           write_refresh_token(token_path, tok)
-           results.append(tok)
-       threads = [threading.Thread(target=writer, args=(f"TOKEN-{i}",)) for i in range(20)]
-       for t in threads: t.start()
-       for t in threads: t.join()
-       # File must contain ONE complete token, not a corrupted mix
-       contents = token_path.read_text().strip()
-       assert contents in [f"TOKEN-{i}" for i in range(20)]
-       assert "\n" not in contents or contents.endswith("\n")  # no interleaved writes
-   ```
+**How to avoid:**
+- **Decide in Phase 29, not Phase 34.** PROJECT.md already flags it: *"Evaluar en F29 si `msgspec` (extensión C) debe ser extra opcional con fallback."* The answer determines the release set.
+  - **Hard dep** → accept that all six packages get a version bump and say so in the Phase-29 artifacts, so Phase 34 is not a surprise. Simplest; one code path; one test matrix.
+  - **Optional extra with `_coerce` fallback** → ambito and wallets need no release, but the fallback path needs its own full test matrix (every decoder test × 2 paths), roughly **doubling Phase 29's test surface**, and the two paths will drift (Pitfall 17 again, now within a package).
+- Whichever is chosen, do **not** add `msgspec` to `wallets-client` if its `models.py` is empty — an unused C-extension dep on a stub is pure cost.
+- Phase 34 gate: for each package, diff the built wheel's `METADATA` and `RECORD` against the published version; "surface unchanged" must mean *wheel content unchanged*, not just `__all__` unchanged.
 
-**Prior-art:** [Google google-auth](https://googleapis.dev/python/google-auth/latest/) for Python uses fcntl.flock for token cache file locking. Anthropic/openai SDK doesn't persist tokens to disk (they use API keys); this pitfall is specific to OAuth refresh flows.
-
-**Phase that owns:** Phase 5 (IOL disk persistence).
-
-**v1.1 lesson:** v1.1 introduced `_token_store.py` `threading.Lock` for in-process 3-way concurrency. v1.2 extends to inter-process via fcntl. Same principle (lock-around-critical-section), different scope.
+**Phase to address:** 29 (decision, D-lock), 34 (execution).
 
 ---
 
-### Pitfall 10: File permissions 0600 noop on Windows / unsafe on shared CI runners
+### Pitfall 25: DT-05 "preserve `from_api`" is read as a signature guarantee when the contract is the *semantics*
 
-**Symptom:**
-The v1.2 disk persistence sets `chmod 0600` on the token file:
-```python
-path.write_text(token); path.chmod(0o600)
-```
-On Linux/macOS: file is owner-readable only. Safe.
-On Windows: chmod is a no-op (Windows uses ACLs); the file is world-readable by default in the user's home dir. The project IS Python 3.12+ on Linux/macOS-targeted, but the CI matrix runs Ubuntu, where 0600 IS meaningful.
+**What goes wrong:**
+DT-05 says `from_api(payload)` is preserved as the public constructor — *"cambia su implementación interna, no su firma"*. A reviewer checks the signature, sees `(cls, payload: Any) -> Self`, and approves. Meanwhile the tolerance semantics — the thing consumers and 900+ tests actually depend on — changed.
 
-CI-specific risks:
-- `/tmp/iol-token` is wiped between jobs on GitHub Actions runners → token never persists across runs (fine; defeats the optimization but not a security issue).
-- BUT: GitHub Actions cache (`actions/cache@v4`) MAY cache the token file if the path is under a cached directory. The cache is per-PR — token leaks across PRs by different contributors.
-- `$XDG_CONFIG_HOME` or `$HOME` defaults: on Ubuntu CI `/home/runner/.config/iol-client/token` is wiped per-job. Safe by default.
+The merge gate ("the three suites stay green without test changes") is the right gate, and it *will* catch Pitfall 1 — **but only if it is run per-package on all three, with literally zero test edits.** The existing suites do pin the contracts: higyrus/market-data tests assert `""` / `0.0` / `[]` / nested-empty; matriz tests assert `None` / `empty()` / `{}`. They disagree, on purpose, and that is the signal.
 
-**Risk:** Token in CI cache leaking across PRs; on Windows (if support is later added) 0600 noop.
+Additional trap: `matriz`'s `empty()` is public API used **inside the class definitions** (`field(default_factory=InstrumentId.empty)`, `field(default_factory=Segment.empty)`). msgspec never calls it — but removing it breaks import, at class-definition time, for the whole package.
 
-**Prevention:**
-1. **Default disk path on CI: REFUSE.** Check `os.environ.get("CI") == "true"` AND `IOL_TOKEN_PATH` is not set → SKIP disk persistence entirely. Log a one-line INFO: "disk persistence disabled on CI".
-2. **Default disk path on dev: `${XDG_CONFIG_HOME:-$HOME/.config}/iol-client/token`.** Document the location; ensure parent dir is `mkdir -p` with `mode=0o700`.
-3. **Document in README:** "if you cache `~/.config/iol-client/` in CI, you are caching a refresh token; either don't, or set `IOL_TOKEN_PATH=/tmp/some-volatile-path`".
-4. **chmod check at write time:** verify `path.stat().st_mode & 0o777 == 0o600` after write; warn (not fail) if not.
+**How to avoid:**
+- The Phase-29 merge gate is stated as: *"`uv run pytest packages/higyrus-client packages/matriz-client packages/market-data-client` passes with `git diff --stat` showing zero lines changed under any `tests/` directory."* Mechanical, checkable, not a judgment call.
+- `empty()` stays on matriz models, unchanged, tested.
+- `from_api` keeps accepting `None`, non-dict, and partial payloads. Verified msgspec behavior for the non-dict cases: `convert(None, type=Quote)` → `ValidationError: Expected 'object', got 'null'`; `convert([1], type=Quote)` → `Expected 'object', got 'array'`. Those must be caught by `from_api` and routed to the tolerant path + a divergence, never propagated.
 
-**Phase that owns:** Phase 5 (IOL disk persistence).
-
-**Test pattern:**
-```python
-def test_disk_persistence_skipped_on_ci(monkeypatch, tmp_path):
-    monkeypatch.setenv("CI", "true")
-    monkeypatch.delenv("IOL_TOKEN_PATH", raising=False)
-    # Persistence call returns early without touching the disk
-    from iol_client._persistence import write_refresh_token
-    result = write_refresh_token(default_path=tmp_path / "should-not-exist", token="X")
-    assert result is None  # or whatever signals "skipped"
-    assert not (tmp_path / "should-not-exist").exists()
-```
+**Phase to address:** 29.
 
 ---
 
-## Cluster 4 — `Client.from_env()` Pitfalls (Phase: ergonomics × 4)
+## Technical Debt Patterns
 
-### Pitfall 11: `from_env()` re-calls `load_dotenv()` and shadows runtime-set env vars
-
-**Symptom:**
-v1.1 packages call `load_dotenv()` at module import (`packages/iol-client/src/iol_client/client.py:68`). This populates `os.environ` from `.env` at import time. After import, runtime code may override:
-```python
-os.environ["IOL_USER"] = "runtime-override@example.com"
-client = iol_client.Client.from_env()  # if from_env() calls load_dotenv() AGAIN, .env wins
-```
-`python-dotenv`'s `load_dotenv()` by default does NOT override existing env vars (the `override=False` default). So a runtime-set env var SURVIVES a second `load_dotenv()` call. Good.
-
-BUT: on CI runners, env vars come from the workflow YAML, not a `.env` file. There IS no `.env` on CI. `load_dotenv()` is a no-op there → fine.
-
-The risk: someone "fixes" the no-op concern by adding `load_dotenv(override=True)` to `from_env()`. Now runtime overrides are silently dropped.
-
-**Risk:** Hard-to-debug "the env var I set in the test fixture was ignored" bug.
-
-**Prevention:**
-1. **`from_env()` does NOT call `load_dotenv()`.** Document: "`from_env()` reads from `os.environ` as-is; module-import `load_dotenv()` already populated `.env`. To force a re-read, call `dotenv.load_dotenv(override=True)` explicitly BEFORE `from_env()`."
-2. **`from_env()` implementation is literally:**
-   ```python
-   @classmethod
-   def from_env(cls, **overrides: Any) -> Self:
-       return cls(
-           username=overrides.get("username") or os.environ.get("IOL_USER"),
-           password=overrides.get("password") or os.environ.get("IOL_PASSWORD"),
-           base_url=overrides.get("base_url") or os.environ.get("IOL_BASE_URL"),
-           **{k: v for k, v in overrides.items() if k not in {"username", "password", "base_url"}},
-       )
-   ```
-3. **Test:**
-   ```python
-   def test_from_env_does_not_call_load_dotenv(monkeypatch):
-       calls = []
-       monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: calls.append((a, kw)))
-       monkeypatch.setenv("IOL_USER", "from-env-runtime")
-       client = iol_client.Client.from_env()
-       assert client._state.username == "from-env-runtime"
-       assert calls == []  # load_dotenv NOT called
-   ```
-
-**Phase that owns:** Phase 6 (ergonomics × 4 packages).
-
-**v1.1 lesson:** v1.1 packages already call `load_dotenv()` once at module import. v1.2 must not double-dip. Source: per-package `client.py` line ~68 (consistent across 4 packages).
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|---|---|---|---|
+| `try: convert() except: return from_api()` with no field-level enumeration | Decoder done in 20 lines; observable mode works | One divergence reported per response instead of per field; Phase-29 sizing undercounts by ~an order of magnitude; Phase-33 becomes serialized whack-a-mole | Acceptable as the **runtime** observable path. Never as the strict/enumerating path. |
+| `strict=False` to silence a noisy field | A red Phase-33 run goes green in one character | Re-creates the exact lenient coercion cited as the reason to reject Pydantic v2; the milestone's core value is void | **Never.** Grep-gate it. |
+| Harmonizing matriz onto zero-defaults "while we're in there" | One decoder policy instead of two | Silent semantic change to a published package with zero untyped surface, i.e. all cost and no benefit; breaks its test suite, which then gets "fixed" | **Never in v1.6.** A separate, announced decision if ever. |
+| Snake_casing model fields | Pythonic public API | No working rename exists for stdlib dataclasses in 0.21.1; `msgspec.field(name=)` yields a `Field` sentinel object silently, metadata is ignored silently | **Never** until upstream #553 lands and is verified. |
+| Skipping the 6× intactness hash test | Saves half a day in Phase 29 | The `SafeModel` drift (Pitfall 1) is the proof of what happens; the next reader inherits three decoders and a false claim of verbatim copies | Never — it is ~40 lines and it is the only thing enforcing DT-03. |
+| `msgspec` as optional extra with `_coerce` fallback | ambito + wallets need no release; no C-extension in a stub | Doubles Phase-29's test surface; two code paths that will drift; every future decoder fix is 12 edits, not 6 | Only if a concrete consumer platform without a wheel is identified. Otherwise take the hard dep and the six releases. |
+| Reusing the existing SEC-01 `caplog` no-leak test as the decoder's leak proof | One less test × 6 | It exercises the *old* record shape (anchored key/value text); the new shape (bare values, dict `extra=`) leaks past it while it stays green | Never — it is a false green. |
+| Typing the holiday **request** while typing the response | "Finish the endpoint properly" | Perturbs a wire body whose UPSERT-by-date idempotency was earned by row-count measurement (D-20/F-49/F-59), not by spec prose | Never in Phase 31. |
+| Landing D-16 by updating three of the four enrollment lists | CI is green | The unenrolled list enforces nothing and nobody re-checks; matches the existing four-way disagreement that created D-16 | Never — atomic commit, all four, with a written note for the deliberate exclusion. |
 
 ---
 
-### Pitfall 12: env var naming drift — IOL_USER (legacy) vs IOL_API_KEY (SDK convention)
+## Integration Gotchas
 
-**Symptom:**
-anthropic SDK uses `ANTHROPIC_API_KEY`. openai uses `OPENAI_API_KEY`. The ergonomic intuition for `Client.from_env()` is "this reads `<PKG>_API_KEY`". But IOL's auth is OAuth2 password grant — there is no "API key". The env vars are `IOL_USER` and `IOL_PASSWORD`. Higyrus is `HIGYRUS_BEARER_TOKEN`. Matriz is `PRIMARY_USERNAME`, `PRIMARY_PASSWORD`, `PRIMARY_ACCOUNT`. Ambito has no auth.
-
-If v1.2 introduces SDK-style env vars in parallel (`IOL_API_KEY` as alias for `IOL_USER+PASSWORD` — but it's not a single value, it's a credential pair), operators are confused by which to set. If v1.2 keeps only the existing names, the `from_env()` ergonomic intuition is wrong.
-
-**Risk:** Operator sets `IOL_API_KEY` thinking it works; `from_env()` silently constructs a Client with no credentials; first API call fails with `IOLAuthError`.
-
-**Prevention:**
-1. **Keep existing env var names; document them explicitly in `from_env()` docstring.** No deprecation, no aliasing.
-2. **`from_env()` raises a clear error when required vars are missing:**
-   ```python
-   @classmethod
-   def from_env(cls, **overrides) -> Self:
-       username = overrides.get("username") or os.environ.get("IOL_USER")
-       password = overrides.get("password") or os.environ.get("IOL_PASSWORD")
-       missing = []
-       if not username: missing.append("IOL_USER")
-       if not password: missing.append("IOL_PASSWORD")
-       if missing:
-           raise IOLAuthError(
-               f"Client.from_env() requires environment variables: {missing}. "
-               f"Set them in your .env file or shell. "
-               f"Note: IOL uses OAuth2 password grant, not an API key."
-           )
-       return cls(username=username, password=password, ...)
-   ```
-3. **Test:**
-   ```python
-   def test_from_env_raises_clear_error_on_missing_vars(monkeypatch):
-       monkeypatch.delenv("IOL_USER", raising=False)
-       monkeypatch.delenv("IOL_PASSWORD", raising=False)
-       with pytest.raises(IOLAuthError, match=r"IOL_USER.*IOL_PASSWORD"):
-           iol_client.Client.from_env()
-   ```
-
-**Phase that owns:** Phase 6 (ergonomics × 4).
-
-**v1.1 lesson:** RETROSPECTIVE patterns are about CONSISTENCY across packages — don't introduce a new naming convention that the 4 packages can't all follow. Source: STACK.md (each package has its own credentials shape).
+| Integration | Common Mistake | Correct Approach |
+|---|---|---|
+| **`RedactingFilter` (6 copies)** | Assuming it redacts anything sensitive in a record | It is **key-anchored** and **str-only**. Emit no wire values; recurse the `record.__dict__` scan into dict/list/tuple in all six copies; add a decoder-specific `caplog` sentinel per package. |
+| **`_ensure_mutation_allowed()` (market-data)** | Inserting a line above it while adding response models | It is the **literal first statement** of 16 mutation methods and AST-verified. Phase 31 touches only the return annotation + parser + model. Re-run `test_mutation_gate.py` + the no-gate-bypass AST test as an explicit merge gate. |
+| **`build_add_holidays_request` idempotency** | Treating `idempotent=True` as a spec-derived default | It was corrected from `False` **on live row-count measurement** (F-49/F-59). D-20 says prose was never sufficient. Do not touch the builder or `HolidaysIn.to_dict()`; prove the request bytes are unchanged with `pytest-httpx`. |
+| **`verification/findings.py`** | Editing text that feeds a finding title/identity | Append-only + content-addressed `idempotent_by_title` dedupe + operator-field preservation. A title change orphans the operator's disposition and creates a duplicate. Follow the Phase-15 D-07 title-stability protocol. `main_iol.py:1027` hard-codes `client.py:254` and must be handled deliberately in Phase 30. |
+| **`verification/snapshots/`** | Regenerating snapshots to make the strict decoder pass | Snapshots are the write-once baseline and the **only credential-free divergence-sizing corpus** available in Phase 29. Read them, decode them, never regenerate them to fit. |
+| **`main_*.py` drivers** | Adding a second `Client()` for a strict-mode run | Each driver is AST-gated to ≤2 constructors (1 sync + 1 async) — matriz's TokenStore corrupts otherwise. Strict mode is a decoder **flag threaded into the existing instance**, not a second client. |
+| **`_core.py` purity contracts** | Putting the decoder in `_core.py` or `models.py` | Own module `_decode.py`; add it to each `forbidden` contract's `source_modules` during the D-16 edit. |
+| **`market_data_client` in the cross-package surface net** | "Fixing" its absence from `verification/test_public_surface.py::_PACKAGES` | Deliberate — it uses in-package `tests/test_public_surface_market_data.py` (RESEARCH corrected CONTEXT in Phase 25). Document the exclusion **in the test file** so the next reader does not undo it. |
+| **`wallets_client`** | Copying the decoder + `msgspec` dep into it for symmetry | Zero data functions, no `_logging.py`, no `_core.py`, no `_state.py`, absent from import-linter and the surface net. TYP-03's empty `models.py`/`types.py` is structure only — do not add a C-extension runtime dep to a stub. |
+| **`asyncio_mode = "auto"` + `caplog`** | Asserting "exactly one record" on the root logger | Scope `caplog.at_level(..., logger="<pkg>")`; emit from exactly one layer (Pitfall 19); include `endpoint_name` for correlation. |
+| **httpx `resp.json()`** | Assuming it rejects non-standard JSON | It is stdlib `json.loads`: **`NaN` / `Infinity` / `-Infinity` are accepted**. `convert` then passes `nan` into a `float` field with zero divergence. Add an `isfinite` guard. |
 
 ---
 
-## Cluster 5 — `with_options()` Pitfalls (Phase: ergonomics × 4)
+## Performance Traps
 
-### Pitfall 13: `with_options()` creates a new Client with its own connection pool — resource leak
-
-**Symptom:**
-The naive `with_options()` implementation:
-```python
-def with_options(self, *, max_retries: int | None = None) -> Self:
-    return type(self)(
-        base_url=self._state.base_url,
-        username=self._state.username,
-        password=self._state.password,
-        max_retries=max_retries if max_retries is not None else self._max_retries,
-    )
-```
-Each call to `client.with_options(max_retries=0).get_quote(...)` creates a new `Client` object → new `httpx.Client` → new connection pool → potentially new TLS handshake. The new Client is never `close()`d (the chained call doesn't context-manager it). Connection pool leak; FD exhaustion under load.
-
-Anthropic's SDK pattern: `with_options()` returns a NEW client BUT shares the underlying httpx transport. Reference: [`anthropic-sdk-python` source](https://github.com/anthropics/anthropic-sdk-python) — `with_options` calls `self.copy(...)` which clones config but reuses the http client.
-
-**Risk:** FD exhaustion under repeated `with_options(...)` calls; reauth on each new instance (defeats token cache).
-
-**Prevention:**
-1. **`with_options()` returns a NEW Client that SHARES `_state.http_client` AND `_state.token` AND `_state.refresh_token`.** Only the per-call options (`max_retries`) differ. Mutate `_max_retries` directly; the underlying transport's `max_attempts` is re-derived per send (passed via `request.extensions` or the transport's configured value).
-2. **Architecture detail:** the `RetryTransport.max_attempts` is set at Client construction. To override per-call, EITHER:
-   - (a) Add `max_attempts` to `request.extensions` and have `RetryTransport` honor it: `attempts = request.extensions.get("max_attempts", self.max_attempts)`.
-   - (b) `with_options()` constructs a new `Client` with a new `RetryTransport(max_attempts=N+1)` but ALIASES the underlying `httpx.HTTPTransport` connection pool — but `httpx.Client` doesn't expose this directly.
-   - (a) is simpler and aligns with v1.1's `request.extensions` pattern (used for `idempotent` and `request_id`).
-3. **Test the resource lifecycle:**
-   ```python
-   def test_with_options_shares_http_client(monkeypatch):
-       c = iol_client.Client(username="u", password="p")
-       http = c._state.http_client  # may be None until first request
-       c.login()  # forces http_client creation
-       http = c._state.http_client
-       assert http is not None
-       # with_options returns a new Client but http_client is the SAME object
-       c2 = c.with_options(max_retries=0)
-       assert c2._state.http_client is http
-       assert c2._state.token == c._state.token  # token cache shared
-   ```
-
-**Phase that owns:** Phase 7 (`with_options` × 4 packages).
-
-**Prior-art:** [anthropic-sdk-python `with_options()`](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/_client.py) — copies config, shares httpx client.
+| Trap | Symptoms | Prevention | When It Breaks |
+|---|---|---|---|
+| Per-row divergence emission | A driver run that used to take 2 s takes minutes; a consumer's log pipeline rate-limits; Sentry quota alert | Aggregate by `(endpoint, normalized_path, expected, got)` → one record + `count`; cap distinct keys per response | The first structural divergence on a collection endpoint. `get_posicion_valuada` measured at **390 rows**; `get_movimientos` at **139**; `iol.get_instruments` is a country-wide catalog. |
+| Building the record payload before the level check | Steady overhead even with `NullHandler`, i.e. in every consumer that never enabled logging | `if not logger.isEnabledFor(WARNING): return` as the emitter's first line; pass structured data via `extra=`, never `json.dumps` | Any hot loop; the async surface under concurrency |
+| `RedactingFilter` on every record | Filters run before handlers, so `NullHandler` does not save you: 4 `re.sub` + full `record.__dict__` scan per record | Aggregate first (fewer records); keep records small; recursion added in Pitfall 5 must not become O(payload) | ~10³ records/second |
+| Per-field / per-row enumeration on the **hot** path | Latency regression on every response, not just divergent ones | Enumeration runs **only** after the fast `convert()` already failed. Measured: 5000 rows batch = **0.79 ms**, per-row = **2.06 ms** — cheap, but not free, and pointless when the batch succeeds | If enumeration is made the default path |
+| `get_type_hints()` called per decode | Reflection cost on every response | Cache resolved hints per class (`functools.cache`) — msgspec already caches internally per type, so this only matters for the hand-rolled unknown-key detector and the enumerating fallback | Immediately, on any collection endpoint |
+| Decoding treated as the bottleneck | Time spent optimizing the wrong thing | It is not. `json.decode` 1.35 ms / `convert` 0.79 ms for 5000 rows. Logging is the cost. | n/a — this trap is wasted effort, not a runtime failure |
 
 ---
 
-### Pitfall 14: `max_retries=N` per-call override interacts wrongly with the mutation gate — CRITICAL
+## Security Mistakes
 
-**Symptom:**
-v1.1 Phase 8 Pitfall 4 (the duplicate-order risk) is mitigated by the `RetryTransport` mutation gate: when `request.extensions["idempotent"] = False`, the transport refuses to retry regardless of `max_attempts`. matriz `new_order`, `cancel_order`, `replace_order` builders set `idempotent=False` explicitly.
-
-v1.2 introduces `client.with_options(max_retries=10).new_order(...)`. The semantics MUST be:
-- `max_retries=10` is the UPPER BOUND on attempts.
-- `idempotent=False` is a HARD REFUSAL to retry — overrides any `max_retries` value.
-- Caller passing `max_retries=10` on a mutating call → still ONE attempt (mutation gate wins).
-
-If the implementation lets `max_retries=10` bypass the mutation gate ("the operator explicitly asked for 10 retries"), v1.1 Pitfall 4 is voided. Duplicate orders are a real money-on-the-line risk.
-
-The OPPOSITE failure: `with_options(max_retries=0).get_quote(...)` on an idempotent call should respect `max_retries=0` (no retries) AND still NOT re-derive the mutation gate. `max_retries=0` and `idempotent=True` are orthogonal.
-
-**Risk:** Duplicate matriz orders if `with_options` bypasses the mutation gate. Money-on-the-line bug.
-
-**Prevention:**
-1. **Mutation gate REMAINS the absolute authority on retry permission.** `with_options(max_retries=N)` only TIGHTENS or LOOSENS the cap for idempotent calls; for non-idempotent calls, the cap is forced to 1 attempt regardless.
-2. **Implementation in `RetryTransport`:**
-   ```python
-   def handle_request(self, request):
-       if not request.extensions.get("idempotent", False):
-           # MUTATION GATE: ALWAYS exactly 1 attempt, regardless of max_attempts override.
-           return self._send_once(request)
-       max_attempts = request.extensions.get("max_attempts", self.max_attempts)
-       # ... existing retry loop ...
-   ```
-3. **CRITICAL regression test (must land before Phase 7 merge):**
-   ```python
-   def test_with_options_max_retries_does_not_bypass_mutation_gate(httpx_mock):
-       """v1.1 Pitfall 4 (duplicate orders) survives v1.2 with_options() ergonomic."""
-       httpx_mock.add_response(method="POST", status_code=503)  # would normally retry
-       client = matriz_client.Client(...)
-       client._state.token = "fake"
-       with pytest.raises(matriz_client.MatrizAPIError):
-           # Caller explicitly asks for 10 retries, but it's a mutating call
-           client.with_options(max_retries=10).new_order(...)
-       # Mutation gate enforced: exactly ONE outgoing request
-       assert len(httpx_mock.get_requests()) == 1
-   ```
-
-**Phase that owns:** Phase 7 (`with_options` × 4 packages). The regression test is the merge gate for matriz specifically.
-
-**v1.1 lesson:** Phase 8 Pitfall 4 is the MOST IMPORTANT v1.1 mitigation; v1.2 must not regress it. Source: PROJECT.md Key Decisions row "Mutation gate vía `request.extensions["idempotent"]`".
+| Mistake | Risk | Prevention |
+|---|---|---|
+| Divergence record quotes the offending **value** | `RedactingFilter` is key-anchored — a bare value carries no anchor and is emitted verbatim. Tokens, `client_secret`, `refresh_token`, passwords and **CUITs** (higyrus PII) all live in payload values. | Contract: records carry `(endpoint, json_path, expected_type, got_type, count)` only. Type names, never values. Enforced by a per-package `caplog` sentinel test. |
+| Structured emission via `extra={"divergence": {...}}` | The `record.__dict__` scan is `isinstance(value, str)`-guarded in **all six** copies — a dict/list value is never scanned and bypasses redaction entirely | Recurse the scan into dict/list/tuple in all six `_logging.py`; or keep every `extra=` value a scalar |
+| `exc_info=True` on the decoder path | `ValidationError` messages embed offending values for several type errors; tracebacks are not content-filtered | Ban `exc_info` on the decoder path; log `str(e)`'s **path component** only, never the whole message when it can contain a value |
+| Reusing the SEC-01 no-leak test as the decoder's proof | It exercises the anchored-text shape; the new shapes leak past it while it stays green | New, decoder-specific sentinel tests, one per package |
+| Schema snapshots / findings regenerated from a **credentialed** strict run | Phase 29's offline sizing and Phase 33's runs produce divergence text that could be committed to `*-findings.md` or `verification/snapshots/` with real values in it | The redaction contract applies to findings text too. `verification/redaction.py::safe_print` already exists — route sizing output through it. Review every findings diff for values before commit. |
+| Unknown-key detector logs the **values** of unknown keys | An unknown key is exactly where a new credential-ish field would appear | Log unknown **key names** only. Key names are schema, not secrets. |
+| `msgspec` sdist build on an unwheeled consumer platform | Compiles C at install time from a source dist; supply-chain surface grows for six wheels | Pin an exact version; verify the CI matrix (py3.12/3.13 on ubuntu) resolves to a wheel, not the sdist; document the sdist fallback in the READMEs |
 
 ---
 
-## Cluster 6 — Live Re-verification + Cross-Cutting Pitfalls
+## Consumer-DX Pitfalls
 
-### Pitfall 15: Driver migration changes finding IDs even when API behavior is unchanged
+("UX" for a client library = what the consumer feels.)
 
-**Symptom:**
-v1.1 LIVE-01 gate compared baseline (`4d48e07`) findings to head findings via `verification/findings.py`. The findings are content-addressed (dedupe by `idempotent_by_title`). If a probe is RENAMED (`probe_login_sync` → `probe_login` because driver migration unifies sync+async into instance-method calls), the finding ID derived from the probe name changes. Diff is non-empty even though API behavior is identical.
-
-Operator disposition for the old finding (Classification/Rationale/Resolution) doesn't carry forward to the new finding (different title). LIVE-01 v2 gate at v1.2 close shows "all probes new, no baseline match" — false positive.
-
-**Risk:** Operator must re-triage ~40 findings across 4 packages even though zero API behavior changed. Wasted effort + risk of inconsistent triage.
-
-**Prevention:**
-1. **Probe NAMES are RENAME-FROZEN for v1.2.** Driver migration changes the BODY of `probe_login_sync` (from `iol_client.login()` to `client.login()`), NOT the function name. Function-name stability = finding-title stability = operator-disposition preservation.
-2. **If a rename is unavoidable** (e.g., async/sync unification removes the `_sync` suffix), the driver code MUST emit findings under both the OLD and NEW title for one cycle, with a `migrated_from: <old-title>` marker in the body. Operator marks the OLD finding as "MIGRATED" (new classification value) and v1.3 can clean up.
-3. **Lint check:** `grep -c "^def probe_" main_*.py` before and after migration must produce the same count per file. Diff flag for review.
-4. **Carry-forward operator dispositions by NAME-OR-MIGRATED-FROM:** extend `findings.py` parser to read both `title:` and `migrated_from:` for matching.
-
-**Phase that owns:** Phase 8 (final live re-verification × 4 packages). The probe-rename audit is a Phase 1 (canary) gate.
-
-**v1.1 lesson:** RETROSPECTIVE Patterns Established: "`verification/findings.py` append-only with BEGIN/END zones + `idempotent_by_title`" — title is the stable key. v1.2 must preserve title stability.
-
----
-
-### Pitfall 16: Ámbito canary pattern doesn't generalize to higyrus/matriz
-
-**Symptom:**
-Ámbito is the smallest driver (734 LOC), no auth, no mutating endpoints. Ámbito's canary migration validates: `Client()` instantiation, `from_env()`, `with_options(max_retries=N)`, probe-by-probe migration. PASS.
-
-Phase 2 attempts iol (1675 LOC, OAuth + refresh_token, 401 re-auth, `probe_auth_401` opt-in). New surface: token cache + refresh + auth-failure cascade. The ámbito canary pattern doesn't cover any of this.
-
-Phase 3 attempts higyrus (2458 LOC, Bearer token + multi-account iteration deferred from BUG-04). The ámbito canary doesn't cover multi-account.
-
-Phase 4 attempts matriz (2283 LOC, X-Auth-Token + 3-way TokenStore + WebSocket daemon thread). The ámbito canary doesn't cover the 3-way primitive.
-
-The canary establishes a FLOOR, not a CEILING — but a planner who treats canary-pattern-as-template will under-scope the later phases.
-
-**Risk:** Phases 3 and 4 silently under-scoped because "we did it in ámbito, this is just replication"; emerge with surprise complexity at execution time.
-
-**Prevention:**
-1. **Per-phase scoping audit:** before starting each phase, enumerate the package-specific complexity that the canary did NOT exercise. Document in the phase plan.
-2. **Spike-before-plan for matriz Phase 4:** matriz introduces both the 3-way TokenStore interaction AND the WebSocket daemon thread (which reads `_token_store` directly). The driver migration touches the daemon-thread code path. SPIKE this before planning.
-3. **Per-phase rollback plan:** if any phase reveals a canary-pattern mismatch, revert + re-spike, don't push through.
-
-**Phase that owns:** Cross-cutting; each phase has its own audit step.
-
-**v1.1 lesson:** RETROSPECTIVE Cross-Milestone Trend #3: "Per-package serial pattern" — ámbito → iol → higyrus → matriz IS the right order (smallest to largest blast radius). v1.0 and v1.1 both replicated it. v1.2 must continue, AND respect that each step UP introduces new complexity.
-
----
-
-### Pitfall 17: CI Python 3.13 baseline not confirmed at v1.1 close — codegen 3.13-incompat would mis-attribute to v1.2
-
-**Symptom:**
-RETROSPECTIVE "What Was Inefficient" #2: "CI Python 3.13 confirmation deferred 3× phases" — at v1.1 close, the 3.13 matrix has NOT received human confirmation that it's green (the matrix RUNS, but the operator hasn't actively checked). If v1.2 Phase 2 introduces a codegen output that uses Python 3.12-only syntax (e.g., `type X = ...` PEP 695 alias statement, which is 3.12+ but with semantic refinements in 3.13; or generic decorator forms), the 3.13 CI break gets blamed on v1.2 — but the underlying baseline is in fact green on 3.13.
-
-**Risk:** v1.2 Phase 2 spends a sprint debugging a "v1.2 broke 3.13" symptom that's actually a v1.1 baseline issue. False attribution wastes effort.
-
-**Prevention:**
-1. **v1.2 Phase 1 (or pre-Phase-1) gate: run `gh workflow view` and confirm v1.1 baseline (`71bf201`) is green on Python 3.13.** If not, file as v1.1 carry-forward debt, fix BEFORE Phase 1.
-2. **Use `python_version = "3.12"` in mypy config (already in place) but RUN tests on both 3.12 and 3.13.** Ensure tests don't import 3.13-only modules.
-3. **Codegen output MUST be 3.12-compatible.** The codegen template should explicitly avoid 3.13-only syntax (e.g., `typing.TypeAliasType`, PEP 696 type-parameter defaults).
-4. **Smoke test:** at Phase 2 codegen spike, run `python3.13 -c "import ambito_financiero_client; import iol_client; import higyrus_client; import matriz_client"` against the generated output. Must succeed.
-
-**Phase that owns:** Phase 1 (gate); cross-cutting for all phases.
-
-**v1.1 lesson:** RETROSPECTIVE "What Was Inefficient" #2 + Key Lesson #6 ("`human_verification_pending` pattern in VERIFICATION.md frontmatter"). Use the pattern for v1.2 Phase 1: explicit `human_verification_pending: [{test: "CI Python 3.13 green", expected: "all jobs pass", why_human: "operator confirms GH Actions UI"}]`.
-
----
-
-## Pitfall-to-Phase Mapping
-
-| # | Pitfall | Phase | Test Pattern | CRITICAL? |
-|---|---------|-------|--------------|-----------|
-| 1 | State leak between probes (per-instance) | Phase 1 canary + 2/3/4 | `test_main_<pkg>_uses_single_client_instance` AST walker | matriz YES |
-| 2 | Regression invisibility (findings regen) | Phase 1 canary, cross-cutting | `test_findings_survives_driver_migration` | |
-| 3 | Test fixture drift | Phase 1, audit each phase | `test_fixture_three_paths_all_reach_production` | |
-| 4 | Codegen breaks B8 identity | Phase 2 spike + per-pkg | `test_codegen_preserves_raise_for_response_identity` (4-param) | YES |
-| 5 | Codegen overwrites by-hand edit | Phase 2 spike | CI job `make codegen && git diff --exit-code` | YES |
-| 6 | Async-only constructs in codegen | Phase 2 spike | `test_codegen_does_not_touch_token_store` + golden file | |
-| 7 | Token leak via new disk log sites | Phase 5 IOL disk persistence | `test_disk_persistence_never_logs_token` (sentinel substring check) | YES |
-| 8 | Stale token after out-of-band rotation | Phase 5 | `test_disk_token_deleted_on_refresh_401` | |
-| 9 | Multi-process race | Phase 5 | `test_disk_token_write_under_concurrent_processes` | |
-| 10 | File permissions / CI cache | Phase 5 | `test_disk_persistence_skipped_on_ci` | |
-| 11 | `from_env` re-calls `load_dotenv` | Phase 6 ergonomics | `test_from_env_does_not_call_load_dotenv` | |
-| 12 | env var naming drift | Phase 6 | `test_from_env_raises_clear_error_on_missing_vars` | |
-| 13 | `with_options` resource leak | Phase 7 | `test_with_options_shares_http_client` | |
-| 14 | `with_options(max_retries)` × mutation gate | Phase 7 | `test_with_options_max_retries_does_not_bypass_mutation_gate` | YES |
-| 15 | Driver migration changes finding IDs | Phase 8 LIVE re-verification | probe-rename audit + grep count | |
-| 16 | Canary pattern doesn't generalize | Cross-cutting per phase | per-phase scoping audit | |
-| 17 | CI Python 3.13 baseline not confirmed | Phase 1 gate | `gh workflow view` | |
-
----
-
-## Cross-Feature Integration Pitfalls
-
-**Driver migration × findings.py (Pitfalls 1, 2, 15):**
-Per-instance `Client()` per probe (Pitfall 1) PLUS regen-from-scratch findings (Pitfall 2) PLUS probe-rename (Pitfall 15) → operator disposition loss is catastrophic. Mitigation: ONE Client per main() run; preserve probe names; freeze findings titles. All three pitfalls share the same root cause (driver shape change) and the same prevention (probe-name + title stability).
-
-**Codegen × `_token_store.py` (Pitfalls 5, 6, 9):**
-Codegen at Phase 2 must NOT touch `_token_store.py` (hand-written). Disk persistence at Phase 5 must NOT add a parallel locking primitive (v1.2 inter-process lock is fcntl.flock, separate from `_token_store.py`'s threading.Lock). The two locks live at different scopes (intra-process vs inter-process).
-
-**`with_options(max_retries)` × mutation gate × disk persistence (Pitfalls 8, 14):**
-A caller does `client.with_options(max_retries=10).login()`. `login()` is the refresh-or-password-fallback path that touches disk. If `max_retries=10` causes the login retry loop to retry 10 times on 401, and EACH retry wipes the disk-cached refresh_token (Pitfall 8), the disk cache thrashes. Mitigation: `_send_auth_request` already uses `idempotent=True` for `login/refresh` (Phase 8 D-29), but the disk-cleanup-on-401 path must be IDEMPOTENT (delete-if-exists, never delete-then-fail).
-
-**Library logging × disk persistence × `RedactingFilter` (Pitfalls 7, 11):**
-Per-package `RedactingFilter` is at `logging.getLogger("iol_client")` scope. Persistence helper at `iol_client.persistence` namespace inherits the filter. BUT: if `from_env()` adds a new log site (`logger.debug("constructed from env: %s", config)`), and `config` contains the password (because env-var-read happens INSIDE `from_env()`), the filter must redact. Add password to the filter's deny-list explicitly; test sentinel substring not in caplog.
-
-**Driver migration × CI 3.13 (Pitfalls 1, 17):**
-Driver migration changes `main_*.py` syntax. If the new syntax uses 3.12-only features (positional-only `/`, PEP 695 alias), 3.13 CI may break. Confirm 3.12-compatibility of all driver migrations; the codegen-output 3.13-compat (Pitfall 17) is a separate concern.
+| Pitfall | Consumer Impact | Better Approach |
+|---|---|---|
+| Silent truthiness flip on iol dict→model | `if not quote:` inverts with no error; the bug ships to their production | Lead the README callout with this row; do **not** add `__bool__` to hide it |
+| No `to_dict()` on the new iol models | Every consumer who serialized the dict has to hand-write a converter | Ship `to_dict()`; precedent exists (market-data request models) |
+| `Literal` narrowing on `mercado`/`plazo` with an incomplete set | Legitimate calls stop type-checking; consumers pin the old version | Live-evidence census (DT-07) or leave `str`. Never guess. |
+| Divergence warnings with no way to turn them off | A consumer whose feed legitimately omits an optional field gets a warning per call forever | Standard `logging` levels are the off switch — but document the logger name and the record's structured fields in each README so filtering is possible |
+| Six packages, six different decoder behaviors | The "identical contract across six libs" promise is the milestone's headline; drift makes it a lie | The 6× intactness hash test (Pitfall 17) is what makes the promise checkable |
+| `msgspec` leaking into a public signature | Consumers inherit a C-extension type in their own type annotations | DT-01. Enforce with a grep in the Phase-32 gate: `msgspec` must not appear in any annotation of an `__all__`-exported symbol |
+| A breaking minor with no migration section | Consumers discover the break at runtime | DT-08 README callout per package, with a before/after code block per changed function |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Driver migration (Phase 1):** ONE `Client()` per `main()` run; AST test landed; INT-01 idiom replaced with `client._state.<attr>`
-- [ ] **Driver migration:** probe names UNCHANGED; finding titles UNCHANGED; LIVE-01 baseline match preserved
-- [ ] **Driver migration:** 907 test count baseline maintained; assertion count >= baseline
-- [ ] **Codegen (Phase 2):** B8 identity check is the FIRST CI test; runs before all others
-- [ ] **Codegen:** marker comment `@generated by ... DO NOT EDIT` at top of every generated file
-- [ ] **Codegen:** CI job `make codegen && git diff --exit-code` separate from pytest
-- [ ] **Codegen:** `_token_store.py` is in the codegen DENY list with a pre-commit hook
-- [ ] **Codegen:** golden input/output files per package
-- [ ] **IOL disk persistence (Phase 5):** sentinel-substring caplog test landed BEFORE the persistence code
-- [ ] **IOL disk persistence:** disk token DELETED on refresh 401; password fallback writes fresh
-- [ ] **IOL disk persistence:** fcntl.flock around the write critical section (POSIX)
-- [ ] **IOL disk persistence:** `CI=true` → disk persistence SKIPPED unless `IOL_TOKEN_PATH` explicitly set
-- [ ] **IOL disk persistence:** chmod 0600 after write; verified by stat check
-- [ ] **`from_env` (Phase 6):** does NOT call `load_dotenv`
-- [ ] **`from_env`:** raises typed `<Pkg>AuthError` with clear message listing missing env vars
-- [ ] **`from_env`:** env var names preserved (no SDK-style API_KEY aliasing)
-- [ ] **`with_options` (Phase 7):** SHARES `_state.http_client` and `_state.token` with the parent
-- [ ] **`with_options`:** mutation gate REMAINS authoritative — CRITICAL test for matriz `new_order`
-- [ ] **`with_options`:** `max_retries` honored as cap-only for idempotent; ignored for non-idempotent
-- [ ] **Live re-verification (Phase 8):** probe-rename count per `main_*.py` == 0 (or migration markers used)
-- [ ] **Live re-verification:** all 4 dispositions `no_new_findings` OR each new finding has operator classification
-- [ ] **Cross-cutting:** v1.1 baseline (`71bf201`) confirmed green on Python 3.13 BEFORE Phase 1 lands
+- [ ] **Decoder copied 6×:** often missing the intactness hash test — verify a deliberately-edited single copy makes CI fail RED.
+- [ ] **`_coerce` replaced in "3 packages":** often missing that matriz's semantics are the opposite — verify all three suites pass with `git diff --stat` showing **zero** lines changed under any `tests/`.
+- [ ] **"Extra field" divergence test:** often vacuous — msgspec **cannot** detect extra fields on dataclasses. Verify the hand-rolled `set(payload) - fieldnames` detector fires and that removing it makes the test fail.
+- [ ] **Observable mode "emits exactly one record":** often tested with a 3-row fixture — verify with 5000 identical-divergence rows that it is still exactly one, with `count == 5000`.
+- [ ] **Redaction:** often verified with the old SEC-01 test — verify a decoder-emitted record carrying a sentinel token, including via a **dict** in `extra=`, leaks nothing.
+- [ ] **Model annotations:** often missing runtime imports — verify `get_type_hints()` succeeds on **every** model class in every package (one test, whole class of bugs).
+- [ ] **`received_at`:** verify (a) the client stamp survives decoding, (b) a wire `received_at` does **not** override it on `MarketDataSnapshot`, (c) it **is** read verbatim on `Symbol`.
+- [ ] **iol migration:** often stops at `client.py` — verify all **16** signatures (4 functions × method/shim × sync/async) plus `_core` parsers, plus `main_iol.py:316` and `:395`.
+- [ ] **iol breaking-change callout:** often lists only `[]`/`.get()` — verify the truthiness flip and the `json.dumps` break are both documented.
+- [ ] **Holiday mutations typed:** often missing the wire proof — verify request `method`/`url`/`headers`/`content` are byte-identical before and after, and that `_ensure_mutation_allowed()` is still the literal first statement (re-run the AST gate).
+- [ ] **`test_transport.py` synthetic non-idempotent spec:** verify it still exists by name after any calendar-write work — it is the only remaining proof the idempotent flag does anything.
+- [ ] **Surface AST gate:** often only handles `ast.Name`/`ast.Subscript` — verify against a RED fixture containing `list[dict[str, Any]]`, `X | None` (BinOp), `dict[str, Any] | None`, `t.Any`, `Any as _A`, and `-> "Quote"`.
+- [ ] **Surface AST gate coverage:** verify a per-package **minimum export count** so `wallets` (0 data functions) and `ambito` (1) cannot make the gate vacuously green.
+- [ ] **Parity test:** verify it does not key on `aio.__all__` — `iol`, `market_data_client` and `wallets_client` do not define one. Verify the expected-count lower bound per package.
+- [ ] **Every Phase-32 gate:** verify it FAILS against `HEAD~1` (pre-migration) and record that output in the phase artifacts.
+- [ ] **D-16:** verify all four lists updated (mypy `files`, import-linter `root_packages`, `ci.yml` mypy-tests loop, and a written note on the deliberate `test_public_surface.py` exclusion) — and RED-prove the new `_core` contract by temporarily adding a forbidden import.
+- [ ] **Phase-29 sizing run:** verify it reports a per-package RUN/SKIP table and states `≥ N`, and that the offline snapshot corpus was decoded.
+- [ ] **Release scope:** verify by diffing built wheel `METADATA`/`RECORD` against the published version, not by eyeballing `__all__`.
 
 ---
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| 1 (per-probe Client) | LOW | Refactor driver to top-level `Client()`; AST test asserts the fix |
-| 2 (findings regen) | HIGH | Restore from baseline `71bf201`; manually merge new findings; re-apply operator dispositions |
-| 4 (B8 identity break) | LOW | Revert codegen template; add identity test as CI gate; re-run codegen |
-| 5 (lost by-hand edit) | MEDIUM | Recover from git reflog or PR history; add marker comment + verify-clean CI |
-| 7 (token leak in logs) | HIGH | Rotate IOL refresh_token AND password IMMEDIATELY; audit Sentry/Datadog/CloudWatch retention; add caplog sentinel test |
-| 8 (stale disk token) | LOW | Delete `~/.config/iol-client/token`; v1.2 code path will write a fresh one on next refresh |
-| 9 (multi-process race) | LOW | Set `IOL_TOKEN_PATH` per-process; or accept last-writer-wins (cosmetic churn) |
-| 14 (with_options bypasses mutation gate) | HIGH | If duplicate matriz orders detected: manual order reversal at MATBA ROFEX; add CRITICAL regression test; refactor `RetryTransport` to make mutation gate FIRST gate |
-| 15 (probe rename breaks LIVE-01) | MEDIUM | Add MIGRATED classification; carry forward operator dispositions by `migrated_from:` marker |
-| 17 (3.13 break mis-attributed) | LOW | Bisect against v1.1 baseline `71bf201`; if v1.1 also broken, file as carry-forward |
+|---|---|---|
+| matriz semantics silently changed (P1) | **HIGH** if released, LOW if caught by the merge gate | Caught pre-release: revert to the policy-parameterized decoder, re-run all three suites with zero test edits. Released: matriz consumers now get `0.0` where they got `None` — patch release restoring pass-through + README erratum. This is the strongest argument for the merge gate being non-negotiable. |
+| Divergence flood in Phase 33 (P2, P3) | MEDIUM | Triage by `(endpoint, path)` frequency. Split: schema-fix (model wrong) vs server-divergence (finding) vs Literal-census (widen to `str`). Widening a response `Literal` to `str` is a safe, non-breaking, one-line stopgap that preserves observability — do that before touching the decoder. |
+| Credential leak in a log record (P5) | **HIGH** | Rotate the credential immediately (per-package `.env`). Audit any committed findings/snapshots for the value. Then fix the emitter contract — the fix is cheap; the rotation is the cost. Prevention is the only affordable option here. |
+| iol 0.3.0 breaks an unknown consumer (P11) | MEDIUM | The consumer survey **before** Phase 30 is the cheap version. After the fact: a `0.3.1` adding `to_dict()` plus an expanded README migration section. Do **not** add `__bool__`/`__getitem__` back — that trades a loud break for a permanent silent one. |
+| Holiday mutation wire contract perturbed (P13) | **HIGH** | Live-verified UPSERT-by-date behavior is re-earned only by another armed live run with cleanup (LIVE-MUT-01 protocol) against develop, under the double human gate. The byte-identity test costs an hour and makes this unreachable. |
+| Vacuous gate discovered later (P14) | LOW to fix, HIGH in lost confidence | Add the lower bound + RED fixture, re-run against the pre-migration commit, record the failure. Then re-audit anything the gate "verified" while vacuous. |
+| Decoder copies drifted (P17) | MEDIUM and it grows | Three-way-diff the copies, pick the newest correct one, re-copy, land the intactness test in the same commit. Cost scales with how long it went unnoticed — the `SafeModel` case took two milestones. |
+| `msgspec` unavailable on a consumer platform (P24) | MEDIUM | Retrofitting the optional-extra + fallback after release means shipping a second code path into already-published wheels. Decide in Phase 29. |
+| `NameError` from a `TYPE_CHECKING` annotation in production (P6) | LOW to fix, HIGH impact | One-line import fix + patch release. The `get_type_hints()` sweep test makes it a CI failure instead. |
+
+---
+
+## Pitfall-to-Phase Mapping
+
+| # | Pitfall | Prevention Phase | Verification |
+|---|---|---|---|
+| 1 | matriz `_convert` has opposite semantics | **29** | Written 3-way semantics table in phase artifacts; all 3 suites green with `git diff --stat` = 0 lines under `tests/` |
+| 2 | matriz response `Literal`s become enforced | **29** (D-lock), 33 (census) | D-lock recorded; strict run over matriz snapshots produces no `Invalid enum value` — or a live-evidence census table |
+| 3 | msgspec fail-fast undercounts | **29** | Enumerating mode test: a 3-bad-field payload yields 3 divergences, not 1. Sizing report states `≥ N`. |
+| 4 | Log-spam flood | **29** | 5000-row all-divergent fixture → exactly 1 record with `count == 5000`; 25-distinct-shape fixture hits the cap |
+| 5 | RedactingFilter gap | **29**, re-verified 33 | Per-package `caplog` sentinel: token in a divergent value, and in a dict `extra=`, appears in zero records |
+| 6 | `TYPE_CHECKING` → decode-time `NameError` | **29**, 31, 32 | `get_type_hints()` sweep over every model class in all 6 packages |
+| 7 | No dataclass rename; no `forbid_unknown_fields` | **29** | Grep gate `msgspec.field(` absent from `models.py`; hand-rolled unknown-key detector proven by removing it and seeing the test fail |
+| 8 | `convert(resp.json())` vs `json.decode(bytes)` | **29** (D-lock), 33 | D-lock recorded; `isfinite` guard test with a `NaN` payload through the real `resp.json()` path |
+| 9 | `received_at` stamping | **29** | 3 tests: stamp survives; wire value does not override on `MarketDataSnapshot`; wire value **is** read on `Symbol` |
+| 10 | `strict=False` | **29**, 32 (gate), 33 | Grep gate over `packages/*/src/` in CI |
+| 11 | iol dict→model breakage | **30**, 34 | `main_iol.py:316`/`:395` migrated same commit; `to_dict()` shipped; README callout leads with the truthiness flip |
+| 12 | Hard-coded source coordinates in findings | **30** | `grep -rnE '(client\|aio\|_core)\.py:[0-9]+' main_*.py` inventory; `*-findings.md` diff clean or D-07 protocol followed |
+| 13 | Published holiday mutations perturbed | **31** | Byte-identical request test (`pytest-httpx` capture); gate-ordering AST test + `test_mutation_gate_parametrized.py` re-run; `test_transport.py` synthetic spec still present |
+| 14 | Vacuous gates | **32** | Every gate FAILS against `HEAD~1`, output recorded; RED fixture committed; per-package minimum counts |
+| 15 | AST gate false negatives | **32** | RED fixture with one function per annotation shape in the Pitfall-15 table |
+| 16 | D-16 partial enrollment | **32** | All four lists in one commit; new `_core` contract RED-proven with a temporary forbidden import; deliberate exclusion documented in-file |
+| 17 | 6× copies drift | **29**, enforced 30-33 | Normalized-source hash equality across 6 copies + explicit substitution map; a single edited copy fails RED |
+| 18 | `_core` purity erosion | **29**, 32 | `_decode.py` imports stdlib + msgspec + logging only; added to each `forbidden` contract's `source_modules` |
+| 19 | Duplicate sync/async emission | **29** | "Exactly one record" asserted on both surfaces, logger-scoped `caplog`, `endpoint_name` correlation field present |
+| 20 | Emission cost in async hot paths | **29** | `isEnabledFor` guard is the emitter's first line (assert by source inspection or by a mock logger that fails if called when disabled) |
+| 21 | `LogRecord` attribute collision | **29** | Test emitting divergences on fields named `name` and `module` raises nothing |
+| 22 | Sizing run SKIPs to zero | **29**, 33 | Sizing report has a per-package RUN/SKIP table; offline snapshot corpus decoded and counted |
+| 23 | `Literal` params narrowed without evidence | **30** (hold `str`), 33 (promote), 34 (callout) | Phase-30 diff contains no `Literal[` on `mercado`/`plazo`; Phase-33 promotion carries a value→probe→response evidence table |
+| 24 | `msgspec` hard dep expands the release set | **29** (decision), 34 | D-lock in Phase-29 artifacts; Phase-34 scope justified by wheel `METADATA`/`RECORD` diffs |
+| 25 | `from_api` signature vs semantics | **29** | The zero-test-edit merge gate, stated mechanically; matriz `empty()` preserved and tested |
+
+**Phase load summary:** 29 carries 14 of 25 — which is correct and matches the plan's own framing of DEC-01 as *load-bearing, PRIMERO*. Phase 29 is the milestone's risk concentration; if it is planned as "copy a decoder 6×" it will be under-scoped by roughly a factor of three. Phases 30, 31, 32 carry 3, 1 and 4 respectively; 33 and 34 mostly **verify** decisions locked in 29.
 
 ---
 
 ## Sources
 
-- `/Users/sebadlf/development/becerra/market-libs/.planning/PROJECT.md` — v1.2 milestone scope, key decisions, current state, RETROSPECTIVE auto-linked
-- `/Users/sebadlf/development/becerra/market-libs/.planning/RETROSPECTIVE.md` — v1.1 What Was Inefficient (driver migration as residual), Patterns Established (PEP 562, `_core.py`, mutation gate, INT-01 idiom), Key Lessons (compat shims have half-life, 3.13 confirmation deferred)
-- `/Users/sebadlf/development/becerra/market-libs/.planning/research/v1.0-v1.1-archived/PITFALLS.md` — v1.1 mitigations baseline (assumed in place); Pitfalls 1/4/7/9/10 directly extend v1.1 originals
-- `/Users/sebadlf/development/becerra/market-libs/CLAUDE.md` — Anti-Patterns (importing aio in sync, mutating module state without configure, sharing aio state across loops); Architectural Constraints (threading, global state, no shared library, no async in matriz pre-v1.1)
-- `/Users/sebadlf/development/becerra/market-libs/packages/iol-client/src/iol_client/client.py` — existing OAuth refresh flow (lines 251-289), B8 identity alias (line 78), max_retries validation (lines 83-99), PEP 562 shim (lines 595-614)
-- `/Users/sebadlf/development/becerra/market-libs/main_iol.py` — INT-01 idiom (line 1289); 15+ sites of `_get_default()._state.<attr>` access; CR-03 direct mutation pattern (lines 1421-1429); 1675 LOC current driver size
-- [psycopg async-to-sync codegen workflow](https://www.psycopg.org/articles/2024/09/23/async-to-sync/) — pre-commit hook + verify-clean CI check is the mainstream pattern
-- [unasyncd marker comment pattern](https://pypi.org/project/unasyncd/) — generated-file marker as deception prevention
-- [Django DEP draft: Unasyncify Codegen](https://forum.djangoproject.com/t/dep-draft-request-for-shepherd-unasyncify-codegen/36038) — community discussion of marker comments + pre-commit hooks
-- [redis-py issue #2119 — async/sync handling discussion](https://github.com/redis/redis-py/issues/2119) — comparison of sync-from-async strategies in production libraries
-- Python data model — module-level `__getattr__` (already in use; v1.2 must preserve)
-- httpx documentation — `request.extensions` pattern (already used for `idempotent`, `request_id`, `endpoint_name`; extend for per-call `max_attempts` in Pitfall 13/14)
-- [anthropic-sdk-python `_client.py` `with_options()`](https://github.com/anthropics/anthropic-sdk-python) — copy-config-share-http-client pattern
+**Primary — empirical (HIGH confidence).** All msgspec behavioral claims were executed, not cited:
+- `msgspec 0.21.1` on CPython 3.12.13 and 3.14.3, via `uv run --no-project --python 3.12 --with 'msgspec==0.21.1'`. Probe scripts covered: dataclass decoding (slots / non-slots / inheritance / `default_factory`), unknown-field policy, missing-required, `null`/`bool`/`str`/`int` type mismatches, `Literal` enforcement, `Any` and `dict[str, Any]` fields, `Decimal` and `datetime` parsing, NaN/Infinity, `__post_init__`, `msgspec.field(name=)` and `dataclasses.field(metadata=)` renaming, `Annotated`+`Meta` constraints, `TYPE_CHECKING`-only annotations, error-path formatting, multi-error reporting, and 5000-row throughput.
+- `https://pypi.org/pypi/msgspec/0.21.1/json` — 48 wheels, tags `cp310`–`cp314`, `requires_python >=3.10`, uploaded 2026-04-12, sdist present, no pure-Python fallback.
+
+**Primary — repo state (HIGH confidence), read at `milestone/v1.5-mutations` head:**
+- `packages/higyrus-client/src/higyrus_client/models.py`, `packages/market-data-client/src/market_data_client/models.py`, `packages/matriz-client/src/matriz_client/models.py` — the three-way `SafeModel`/`_coerce` vs `_SafeModel`/`_convert` divergence.
+- `packages/*/src/*/_logging.py` (×6) — `RedactingFilter` marker sets and the str-only `record.__dict__` scan.
+- `packages/market-data-client/src/market_data_client/{client,aio,_core}.py` — `_ensure_mutation_allowed()` call sites, `build_add_holidays_request` D-20 idempotency note, `build_delete_holiday_request` `_DAY_SEGMENT_RE`, parser inventory.
+- `packages/iol-client/src/iol_client/client.py:62-69, 497-546, 647-680` — `InstrumentType`, the four untyped data functions, `mercado`/`plazo` as `str`.
+- `packages/wallets-client/src/wallets_client/__init__.py` — 5-symbol `__all__`, no data functions; directory listing confirms no `_logging.py`/`_core.py`/`_state.py`.
+- `pyproject.toml` — mypy `files` (5), `[tool.importlinter] root_packages` (4) + 4 forbidden contracts.
+- `.github/workflows/ci.yml:70-90` — the 5-package mypy-tests loop.
+- `verification/test_public_surface.py:46-51` — `_PACKAGES` (4).
+- `verification/test_main_matriz_uses_single_client_instance.py` — the WR-01/WR-02 vacuous-guard precedent, quoted.
+- `main_iol.py:316, 395, 1027, 1182, 1192` — `.get()` sites and the hard-coded `client.py:254` finding text.
+- `uv run mypy packages/market-data-client/{src,tests}` executed 2026-08-18 → exactly 2 `var-annotated` errors, `src` clean.
+
+**Primary — project artifacts:**
+- `.planning/PROJECT.md` (v1.5 close state, D-locks, Key Decisions table, Phase 23 `require_env`-SKIP / D-09 NO-DATA precedent, Phase 15 D-07 title-stability gate, SPIKE-006 sha256 intactness technique).
+- `.planning/future-plans/tipado_homogeneo.md` (DT-01..DT-09, phase 29-34 outline, empirical evidence section — two claims of which are corrected here as Pitfalls 1 and 7).
+
+**Secondary (MEDIUM confidence):**
+- [msgspec — Supported Types](https://msgspec.dev/supported-types) — dataclass/attrs limitations (`InitVar` unsupported, extra fields ignored), RFC3339/ISO8601 datetime handling.
+- [jcrist/msgspec#553 — Renaming fields for dataclasses](https://github.com/jcrist/msgspec/issues/553) — dataclass rename is an open request, not a shipped feature.
+- [jcrist/msgspec#355 — Support renaming struct fields through `msgspec.field`](https://github.com/jcrist/msgspec/issues/355) — establishes `field(name=)` as a `Struct` feature.
+- [jcrist/msgspec#545 — `forbid_unknown_fields` default](https://github.com/jcrist/msgspec/issues/545) — confirms `forbid_unknown_fields` is `Struct`-scoped.
 
 ---
-
-*Pitfalls research for: market-libs v1.2 Architecture + Auth/Ergonomics Carry-forwards over shipped v1.1 baseline (29/29 reqs, 907 tests, milestone audit `passed`)*
-*Researched: 2026-06-14*
-*Confidence: HIGH (rooted in shipped v1.1 architecture + RETROSPECTIVE + existing code at exact line refs; cross-referenced against psycopg/urllib3/elasticsearch-py mainstream codegen practice and anthropic SDK ergonomics)*
+*Pitfalls research for: retrofitting typed + observable decoding onto 6 published financial-API client wheels (market-libs v1.6, Phases 29-34)*
+*Researched: 2026-08-18*
