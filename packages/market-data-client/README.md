@@ -6,10 +6,22 @@ client-credentials** (grant `client_credentials`, token cacheado y refrescado po
 
 ## Instalación
 
+> **Este paquete NO está publicado en PyPI.** El pipeline de release sólo crea GitHub Releases
+> (wheel + sdist). Un `uv add market-data-client` a secas falla — y si algún día ese nombre
+> aparece en PyPI, no sería este paquete.
+
 ```bash
-uv add market-data-client
+# git, pineado al tag (recomendado)
+uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.4.0#subdirectory=packages/market-data-client"
+
 # o, dentro del workspace:
 uv sync
+```
+
+Alternativa, wheel de la GitHub Release:
+
+```bash
+pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.4.0/market_data_client-0.4.0-py3-none-any.whl"
 ```
 
 ## Uso
@@ -19,7 +31,7 @@ uv sync
 ```python
 import market_data_client
 
-snapshots = market_data_client.get_marketdata()
+snapshots = market_data_client.get_market_data()
 ```
 
 ### Async
@@ -27,7 +39,7 @@ snapshots = market_data_client.get_marketdata()
 ```python
 from market_data_client import aio
 
-snapshots = await aio.get_marketdata()
+snapshots = await aio.get_market_data()
 ```
 
 ## Autenticación
@@ -43,6 +55,57 @@ variables de entorno (ver `.env.example`):
 - `MARKET_DATA_BASE_URL` (opcional; default `https://market-data-develop.bbsa.com.ar/api`)
 
 Nunca commitear el archivo `.env` con credenciales reales.
+
+## Mutaciones (opt-in)
+
+Además de la superficie de lectura, el paquete expone una superficie de **escritura**:
+
+- **symbols** (v0.3.0): `create_symbol` (`NewSymbol`), `create_symbols` (batch 1–500,
+  `NewSymbols`) y `update_symbol` (`SymbolPatch`).
+- **calendar** (v0.4.0): `set_calendar_config`, `delete_calendar_config`,
+  `preview_calendar_config` (`MarketHoursIn`), `add_holidays` (`HolidaysIn` / `HolidayIn`) y
+  `delete_holiday`.
+
+Todas existen en sync y async, y **todas están cerradas por default**.
+
+### Los dos gates
+
+1. **`mutating_allowed`** — un `Client()` / `AsyncClient()` por default **rehúsa toda mutación**
+   con `MarketDataMutationNotAllowedError` (⊂ `MarketDataError`), **sin emitir ni un request HTTP
+   ni un round-trip a Auth0**. Se habilita explícitamente con `mutating_allowed=True` (constructor
+   o `configure()`).
+2. **`expected_host`** — segundo gate: el hostname de `base_url` debe coincidir **exactamente**
+   con `expected_host` (match exacto, nunca substring), para que una mutación no pueda dispararse
+   contra un entorno inesperado. Dejarlo en `None` deshabilita **sólo** esta segunda pata.
+
+Si cualquiera de las dos falla, la llamada levanta `MarketDataMutationNotAllowedError` antes de
+tocar la red.
+
+```python
+from market_data_client import Client, MarketHoursIn
+
+with Client(
+    mutating_allowed=True,
+    expected_host="market-data-develop.bbsa.com.ar",
+) as c:
+    config = MarketHoursIn(
+        open_time="11:00",
+        close_time="17:00",
+        timezone="America/Argentina/Buenos_Aires",
+    )
+    preview = c.preview_calendar_config(config)
+    # inspeccionar preview.warnings; si el servidor pide segunda opinión,
+    # re-emitir con confirm=True:
+    #   c.set_calendar_config(dataclasses.replace(config, confirm=True))
+    c.set_calendar_config(config)
+```
+
+Sobre `confirm`: es un **campo de `MarketHoursIn`** (default `False`) y viaja sólo en
+`set_calendar_config` / `preview_calendar_config`. **No es un gate de persistencia** — es la
+segunda opinión que el servidor exige cuando la ventana pedida produce warnings; una config sin
+warnings se persiste igual con `confirm=False`. `delete_calendar_config`, `add_holidays` y
+`delete_holiday` **no tienen** `confirm`: para esas tres, los dos gates de arriba son el único
+resguardo.
 
 ## Desarrollo
 
@@ -62,7 +125,8 @@ uv run mypy packages/market-data-client
 ### v0.4.0
 
 **Nueva superficie de escritura: calendar, más los fixes verificados en vivo contra develop**
-(features nuevas, minor bump — la superficie de lectura v0.2.0 sigue intacta).
+(features nuevas, minor bump — la superficie de lectura v0.2.0 sigue intacta **excepto
+`CalendarDay`**, que reemplaza campos; ver "Reemplazo de campos de `CalendarDay`" abajo).
 
 - **Calendar write (MUT-MD-02):** ocho nombres públicos nuevos en el `__all__` plano — los
   request-models `MarketHoursIn`, `HolidayIn` y `HolidaysIn`, y las funciones
@@ -72,9 +136,13 @@ uv run mypy packages/market-data-client
   Las cinco funciones tienen contraparte async en `market_data_client.aio`
   (`set_calendar_config`, `delete_calendar_config`, `preview_calendar_config`, `add_holidays`,
   `delete_holiday`; shims a nivel de módulo, no re-exportados al namespace plano según la
-  convención del monorepo). El guardrail `confirm` se expone explícitamente con default `False`,
-  así que nunca se persiste configuración real de mercado de forma implícita. Toda la superficie
-  vive detrás del mutating-gate opt-in ya existente (`mutating_allowed=True` + `expected_host`).
+  convención del monorepo). `confirm` es un **campo de `MarketHoursIn`** (default `False`), así
+  que sólo viaja en `set_calendar_config` / `preview_calendar_config`. **No es un gate de
+  persistencia**: es una *segunda opinión* que el servidor exige únicamente cuando la ventana
+  pedida produce warnings — una config sin warnings se persiste igual con `confirm=False`.
+  `delete_calendar_config`, `add_holidays` y `delete_holiday` **no tienen** argumento `confirm`.
+  El guard real de toda la superficie — y el único de esas tres — es el mutating-gate opt-in ya
+  existente (`mutating_allowed=True` + `expected_host`).
 - **Fixes verificados en vivo (LIVE-MUT-01):** `update_symbol(symbol_id)` fue **ensanchado** de
   `str` a `int | str` en los cuatro routes (el builder de `_core`, `Client`, `AsyncClient` y
   ambos shims de módulo); `Symbol` gana cinco campos **con default** (`id`, `market_id`,
@@ -83,7 +151,8 @@ uv run mypy packages/market-data-client
   las respuestas de symbols-write se desenvuelve preservando `list[Symbol]`. Todos son cambios
   estrictamente aditivos o de ensanchamiento — **no rompen** a ningún consumidor v0.3.1.
 
-**Breaking changes** (semver minor bump en línea 0.x) — reemplazo de campos de `CalendarDay`:
+**Reemplazo de campos de `CalendarDay`** (breaking en sentido estricto, documentado y shippeado
+dentro de un minor en línea 0.x — el porqué, abajo):
 
 - `CalendarDay` **removió** `date`, `marketId` e `isBusinessDay` (sin aliases de compatibilidad)
   y los reemplazó por `day`, `closed`, `description`, `open_time` y `close_time`, reconciliados
