@@ -41,7 +41,7 @@
   4. Quedan firmados como artefactos de la fase, con evidencia de ambos lados, los dos D-locks que gatean las fases siguientes: **(a)** msgspec dos-motores (fast-path + walker) vs stdlib-only un-motor — el walker es load-bearing en cualquier caso; **(b)** los campos de **RESPONSE nunca** se cierran como `Literal` en este milestone (se decodifican como `str` y el valor fuera de set se reporta como divergencia), lo cual alcanza retroactivamente a los `CFICode`/`MarketId`/`OrderType`/`Currency` pre-existentes de matriz.
   5. El helper de decode existe **copiado verbatim en los 6 paquetes** con un test de intactness 6-way por hash + ban-list grep (`strict=False`, `msgspec.field()`), y una **corrida exploratoria de sizing con el walker por-campo** sobre `verification/snapshots/` publica un **piso por paquete** (`≥ N` divergencias, nunca `N`) que se convierte en el presupuesto declarado de la Phase 33.
 
-**Plans:** 1/10 plans executed
+**Plans:** 2/10 plans executed
 
 Plans:
 **Wave 1**
@@ -50,7 +50,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 29-02-PLAN.md — TRACER: walker canónico `_decode.py` + delegación de `models.py` de higyrus + merge gate zero-edit (872 tests)
+- [x] 29-02-PLAN.md — TRACER: walker canónico `_decode.py` + delegación de `models.py` de higyrus + merge gate zero-edit (872 tests)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -174,7 +174,7 @@ Plans:
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
-| 29. Decoder observable                                      | v1.6      | 1/10 | In Progress|  |
+| 29. Decoder observable                                      | v1.6      | 2/10 | In Progress|  |
 | 30. `iol-client` tipado                                     | v1.6      | 0/? | Not started | -          |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |

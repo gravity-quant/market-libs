@@ -6,14 +6,14 @@ current_phase: 29
 current_phase_name: decoder-observable
 status: executing
 stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-08-19T01:59:14.250Z"
+last_updated: "2026-08-19T02:17:41.166Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 29 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 10
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 29 (decoder-observable) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 Last activity: 2026-08-19 — Phase 29 execution started
 
@@ -119,6 +119,7 @@ Last activity: 2026-08-19 — Phase 29 execution started
 | 33    | ?     | Not started | LIVE-TYP-01 | Drivers en modo estricto contra APIs reales; `Literal` cerrados con evidencia (iol input + los de RESPONSE pre-existentes de matriz); divergencias corregidas in-cycle espejadas sync/async; cycle closure PASS. **Scope provisional** hasta la corrida de sizing de F29. |
 | 34    | ?     | Not started | PUB-TYP-01 | Releases sólo de los paquetes cuya superficie cambió; iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); `uv.lock` global refrescado **una sola vez**; ops irreversibles detrás de doble checkpoint humano independiente (precedente D-18). |
 | Phase 29 P01 | 24 | 3 tasks | 3 files |
+| Phase 29 P02 | 11min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -262,7 +263,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-19T01:59:14.246Z
+Last session: 2026-08-19T02:17:38.779Z
 Stopped at: Completed 29-01-PLAN.md
 Resume file: None
 
