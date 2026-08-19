@@ -18,13 +18,24 @@ worst case is a final ``None`` or a zero-valued primitive.
 Field names follow the wire format (camelCase) verbatim so JSON parsing
 can stay declarative. This module is exempt from the ``N815`` naming rule
 (see ``[tool.ruff.lint.per-file-ignores]`` in ``pyproject.toml``).
+
+Phase 29 (DEC-01): the per-field coercion now lives in
+:mod:`higyrus_client._decode`, the canonical walker shared in verbatim copies
+across the paquetes. **The substitution behaviour above is unchanged** — every
+default listed is still the default, and :meth:`SafeModel.from_api` still takes
+exactly one positional argument and returns the same instance it always did.
+What is new is *reporting*: each substitution now emits a structured divergence
+record on the ``higyrus_client`` logger, and an undeclared wire key — which
+``_coerce`` structurally could not see, since it never received the payload's
+own key set — is reported too.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
-from types import NoneType, UnionType
-from typing import Any, Self, Union, cast, get_args, get_origin, get_type_hints
+from dataclasses import dataclass
+from typing import Any, Self
+
+from higyrus_client import _decode
 
 
 class SafeModel:
@@ -37,56 +48,27 @@ class SafeModel:
     @classmethod
     def from_api(cls, payload: Any) -> Self:
         """Build an instance from an API payload, with safe defaults."""
-        data: dict[str, Any] = payload if isinstance(payload, dict) else {}
-        hints = get_type_hints(cls)
-        kwargs: dict[str, Any] = {}
-        for field in fields(cast(Any, cls)):
-            kwargs[field.name] = _coerce(data.get(field.name), hints[field.name])
+        kwargs = _decode.walk_model(
+            cls, payload, policy=_decode.POLICY, sink=_decode.current_sink()
+        )
         return cls(**kwargs)
 
 
 def _coerce(value: Any, hint: Any) -> Any:
-    """Coerce ``value`` to match ``hint``, substituting safe defaults for ``None``."""
-    origin = get_origin(hint)
-    args = get_args(hint)
+    """Coerce ``value`` to match ``hint``, substituting safe defaults for ``None``.
 
-    # Optional[T] / T | None: explicit opt-in to nullable — a missing value
-    # stays None instead of collapsing to a typed zero.
-    if origin is Union or origin is UnionType:
-        if value is None:
-            return None
-        non_none = [a for a in args if a is not NoneType]
-        if len(non_none) == 1:
-            return _coerce(value, non_none[0])
-        return value
-
-    if origin is list:
-        if not isinstance(value, list):
-            return []
-        inner = args[0] if args else Any
-        return [_coerce(item, inner) for item in value]
-
-    if isinstance(hint, type) and issubclass(hint, SafeModel):
-        return hint.from_api(value)
-
-    if hint is str:
-        return value if isinstance(value, str) else ""
-    if hint is bool:
-        return value if isinstance(value, bool) else False
-    if hint is int:
-        # bool is a subclass of int in Python — exclude it so bool payloads
-        # don't collapse into "cantidad=True".
-        if isinstance(value, bool):
-            return 0
-        return value if isinstance(value, int) else 0
-    if hint is float:
-        if isinstance(value, bool):
-            return 0.0
-        if isinstance(value, int | float):
-            return float(value)
-        return 0.0
-
-    return value
+    Back-compat shim over :func:`higyrus_client._decode.walk_field`. Kept with
+    its original two-positional-argument signature and identical return values
+    so any existing caller keeps working; new code should reach for the walker.
+    """
+    return _decode.walk_field(
+        value,
+        hint,
+        path="",
+        model="",
+        policy=_decode.POLICY,
+        sink=_decode.DecodeScope(),
+    )
 
 
 @dataclass(frozen=True, slots=True)
