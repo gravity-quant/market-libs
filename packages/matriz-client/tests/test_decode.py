@@ -1074,3 +1074,46 @@ def test_strict_mode_raises_on_every_visit_of_one_divergence_in_one_scope(
     # the divergence on the paquete logger (lock 9 — ``_emit`` never raises).
     paths = [r.field_path for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert paths == [".s", ".s"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, CR-04 — a wire key is payload content (lock 11)
+# ---------------------------------------------------------------------------
+
+
+def test_extra_key_with_a_newline_cannot_forge_a_log_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CR-04: a control character in a wire key never reaches ``field_path``."""
+    payload = {"s": "a", "i": 1, "f": 1.0, "b": True, "a\nWARNING:root: forged": "x"}
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        walk_model(_Bare, payload, policy=POLICY, sink=DecodeScope())
+
+    paths = [r.field_path for r in _divergences(caplog)]  # type: ignore[attr-defined]
+    assert paths == [".a?WARNING?root??forged"]
+    assert all("\n" not in p for p in paths)
+
+
+def test_extra_key_length_is_bounded(caplog: pytest.LogCaptureFixture) -> None:
+    """CR-04: key length is payload-controlled, so it is truncated (lock 11)."""
+    payload = {"s": "a", "i": 1, "f": 1.0, "b": True, "X" * 200: "x"}
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        walk_model(_Bare, payload, policy=POLICY, sink=DecodeScope())
+
+    (record,) = _divergences(caplog)
+    assert record.field_path == "." + "X" * 64 + "..."  # type: ignore[attr-defined]
+
+
+def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CR-04: a hand-built dict can carry a non-``str`` key; the sort stays total."""
+    payload: dict[Any, Any] = {"s": "a", "i": 1, "f": 1.0, "b": True, 7: "x", ("t",): "y"}
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        walk_model(_Bare, payload, policy=POLICY, sink=DecodeScope())
+
+    paths = {r.field_path for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert paths == {".7", ".??t???"}

@@ -341,6 +341,37 @@ sentinels (×5, following the SEC-01 pattern in
 assert a credential literal is absent from `record.getMessage()`, `str(record.args)`
 **and** `record.__dict__`.
 
+### Amendment (Phase 29 code review, CR-04) — the `extra` kind's key segment
+
+The paragraph above claimed an absolute — "there is no key in which a wire value can
+travel" — and the shipped `extra` branch falsified it: the last segment of `field_path`
+on an `extra` record **is** the payload's own object key. The key name is the entire
+point of the `extra` kind (lock 3: it is how vendor growth becomes visible), so the fix
+keeps it and makes it non-injectable rather than dropping it.
+
+The amended guarantee, which the code now enforces in all five copies
+(`_decode._safe_key`):
+
+- `model`, `declared_type` and `observed_type` carry identifiers from our own source
+  code, never payload content — unchanged.
+- `field_path` carries our own field names for every segment **except** the final
+  segment of an `extra` record, which is **derived from** a wire key and therefore
+  **sanitized before it enters the record**: every character outside `[0-9A-Za-z_-]`
+  is replaced by `?`, and the result is truncated to 64 characters plus an ellipsis.
+- The sanitization is what makes the three consequences the review reproduced
+  impossible: no control character (so no forged line in a text handler and no forged
+  field in a log shipper), no `.` (so no forged path segment that could collide with a
+  real decode site under lock 10), and no unbounded length.
+- What sanitization does **not** buy: a bare identifier-shaped key (a CUIT, an account
+  number) still ships as itself, exactly as lock 11's own reasoning says a bare
+  identifier-shaped *value* would. Sanitization neutralizes injection and inflation, not
+  identifier disclosure. Consumers who need identifier-shaped key names suppressed must
+  filter on `divergence == "extra"`, which is a single, stable predicate.
+
+`str(key)` is applied first, and the extra-key iteration sorts with `key=str`, so a
+hand-built dict carrying a non-`str` key can neither interpolate an arbitrary object's
+`__repr__` into the record nor raise `TypeError` inside the decode path (lock 9).
+
 ---
 
 ## Lock 12 — Filter recursion bound

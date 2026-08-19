@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
@@ -263,6 +264,32 @@ def _is_model(hint: Any) -> bool:
     )
 
 
+# Lock 11, as amended by the Phase 29 code review (CR-04). An ``extra`` record is
+# the one place where a wire-derived string reaches ``field_path``: the key NAME
+# is the entire point of the ``extra`` kind, so it is kept rather than dropped —
+# but it is payload content, and it is neutralized before it enters the record.
+# Every character outside a conservative identifier alphabet becomes ``?``, which
+# is what stops a key carrying ``\n`` from forging an extra line in any text
+# handler (and a key carrying ``.`` from forging a path segment that would
+# collide with a real decode site under lock 10). The result is then bounded, so
+# a hostile or merely enormous key cannot inflate every record it appears in.
+_KEY_SAFE_RE = re.compile(r"[^0-9A-Za-z_\-]")
+_MAX_KEY_LEN = 64
+
+
+def _safe_key(key: Any) -> str:
+    """Neutralize a payload-supplied object key before it enters a record (lock 11).
+
+    ``str(key)`` is deliberate: JSON keys are always ``str``, but a hand-built
+    dict handed to ``from_api`` can carry any hashable, and an f-string would
+    otherwise interpolate an arbitrary object's ``__repr__`` into the record.
+    """
+    cleaned = _KEY_SAFE_RE.sub("?", str(key))
+    if len(cleaned) <= _MAX_KEY_LEN:
+        return cleaned
+    return cleaned[:_MAX_KEY_LEN] + "..."
+
+
 def _kind_of(value: Any) -> str:
     """``missing`` when the payload carried no usable value, ``type`` otherwise."""
     if value is None:
@@ -437,8 +464,12 @@ def walk_model(
         data: dict[str, Any] = payload
         field_sink = scope
         names = {f.name for f in declared}
-        for key in sorted(set(data) - names):
-            scope(model, f"{path}.{key}", "extra", "-", type(data[key]).__name__)
+        # ``key=str`` keeps the sort total when a hand-built dict mixes key types
+        # (a bare ``sorted`` raises ``TypeError``, which lock 9 forbids in the
+        # decode path); for the all-``str`` keys of any real JSON object it is
+        # the identical ordering.
+        for key in sorted(set(data) - names, key=str):
+            scope(model, f"{path}.{_safe_key(key)}", "extra", "-", type(data[key]).__name__)
     else:
         # Lock 8: ``non_dict`` is terminal for reporting. The walker still
         # returns the per-paquete default shape (``policy.non_dict_model``);
