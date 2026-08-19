@@ -6,14 +6,14 @@ current_phase: 29
 current_phase_name: decoder-observable
 status: executing
 stopped_at: Completed 29-07-PLAN.md
-last_updated: "2026-08-19T13:19:19.807Z"
+last_updated: "2026-08-19T13:32:11.179Z"
 last_activity: 2026-08-19
 last_activity_desc: "Plan 29-04 completo: D-lock (a) msgspec firmado NO-GO (stdlib-only, un motor)"
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 29 (decoder-observable) — EXECUTING
-Plan: 8 of 10
+Plan: 9 of 10
 Status: Ready to execute
 Last activity: 2026-08-19 — Plan 29-04 completo: D-lock (a) msgspec firmado NO-GO (stdlib-only, un motor)
 
@@ -125,6 +125,7 @@ Last activity: 2026-08-19 — Plan 29-04 completo: D-lock (a) msgspec firmado NO
 | Phase 29 P05 | 11min | 3 tasks | 11 files |
 | Phase 29 P06 | 16min | 3 tasks | 11 files |
 | Phase 29 P07 | 22min | 2 tasks | 20 files |
+| Phase 29 P08 | 9min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -203,6 +204,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 29-07: The ContextVar name substitution changes _decode.py LINE COUNT in BOTH directions — iol_client collapses DECODE_SCOPE 3->1, ambito_financiero_client expands STRICT_DECODE 1->3, both forced by ruff format at the 100-col boundary. Plan 09's intactness normalizer must compare semantically or re-format both sides.
 - [Phase ?]: 29-07: iol and ambito receive the walker before (iol, Phase 30) or without ever needing (ambito) a models module — the standalone-import property in a package with no models.py is the evidence that makes the verbatim-copy contract enforceable in the three packages that have one.
 - [Phase ?]: 29-07: Decode fixture dataclasses live in the test files, never in src/ — a placeholder model in iol's src would have to be deleted in Phase 30, and one in ambito's would be permanently dead code on a published wheel.
+- [Phase ?]: 29-08: research assumption A1 CONFIRMED by measurement on CPython 3.12.13 and 3.13.12 — contextvars.Context.run() raises 'already entered' on nested AND concurrent overlapping entry; writes inside a stored Context also persist across runs, which would break aggregation lock 6. The matriz ws daemon thread therefore gets the mode via an explicit bool snapshot + re-set() at on_open, not via copy_context().
+- [Phase ?]: 29-08: matriz ws _handle_message opens a FRESH decode scope per frame (a frame is the WS analogue of one HTTP response). Binding the mode once at on_open is correct; sharing one scope for the whole connection is not — it is a process-lifetime dedupe set, which aggregation lock 6 rejects by name.
 
 ### Pending Todos
 
@@ -282,7 +285,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-19T13:19:19.803Z
+Last session: 2026-08-19T13:32:06.505Z
 Stopped at: Completed 29-07-PLAN.md
 Resume file: None
 
