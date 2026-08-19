@@ -45,7 +45,7 @@ from typing import Any, Self
 
 import httpx
 
-from higyrus_client import _atransport, _core
+from higyrus_client import _atransport, _core, _decode
 from higyrus_client._core import RequestSpec
 from higyrus_client._core import raise_for_response as _raise_for_response  # D-04 B8 alias
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
@@ -101,6 +101,7 @@ class AsyncClient:
         token_expires_at: float | None = None,
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early.
         _validate_max_retries(max_retries)
@@ -117,6 +118,11 @@ class AsyncClient:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 29 D-03 mirror sync: ``None`` sentinel = "leave the state
+        # default"; the flag lands on the SHARED ``_state``, never on
+        # ``__slots__``, so a ``with_options`` view inherits it.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
         self._max_retries = max_retries
         # Phase 13 D-V1 mirror sync — False for normally-constructed clients;
@@ -344,7 +350,20 @@ class AsyncClient:
         pero ``self._state.token`` queda ``None`` (estado inconsistente —
         servidor responde 200 sin token), reemplazamos el ``assert`` por
         ``HigyrusAuthError`` tipado.
+
+        Phase 29 D-03 + aggregation-contract lock 6 (async mirror): the first
+        two statements bind the decode mode and a fresh decode scope.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this coroutine returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in the parser,
+        # which holds no reference to this AsyncClient. A reset in a ``finally``
+        # would unbind the mode before the decoder ever reads it. Each asyncio
+        # task carries its own ContextVar copy, so interleaved tasks with
+        # different modes never see each other's bind.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         await self._ensure_token()
         token_lock = self._ensure_token_lock()
         async with token_lock:
@@ -528,8 +547,13 @@ def configure(
     token_expires_at: float | None = None,
     max_retries: int | None = None,
     http_client: httpx.AsyncClient | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL del default async client (carry-forward semantic).
+
+    Phase 29 D-03 mirror sync: ``strict_decode`` is a carry-forward kwarg —
+    the ``None`` sentinel means "no cambiar", so a later
+    ``configure(base_url=...)`` does NOT reset a previous strict opt-in.
 
     Phase 8 D-15 / D-16 / D-19: ``max_retries`` (default 2; ``0`` disables
     retries) and ``http_client`` (AsyncClient used AS-IS per D-16) are
@@ -565,6 +589,9 @@ def configure(
         token_expires_at=token_expires_at,
         max_retries=next_max_retries,
         http_client=http_client,
+        strict_decode=(
+            strict_decode if strict_decode is not None else current._state.strict_decode
+        ),
     )
     # NOTE: no podemos await current.aclose() acá (configure es sync).
     _default_async_client = new

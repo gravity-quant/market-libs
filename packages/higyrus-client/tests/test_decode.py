@@ -14,21 +14,54 @@ not be able to turn a walker regression green.
 from __future__ import annotations
 
 import ast
+import contextlib
 import dataclasses
 import inspect
 import logging
 import pathlib
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import pytest
+from pytest_httpx import HTTPXMock
 
-from higyrus_client import _decode, models
+import higyrus_client
+from higyrus_client import _decode, aio, models
+from higyrus_client import client as client_mod
+from higyrus_client._core import RequestSpec
 from higyrus_client._decode import POLICY, DecodeScope, walk_field, walk_model
+from higyrus_client.aio import AsyncClient
+from higyrus_client.client import Client
 from higyrus_client.exceptions import HigyrusClientError, HigyrusDecodeError
 from higyrus_client.models import Parking, Posicion, PosicionValuada, SafeModel
 
 _MESSAGE = "decode divergence"
+
+
+@pytest.fixture(autouse=True)
+def _pristine_decode_context() -> Iterator[None]:
+    """Start every test in this module with an unbound decode mode and scope.
+
+    Consequence of the D-03 ``.set()``-without-reset discipline: once ANY test
+    in the session drives a real ``_request`` (``test_client.py`` does, dozens
+    of times), the sync test context keeps that request's ``DECODE_SCOPE``
+    bound. A later bare ``Model.from_api()`` would then join the stale scope
+    and its already-seen ``(model, field_path, kind)`` triple would be deduped
+    away — turning an assertion about a divergence record green-to-empty purely
+    on test ORDER. In production the same discipline is correct and intended:
+    every request rebinds a fresh scope before any decode from it happens.
+    """
+    mode = _decode.STRICT_DECODE.get()
+    scope = _decode.DECODE_SCOPE.get()
+    _decode.STRICT_DECODE.set(False)
+    _decode.DECODE_SCOPE.set(None)
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.set(mode)
+        _decode.DECODE_SCOPE.set(scope)
+
 
 _CONTRACT_KEYS = (
     "package",
@@ -749,3 +782,177 @@ def test_real_nested_model_path_is_dotted_from_the_decode_root(
 
     assert len(obj.parking) == 2
     assert (".parking[].diasParking", "missing") in _tuples(_divergences(caplog))
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 Plan 03 — strict_decode carrier: state field, four public entry
+# points, two bind sites (D-03)
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _restored_decode_context() -> Iterator[None]:
+    """Save/restore both ContextVars around a test that drives a real ``_request``.
+
+    ``_request`` binds with ``.set()`` and deliberately never resets (D-03), so
+    a sync test would otherwise leak its mode into every later test in the same
+    context. Async tests do not need this — each task gets its own context copy
+    — but they use it too so the two mirrors read identically.
+    """
+    mode = _decode.STRICT_DECODE.get()
+    scope = _decode.DECODE_SCOPE.get()
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.set(mode)
+        _decode.DECODE_SCOPE.set(scope)
+
+
+@contextlib.contextmanager
+def _restored_default_clients() -> Iterator[None]:
+    """Reset the module-level ``strict_decode`` opt-in on both default clients.
+
+    ``configure`` carries ``strict_decode`` forward (the ``None`` sentinel means
+    "no cambiar"), so a test that opts in must opt back out or the conftest's
+    autouse ``configure`` calls would carry the opt-in into every later test.
+    """
+    try:
+        yield
+    finally:
+        higyrus_client.configure(strict_decode=False)
+        aio.configure(strict_decode=False)
+
+
+def _spec() -> RequestSpec:
+    return RequestSpec(method="GET", path="/api/health", endpoint_name="get_health")
+
+
+def test_strict_mode_from_constructor() -> None:
+    """D-03: ``Client(strict_decode=True)`` reaches the shared ``_ClientState``."""
+    assert Client()._state.strict_decode is False
+    assert Client(strict_decode=True)._state.strict_decode is True
+    assert Client(strict_decode=False)._state.strict_decode is False
+    assert AsyncClient()._state.strict_decode is False
+    assert AsyncClient(strict_decode=True)._state.strict_decode is True
+
+
+def test_strict_mode_from_configure() -> None:
+    """D-03: sync and async ``configure(strict_decode=True)`` reach the default client."""
+    with _restored_default_clients():
+        higyrus_client.configure(strict_decode=True)
+        aio.configure(strict_decode=True)
+        assert client_mod._get_default()._state.strict_decode is True
+        assert aio._get_default()._state.strict_decode is True
+        # Sentinel ``None`` = "no cambiar": an unrelated configure() call must
+        # NOT silently reset a previous opt-in.
+        higyrus_client.configure(base_url="https://api.test")
+        assert client_mod._get_default()._state.strict_decode is True
+
+
+def test_strict_mode_view_inherits() -> None:
+    """D-14: the flag lives on the shared state, never in ``Client.__slots__``."""
+    parent = Client(strict_decode=True)
+    view = parent.with_options(max_retries=5)
+    assert view._state is parent._state
+    assert view._state.strict_decode is True
+    # A later mutation on the parent is visible through the view — proof the
+    # flag was never copied into the view's __slots__.
+    parent._state.strict_decode = False
+    assert view._state.strict_decode is False
+    assert "strict_decode" not in Client.__slots__
+    assert "strict_decode" not in AsyncClient.__slots__
+
+
+def test_strict_mode_bound_by_request(httpx_mock: HTTPXMock) -> None:
+    """The bind happens at the top of ``Client._request``, from ``_state``."""
+    httpx_mock.add_response(json={"status": "ok"})
+    with _restored_decode_context():
+        _decode.STRICT_DECODE.set(False)
+        _decode.DECODE_SCOPE.set(None)
+        with Client(
+            base_url="https://api.test",
+            token="t",
+            token_expires_at=9_999_999_999.0,
+            strict_decode=True,
+        ) as c:
+            c._request(_spec())
+        assert _decode.STRICT_DECODE.get() is True
+        assert isinstance(_decode.DECODE_SCOPE.get(), DecodeScope)
+
+
+def test_strict_mode_bound_by_module_shim(httpx_mock: HTTPXMock) -> None:
+    """The module-level ``_request`` shim delegates THROUGH the bound method.
+
+    This is the evidence that binding on the method alone covers every path:
+    no bind is needed (or wanted) in the shim itself.
+    """
+    httpx_mock.add_response(json={"status": "ok"})
+    with _restored_decode_context(), _restored_default_clients():
+        _decode.STRICT_DECODE.set(False)
+        _decode.DECODE_SCOPE.set(None)
+        # ``configure`` does NOT carry the token forward (only credentials and
+        # base_url), so it is re-seeded here exactly as conftest does.
+        higyrus_client.configure(
+            strict_decode=True, token="test-token", token_expires_at=9_999_999_999.0
+        )
+        client_mod._request("GET", "/api/health")
+        assert _decode.STRICT_DECODE.get() is True
+        assert isinstance(_decode.DECODE_SCOPE.get(), DecodeScope)
+
+
+async def test_async_request_binds_mode(httpx_mock: HTTPXMock) -> None:
+    """Dual sync/async parity: ``AsyncClient._request`` mirrors the bind verbatim."""
+    httpx_mock.add_response(json={"status": "ok"})
+    with _restored_decode_context():
+        _decode.STRICT_DECODE.set(False)
+        _decode.DECODE_SCOPE.set(None)
+        async with AsyncClient(
+            base_url="https://api.test",
+            token="t",
+            token_expires_at=9_999_999_999.0,
+            strict_decode=True,
+        ) as c:
+            await c._request(_spec())
+            assert _decode.STRICT_DECODE.get() is True
+            assert isinstance(_decode.DECODE_SCOPE.get(), DecodeScope)
+
+
+def test_no_reset_after_request(httpx_mock: HTTPXMock) -> None:
+    """D-03: no reset, no try/finally — the decode has not happened yet.
+
+    ``_request`` returns the ``httpx.Response``; the parser decodes it
+    afterwards and holds no reference to the Client. A reset in a ``finally``
+    would unbind the mode before the decoder ever reads it.
+    """
+    httpx_mock.add_response(json={"status": "ok"})
+    with _restored_decode_context():
+        _decode.STRICT_DECODE.set(False)
+        _decode.DECODE_SCOPE.set(None)
+        with Client(
+            base_url="https://api.test",
+            token="t",
+            token_expires_at=9_999_999_999.0,
+            strict_decode=True,
+        ) as c:
+            resp = c._request(_spec())
+            scope_during = _decode.DECODE_SCOPE.get()
+        assert resp.status_code == 200
+        # Still bound after the method returned, and it is the SAME scope, so
+        # every model decoded from this response dedupes together (lock 6).
+        assert _decode.STRICT_DECODE.get() is True
+        assert _decode.DECODE_SCOPE.get() is scope_during
+
+
+def test_request_binds_a_fresh_scope_per_response(httpx_mock: HTTPXMock) -> None:
+    """Lock 6: a process-lifetime scope is rejected — each response gets its own."""
+    httpx_mock.add_response(json={"status": "ok"})
+    httpx_mock.add_response(json={"status": "ok"})
+    with _restored_decode_context():
+        _decode.DECODE_SCOPE.set(None)
+        with Client(base_url="https://api.test", token="t", token_expires_at=9_999_999_999.0) as c:
+            c._request(_spec())
+            first = _decode.DECODE_SCOPE.get()
+            c._request(_spec())
+            second = _decode.DECODE_SCOPE.get()
+        assert first is not None
+        assert first is not second

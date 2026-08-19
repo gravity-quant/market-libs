@@ -48,7 +48,7 @@ from typing import Any, Self
 import httpx
 from dotenv import load_dotenv
 
-from higyrus_client import _core, _transport
+from higyrus_client import _core, _decode, _transport
 from higyrus_client._core import RequestSpec
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
 from higyrus_client.exceptions import HigyrusAuthError
@@ -112,6 +112,7 @@ class Client:
         token_expires_at: float | None = None,
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early.
         _validate_max_retries(max_retries)
@@ -128,6 +129,11 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 29 D-03: ``None`` sentinel = "leave the state default"; the
+        # flag lands on the SHARED ``_state``, never on ``__slots__``, so a
+        # ``with_options`` view inherits it.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         # max_retries=0 disables retries entirely per D-19 (max_attempts <= 1 bypass).
         self._max_retries = max_retries
@@ -357,7 +363,18 @@ class Client:
         pero ``self._state.token`` queda ``None`` (estado inconsistente —
         servidor responde 200 sin token), reemplazamos el ``assert`` por
         ``HigyrusAuthError`` tipado.
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this method returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in the parser,
+        # which holds no reference to this Client. A reset in a ``finally``
+        # would unbind the mode before the decoder ever reads it.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         self._ensure_token()
         token = self._state.token
         if token is None:
@@ -538,6 +555,7 @@ def configure(
     token_expires_at: float | None = None,
     max_retries: int | None = None,
     http_client: httpx.Client | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL del default-client en runtime.
 
@@ -548,6 +566,10 @@ def configure(
     retries entirely per D-19) and ``http_client`` (used AS-IS without
     auto-wrapping with ``RetryTransport`` per D-16) are carry-forward kwargs.
     Replacing the default-client closes the prior cached ``httpx.Client``.
+
+    Phase 29 D-03: ``strict_decode`` is a carry-forward kwarg too — the
+    ``None`` sentinel means "no cambiar", so a later ``configure(base_url=...)``
+    does NOT silently reset a previous strict opt-in.
     """
     # WR-06: validate max_retries (only when explicitly passed).
     if max_retries is not None:
@@ -565,6 +587,9 @@ def configure(
         token_expires_at=token_expires_at,
         max_retries=next_max_retries,
         http_client=http_client,
+        strict_decode=(
+            strict_decode if strict_decode is not None else current._state.strict_decode
+        ),
     )
     current.close()
     _default_client = new
