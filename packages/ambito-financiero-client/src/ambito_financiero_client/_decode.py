@@ -459,7 +459,25 @@ def walk_field(
         ]
 
     if _is_model(hint):
-        # Phase 29 code review, WR-02: classify BEFORE recursing. A declared
+        # Phase 29 code review, WR-03, recorded at the site it constrains: a
+        # nested model is built with ``hint(**walk_model(...))``, NEVER with
+        # ``hint.from_api(value)``. Every per-model exemption blessed by
+        # ``29-SEMANTICS-MATRIX.md`` Section 3 — and every call-site axis such as
+        # the mapping pass — lives in a ``from_api`` override and is therefore
+        # SKIPPED for a nested occurrence, silently.
+        #
+        # Calling ``from_api`` here is not the fix it looks like: an override
+        # resolves its own sink through ``current_sink()`` rather than accepting
+        # the one threaded through this recursion, so the nested decode would
+        # leave this scope and lock 5's collapse would stop firing inside it. The
+        # constraint is enforced by precondition tests instead — matriz's and
+        # market-data's ``test_no_mapping_carrying_model_is_ever_a_nested_field_type``
+        # and market-data's
+        # ``test_models_with_a_from_api_override_are_never_a_nested_field_type``
+        # fail loudly the day an overriding model becomes another model's field
+        # type, which is the day this branch would have to change.
+        #
+        # WR-02: classify BEFORE recursing. A declared
         # nested-model field whose key the payload simply omits is a ``missing``
         # divergence of the OUTER model (lock 2: "the model declares the field but
         # the payload has no key for it"). Recursing unconditionally turned it into

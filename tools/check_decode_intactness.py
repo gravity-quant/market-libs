@@ -214,7 +214,7 @@ CANONICAL = IN_SCOPE_PACKAGES[0]
 # Bump it ONLY together with a reviewed change to `_decode.py`, and state the
 # reason in the commit message. To read the new value, run this script: the
 # failure message prints the digest it computed.
-CANONICAL_DIGEST = "5749e19c9dae3b725e2eda9edea1420dc303a1a05469ab46efa58ee73b32a64a"
+CANONICAL_DIGEST = "ac14868282ad0a5c6fb85ab7b7920068303a781835b9c76ca50f26283c1c3dc5"
 
 # --- Check A placeholders ---------------------------------------------------
 
