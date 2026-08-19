@@ -41,7 +41,19 @@
   4. Quedan firmados como artefactos de la fase, con evidencia de ambos lados, los dos D-locks que gatean las fases siguientes: **(a)** msgspec dos-motores (fast-path + walker) vs stdlib-only un-motor — el walker es load-bearing en cualquier caso; **(b)** los campos de **RESPONSE nunca** se cierran como `Literal` en este milestone (se decodifican como `str` y el valor fuera de set se reporta como divergencia), lo cual alcanza retroactivamente a los `CFICode`/`MarketId`/`OrderType`/`Currency` pre-existentes de matriz.
   5. El helper de decode existe **copiado verbatim en los 6 paquetes** con un test de intactness 6-way por hash + ban-list grep (`strict=False`, `msgspec.field()`), y una **corrida exploratoria de sizing con el walker por-campo** sobre `verification/snapshots/` publica un **piso por paquete** (`≥ N` divergencias, nunca `N`) que se convierte en el presupuesto declarado de la Phase 33.
 
-**Plans**: TBD
+**Plans:** 10 plans (5 waves; máximo 3 en paralelo)
+
+Plans:
+- [ ] 29-01-PLAN.md — Artefactos de política: tabla 6-way de semánticas (D-07), contrato de agregación (resuelve strict-on-extra y la clave de dedupe), D-lock `Literal` en RESPONSE (D-09) + firma
+- [ ] 29-02-PLAN.md — TRACER: walker canónico `_decode.py` + delegación de `models.py` de higyrus + merge gate zero-edit (872 tests)
+- [ ] 29-03-PLAN.md — TRACER cont.: portador `strict_decode` (state + 4 entry points + bind en ambos `_request`) + fix del `RedactingFilter` + sentinel caplog
+- [ ] 29-04-PLAN.md — Spike de timing de 3 brazos + `29-DLOCK-MSGSPEC.md` firmado
+- [ ] 29-05-PLAN.md — Fan-out market-data: copia verbatim + delegación preservando `received_at` y el mirror de `Symbol` + test de concurrencia async
+- [ ] 29-06-PLAN.md — Fan-out matriz: copia verbatim con política propia + delegación preservando las 7 diferencias + `Literal` pass-through
+- [ ] 29-07-PLAN.md — Fan-out iol + ambito: copias verbatim en los 2 paquetes sin `models.py` + portador + fix del filter
+- [ ] 29-08-PLAN.md — Propagación explícita del modo al daemon thread de `ws_client` (D-04) + `test_ws_decode_mode.py`
+- [ ] 29-09-PLAN.md — `tools/check_decode_intactness.py` (normalize-then-hash + ban-list) + job `lint` de CI + exención documentada de wallets
+- [ ] 29-10-PLAN.md — Corrida de sizing sobre `.planning/verification/schemas/` (43 archivos) → `29-SIZING.md` con piso `≥ N` + ratificación
 
 ### Phase 30: `iol-client` tipado
 
