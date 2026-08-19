@@ -49,6 +49,11 @@ between the five copies. A red gate means a copy drifted; the fix is to revert
 the drift or to add a rule here with a stated reason -- never to weaken the check
 into a vacuous one.
 
+0. Assert the single distinct hash equals the pinned `CANONICAL_DIGEST` (WR-07).
+   The rules below reduce five copies to one hash; that pins them to EACH OTHER,
+   not to anything reviewed. An edit applied uniformly to all five collapses to
+   one hash too. The pin is what makes the canonical content itself the protected
+   artifact.
 1. Drop the module docstring entirely. Each copy's docstring names its own
    package and states which module (if any) imports it; two of the five copies
    are dormant and say so.
@@ -94,6 +99,12 @@ Two constructs would let a copy quietly stop behaving like a copy. Both patterns
 are matched **call-shaped or keyword-shaped**, never as bare names, because the
 decode module's own docstring legitimately discusses strictness in prose and a
 name-shaped pattern would fail the build on a docstring.
+
+Each entry also carries the **filename it applies to** (WR-07). A copy quietly
+stopping behaving like a copy can only happen inside the copied file, and
+`strict=False` is a keyword that stdlib calls (`zip`, `json.loads`) legitimately
+use elsewhere in these packages; scanning it repo-wide made an unrelated refactor
+one line away from a red build with a misleading message.
 
 THE ROSTER (Check D)
 ====================
@@ -191,6 +202,20 @@ EXEMPT_PACKAGES: tuple[ExemptPackage, ...] = (
 
 CANONICAL = IN_SCOPE_PACKAGES[0]
 
+# The sha256 of the REVIEWED canonical body, after the normalization below.
+#
+# Phase 29 code review, WR-07. Hashing the five copies and asserting they agree
+# with EACH OTHER pins mutual agreement only: an edit applied uniformly to all
+# five — exactly the shape a `sed`, a formatter rule or a well-meaning
+# "harmonization" produces — collapses to one hash and passes green. The five
+# copies are not the thing worth protecting; the canonical CONTENT is. This
+# constant is that content, pinned.
+#
+# Bump it ONLY together with a reviewed change to `_decode.py`, and state the
+# reason in the commit message. To read the new value, run this script: the
+# failure message prints the digest it computed.
+CANONICAL_DIGEST = "d500f9b7be37ac79662d0b6bdd5ab04454eba0e618df16bde1f9bbaca00e64ca"
+
 # --- Check A placeholders ---------------------------------------------------
 
 _PKG_PLACEHOLDER = "__PKG__"
@@ -216,16 +241,28 @@ _SCAN_END = "# --- decode-intactness: generic-scan end ---"
 # a docstring rather than on a real opt-out. `\bstrict\s*=` cannot match
 # `strict_decode: bool = False`: there is no word boundary between `strict` and
 # the `_` that follows it.
-BAN_LIST: tuple[tuple[str, str, str], ...] = (
+#
+# Phase 29 code review, WR-07: each entry carries the FILENAME it applies to, or
+# `None` for the whole package source tree. `strict=False` used to be scanned
+# repo-wide, where `\bstrict\s*=\s*False\b` matches `zip(a, b, strict=False)`,
+# `json.loads(..., strict=False)` and every other stdlib keyword of that name --
+# none of which has anything to do with the decode mode. The neighbouring
+# `_logging.py` already uses `zip(..., strict=True)`, so the `False` variant was
+# one refactor away from a red build with a badly misleading message. A copy
+# "quietly stopping behaving like a copy" can only happen inside the copied file,
+# which is exactly the scope this entry now has.
+BAN_LIST: tuple[tuple[str, str, str, str | None], ...] = (
     (
         "strict=False",
         r"\bstrict\s*=\s*False\b",
         "a copy disabling strictness at a call site instead of through the mode carrier",
+        "_decode.py",
     ),
     (
         "msgspec.field(",
         r"\bmsgspec\s*\.\s*field\s*\(",
         "a copy delegating field handling to a third-party helper instead of the walker",
+        None,
     ),
 )
 
@@ -459,9 +496,22 @@ def check_a_decode_intactness() -> str:
             "  A legitimate per-package difference belongs in this script's "
             "normalization rules, with a stated reason -- never in a weakened check."
         )
+    # WR-07: mutual agreement is necessary but not sufficient. The copies must
+    # also agree with the body that was actually reviewed.
+    if distinct[0] != CANONICAL_DIGEST:
+        raise _fail(
+            "the canonical decode body CHANGED -- all five copies agree with each "
+            "other but not with the reviewed body.\n"
+            f"  expected (CANONICAL_DIGEST): {CANONICAL_DIGEST}\n"
+            f"  computed:                    {distinct[0]}\n"
+            "  A uniform edit across all five copies passes the mutual check by "
+            "construction; this pin is what makes it visible.\n"
+            "  If the change is intended and reviewed, bump CANONICAL_DIGEST in "
+            "this script to the computed value and say why in the commit message."
+        )
     return (
         f"Check A  decode-helper intactness: {len(digests)} copies of `_decode.py` "
-        f"reduce to one normalized hash {distinct[0][:16]}"
+        f"reduce to one normalized hash {distinct[0][:16]}, matching CANONICAL_DIGEST"
     )
 
 
@@ -545,7 +595,9 @@ def check_c_ban_list() -> str:
         for path in sorted(root.rglob("*.py")):
             scanned += 1
             source = path.read_text(encoding="utf-8")
-            for label, pattern, why in BAN_LIST:
+            for label, pattern, why, filename in BAN_LIST:
+                if filename is not None and path.name != filename:
+                    continue
                 for number, line in enumerate(source.splitlines(), start=1):
                     if re.search(pattern, line):
                         hits.append(
@@ -558,7 +610,10 @@ def check_c_ban_list() -> str:
             + "\n".join(hits)
             + "\n  These constructs would let a copy quietly stop behaving like a copy."
         )
-    labels = ", ".join(f"`{label}`" for label, _, _ in BAN_LIST)
+    labels = ", ".join(
+        f"`{label}`" + (f" (in `{filename}`)" if filename else "")
+        for label, _, _, filename in BAN_LIST
+    )
     return f"Check C  ban list: {labels} absent from {scanned} package source files"
 
 
