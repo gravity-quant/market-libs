@@ -1192,3 +1192,41 @@ def test_two_standalone_from_api_calls_after_a_response_parse_both_report(
 
     assert first > 0
     assert second == first
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, WR-02 — an absent nested-model key is `missing`
+# ---------------------------------------------------------------------------
+
+
+def test_absent_nested_model_key_is_missing_on_the_outer_model(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-02: lock 2's definition of ``missing``, and lock 1's ``model`` pairing.
+
+    matriz is the package this hits hardest — roughly ten nested-model fields,
+    every one of them defaulted via ``field(default_factory=X.empty)``. Each used
+    to emit a ``non_dict`` record attributed to the NESTED class at a path rooted
+    in the OUTER decode: a pair naming a decode site that does not exist, which
+    lock 10 then freezes into a Phase 33 finding identity.
+    """
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        instance = _Nested.from_api({"tag": "t"})
+
+    assert instance.leaf == _Leaf.empty()
+    triples = [(r.model, r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
+    assert ("_Nested", ".leaf", "missing") in triples
+    assert not [t for t in triples if t[2] == "non_dict"]
+
+
+def test_non_dict_nested_payload_keeps_the_nested_attribution(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-02: only ``None`` reclassifies — a real non-dict is still ``non_dict``."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        _Nested.from_api({"tag": "t", "leaf": "garbage", "rows": []})
+
+    triples = [(r.model, r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
+    assert ("_Leaf", ".leaf", "non_dict") in triples

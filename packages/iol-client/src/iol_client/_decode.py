@@ -443,6 +443,20 @@ def walk_field(
         ]
 
     if _is_model(hint):
+        # Phase 29 code review, WR-02: classify BEFORE recursing. A declared
+        # nested-model field whose key the payload simply omits is a ``missing``
+        # divergence of the OUTER model (lock 2: "the model declares the field but
+        # the payload has no key for it"). Recursing unconditionally turned it into
+        # a ``non_dict`` record attributed to the NESTED class at a path rooted in
+        # the outer decode — a (model, field_path) pair naming a decode site that
+        # does not exist, which lock 10 then freezes into a Phase 33 finding
+        # identity. The returned VALUE is unchanged: the same all-defaults instance
+        # the ``non_dict`` branch produced, built with the same silent sink (lock 8).
+        if value is None:
+            sink(model, path, "missing", _name_of(hint), "NoneType")
+            return hint(**walk_model(hint, {}, path=path, policy=policy, sink=SILENT_SINK))
+        # A genuinely non-dict (not ``None``) nested payload keeps the ``non_dict``
+        # kind and the nested-model attribution, which is correct for that case.
         return hint(**walk_model(hint, value, path=path, policy=policy, sink=sink))
 
     if hint is str:

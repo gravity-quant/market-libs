@@ -1347,3 +1347,44 @@ def test_two_standalone_from_api_calls_after_a_response_parse_both_report(
 
     assert first > 0
     assert second == first
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, WR-02 — an absent nested-model key is `missing`
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _CarriesNested(SafeModel):
+    """A model whose declared field type is another model (WR-02)."""
+
+    titulo: str
+    hoja: _Leaf
+
+
+def test_absent_nested_model_key_is_missing_on_the_outer_model(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-02: lock 2's definition of ``missing``, and lock 1's ``model`` pairing.
+
+    The walker used to recurse unconditionally, so an absent key whose declared
+    type is a nested model reached ``walk_model`` as ``payload=None`` and was
+    emitted as ``non_dict`` — attributed to the NESTED class at a path rooted in
+    the OUTER decode. That pair names a decode site that does not exist, and
+    lock 10 freezes it into a Phase 33 finding identity.
+    """
+    instance, records = _walk(_CarriesNested, {"titulo": "t"}, caplog)
+
+    assert instance == _CarriesNested("t", _Leaf("", 0))
+    triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+    assert triples == [("_CarriesNested", ".hoja", "missing")]
+
+
+def test_non_dict_nested_payload_keeps_the_nested_attribution(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-02: only ``None`` reclassifies — a real non-dict is still ``non_dict``."""
+    _, records = _walk(_CarriesNested, {"titulo": "t", "hoja": "garbage"}, caplog)
+
+    triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+    assert triples == [("_Leaf", ".hoja", "non_dict")]
