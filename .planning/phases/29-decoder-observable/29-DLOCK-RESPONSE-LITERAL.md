@@ -153,6 +153,12 @@ This is a one-way door. Phase 30 (`iol-client` typed) and Phase 31 (ops endpoint
 write model surface against this decision. Reversing it after Phase 30 means
 re-editing already-shipped public surface and re-publishing wheels in Phase 34.
 
-Signed:
-Date:
-Decision recorded:
+Signed: sebadlf
+Date: 2026-08-18
+Decision recorded: `approve-as-drafted` — approved exactly as drafted, no content
+rewrite. RESPONSE fields are never closed as `Literal` in this milestone: they decode
+as `str`, an out-of-set value is reported as a divergence and returned unchanged, and
+the walker's `Literal` branch validates the members' underlying runtime type without
+ever enforcing set membership. The policy reaches retroactively to the nine matriz
+`types.py` aliases listed above. Closing any alias is deferred to Phase 33 with a live
+census as evidence, as its own decision with its own artifact and its own signature.

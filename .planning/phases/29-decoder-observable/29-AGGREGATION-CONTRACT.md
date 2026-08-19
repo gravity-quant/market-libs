@@ -379,6 +379,13 @@ against lock 4 and budgets its findings against it; Phases 30-34 write model sur
 and tooling against the record schema in lock 1. Reversing either after Phase 30 means
 re-editing already-shipped public surface and re-publishing wheels in Phase 34.
 
-Signed:
-Date:
-Decision recorded:
+Signed: sebadlf
+Date: 2026-08-18
+Decision recorded: `approve-as-drafted` — approved exactly as drafted, no content
+rewrite. Lock 4 stands as written: strict mode raises on `missing`, `type` and
+`non_dict`, and **never** on `extra`. Lock 5 stands as written: the dedupe key is the
+triple `(model, field_path, kind)` with the list index deliberately excluded. The
+deviation from the research draft is approved under this same signature: the divergence
+record carries **six** keys and **no** `occurrences` counter — the alternative
+`restore-occurrences` option was considered and declined, so no flush phase and no
+second emission mode enter the design.
