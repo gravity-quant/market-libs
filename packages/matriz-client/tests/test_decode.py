@@ -1230,3 +1230,43 @@ def test_non_dict_nested_payload_keeps_the_nested_attribution(
 
     triples = [(r.model, r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert ("_Leaf", ".leaf", "non_dict") in triples
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, WR-01 — `non_dict_model` is load-bearing
+# ---------------------------------------------------------------------------
+
+
+def test_non_dict_model_axis_is_actually_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WR-01: flipping the declared axis changes behaviour, as the matrix claims.
+
+    ``non_dict_model`` was declared on ``DecodePolicy``, assigned per paquete and
+    asserted by five tests — and read by no code path anywhere in the repo. The
+    walker ran the identical ``data = {}`` substitution for all five paquetes, so
+    setting matriz's value to ``"from_api_none"`` changed nothing. The axis is now
+    read at matriz's own ``from_api``, which is where matrix row 5 places it.
+    """
+    calls: list[str] = []
+    original = _SafeModel.empty.__func__  # type: ignore[attr-defined]
+
+    @classmethod  # type: ignore[misc]
+    def _spy(cls: type[Any]) -> Any:
+        calls.append(cls.__name__)
+        return original(cls)
+
+    monkeypatch.setattr(_SafeModel, "empty", _spy)
+
+    # Declared axis: matriz takes the ``empty()`` classmethod fallback.
+    assert _decode.POLICY.non_dict_model == "empty_classmethod"
+    _Bare.from_api("garbage")
+    assert calls == ["_Bare"]
+
+    # Flip the axis and the SAME call takes the other paquetes' fallback instead.
+    calls.clear()
+    monkeypatch.setattr(
+        _decode,
+        "POLICY",
+        dataclasses.replace(_decode.POLICY, non_dict_model="from_api_none"),
+    )
+    _Bare.from_api("garbage")
+    assert calls == []

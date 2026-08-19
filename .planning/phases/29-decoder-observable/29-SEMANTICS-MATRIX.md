@@ -67,7 +67,7 @@ deltas the intactness check normalizes away.
 | `missing_int` | `int \| None` | Value substituted when an `int`-declared field is absent or wrong-typed. |
 | `missing_float` | `float \| None` | Value substituted when a `float`-declared field is absent or wrong-typed. |
 | `missing_bool` | `bool \| None` | Value substituted when a `bool`-declared field is absent or wrong-typed. |
-| `non_dict_model` | `str` | Which fallback a non-dict payload takes: `"from_api_none"` (walk every field with `None`, i.e. `{}` substitution) or `"empty_classmethod"` (early-return `cls.empty()`). |
+| `non_dict_model` | `str` | Which fallback a non-dict payload takes: `"from_api_none"` (walk every field with `None`, i.e. `{}` substitution) or `"empty_classmethod"` (early-return `cls.empty()`). **Read at the package's own `from_api`, not in the walker** — see the WR-01 note below. |
 | `scalar_passthrough` | `bool` | `True` = scalars are returned unchanged regardless of declared type (matriz); `False` = scalars are coerced to the declared type. |
 | `literal_enforced` | `bool` | Whether `Literal` membership is enforced. **Not a tunable — see below.** |
 
@@ -78,6 +78,28 @@ guard differs between them (`:79-80` returns `0`, `:83-84` returns `0.0`). A sin
 `missing_num` would force the walker to re-derive which zero to hand back, which is
 exactly the kind of implicit rule D-07 exists to eliminate. Four separate scalar
 fields make the substitution table readable straight off the constant.
+
+### Where each axis is READ (Phase 29 code review, WR-01)
+
+The matrix's central safety argument was stated as "there is no unparameterized path
+in the walker, so harmonizing a cell requires editing a named constant". That was true
+of six of the seven axes and **false of `non_dict_model`**, which was declared,
+assigned per package and asserted by five tests while being read by no code path
+anywhere in the repo: `walk_model` ran the identical `data = {}` substitution for all
+five packages, so setting matriz's value to `"from_api_none"` changed nothing.
+
+The axis is now load-bearing where row 5 always placed it — at the package's own
+`from_api`, not in the walker:
+
+| Axis | Read by |
+|---|---|
+| `missing_str` / `missing_int` / `missing_float` / `missing_bool` | `_decode.walk_field` |
+| `scalar_passthrough` | `_decode.walk_field` |
+| `literal_enforced` | `_decode.walk_field` (permanently `False`; see below) |
+| `non_dict_model` | **`matriz_client.models._SafeModel.from_api`** — the walker returns kwargs and can only express `"from_api_none"`; a package declaring `"empty_classmethod"` branches on the constant itself. The terminal `non_dict` record (lock 8) is emitted by the walker in both cases. |
+
+`test_non_dict_model_axis_is_actually_read` pins this: it flips the constant and
+asserts the fallback taken changes with it.
 
 ### Concrete constants per package
 

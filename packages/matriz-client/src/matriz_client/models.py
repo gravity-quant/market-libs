@@ -199,16 +199,33 @@ class _SafeModel:
     def from_api(cls, data: Any) -> Self:
         """Build an instance from an API payload, with matriz's safe defaults.
 
-        The former early return for a non-dict payload (``return cls.empty()``)
-        is gone as a second code path, not as behaviour: ``POLICY``'s
-        ``non_dict_model = "empty_classmethod"`` makes the walker emit the
-        single terminal ``non_dict`` record (lock 8) and produce the
-        all-defaults kwargs, so ``cls(**kwargs)`` is the same instance
-        ``empty()`` builds. ``test_non_dict_returns_empty`` asserts that
-        equality rather than assuming it.
+        Phase 29 code review, WR-01. The previous docstring claimed that
+        ``POLICY``'s ``non_dict_model = "empty_classmethod"`` "makes the walker"
+        take matriz's non-dict fallback. It does not, and never did: the walker
+        runs the identical ``data = {}`` substitution for all five paquetes and
+        reads that field nowhere. A docstring attributing behaviour to an unread
+        constant is worse than no docstring, and it also falsified
+        ``29-SEMANTICS-MATRIX.md``'s central safety argument ("there is no
+        unparameterized path in the walker").
+
+        The axis is made load-bearing here instead, which is where matrix row 5
+        always said it lived: the walker implements ``"from_api_none"``
+        unconditionally, and a paquete whose policy declares
+        ``"empty_classmethod"`` applies it at its own call site. The walker still
+        emits the single terminal ``non_dict`` record first (lock 8), so the
+        branch below changes the construction path, not the reporting.
+
+        ``test_non_dict_returns_empty`` asserts the resulting equality, which is
+        now true by construction rather than by coincidence.
         """
         sink = _decode.current_sink()
         kwargs = _decode.walk_model(cls, data, policy=_decode.POLICY, sink=sink)
+        if _decode.POLICY.non_dict_model == "empty_classmethod" and not isinstance(data, dict):
+            # Matrix row 5, now actually READ: matriz's non-dict fallback is the
+            # ``empty()`` classmethod. Flipping the constant to ``"from_api_none"``
+            # changes this line's behaviour, which is the property the matrix
+            # claims for every cell in it.
+            return cls.empty()
         # Lock 8 again: under a non-dict payload the walker already swapped its
         # field sink to ``SILENT_SINK``, so the mapping pass must be silent too
         # — otherwise a 204 body would emit one extra record per mapping field

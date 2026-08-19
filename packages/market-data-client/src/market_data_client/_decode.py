@@ -106,9 +106,20 @@ class DecodePolicy:
     The class body is identical in all five copies; only :data:`POLICY`'s value
     differs. Every per-paquete difference is a *declared* axis with a
     ``file:line`` citation in the matrix — never an inconsistency awaiting
-    cleanup. There is no unparameterized path in the walker, so harmonizing a
-    cell requires editing a named constant in a named paquete, which is visible
-    in review.
+    cleanup. Harmonizing a cell requires editing a named constant in a named
+    paquete, which is visible in review.
+
+    Where each axis is READ (Phase 29 code review, WR-01 — the previous wording,
+    "there is no unparameterized path in the walker", was not true of every axis):
+
+    - ``missing_*``, ``scalar_passthrough`` and ``literal_enforced`` are read by
+      :func:`walk_field` in this module.
+    - ``non_dict_model`` is read at the paquete's OWN ``from_api``, not here.
+      :func:`walk_model` implements ``"from_api_none"`` unconditionally — it is
+      the only fallback a function returning kwargs can express — and a paquete
+      declaring ``"empty_classmethod"`` branches on the constant at its call site
+      (matriz's ``models._SafeModel.from_api``). The terminal ``non_dict`` record
+      (lock 8) is emitted here in both cases.
     """
 
     missing_str: str | None
