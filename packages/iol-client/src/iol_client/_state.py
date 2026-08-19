@@ -30,6 +30,11 @@ the original D-13 contract — see ``client.py::configure`` and
 ``aio.py::configure``), enabling tests and legacy callers to inject a
 seed token symmetrically with ``configure(token=X)``.
 
+The ``strict_decode`` field is the Phase 29 D-03 decode mode. ``False``
+(observable — a divergence is reported and the policy default substituted)
+or ``True`` (strict — a ``missing`` / ``type`` / ``non_dict`` divergence
+raises ``IOLDecodeError``). Never env-backed.
+
 ``refresh_token`` is also mutated by ``Client.login()`` / ``_refresh()``
 internally — server-rotated values overwrite the seeded one only when
 the parser returns a non-None value (CR-01 conditional rotation,
@@ -84,6 +89,16 @@ class _ClientState:
     base_url: str = field(default_factory=_env_base_url)
     username: str = field(default_factory=_env_user)
     password: str = field(default_factory=_env_password)
+    # Phase 29 D-03 — decode mode carrier. Deliberately a plain ``bool``
+    # default and NOT a ``field(default_factory=_env_...)`` like the three
+    # fields above it: the strict-decode flag must never be readable from an
+    # environment variable, and must never live in a module-level global. The
+    # only carriers are this field plus the ``_decode.STRICT_DECODE``
+    # ContextVar that ``_request`` binds from it. It lives ONLY on the shared
+    # ``_ClientState`` — never in a ``Client.__slots__`` — so a
+    # ``with_options`` view inherits the parent's mode and sees the parent's
+    # later mutations.
+    strict_decode: bool = False
     token: str | None = None
     token_expires_at: float = 0.0
     refresh_token: str | None = None

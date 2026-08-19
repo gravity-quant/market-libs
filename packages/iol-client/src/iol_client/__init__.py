@@ -45,6 +45,7 @@ from iol_client.exceptions import (  # noqa: E402
     IOLAPIError,
     IOLAuthError,
     IOLClientError,
+    IOLDecodeError,
     IOLRateLimitError,
 )
 
@@ -57,6 +58,7 @@ __all__ = [
     "IOLAPIError",
     "IOLAuthError",
     "IOLClientError",
+    "IOLDecodeError",
     "IOLRateLimitError",
     "InstrumentType",
     "configure",
