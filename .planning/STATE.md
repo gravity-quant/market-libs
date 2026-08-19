@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
-current_phase: 29
-current_phase_name: decoder-observable
+current_phase: 30
+current_phase_name: `iol-client` tipado
 status: verifying
 stopped_at: "Completed 29-10-PLAN.md (Phase 29 complete: 10/10 plans)"
-last_updated: "2026-08-19T22:41:03.220Z"
+last_updated: "2026-08-19T23:51:18.534Z"
 last_activity: 2026-08-19
-last_activity_desc: "Plan 29-09 completo: gate de intactness normalize-then-hash (5 copias -> 1 hash) + step decode-intactness en el job lint + exencion de wallets"
+last_activity_desc: Phase 29 complete, transitioned to Phase 30
 progress:
   total_phases: 6
   completed_phases: 1
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 29 (decoder-observable) — EXECUTING
-Plan: 10 of 10
+Phase: 30 — `iol-client` tipado
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-08-19 — Plan 29-09 completo: gate de intactness normalize-then-hash (5 copias -> 1 hash) + step decode-intactness en el job lint + exencion de wallets
+Last activity: 2026-08-19 — Phase 29 complete, transitioned to Phase 30
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 83 (v1.0)
+- Total plans completed: 93 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 

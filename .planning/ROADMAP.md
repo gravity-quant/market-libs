@@ -174,7 +174,7 @@ Plans:
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
-| 29. Decoder observable                                      | v1.6      | 10/10 | Complete   | 2026-08-19 |
+| 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 0/? | Not started | -          |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
