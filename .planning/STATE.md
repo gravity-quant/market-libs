@@ -6,14 +6,14 @@ current_phase: 29
 current_phase_name: decoder-observable
 status: executing
 stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-08-19T02:17:41.166Z"
+last_updated: "2026-08-19T02:30:32.386Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 29 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 10
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 29 (decoder-observable) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-08-19 — Phase 29 execution started
 
@@ -120,6 +120,7 @@ Last activity: 2026-08-19 — Phase 29 execution started
 | 34    | ?     | Not started | PUB-TYP-01 | Releases sólo de los paquetes cuya superficie cambió; iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); `uv.lock` global refrescado **una sola vez**; ops irreversibles detrás de doble checkpoint humano independiente (precedente D-18). |
 | Phase 29 P01 | 24 | 3 tasks | 3 files |
 | Phase 29 P02 | 11min | 3 tasks | 6 files |
+| Phase 29 P03 | 9min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 29 (signed sebadlf 2026-08-18): RESPONSE fields are never closed as Literal in v1.6 — they decode as str, out-of-set values are reported not enforced; reaches retroactively to matriz's 9 types.py aliases; closing deferred to Phase 33 with a live census
 - [Phase ?]: Phase 29: divergence record is six flat str keys (package, divergence, field_path, declared_type, observed_type, model) with NO occurrences counter; dedupe key is (model, field_path, kind) scoped per decode scope, never process-lifetime
 - [Phase ?]: Phase 29: per-package from_api differences are DecodePolicy axes, never harmonized — no row of the 6-way semantics matrix is a bug to fix in this phase
+- [Phase ?]: 29-03: configure(strict_decode=...) carries forward — an unrelated configure(base_url=...) must not silently reset a security-relevant opt-in
+- [Phase ?]: 29-03: the generic record.__dict__ scan is a module-level _scan_record_dict inside one contiguous marker-delimited region, so Plan 09 hashes constants+helper+loop together
+- [Phase ?]: 29-03: the decoder caplog sentinel literal carries no redaction marker, so its absence is evidence about the record contract rather than about _redact
 
 ### Pending Todos
 
@@ -263,7 +267,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-19T02:17:38.779Z
+Last session: 2026-08-19T02:30:28.305Z
 Stopped at: Completed 29-01-PLAN.md
 Resume file: None
 
