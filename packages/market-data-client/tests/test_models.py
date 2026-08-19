@@ -151,7 +151,13 @@ def test_from_api_latest_nodata_item() -> None:
     assert snap.symbol == "GGAL"
     assert snap.note == "no data"
     assert snap.active is False
-    assert snap.market_data is None
+    # Phase 29 code review, CR-03: a null ``market_data`` used to survive as
+    # ``None`` under a ``dict[str, Any]`` annotation, with no divergence record
+    # and no strict raise. It now collapses to the mapping zero-value ``{}`` the
+    # way every other declared field collapses to its own typed zero, and the
+    # substitution is reported. This is the ONLY behavioural change the review
+    # fixes make to a value a caller can observe.
+    assert snap.market_data == {}
     assert snap.market_id == ""
     assert snap.entries == []
     assert snap.staleness_seconds == 0.0

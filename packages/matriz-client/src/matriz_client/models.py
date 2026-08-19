@@ -99,19 +99,25 @@ def _is_mapping(tp: Any) -> bool:
 def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeScope) -> Any:
     """matriz's mapping axis: a non-mapping wire value falls back to ``{}``.
 
-    The canonical walker has **no** ``dict`` branch — higyrus and market-data
-    declare no mapping fields, so ``walk_field`` lands such a value on its bare
-    pass-through and would hand back ``None``. matriz declares four mapping
+    The canonical walker has **no** ``dict`` branch, so ``walk_field`` lands such
+    a value on its bare pass-through and would hand back ``None``. matriz declares four mapping
     fields (``InstrumentDetail.tickPriceRanges``, ``DetailedPosition.report``,
     ``AccountReport.detailedAccountReports`` / ``.portfolio``) whose documented
     contract is "missing dicts become ``{}``".
 
     The axis lives here rather than in ``_decode.py`` because that file is a
     byte-verbatim copy across five paquetes (D-02) and Plan 09 hashes it; a
-    matriz-only branch there would be the first crack in that invariant. This
+    per-paquete branch there would be the first crack in that invariant. This
     mirrors the mechanism ``29-SEMANTICS-MATRIX.md`` Section 3 already blesses
     for market-data's two model-level exemptions: the call site normalizes, the
     walker stays untouched.
+
+    Phase 29 code review, CR-03: the axis is **not** matriz-only. market-data
+    declares a mapping field too (``MarketDataSnapshot.market_data``) and never
+    received the compensating pass, so its flagship model carried a completely
+    invisible divergence. ``market_data_client.models`` now carries a verbatim
+    copy of this function and of :func:`_apply_mapping_policy`; the two must stay
+    identical.
 
     Reporting matches what the walker would emit for any other substituted
     default — ``missing`` when the payload carried nothing, ``type`` otherwise

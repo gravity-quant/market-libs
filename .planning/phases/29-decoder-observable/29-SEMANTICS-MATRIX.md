@@ -221,6 +221,50 @@ declares two fields and copies the payload wholesale.
 
 ---
 
+### (d) The mapping axis — a `dict`-declared field (Phase 29 code review, CR-03)
+
+**Sources:** `packages/matriz-client/src/matriz_client/models.py` (`_mapping_value` /
+`_apply_mapping_policy`) and, since the review, a **verbatim copy** of the same pair in
+`packages/market-data-client/src/market_data_client/models.py`.
+
+The canonical walker has no `dict` branch — that is the sanctioned trade for keeping
+`_decode.py` byte-identical across five paquetes — so a `dict[...]`-declared field lands
+on `walk_field`'s bare pass-through and is returned untouched, `None` included. The
+compensating call-site pass was written for matriz only. market-data declares a mapping
+field too (`MarketDataSnapshot.market_data`) and never got one, so that field decoded to
+`None` with **no divergence record, no strict raise, and a value contradicting its own
+`dict[str, Any]` annotation** — the exact class of silent substitution DEC-01 exists to
+surface.
+
+The axis is therefore **not** a per-package delta and must not be recorded as one. Any
+package that declares a mapping field carries the same two functions, byte-identical:
+
+| Package | Mapping-declared fields | Pass present |
+|---|---|---|
+| `matriz-client` | `InstrumentDetail.tickPriceRanges`, `DetailedPosition.report`, `AccountReport.detailedAccountReports`, `AccountReport.portfolio` | yes |
+| `market-data-client` | `MarketDataSnapshot.market_data` | yes (added by CR-03) |
+| `higyrus-client` / `iol-client` / `ambito-financiero-client` | none | n/a |
+
+**Reporting:** `missing` when the payload carried nothing, `type` otherwise — so lock 2's
+kind, lock 3's WARNING level and lock 4's strict disposition apply here exactly as on
+every other axis. **Lock 8:** the pass runs with `SILENT_SINK` under a non-dict payload,
+so `non_dict` stays terminal.
+
+**Known consequence, recorded rather than discovered later.** A `/marketdata/latest`
+no-data row legitimately sends `"market_data": null` alongside `"note": "no data"`. That
+is now a `missing` WARNING and is **fatal in strict mode**. This is the correct reading of
+lock 2 for a non-`Optional` declaration, and it is the same disposition matriz already
+ships; if the operator would rather treat the field as genuinely nullable, the remedy is
+to declare it `dict[str, Any] | None` — a public-surface typing decision that belongs to
+the v1.6 typed-surface milestone, not to a review fix.
+
+**Precondition:** the pass reaches TOP-LEVEL fields only, because `walk_field` recurses
+into a nested model through `walk_model` directly. Both packages pin
+`test_no_mapping_carrying_model_is_ever_a_nested_field_type`, which fails loudly the day
+a mapping-carrying model becomes another model's declared field type.
+
+---
+
 ## Never harmonize
 
 **No row of the table in Section 1 is a bug to be fixed in Phase 29.**

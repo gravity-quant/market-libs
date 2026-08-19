@@ -52,12 +52,23 @@ Both model-level exemptions of ``29-SEMANTICS-MATRIX.md`` Section 3 survive the
 delegation verbatim: :meth:`MarketDataSnapshot.from_api` keeps its extended
 signature and its ``received_at`` injection bypass, and :meth:`Symbol.from_api`
 keeps its wire-key mirror and its explicit two-argument ``super()``.
+
+Phase 29 code review (CR-03): the **mapping axis** lives here too, as
+:func:`_mapping_value` / :func:`_apply_mapping_policy` — a verbatim copy of
+matriz's pair. The canonical walker has no ``dict`` branch by design (it must stay
+byte-identical across five paquetes), so a ``dict``-declared field needs a
+call-site pass to be decoded at all. :attr:`MarketDataSnapshot.market_data` is
+such a field and had no pass, so an absent or wrong-typed ``market_data``
+substituted ``None`` silently: no divergence record, no strict raise, and a value
+contradicting its own ``dict[str, Any]`` annotation. It now falls back to ``{}``
+and reports, exactly as every other declared field falls back to its typed zero.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Self
+import types
+from dataclasses import dataclass, fields
+from typing import Any, Self, Union, cast, get_args, get_origin
 
 from market_data_client import _decode, _params
 
@@ -79,6 +90,73 @@ __all__ = [
 ]
 
 
+def _strip_optional(tp: Any) -> Any:
+    """Return ``T`` from ``T | None`` / ``Optional[T]``; pass through otherwise."""
+    if get_origin(tp) in (Union, types.UnionType):
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return tp
+
+
+def _is_mapping(tp: Any) -> bool:
+    """True for a ``dict[...]``-declared field, ``Optional`` unwrapped first."""
+    return get_origin(_strip_optional(tp)) is dict
+
+
+def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeScope) -> Any:
+    """market-data's mapping axis: a non-mapping wire value falls back to ``{}``.
+
+    Phase 29 code review, CR-03. The canonical walker has **no** ``dict`` branch —
+    that is sanctioned (``29-SEMANTICS-MATRIX.md`` Section 2 records the mapping
+    axis as a call-site concern, so ``_decode.py`` can stay byte-verbatim across
+    the five paquetes) — but the compensating call-site pass was only ever built
+    for matriz. market-data declares a mapping field too
+    (:attr:`MarketDataSnapshot.market_data`), so without this pass ``walk_field``
+    fell through every arm to its bare ``return value`` and handed back whatever
+    the payload had: ``None`` when the key is absent. That produced **no**
+    divergence record in observable mode, **no** raise in strict mode, and an
+    instance holding ``None`` where ``dict[str, Any]`` is annotated — the exact
+    class of silent substitution DEC-01 exists to surface.
+
+    Reporting matches what the walker emits for any other substituted default —
+    ``missing`` when the payload carried nothing, ``type`` otherwise — so lock 2's
+    kind, lock 3's WARNING level and lock 4's strict disposition all apply here
+    exactly as they do on every other axis. This is a verbatim port of matriz's
+    ``_mapping_value``; keeping the two identical is deliberate.
+    """
+    if isinstance(value, dict):
+        return value
+    sink(model, path, "missing" if value is None else "type", "dict", type(value).__name__)
+    return {}
+
+
+def _apply_mapping_policy(
+    cls: type[Any], kwargs: dict[str, Any], *, sink: _decode.DecodeScope
+) -> None:
+    """Apply :func:`_mapping_value` to every mapping-declared field of ``cls``.
+
+    Runs after :func:`market_data_client._decode.walk_model` and mutates its
+    kwargs in place. It reaches TOP-LEVEL fields only: ``walk_field`` recurses
+    into a nested model through ``walk_model`` directly, so a mapping field on a
+    model reached as another model's field type would be missed. No shipped
+    market-data model that declares a mapping field is ever another model's field
+    type — ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` pins
+    that precondition, and fails loudly if a future plan nests one.
+    """
+    # ``cast(Any, cls)`` is the walker's own mypy-strict discipline for
+    # ``get_type_hints``-driven code. No ``type: ignore`` is introduced.
+    target = cast(Any, cls)
+    hints = _decode.hints_for(target)
+    model = cls.__name__
+    for f in fields(target):
+        hint = hints[f.name]
+        if _is_mapping(hint):
+            kwargs[f.name] = _mapping_value(
+                kwargs[f.name], path=f".{f.name}", model=model, sink=sink
+            )
+
+
 class SafeModel:
     """Base class for market-data API response models.
 
@@ -89,8 +167,14 @@ class SafeModel:
     @classmethod
     def from_api(cls, payload: Any) -> Self:
         """Build an instance from an API payload, with safe defaults."""
-        kwargs = _decode.walk_model(
-            cls, payload, policy=_decode.POLICY, sink=_decode.current_sink()
+        sink = _decode.current_sink()
+        kwargs = _decode.walk_model(cls, payload, policy=_decode.POLICY, sink=sink)
+        # Lock 8: under a non-dict payload the walker already swapped its field
+        # sink to ``SILENT_SINK``, so the mapping pass must be silent too —
+        # otherwise a 204 body would emit one extra record per mapping field on
+        # top of the terminal ``non_dict`` one.
+        _apply_mapping_policy(
+            cls, kwargs, sink=sink if isinstance(payload, dict) else _decode.SILENT_SINK
         )
         return cls(**kwargs)
 
@@ -167,8 +251,15 @@ class MarketDataSnapshot(SafeModel):
         server's ingest timestamp) and is read straight off the payload.
         """
         stamped: Any = {**payload, "received_at": received_at} if isinstance(payload, dict) else payload  # fmt: skip
-        kwargs = _decode.walk_model(
-            cls, stamped, policy=_decode.POLICY, sink=_decode.current_sink()
+        sink = _decode.current_sink()
+        kwargs = _decode.walk_model(cls, stamped, policy=_decode.POLICY, sink=sink)
+        # CR-03: ``market_data`` is declared ``dict[str, Any]`` and the walker has
+        # no ``dict`` branch, so without this pass an absent or wrong-typed
+        # ``market_data`` was substituted silently — no record, no strict raise,
+        # and a ``None`` held under a non-Optional annotation. Lock 8 again: the
+        # pass is silent under a non-dict payload.
+        _apply_mapping_policy(
+            cls, kwargs, sink=sink if isinstance(stamped, dict) else _decode.SILENT_SINK
         )
         kwargs["received_at"] = received_at  # INJECT — skip the walker (D-01)
         return cls(**kwargs)

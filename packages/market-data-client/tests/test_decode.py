@@ -1119,3 +1119,156 @@ def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
 
     paths = {r.field_path for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert paths == {".7", ".??t???"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, CR-03 — the mapping axis reaches market-data too
+# ---------------------------------------------------------------------------
+
+
+def test_absent_mapping_field_reports_missing_and_substitutes_the_empty_dict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CR-03: ``MarketDataSnapshot.market_data`` is no longer a silent ``None``."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        snap = MarketDataSnapshot.from_api(
+            {"symbol": "GGAL", "market_id": "M", "active": True, "entries": []},
+            received_at=1.0,
+        )
+
+    assert snap.market_data == {}
+    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".market_data", "missing") in kinds
+
+
+def test_wrong_typed_mapping_field_reports_type_and_substitutes_the_empty_dict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CR-03: a non-mapping wire value is a ``type`` divergence, not a pass-through."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        snap = MarketDataSnapshot.from_api(
+            {
+                "symbol": "GGAL",
+                "market_id": "M",
+                "active": True,
+                "entries": [],
+                "market_data": ["not", "a", "mapping"],
+                "staleness_seconds": 0.0,
+            },
+            received_at=1.0,
+        )
+
+    assert snap.market_data == {}
+    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".market_data", "type") in kinds
+
+
+def test_strict_mode_raises_on_an_absent_mapping_field() -> None:
+    """CR-03: lock 4 applies to the mapping axis exactly as to every other axis."""
+    token = _decode.STRICT_DECODE.set(True)
+    try:
+        with pytest.raises(MarketDataDecodeError) as excinfo:
+            MarketDataSnapshot.from_api(
+                {
+                    "symbol": "GGAL",
+                    "market_id": "M",
+                    "active": True,
+                    "entries": [],
+                    "staleness_seconds": 0.0,
+                },
+                received_at=1.0,
+            )
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+    assert excinfo.value.field_path == ".market_data"
+    assert excinfo.value.declared_type == "dict"
+
+
+def test_mapping_pass_is_silent_under_a_non_dict_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Lock 8: ``non_dict`` stays terminal — the mapping pass adds no second record."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        snap = MarketDataSnapshot.from_api(None, received_at=1.0)
+
+    assert snap.market_data == {}
+    kinds = [(r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
+    assert kinds == [("", "non_dict")]
+
+
+def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
+    """Precondition that makes the call-site mapping pass complete (CR-03 / WR-03).
+
+    ``walk_field`` recurses into a nested model through ``walk_model`` directly,
+    so ``models.py``'s post-walk mapping pass — and every other ``from_api``
+    override — is bypassed for a model reached as another model's field type.
+    That is harmless only while no mapping-carrying model is ever declared as a
+    field type. This mirrors matriz's test of the same name.
+    """
+    shipped = [
+        obj
+        for obj in vars(models).values()
+        if isinstance(obj, type) and dataclasses.is_dataclass(obj) and issubclass(obj, SafeModel)
+    ]
+    carriers = {
+        cls.__name__
+        for cls in shipped
+        if any(models._is_mapping(h) for h in _decode.hints_for(cls).values())
+    }
+    assert carriers == {"MarketDataSnapshot"}
+
+    nested_types: set[str] = set()
+    for cls in shipped:
+        for hint in _decode.hints_for(cls).values():
+            inner = models._strip_optional(hint)
+            for candidate in (inner, *getattr(inner, "__args__", ())):
+                if (
+                    isinstance(candidate, type)
+                    and dataclasses.is_dataclass(candidate)
+                    and issubclass(candidate, SafeModel)
+                ):
+                    nested_types.add(candidate.__name__)
+
+    assert carriers & nested_types == set()
+
+
+def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None:
+    """WR-03: every ``from_api`` exemption of the semantics matrix is top-level only.
+
+    ``MarketDataSnapshot.from_api`` injects ``received_at`` (D-01) and
+    ``Symbol.from_api`` mirrors ``market_id`` onto the deprecated ``marketId``
+    alias. The walker builds a nested model with ``hint(**walk_model(...))`` and
+    never calls ``from_api``, so both exemptions would be silently skipped for a
+    nested occurrence. matriz pins the same precondition for its mapping axis;
+    this is market-data's counterpart, and it fails loudly the day someone nests
+    one of the two overriding models.
+    """
+    shipped = [
+        obj
+        for obj in vars(models).values()
+        if isinstance(obj, type) and dataclasses.is_dataclass(obj) and issubclass(obj, SafeModel)
+    ]
+    overriding = {
+        cls.__name__
+        for cls in shipped
+        if cls.__dict__.get("from_api") is not None  # declared on the class itself
+    }
+    assert overriding == {"MarketDataSnapshot", "Symbol"}
+
+    nested_types: set[str] = set()
+    for cls in shipped:
+        for hint in _decode.hints_for(cls).values():
+            inner = models._strip_optional(hint)
+            for candidate in (inner, *getattr(inner, "__args__", ())):
+                if (
+                    isinstance(candidate, type)
+                    and dataclasses.is_dataclass(candidate)
+                    and issubclass(candidate, SafeModel)
+                ):
+                    nested_types.add(candidate.__name__)
+
+    assert overriding & nested_types == set()
