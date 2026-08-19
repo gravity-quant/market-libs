@@ -48,6 +48,11 @@ jobs:
             echo "::error::Phase 8 LOG-01 violated — package source must not call logging.basicConfig or logging.root.*"
             exit 1
           fi
+      - name: decode-intactness (Phase 29 DEC-01 — las 5 copias de `_decode.py` colapsan a un hash)
+        # Cross-package por naturaleza: NO va al job `test`, que corre per-package.
+        # Tampoco puede vivir bajo `verification/`: el job `test` pasa un path
+        # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
+        run: uv run python tools/check_decode_intactness.py
 
   pre-commit:
     name: pre-commit hooks

@@ -178,10 +178,14 @@ EXEMPT_PACKAGES: tuple[ExemptPackage, ...] = (
     ExemptPackage(
         package=Package("wallets-client", "wallets_client"),
         reason=(
-            "no _state.py, no _logging.py and no models.py -- nowhere to hold the "
-            "decode mode flag and no bind site of the shape the other five have"
+            "no _state.py, no _logging.py, no _core.py and no models.py; its request "
+            "functions are module-level rather than methods, so there is nowhere to "
+            "hold the decode mode flag and no bind site of the shape the other five have"
         ),
-        resolved_by="the later phase that bootstraps wallets-client's client state object",
+        resolved_by=(
+            "Phase 31 (estructura uniforme -- the six packages gain the same file "
+            "layout), with enrollment settled by Phase 32's D-16 reconciliation"
+        ),
     ),
 )
 
