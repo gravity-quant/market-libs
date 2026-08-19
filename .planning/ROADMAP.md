@@ -19,7 +19,7 @@
 > **Phase 29 es load-bearing y está ~3× sub-dimensionada respecto del "copiar un decoder" naive**: 14 de los 25 pitfalls identificados por el research aterrizan ahí, y varios D-locks de los que dependen las fases 30-34 (semánticas divergentes de matriz, política de `Literal` en campos de RESPONSE, contrato de agregación anti-log-spam, fix del `RedactingFilter`, test de intactness 6-way, decisión msgspec-vs-stdlib) deben ser **artefactos explícitos de la Phase 29**, no supuestos implícitos.
 > **El scope de la Phase 33 es provisional** hasta que corra la **corrida exploratoria de sizing** del final de la Phase 29 (walker por-campo sobre `verification/snapshots/`, nunca un pase strict de msgspec, que sub-cuenta por construcción). El número que salga es un **piso** ("≥ N"), no una estimación.
 
-- [ ] **Phase 29: Decoder observable** *(load-bearing, PRIMERO)* — decoder único de política observable copiado verbatim 6×, divergencias emitidas estructuradas por el logger del paquete, modo estricto por `ContextVar`, decisión msgspec-vs-stdlib como artefacto, reconciliación de matriz y corrida de sizing — DEC-01
+- [x] **Phase 29: Decoder observable** *(load-bearing, PRIMERO)* — decoder único de política observable copiado verbatim 6×, divergencias emitidas estructuradas por el logger del paquete, modo estricto por `ContextVar`, decisión msgspec-vs-stdlib como artefacto, reconciliación de matriz y corrida de sizing — DEC-01 (completed 2026-08-19)
 - [ ] **Phase 30: `iol-client` tipado** — `models.py` nuevo + 16 firmas migradas + parsers de `_core.py` + `main_iol.py` a acceso por atributo; `mercado`/`plazo` quedan `str` (promoción a `Literal` diferida a F33) — TYP-01
 - [ ] **Phase 31: Endpoints de ops + estructura uniforme** — modelos para los 5 endpoints de ops (higyrus + market-data), request byte-idéntico probado para las 2 mutaciones ya publicadas, `models.py`/`types.py` presentes en los 6 paquetes — TYP-02, TYP-03
 - [ ] **Phase 32: Gates de homogeneidad + D-16** — gate AST de superficie como **job de CI nuevo** + test de paridad sync/async no-vacuo + cierre de D-16 reconciliando las **4** listas de enrollment — GATE-TYP-01
@@ -41,7 +41,7 @@
   4. Quedan firmados como artefactos de la fase, con evidencia de ambos lados, los dos D-locks que gatean las fases siguientes: **(a)** msgspec dos-motores (fast-path + walker) vs stdlib-only un-motor — el walker es load-bearing en cualquier caso; **(b)** los campos de **RESPONSE nunca** se cierran como `Literal` en este milestone (se decodifican como `str` y el valor fuera de set se reporta como divergencia), lo cual alcanza retroactivamente a los `CFICode`/`MarketId`/`OrderType`/`Currency` pre-existentes de matriz.
   5. El helper de decode existe **copiado verbatim en los 6 paquetes** con un test de intactness 6-way por hash + ban-list grep (`strict=False`, `msgspec.field()`), y una **corrida exploratoria de sizing con el walker por-campo** sobre `verification/snapshots/` publica un **piso por paquete** (`≥ N` divergencias, nunca `N`) que se convierte en el presupuesto declarado de la Phase 33.
 
-**Plans:** 9/10 plans executed
+**Plans:** 10/10 plans complete
 
 Plans:
 **Wave 1**
@@ -67,7 +67,7 @@ Plans:
 
 - [x] 29-08-PLAN.md — Propagación explícita del modo al daemon thread de `ws_client` (D-04) + `test_ws_decode_mode.py`
 - [x] 29-09-PLAN.md — `tools/check_decode_intactness.py` (normalize-then-hash + ban-list) + job `lint` de CI + exención documentada de wallets
-- [ ] 29-10-PLAN.md — Corrida de sizing sobre `.planning/verification/schemas/` (43 archivos) → `29-SIZING.md` con piso `≥ N` + ratificación
+- [x] 29-10-PLAN.md — Corrida de sizing sobre `.planning/verification/schemas/` (43 archivos) → `29-SIZING.md` con piso `≥ N` + ratificación
 
 ### Phase 30: `iol-client` tipado
 
@@ -174,7 +174,7 @@ Plans:
 | 26. Calendar write                                          | v1.5      | 4/4 | Complete    | 2026-08-01 |
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
-| 29. Decoder observable                                      | v1.6      | 9/10 | In Progress|  |
+| 29. Decoder observable                                      | v1.6      | 10/10 | Complete   | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 0/? | Not started | -          |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
