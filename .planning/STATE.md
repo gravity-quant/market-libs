@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 29
 current_phase_name: decoder-observable
 status: executing
-stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-08-19T02:30:32.386Z"
+stopped_at: Completed 29-04-PLAN.md
+last_updated: "2026-08-19T12:20:00.000Z"
 last_activity: 2026-08-19
-last_activity_desc: Phase 29 execution started
+last_activity_desc: "Plan 29-04 completo — D-lock (a) msgspec firmado NO-GO (stdlib-only, un motor)"
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 10
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 29 (decoder-observable) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
-Last activity: 2026-08-19 — Phase 29 execution started
+Last activity: 2026-08-19 — Plan 29-04 completo: D-lock (a) msgspec firmado NO-GO (stdlib-only, un motor)
 
 ## Performance Metrics
 
@@ -121,6 +121,7 @@ Last activity: 2026-08-19 — Phase 29 execution started
 | Phase 29 P01 | 24 | 3 tasks | 3 files |
 | Phase 29 P02 | 11min | 3 tasks | 6 files |
 | Phase 29 P03 | 9min | 2 tasks | 7 files |
+| Phase 29 P04 | 12min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,7 @@ Last activity: 2026-08-19 — Phase 29 execution started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.6 / Phase 29 P04 — **D-lock (a) FIRMADO, NO-GO**]: **msgspec queda afuera; stdlib-only, un solo motor (el walker con caché de hints).** Firmado `no-go-stdlib-only` por **sebadlf** el **2026-08-19** en `29-DLOCK-MSGSPEC.md`. Criterio: **presupuesto absoluto de 100 ms** para el decode de una respuesta de catálogo de referencia de 5.000 filas medida sobre el arm B (el walker ya shippeado) — **no** un ratio, porque no existe requisito de throughput contra el cual un ratio sea decidible. Medido: **19,37 ms** (`matriz.Instrument` end-to-end) y **20,69 ms** (`market_data.Symbol`) → 4,8× de holgura, la condición de GO (que el arm B se pase del presupuesto) nunca se cumplió. La ventaja real de msgspec sobre el arm B es de **13-24×** (no 123×: ese número sale de comparar contra el arm A sin caché y fabricaría un GO por una mejora que el `lru_cache` de la Plan 29-02 ya entrega gratis). Rechazado igual porque: no puede implementar el modo observable, **violaría el lock D-09 de RESPONSE-`Literal`** firmado en esta misma fase (msgspec valida pertenencia a `Literal` y levanta excepción), descarta claves extra en silencio, reporta un error por decode e ignora el rename de campos en dataclasses del stdlib (`market_data.Symbol`). **Consecuencia:** los 6 wheels siguen siendo un closure 100% puro-Python, `uv.lock` no se toca, el set de releases de la Phase 34 queda como estaba, y las Phases 30-34 avanzan con un único motor de decode. Revisitar exige un requisito de throughput declarado: sólo un presupuesto por debajo de ~20,7 ms a 5.000 filas daría vuelta el veredicto.
 - [v1.6 Roadmap]: Phase numbering CONTINUES from v1.5 (última fase = 28) — v1.6 arranca en **Phase 29** (no resetea). Sequential `phase_naming` per config.json.
 - [v1.6 Roadmap]: **6 fases (29-34)** pese a granularity `coarse` — la estructura del plan fuente (`.planning/future-plans/tipado_homogeneo.md`) queda intacta porque los cuatro researchers convergieron independientemente en los mismos límites de fase y el mismo orden load-bearing-first. La corrección del research es de **scope y contenido dentro de la Phase 29**, no de cantidad ni orden de fases. 7 requisitos → 6 fases, 1:1 salvo Phase 31 (TYP-02 + TYP-03).
 - [v1.6 Roadmap]: **Phase 29 es load-bearing y ~3× el scope naive de "copiar un decoder"** — 14 de 25 pitfalls aterrizan ahí. Varios D-locks de los que dependen 30-34 deben ser **artefactos explícitos de la fase**: (a) msgspec dos-motores vs stdlib-only un-motor; (b) los campos de RESPONSE **nunca** se cierran como `Literal` en este milestone (alcanza retroactivamente a `CFICode`/`MarketId`/`OrderType`/`Currency` de matriz); (c) tabla 3-way de semánticas (matriz **no** es copia verbatim de higyrus/market-data: missing → `None`, sin `slots`, `empty()`); (d) contrato de agregación anti-log-spam; (e) fix del `RedactingFilter` en las 6 copias.
@@ -200,7 +202,7 @@ Recent decisions affecting current work:
 [Issues that affect future work]
 
 - [v1.6 / Phase 33 risk]: **Descubrimiento masivo de divergencias.** La tolerancia silenciosa actual puede estar ocultando divergencias acumuladas; la primera corrida estricta podría destapar muchas de golpe y desbordar el scope del milestone. Mitigación locked: corrida exploratoria de sizing con el walker al final de la Phase 29, **antes** de comprometer 30-32. El resultado es un piso, no una estimación.
-- [v1.6 / Phase 29 decision gate]: La **decisión msgspec-dos-motores vs stdlib-only** cambia el perfil de dependencias de los 6 wheels (msgspec sería el primer artefacto compilado de un closure hoy 100% puro-Python) y el set de paquetes a re-publicar en la Phase 34. Debe resolverse en `discuss-phase` de la Phase 29 con evidencia de ambos lados, no pre-decidirse en el roadmap. Hecho load-bearing verificado: **msgspec no puede implementar el modo observable** (fail-fast, un error por decode, ignora claves extra en todos los modos, sin field-rename para dataclasses del stdlib) — el walker es el motor primario en cualquiera de los dos escenarios.
+- ~~[v1.6 / Phase 29 decision gate]~~ **RESUELTO 2026-08-19 (Plan 29-04, firmado `no-go-stdlib-only` por sebadlf).** Ya no bloquea nada: la Phase 34 puede cerrar su set de releases y las Phases 30-33 avanzan con un solo motor. Evidencia en `29-DLOCK-MSGSPEC.md` (benchmark de tres arms + 5 probes de capacidad). Texto original del gate, conservado como registro: La **decisión msgspec-dos-motores vs stdlib-only** cambia el perfil de dependencias de los 6 wheels (msgspec sería el primer artefacto compilado de un closure hoy 100% puro-Python) y el set de paquetes a re-publicar en la Phase 34. Debe resolverse en `discuss-phase` de la Phase 29 con evidencia de ambos lados, no pre-decidirse en el roadmap. Hecho load-bearing verificado: **msgspec no puede implementar el modo observable** (fail-fast, un error por decode, ignora claves extra en todos los modos, sin field-rename para dataclasses del stdlib) — el walker es el motor primario en cualquiera de los dos escenarios.
 - [v1.6 / Phase 31 risk]: `add_holidays` y `delete_holiday` son **mutaciones ya publicadas en v0.4.0** con contrato de idempotencia verificado en vivo y un invariante de orden del mutating-gate. El trabajo de tipado es **response-only**: hace falta un test de **request byte-idéntico** y el guard AST de `_ensure_mutation_allowed()` como primer statement debe seguir verde.
 - [v1.6 / Phase 32 blocker]: **`verification/` nunca corrió en CI** — `ci.yml` pasa un path `packages/${{ matrix.package }}` explícito a pytest que pisa `testpaths`, así que hasta el gate golden-file de superficie pre-existente estuvo inerte. GATE-TYP-01 no es "agregar un archivo de test": requiere superficie de CI nueva (script en el job de lint + tests in-package que viajen en la matrix 6×2).
 - [v1.6 / Phase 32 note]: Las **4** listas de enrollment de D-16 ya discrepan entre sí (mypy `files` 5/6; import-linter `root_packages` 4/6; loop de `ci.yml:85` 5/6; `test_public_surface._PACKAGES` 4/6 — market-data excluido **por diseño** desde Phase 25, hay que documentarlo, no "arreglarlo"). El backlog de mypy subyacente es trivial (2 errores `var-annotated`); el trabajo real es decidir explícitamente si `wallets_client` entra.
