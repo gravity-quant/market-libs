@@ -19,6 +19,12 @@ is unnecessary here. The `AsyncClient._ensure_http_client` method lazy-creates
 the underlying `httpx.AsyncClient` without locking — see its docstring for the
 acceptable-leak rationale (T-06-13).
 
+The `strict_decode` field is the Phase 29 D-03 decode mode. `False`
+(observable — a divergence is reported and the policy default substituted) or
+`True` (strict — a `missing` / `type` / `non_dict` divergence raises
+`AmbitoFinancieroDecodeError`). Never env-backed, and dormant in this paquete
+until it grows a typed surface.
+
 Defaults are read via `field(default_factory=...)` so env vars set AFTER import
 (typical in tests via `os.environ[...] = ...` before constructing `Client()`)
 are still honored.
@@ -61,4 +67,15 @@ class _ClientState:
 
     base_url: str = field(default_factory=_env_base_url)
     user_agent: str = field(default_factory=_env_user_agent)
+    # Phase 29 D-03 — decode mode carrier. Deliberately a plain ``bool``
+    # default and NOT a ``field(default_factory=_env_...)`` like the two fields
+    # above it: the strict-decode flag must never be readable from an
+    # environment variable, and must never live in a module-level global. The
+    # only carriers are this field plus the ``_decode.STRICT_DECODE``
+    # ContextVar that ``_request`` binds from it. It lives ONLY on the shared
+    # ``_ClientState`` — never in a ``Client.__slots__`` — so a
+    # ``with_options`` view inherits the parent's mode and sees the parent's
+    # later mutations. Dormant today: ámbito's public surface returns a
+    # ``float``, so nothing in this paquete decodes a model yet.
+    strict_decode: bool = False
     http_client: httpx.Client | httpx.AsyncClient | None = None

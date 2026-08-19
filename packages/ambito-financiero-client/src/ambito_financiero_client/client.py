@@ -24,7 +24,7 @@ from typing import Any, Self
 import httpx
 from dotenv import load_dotenv
 
-from ambito_financiero_client import _core, _transport
+from ambito_financiero_client import _core, _decode, _transport
 from ambito_financiero_client._state import _ClientState
 
 load_dotenv()
@@ -90,6 +90,7 @@ class Client:
         user_agent: str | None = None,
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early so the surfacing error is
         # a clean ValueError, not a confusing tenacity error later.
@@ -99,6 +100,11 @@ class Client:
             self._state.base_url = base_url.rstrip("/")
         if user_agent is not None:
             self._state.user_agent = user_agent
+        # Phase 29 D-03: ``None`` sentinel = "leave the state default"; the
+        # flag lands on the SHARED ``_state``, never on ``__slots__``, so a
+        # ``with_options`` view inherits it.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         # max_retries=0 means no retries (bypass retry loop entirely per D-19).
         self._max_retries = max_retries
@@ -217,7 +223,20 @@ class Client:
         propagates ``idempotent`` + ``endpoint_name`` via ``request.extensions``
         so the ``RetryTransport`` mutation gate (D-01) + structured logs (D-09)
         see them. ámbito has no auth → no 401 re-auth branch (D-02 N/A).
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this method returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in the parser,
+        # which holds no reference to this Client. A reset in a ``finally``
+        # would unbind the mode before the decoder ever reads it. The bind is
+        # unconditional even though this paquete's parsers return a ``float``
+        # today: the two statements are the copy's contract, not a shortcut.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         http = self._ensure_http_client()
         request_id = uuid.uuid4().hex
         req = http.build_request(
@@ -265,6 +284,7 @@ def configure(
     user_agent: str | None = None,
     max_retries: int = 2,
     http_client: httpx.Client | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe URL base / User-Agent runtime (carry-forward, D-14).
 
@@ -274,22 +294,32 @@ def configure(
     per D-19; subject to tuning in future minor versions per D-20) and
     ``http_client`` (used AS-IS without auto-wrapping with ``RetryTransport``
     per D-16) are carry-forward kwargs.
+
+    Phase 29 D-03: ``strict_decode`` is a carry-forward kwarg too — the ``None``
+    sentinel means "no cambiar", so a later ``configure(base_url=...)`` does NOT
+    silently reset a previous strict opt-in. Because this ``configure`` builds a
+    NEW ``Client`` rather than mutating the current one in place, the carry
+    forward reads the prior client's state explicitly.
     """
     # WR-06: validate max_retries before any state mutation.
     _validate_max_retries(max_retries)
     global _default_client
     prior_base_url: str | None = None
     prior_user_agent: str | None = None
+    prior_strict_decode: bool | None = None
     if _default_client is not None:
         prior_base_url = _default_client._state.base_url
         prior_user_agent = _default_client._state.user_agent
+        prior_strict_decode = _default_client._state.strict_decode
     new_base_url = base_url if base_url is not None else prior_base_url
     new_user_agent = user_agent if user_agent is not None else prior_user_agent
+    new_strict_decode = strict_decode if strict_decode is not None else prior_strict_decode
     _default_client = Client(
         base_url=new_base_url,
         user_agent=new_user_agent,
         max_retries=max_retries,
         http_client=http_client,
+        strict_decode=new_strict_decode,
     )
 
 

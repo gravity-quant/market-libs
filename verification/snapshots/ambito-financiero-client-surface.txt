@@ -9,9 +9,10 @@
 AmbitoFinancieroAPIError : class : (status_code: 'int', message: 'str') -> 'None'
 AmbitoFinancieroAuthError : class : (status_code: 'int', message: 'str') -> 'None'
 AmbitoFinancieroClientError : class :
+AmbitoFinancieroDecodeError : class : (field_path: 'str', declared_type: 'str', observed_type: 'str', model: 'str') -> 'None'
 AmbitoFinancieroNoDataError : class :
 AmbitoFinancieroRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
-AsyncClient : class : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
-Client : class : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'
-configure : function : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'
+AsyncClient : class : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None, strict_decode: 'bool | None' = None) -> 'None'
+Client : class : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
+configure : function : (*, base_url: 'str | None' = None, user_agent: 'str | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 get_dollar_banco_nacion : function : (date: 'dt.date') -> 'float'

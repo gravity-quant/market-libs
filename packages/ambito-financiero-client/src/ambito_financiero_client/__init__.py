@@ -37,6 +37,7 @@ from ambito_financiero_client.exceptions import (  # noqa: E402
     AmbitoFinancieroAPIError,
     AmbitoFinancieroAuthError,
     AmbitoFinancieroClientError,
+    AmbitoFinancieroDecodeError,
     AmbitoFinancieroNoDataError,
     AmbitoFinancieroRateLimitError,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "AmbitoFinancieroAPIError",
     "AmbitoFinancieroAuthError",
     "AmbitoFinancieroClientError",
+    "AmbitoFinancieroDecodeError",
     "AmbitoFinancieroNoDataError",
     "AmbitoFinancieroRateLimitError",
     "AsyncClient",

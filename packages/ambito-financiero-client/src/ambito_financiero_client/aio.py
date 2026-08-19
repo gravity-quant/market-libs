@@ -29,7 +29,7 @@ from typing import Any, Self
 
 import httpx
 
-from ambito_financiero_client import _atransport, _core
+from ambito_financiero_client import _atransport, _core, _decode
 from ambito_financiero_client._state import _ClientState
 from ambito_financiero_client.client import _validate_max_retries
 
@@ -69,6 +69,7 @@ class AsyncClient:
         user_agent: str | None = None,
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early (mirror sync Client).
         _validate_max_retries(max_retries)
@@ -77,6 +78,11 @@ class AsyncClient:
             self._state.base_url = base_url.rstrip("/")
         if user_agent is not None:
             self._state.user_agent = user_agent
+        # Phase 29 D-03 (sync mirror): ``None`` sentinel = "leave the state
+        # default"; the flag lands on the SHARED ``_state``, never on
+        # ``__slots__``, so a ``with_options`` view inherits it.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
         # Phase 13 D-V1 mirror sync.
@@ -164,7 +170,23 @@ class AsyncClient:
 
         Phase 8 D-30 mirror: per-business-call ``request_id`` + extensions.
         ámbito has no auth → no 401 re-auth branch.
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response. Each
+        asyncio task carries its own copy of the context, so a concurrent task
+        running in the other mode cannot clobber this bind.
         """
+        # Phase 29 D-03 (sync mirror): bind the decode mode + a fresh decode
+        # scope. There is deliberately NO reset and no try/finally — this
+        # method returns the ``httpx.Response`` and the decode happens
+        # AFTERWARDS, in the parser, which holds no reference to this client.
+        # This paquete's AsyncClient deliberately creates its transport WITHOUT
+        # the token-lock serialization the other paquetes use (the B7
+        # divergence recorded in ``_state``); the bind adds no locking of its
+        # own and is a plain pair of statements at the top of the method.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         http = self._ensure_http_client()
         request_id = uuid.uuid4().hex
         req = http.build_request(
@@ -208,6 +230,7 @@ def configure(
     user_agent: str | None = None,
     max_retries: int = 2,
     http_client: httpx.AsyncClient | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe URL base / User-Agent runtime (carry-forward, D-14).
 
@@ -215,12 +238,18 @@ def configure(
     D-19: NO llama ``load_dotenv()``.
 
     Phase 8 D-15: ``max_retries`` / ``http_client`` mirror sync ``configure``.
+
+    Phase 29 D-03 mirror sync: ``strict_decode`` is a carry-forward kwarg — the
+    ``None`` sentinel means "no cambiar", so a later ``configure(base_url=...)``
+    does NOT reset a previous strict opt-in. This ``configure`` builds a NEW
+    ``AsyncClient``, so the carry forward reads the prior client's state.
     """
     # WR-06: validate max_retries before any state mutation.
     _validate_max_retries(max_retries)
     global _default_async_client
     prior_base_url: str | None = None
     prior_user_agent: str | None = None
+    prior_strict_decode: bool | None = None
     # WR-07: warn if we're about to drop a live httpx.AsyncClient without
     # awaiting aclose() (configure is sync, so we cannot await here). The
     # connection pool + SSL context of the prior client leak until garbage
@@ -230,6 +259,7 @@ def configure(
     if _default_async_client is not None:
         prior_base_url = _default_async_client._state.base_url
         prior_user_agent = _default_async_client._state.user_agent
+        prior_strict_decode = _default_async_client._state.strict_decode
         prior_http_client = _default_async_client._state.http_client
         if prior_http_client is not None:
             warnings.warn(
@@ -242,11 +272,13 @@ def configure(
             )
     new_base_url = base_url if base_url is not None else prior_base_url
     new_user_agent = user_agent if user_agent is not None else prior_user_agent
+    new_strict_decode = strict_decode if strict_decode is not None else prior_strict_decode
     _default_async_client = AsyncClient(
         base_url=new_base_url,
         user_agent=new_user_agent,
         max_retries=max_retries,
         http_client=http_client,
+        strict_decode=new_strict_decode,
     )
 
 
