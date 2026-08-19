@@ -14,6 +14,7 @@ not be able to turn a walker regression green.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 import logging
 import pathlib
@@ -22,10 +23,10 @@ from typing import Any, Literal
 
 import pytest
 
-from higyrus_client import _decode
+from higyrus_client import _decode, models
 from higyrus_client._decode import POLICY, DecodeScope, walk_field, walk_model
 from higyrus_client.exceptions import HigyrusClientError, HigyrusDecodeError
-from higyrus_client.models import SafeModel
+from higyrus_client.models import Parking, Posicion, PosicionValuada, SafeModel
 
 _MESSAGE = "decode divergence"
 
@@ -645,3 +646,106 @@ def test_walk_field_preserves_every_coercion_return_value() -> None:
     assert walk_field([1, 2], list[int], **kw) == [1, 2]
     assert walk_field(None, str | None, **kw) is None
     assert walk_field("x", str | None, **kw) == "x"
+
+
+# ---------------------------------------------------------------------------
+# Delegation — models.py routes through the walker without moving a value
+# ---------------------------------------------------------------------------
+
+
+def _full_payload(cls: type) -> dict[str, Any]:
+    """A type-correct wire payload covering every declared field of ``cls``."""
+    filler: dict[Any, Any] = {str: "x", int: 1, float: 1.0, bool: True}
+    hints = _decode.hints_for(cls)
+    return {f.name: filler.get(hints[f.name], []) for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
+
+
+def test_from_api_keeps_its_single_positional_parameter() -> None:
+    """The 872-test zero-edit merge gate: the public contract may not move."""
+    params = list(inspect.signature(SafeModel.from_api).parameters.values())
+
+    assert [p.name for p in params] == ["payload"]
+    assert params[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+
+
+def test_from_api_delegates_to_the_walker() -> None:
+    """``models.py`` must route through ``_decode``, not keep a second copy."""
+    source = pathlib.Path(inspect.getfile(models)).read_text(encoding="utf-8")
+
+    assert "_decode.walk_model" in source
+    assert "_decode.walk_field" in source
+
+
+def test_coerce_is_still_callable_with_identical_return_values() -> None:
+    """Back-compat shim: two positional args, same values as before the rewrite."""
+    coerce = models._coerce
+    params = list(inspect.signature(coerce).parameters.values())
+
+    assert [p.name for p in params] == ["value", "hint"]
+    assert all(p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD for p in params)
+    assert coerce(None, str) == ""
+    assert coerce(7, str) == ""
+    assert coerce("x", str) == "x"
+    assert coerce(None, int) == 0
+    assert coerce(True, int) == 0
+    assert coerce(5, int) == 5
+    assert coerce(None, float) == 0.0
+    assert coerce(True, float) == 0.0
+    assert coerce(3, float) == 3.0
+    assert coerce(None, bool) is False
+    assert coerce(True, bool) is True
+    assert coerce(None, list[int]) == []
+    assert coerce([1, 2], list[int]) == [1, 2]
+    assert coerce(None, str | None) is None
+    assert coerce("x", str | None) == "x"
+    assert coerce(None, Parking) == Parking.from_api(None)
+    assert coerce({"diasParking": 3}, Parking) == Parking.from_api({"diasParking": 3})
+
+
+def test_real_model_missing_float_still_defaults_and_now_reports(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The exact pairing that is silent today: ``0.0`` returned AND reported."""
+    payload = _full_payload(PosicionValuada)
+    del payload["precio"]
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        obj = PosicionValuada.from_api(payload)
+
+    assert obj.precio == 0.0
+    assert obj.valuacion == 1.0
+    assert _tuples(_divergences(caplog)) == [(".precio", "missing")]
+
+
+def test_real_model_extra_wire_key_reports_and_builds_unchanged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An undeclared wire key on a shipped model: one INFO record, model intact."""
+    payload = _full_payload(PosicionValuada)
+    expected = PosicionValuada.from_api(dict(payload))
+    payload["nuevoCampoDelVendor"] = "v"
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        obj = PosicionValuada.from_api(payload)
+
+    records = _divergences(caplog)
+    assert obj == expected
+    assert _tuples(records) == [(".nuevoCampoDelVendor", "extra")]
+    assert records[0].levelno == logging.INFO
+
+
+def test_real_nested_model_path_is_dotted_from_the_decode_root(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``.parking[].diasParking`` — the aggregation contract's worked example."""
+    payload = _full_payload(Posicion)
+    payload["parking"] = [{"monedaPosicion": "ARS"}, {"monedaPosicion": "USD"}]
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        obj = Posicion.from_api(payload)
+
+    assert len(obj.parking) == 2
+    assert (".parking[].diasParking", "missing") in _tuples(_divergences(caplog))
