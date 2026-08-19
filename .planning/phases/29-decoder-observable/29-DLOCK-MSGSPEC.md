@@ -2,21 +2,26 @@
 lock: D-lock (a) — msgspec two engines vs stdlib only
 phase: 29-decoder-observable
 plan: 04
-decision: TBD
+decision: no-go-stdlib-only
 recommended_verdict: NO-GO
+signed_verdict: NO-GO
 criterion: absolute decode budget for the largest live catalogue response
 budget_ms: 100
 measured_worst_case_ms: 20.7
-signoff_by: TBD
-signoff_date: TBD
+signoff_by: sebadlf
+signoff_date: 2026-08-19
+status: signed
 requirements: [DEC-01]
 supersedes: "tipado_homogeneo.md:100 (msgspec a runtime deps de los 6 paquetes)"
 ---
 
 # D-lock (a) — msgspec as a strict-mode fast path, or stdlib only
 
-**Status:** DRAFT — `decision: TBD`, awaiting the operator signature in Task 29-04-02.
+**Status:** **SIGNED** — `decision: no-go-stdlib-only`, signed by **sebadlf** on
+**2026-08-19** (Task 29-04-02). The lock is closed; see §9.
 **Recommended verdict (advisory):** **NO-GO** — stdlib only, one engine.
+**Signed verdict:** **NO-GO** — stdlib only, one engine. The advisory and the
+signature agree.
 
 ## 1. The question
 
@@ -273,12 +278,57 @@ Options, as presented at the checkpoint:
 | `go-msgspec-fast-path` | GO — msgspec as a strict-mode fast path alongside the walker |
 | `defer` | Defer the decision to a later milestone |
 
-**Verdict:**
+**Verdict:** **`no-go-stdlib-only`** — **NO-GO on msgspec. Stdlib only, one
+engine: the cached walker.** Selected by the operator at the blocking-human
+checkpoint on 2026-08-19. The lock is **closed**, not deferred.
 
-**Budget measured against:**
+**Budget measured against:** the criterion of §3 — **100 ms** for the decode of
+one 5,000-row reference catalogue response, measured on **Arm B** (the shipped
+hints-cached walker). Arm B measured **19.37 ms** for
+`matriz.get_all_instruments` (`matriz.Instrument`) and **20.69 ms** for
+`market_data.Symbol` on the same 5,000-row workload — **4.8× headroom**, so Arm B
+does not miss the budget and the GO condition is not met.
 
-Signed:
-Date:
+**Operator's answer, verbatim:**
+
+> **no-go-stdlib-only** — signed by operator **sebadlf**, date **2026-08-19**.
+> D-lock (a) resolved: NO-GO on msgspec; stdlib-only, one engine (the cached
+> walker). Recorded against the measured budget: arm B (cached walker) 19.37 ms /
+> 20.69 ms on the 5,000-row catalogue vs the 100 ms budget; msgspec's 13-24×
+> advantage rejected because it cannot serve observable mode, would violate the
+> signed D-09 RESPONSE-Literal lock (msgspec enforces Literal membership), drops
+> extra keys silently, reports one error per decode, and ignores field renames on
+> stdlib dataclasses (market-data Symbol).
+
+**Grounds cited in the signature**, each traceable to the evidence above:
+
+| # | Ground | Evidence |
+|---|---|---|
+| 1 | Arm B meets the absolute budget with 4.8× headroom | §2 end-to-end table; §5 |
+| 2 | msgspec's 13–24× advantage over arm B is real but buys nothing | §2 results; §5 |
+| 3 | msgspec cannot serve observable mode at all | §4 probes 1–3 |
+| 4 | msgspec would violate the signed D-09 RESPONSE-`Literal` lock | §4 probe 4 |
+| 5 | msgspec drops undeclared keys silently — DEC-01's first deliverable | §4 probe 1 |
+| 6 | msgspec reports one error per decode — DEC-01's second deliverable | §4 probe 2 |
+| 7 | msgspec ignores field renames on stdlib dataclasses (`market_data.Symbol`) | §4 probe 5 |
+
+**Consequences of this signature**
+
+- The §6 GO consequence list **does not apply**. No compiled extension enters any
+  wheel; the six packages remain a pure-Python closure.
+- `uv.lock` and every `pyproject.toml` stay byte-unchanged — asserted
+  mechanically by this plan's verification, under this outcome as under any.
+- Phase 34's release set stays as planned; the README's pure-Python claim stands.
+- Phases 30–34 may proceed against a single decode engine; there is no second
+  path to keep semantically identical.
+- The stdlib walker (`_decode.walk_model` + `hints_for`) is the sole decode
+  engine in both strict and observable mode.
+- Revisiting requires a **stated throughput requirement**: per §3's sensitivity
+  table, only a budget below ~20.7 ms at 5,000 rows (or ~42 ms at 10,000) would
+  flip this verdict. No such requirement exists today.
+
+Signed: sebadlf
+Date: 2026-08-19
 
 ---
 *Evidence: throwaway three-arm benchmark, ephemeral env, 2026-08-19. Script not
