@@ -44,13 +44,27 @@
 **Plans:** 10 plans (5 waves; máximo 3 en paralelo)
 
 Plans:
+**Wave 1**
+
 - [ ] 29-01-PLAN.md — Artefactos de política: tabla 6-way de semánticas (D-07), contrato de agregación (resuelve strict-on-extra y la clave de dedupe), D-lock `Literal` en RESPONSE (D-09) + firma
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 29-02-PLAN.md — TRACER: walker canónico `_decode.py` + delegación de `models.py` de higyrus + merge gate zero-edit (872 tests)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 29-03-PLAN.md — TRACER cont.: portador `strict_decode` (state + 4 entry points + bind en ambos `_request`) + fix del `RedactingFilter` + sentinel caplog
 - [ ] 29-04-PLAN.md — Spike de timing de 3 brazos + `29-DLOCK-MSGSPEC.md` firmado
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 29-05-PLAN.md — Fan-out market-data: copia verbatim + delegación preservando `received_at` y el mirror de `Symbol` + test de concurrencia async
 - [ ] 29-06-PLAN.md — Fan-out matriz: copia verbatim con política propia + delegación preservando las 7 diferencias + `Literal` pass-through
 - [ ] 29-07-PLAN.md — Fan-out iol + ambito: copias verbatim en los 2 paquetes sin `models.py` + portador + fix del filter
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 29-08-PLAN.md — Propagación explícita del modo al daemon thread de `ws_client` (D-04) + `test_ws_decode_mode.py`
 - [ ] 29-09-PLAN.md — `tools/check_decode_intactness.py` (normalize-then-hash + ban-list) + job `lint` de CI + exención documentada de wallets
 - [ ] 29-10-PLAN.md — Corrida de sizing sobre `.planning/verification/schemas/` (43 archivos) → `29-SIZING.md` con piso `≥ N` + ratificación
