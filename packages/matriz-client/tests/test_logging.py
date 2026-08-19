@@ -172,23 +172,27 @@ def test_redact_auth_basic_tuple_in_extra() -> None:
 
 
 def test_redact_auth_basic_tuple_malformed_does_not_crash() -> None:
-    """Defensive: malformed ``auth_basic`` value (wrong type/arity) leaves it untouched.
+    """Defensive: a malformed ``auth_basic`` never crashes the filter — and never leaks.
 
-    Better to leave a non-tuple value alone than to crash the log filter. The
-    record.__dict__ generic scan will still redact string credentials by
-    substring match if present.
+    Phase 29 code review, WR-05. The filter used to leave a malformed value
+    untouched on the theory that "the generic scan will still redact string
+    credentials by substring match". It will not: ``_redact_nested`` only
+    rewrites string leaves that already contain a redaction marker
+    (``Bearer ``, ``Authorization: Basic``, ...), and a bare password contains
+    none — so ``auth_basic=["user", "pw"]``, a 3-tuple, or a ``bytes`` password
+    shipped the secret to every downstream handler. The filter now fails CLOSED:
+    a value that cannot be split is redacted wholesale.
     """
     f = RedactingFilter()
     record = _make_record("risk call", extra={"auth_basic": "not-a-tuple"})
-    # Should NOT raise; the value is a string but does not contain redaction
-    # markers ("Bearer ", "Authorization: Basic", etc.), so it survives intact.
+    # Should NOT raise, and MUST NOT survive as the caller supplied it.
     f.filter(record)
-    assert record.__dict__.get("auth_basic") == "not-a-tuple"
+    assert record.__dict__.get("auth_basic") == "***"
 
-    # Tuple of wrong arity — also tolerated; left intact.
+    # Tuple of wrong arity — also tolerated, also redacted wholesale.
     record2 = _make_record("risk call", extra={"auth_basic": ("only-one-field",)})
     f.filter(record2)
-    assert record2.__dict__.get("auth_basic") == ("only-one-field",)
+    assert record2.__dict__.get("auth_basic") == "***"
 
 
 def test_account_id_not_redacted() -> None:
@@ -425,3 +429,29 @@ def test_decode_sentinel_never_leaks_credential(caplog: pytest.LogCaptureFixture
             if isinstance(value, str):
                 assert _SENTINEL not in value
         assert _SENTINEL not in repr(record.__dict__)
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, WR-05 — the auth_basic pre-scan fails CLOSED
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["operator-1", "super-secret-pw"],  # a list, not a tuple
+        ("operator-1", "super-secret-pw", "extra"),  # wrong arity
+        ("operator-1", b"super-secret-pw"),  # bytes password
+        {"user": "operator-1", "password": "super-secret-pw"},  # a mapping
+        b"operator-1:super-secret-pw",  # raw bytes
+    ],
+    ids=["list", "arity", "bytes-member", "mapping", "bytes"],
+)
+def test_malformed_auth_basic_never_ships_the_secret(value: object) -> None:
+    """WR-05: every shape ``_redact_auth_basic_tuple`` cannot split is redacted."""
+    record = _make_record("risk call", extra={"auth_basic": value})
+    RedactingFilter().filter(record)
+
+    assert record.__dict__.get("auth_basic") == "***"
+    assert "super-secret-pw" not in repr(record.__dict__)
+    assert b"super-secret-pw" not in repr(record.__dict__).encode()

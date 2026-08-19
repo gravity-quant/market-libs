@@ -136,6 +136,10 @@ def _redact_auth_basic_tuple(value: object) -> dict[str, str] | None:
     ``auth_basic_password`` (redacted to ``"***"``). Returns ``None`` for any
     malformed input (non-tuple, wrong arity, non-string members) — defensive
     against accidental misuse so the filter never crashes a log emission.
+
+    ``None`` means "this value could not be split", NOT "this value is safe":
+    the caller redacts it wholesale (WR-05). A malformed ``auth_basic`` still
+    carries the password, and nothing downstream of the caller would redact it.
     """
     if not isinstance(value, tuple) or len(value) != 2:
         return None
@@ -232,9 +236,17 @@ class RedactingFilter(logging.Filter):
         # non-string field and leak the password).
         if "auth_basic" in record.__dict__:
             split = _redact_auth_basic_tuple(record.__dict__["auth_basic"])
-            if split is not None:
-                del record.__dict__["auth_basic"]
-                record.__dict__.update(split)
+            del record.__dict__["auth_basic"]
+            # WR-05 (Phase 29 code review): FAIL CLOSED. ``_redact_auth_basic_tuple``
+            # returns ``None`` for every malformed shape — a ``list`` instead of a
+            # ``tuple``, the wrong arity, a ``bytes`` password — and the generic scan
+            # below cannot rescue it: ``_redact_nested`` only rewrites string leaves
+            # that already contain a redaction marker, and a bare password contains
+            # none. Leaving the original value in place therefore shipped the secret
+            # to every downstream handler, which is precisely the outcome the comment
+            # below claims this block prevents. An ``auth_basic`` key that cannot be
+            # split is now redacted wholesale.
+            record.__dict__.update(split if split is not None else {"auth_basic": "***"})
         # Scan record.__dict__ for sentinel substrings in extra= values.
         # The D-22 ``auth_basic`` pre-scan above MUST stay ABOVE this call: it
         # splits a credential-bearing TUPLE into redactable string fields, and
