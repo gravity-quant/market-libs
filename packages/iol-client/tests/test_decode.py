@@ -1121,3 +1121,53 @@ def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
 
     paths = {r.field_path for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert paths == {".7", ".??t???"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, CR-01 — a response's scope dies with its response
+# ---------------------------------------------------------------------------
+
+
+def test_a_retired_response_scope_never_serves_a_later_standalone_decode() -> None:
+    """CR-01, lock 6: the scope ``_request`` binds is retired by its response's parse.
+
+    ``_request`` binds without a reset (D-03), so before the fix the scope stayed
+    bound for the rest of the thread's life and ``current_sink``'s per-call
+    fallback was dead after the first HTTP call in the process: every standalone
+    ``Model.from_api()`` reused that one request's dedupe set.
+    """
+    scope = _decode.open_request_scope()
+    assert _decode.current_sink() is scope
+
+    with _decode._response_scope() as owned:
+        # Every model of ONE response — including every element of a top-level
+        # ``list[Model]`` parse — still shares one scope, so lock 5 collapses.
+        assert owned is scope
+        assert _decode.current_sink() is scope
+        assert _decode.current_sink() is scope
+
+    assert scope.closed is True
+    first = _decode.current_sink()
+    second = _decode.current_sink()
+    assert first is not scope
+    assert second is not scope
+    assert first is not second
+
+
+def test_response_scope_retires_once_when_parsers_nest() -> None:
+    """Re-entrancy: a parser delegating to another retires the scope on the outer exit."""
+    _decode.open_request_scope()
+    with _decode._response_scope() as outer:
+        with _decode._response_scope() as inner:
+            assert inner is outer
+        assert outer.closed is False
+    assert outer.closed is True
+
+
+def test_response_scope_creates_its_own_when_no_request_bound_one() -> None:
+    """A parser driven directly, with no preceding request, still owns a scope."""
+    _decode.DECODE_SCOPE.set(None)
+    with _decode._response_scope() as scope:
+        assert _decode.DECODE_SCOPE.get() is scope
+    assert scope.closed is True
+    assert _decode.current_sink() is not scope

@@ -42,8 +42,10 @@ exactly those away.
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import re
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
@@ -166,10 +168,23 @@ class DecodeScope:
     ``occurrences`` counter (lock 7).
     """
 
-    __slots__ = ("_seen",)
+    __slots__ = ("_holds", "_seen", "closed")
 
     def __init__(self) -> None:
         self._seen: set[tuple[str, str, str]] = set()
+        # Phase 29 code review, CR-01. ``_request`` binds a scope BEFORE the
+        # parse (D-03 ``.set()``-without-reset: the decode happens after the
+        # method returns), so nothing in the transport can unbind it and the
+        # scope outlives the response it belongs to. ``closed`` retires it at the
+        # END of that response's parse, which is the point lock 6 actually means
+        # by "one HTTP response": a later standalone ``Model.from_api()`` — a
+        # supported public entry point (DT-05) — then gets the fresh per-call
+        # scope lock 6 promises instead of inheriting the previous request's
+        # dedupe set and decoding a divergent payload silently clean.
+        self.closed = False
+        # Re-entrancy count for :func:`_response_scope`: a parser that delegates
+        # to another parser must retire the scope once, on the outermost exit.
+        self._holds = 0
 
     def __call__(self, model: str, path: str, kind: str, declared: str, observed: str) -> None:
         """Report one divergence, unless its triple was already seen in this scope."""
@@ -240,16 +255,62 @@ def open_request_scope() -> DecodeScope:
 
 
 def current_sink() -> DecodeScope:
-    """Return the bound scope, or a fresh per-call scope when none is bound.
+    """Return the bound scope, or a fresh per-call scope when none is usable.
 
     Lock 6: a process-lifetime scope is explicitly rejected — it would make the
     second identical response decode silently clean, which is the false pass
     this milestone exists to eliminate.
+
+    A RETIRED scope counts as none bound (CR-01). The bind in ``_request`` has no
+    reset, so without this the fallback below would be dead for the whole life of
+    the thread after its first HTTP call, and every standalone ``Model.from_api``
+    would reuse that one request's dedupe set.
     """
     scope = DECODE_SCOPE.get()
-    if scope is None:
+    if scope is None or scope.closed:
         return DecodeScope()
     return scope
+
+
+@contextlib.contextmanager
+def _response_scope() -> Iterator[DecodeScope]:
+    """Own one response's decode scope for the duration of its parse (lock 6).
+
+    Adopts the scope ``_request`` bound for this response — so every model the
+    parse builds, including **every element of a top-level** ``list[Model]``
+    **parse**, shares one dedupe set and lock 5's collapse still fires — and
+    retires it on the way out, so the scope cannot outlive the response.
+
+    A fresh scope is created when none is bound or the bound one is already
+    retired, which is what makes a parser correct when it is driven directly in a
+    test with no preceding request.
+    """
+    scope = DECODE_SCOPE.get()
+    if scope is None or scope.closed:
+        scope = DecodeScope()
+        DECODE_SCOPE.set(scope)
+    scope._holds += 1
+    try:
+        yield scope
+    finally:
+        scope._holds -= 1
+        if scope._holds <= 0:
+            scope.closed = True
+
+
+def _response_parser[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
+    """Mark a function as the parser that OWNS its response's decode scope (lock 6).
+
+    Applied to every ``_core`` parser that builds models. Nesting is safe: the
+    scope is retired once, when the outermost decorated frame returns.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        with _response_scope():
+            return fn(*args, **kwargs)
+
+    return wrapper
 
 
 # ---------------------------------------------------------------------------

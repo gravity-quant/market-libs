@@ -119,6 +119,7 @@ def _handle_open(ws: websocket.WebSocketApp) -> None:
     _connected.set()
 
 
+@_decode._response_parser
 def _parse_frame(data: dict[str, Any]) -> PrimaryWsMessage:
     """Wrap ``data`` in the safe-access frame model matching its ``type``.
 

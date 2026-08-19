@@ -48,7 +48,7 @@ from typing import Any
 
 import httpx
 
-from market_data_client import _params
+from market_data_client import _decode, _params
 from market_data_client._state import (
     _TOKEN_TTL_BUFFER_SECONDS,
     _TOKEN_TTL_FALLBACK_SECONDS,
@@ -843,6 +843,7 @@ def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
 # ----------------------------------------------------------------------
 
 
+@_decode._response_parser
 def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     """Pure: parse a ``GET /marketdata`` response → list of snapshots (D-01).
 
@@ -874,6 +875,7 @@ def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]
     return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in rows]
 
 
+@_decode._response_parser
 def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     """Pure: parse a ``GET/POST /marketdata/latest`` response → list of snapshots.
 
@@ -923,6 +925,7 @@ def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
 # is the single-object exception (D-07).
 
 
+@_decode._response_parser
 def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
     """Pure: parse ``GET /instruments`` → ``list[Instrument]`` (D-05 / D-06).
 
@@ -939,6 +942,7 @@ def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
     return [Instrument.from_api(item) for item in raw]
 
 
+@_decode._response_parser
 def parse_segments_response(resp: httpx.Response) -> list[Segment]:
     """Pure: parse ``GET /instruments/segments`` → ``list[Segment]`` (D-05 / D-06).
 
@@ -955,6 +959,7 @@ def parse_segments_response(resp: httpx.Response) -> list[Segment]:
     return [Segment.from_api(item) for item in raw]
 
 
+@_decode._response_parser
 def parse_symbols_response(resp: httpx.Response) -> list[Symbol]:
     """Pure: parse any ``/symbols`` response → ``list[Symbol]`` (D-05 / D-06 / D-11).
 
@@ -1021,6 +1026,7 @@ def parse_symbols_response(resp: httpx.Response) -> list[Symbol]:
     return [Symbol.from_api(item) for item in rows]
 
 
+@_decode._response_parser
 def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
     """Pure: parse ``GET /calendar`` → ``list[CalendarDay]`` (D-05 / D-06 / D-12).
 
@@ -1057,6 +1063,7 @@ def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
     return [CalendarDay.from_api(item) for item in rows]
 
 
+@_decode._response_parser
 def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
     """Pure: parse ``GET /calendar/config`` → a single ``CalendarConfig`` (D-07).
 

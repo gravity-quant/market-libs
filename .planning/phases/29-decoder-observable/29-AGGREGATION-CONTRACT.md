@@ -216,6 +216,37 @@ sees a clean decode of a divergent payload. That is a false pass, which is preci
 what this milestone exists to eliminate. For the same reason the dedupe set MUST NOT
 be a module-level global.
 
+### Amendment (Phase 29 code review, CR-01) — the scope is RETIRED by its parse
+
+The bind above is necessary but was not sufficient. `_request` binds with
+`.set()`-without-reset because the decode happens after it returns; on the sync surface
+the context is the caller's own, never a per-task copy, so **nothing ever unbound the
+scope** and it survived for the rest of the thread's life. The consequence is the exact
+false pass this lock rejects, one level down: `current_sink()`'s "no scope bound → fresh
+per-call scope" fallback was dead after the first HTTP call in the process, so every
+standalone `Model.from_api()` — the DT-05 entry point this lock writes the fallback
+*for* — reused that one request's dedupe set and decoded a divergent payload silently
+clean the second time it was called.
+
+The lifetime is therefore closed at the other end, where "one HTTP response" actually
+ends: **the parse owns the scope and retires it on the way out.**
+
+- `_decode._response_scope()` is a context manager that adopts the scope `_request`
+  bound (creating one if none is bound or the bound one is already retired), and sets
+  `scope.closed = True` when it exits. It is re-entrant: a parser delegating to another
+  parser retires the scope once, on the outermost exit.
+- `_decode._response_parser` is the decorator form, applied to every `_core` parser that
+  builds models (higyrus ×1, market-data ×7, matriz ×20, plus matriz's
+  `ws_client._parse_frame`). Applying it at the parser — rather than per `from_api` call
+  — is what keeps **every element of a top-level `list[Model]` parse inside one scope**,
+  so lock 5's collapse is unchanged.
+- `current_sink()` treats a retired scope as no scope: it returns a fresh per-call scope.
+  That is what brings this lock's own fallback back to life.
+
+The bind in `_request` is unchanged, and so are the two invariants that depend on it:
+the scope bound during `_request` is still the same object after the method returns, and
+each request still binds a distinct one.
+
 ---
 
 ## Lock 7 — Emission timing and ordering

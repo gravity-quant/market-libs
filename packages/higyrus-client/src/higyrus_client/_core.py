@@ -52,6 +52,7 @@ from urllib.parse import quote, urlencode
 
 import httpx
 
+from higyrus_client import _decode
 from higyrus_client._params import drop_none, format_bool, format_date
 from higyrus_client._state import _TOKEN_TTL_SECONDS, _ClientState
 from higyrus_client.exceptions import (
@@ -453,6 +454,7 @@ def parse_get_health_response(resp: httpx.Response) -> dict[str, Any]:
     return raw
 
 
+@_decode._response_parser
 def _parse_list_or_raise(resp: httpx.Response, model_cls: type[Any]) -> list[Any]:
     """Helper común para parsers que retornan ``list[Model]`` con 204→``[]``."""
     body = _consume_and_check(resp)
