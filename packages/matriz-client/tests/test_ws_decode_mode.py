@@ -468,3 +468,57 @@ def test_reconnecting_re_snapshots_the_mode(connect: Callable[..., _Recorder]) -
     assert second.modes == [True]
     assert len(second.errors) == 1
     assert isinstance(second.errors[0], MatrizDecodeError)
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, WR-06 — no silent downgrade of strict mode
+# ---------------------------------------------------------------------------
+
+
+def test_ws_connect_stamps_the_mode_on_the_app_instance(
+    connect: Callable[..., _Recorder],
+) -> None:
+    """WR-06: the value the daemon thread binds travels with its own connection.
+
+    ``ws_disconnect`` clears the module global while a frame may still be in
+    flight; the instance attribute is owned by the daemon thread for the whole
+    connection and cannot be taken away underneath it.
+    """
+    rec = connect(strict=True)
+    try:
+        assert getattr(rec.app, _ws._DECODE_STRICT_ATTR) is True
+        # Clearing the module global mid-connection no longer changes the mode
+        # the daemon thread already bound.
+        _ws._ws_strict_decode = None
+        assert getattr(rec.app, _ws._DECODE_STRICT_ATTR) is True
+    finally:
+        _ws.ws_disconnect()
+
+
+def test_handle_open_warns_when_the_mode_was_never_handed_over(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-06: an unbound mode is announced, not silently downgraded.
+
+    ``bool(None)`` is ``False``, so a consumer who configured
+    ``strict_decode=True`` used to get observable mode with no record at all —
+    for a mode whose entire point is "a divergence must be fatal". Observable is
+    still the fallback; it is no longer silent.
+    """
+
+    class _Bare:
+        """An app this module never stamped."""
+
+    _ws._ws_strict_decode = None
+    caplog.clear()
+    try:
+        with caplog.at_level(logging.WARNING, logger="matriz_client"):
+            _ws._handle_open(_Bare())  # type: ignore[arg-type]
+
+        assert _decode.STRICT_DECODE.get() is False
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("decode mode was not handed over" in m for m in messages)
+        assert any("observable" in m for m in messages)
+    finally:
+        _ws._connected.clear()
+        _decode.STRICT_DECODE.set(False)

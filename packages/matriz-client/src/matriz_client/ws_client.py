@@ -78,6 +78,13 @@ _connected = threading.Event()
 # to ``None`` by :func:`ws_disconnect` so a reconnection re-reads the flag.
 _ws_strict_decode: bool | None = None
 
+# Phase 29 code review, WR-06: the attribute :func:`ws_connect` writes on the
+# ``WebSocketApp`` instance to hand the decode mode to the daemon thread. The
+# instance is owned by that thread for its whole lifetime, so — unlike the module
+# global above, which :func:`ws_disconnect` clears while a frame may still be in
+# flight — nothing can take the mode away mid-connection.
+_DECODE_STRICT_ATTR = "_decode_strict"
+
 
 # ------------------------------------------------------------------
 # Internal helpers
@@ -109,12 +116,31 @@ def _handle_open(ws: websocket.WebSocketApp) -> None:
     frame the connection subsequently delivers, and it involves no context
     re-entry — see :func:`_bind_decode_mode_for_ws` for why that matters.
 
-    ``_ws_strict_decode`` is ``None`` when this handler is reached without a
-    preceding :func:`ws_connect` (a direct call in a test, or a reconnection
-    race after :func:`ws_disconnect` cleared it); that collapses to the
-    ``STRICT_DECODE`` default, which is observable mode.
+    The mode is read from the ``WebSocketApp`` instance
+    (:data:`_DECODE_STRICT_ATTR`), which :func:`ws_connect` stamped on the caller's
+    thread. The instance belongs to the daemon thread for the whole connection, so
+    :func:`ws_disconnect` clearing the module global cannot take the mode away
+    while a frame is in flight — the interleaving WR-06 flagged.
+
+    WR-06 also removes the silent downgrade. The previous
+    ``bool(_ws_strict_decode)`` turned "the mode was never handed over" into
+    "observable", with no trace: a consumer who configured ``strict_decode=True``
+    then got "a divergence is a log line" from a mode whose entire purpose is "a
+    divergence is fatal". Observable is still the fallback — a WebSocket that
+    refuses to open is worse than one that under-reports — but it is now
+    ANNOUNCED, on the paquete logger, at WARNING.
     """
-    _decode.STRICT_DECODE.set(bool(_ws_strict_decode))
+    mode = getattr(ws, _DECODE_STRICT_ATTR, None)
+    if mode is None:
+        # Reached without a preceding ``ws_connect`` — a direct call in a test, or
+        # a handler invoked on an app this module did not stamp.
+        mode = bool(_ws_strict_decode)
+        _LOGGER.warning(
+            "websocket decode mode was not handed over to the daemon thread; "
+            "falling back to %s mode",
+            "strict" if mode else "observable",
+        )
+    _decode.STRICT_DECODE.set(bool(mode))
     _decode.open_request_scope()
     _connected.set()
 
@@ -291,6 +317,12 @@ def ws_connect(
         on_error=_handle_error,
         on_close=_handle_close,
     )
+    # WR-06: hand the mode over on the INSTANCE, before the thread starts. The
+    # module global stays as the observable record of the snapshot (and as the
+    # fallback for a handler invoked on an app this module did not build), but the
+    # value the daemon thread actually binds now travels with the connection it
+    # belongs to.
+    setattr(_ws, _DECODE_STRICT_ATTR, default._state.strict_decode)
 
     _ws_thread = threading.Thread(target=_ws.run_forever, daemon=True)
     _ws_thread.start()
