@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import pytest
-from higyrus_client._decode import POLICY, DecodeScope, walk_field, walk_model
 
 from higyrus_client import _decode
+from higyrus_client._decode import POLICY, DecodeScope, walk_field, walk_model
 from higyrus_client.exceptions import HigyrusClientError, HigyrusDecodeError
 from higyrus_client.models import SafeModel
 
@@ -292,7 +292,12 @@ def test_record_is_flat_all_str_and_carries_no_wire_value(
     wire_values = {str(v) for v in payload.values()}
 
     assert records
-    baseline = set(logging.LogRecord("n", logging.INFO, "p", 0, "m", None, None).__dict__)
+    # ``message``/``asctime`` are injected by whichever formatter renders the
+    # record (caplog's, here) — they are not part of the emitted ``extra``.
+    baseline = set(logging.LogRecord("n", logging.INFO, "p", 0, "m", None, None).__dict__) | {
+        "message",
+        "asctime",
+    }
     for record in records:
         assert set(record.__dict__) - baseline == set(_CONTRACT_KEYS)
         for key in _CONTRACT_KEYS:

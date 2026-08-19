@@ -50,6 +50,7 @@ from higyrus_client.exceptions import (  # noqa: E402
     HigyrusAuthError,
     HigyrusAuthorizationError,
     HigyrusClientError,
+    HigyrusDecodeError,
     HigyrusRateLimitError,
 )
 from higyrus_client.models import (  # noqa: E402
@@ -83,6 +84,7 @@ __all__ = [
     "HigyrusAuthError",
     "HigyrusAuthorizationError",
     "HigyrusClientError",
+    "HigyrusDecodeError",
     "HigyrusRateLimitError",
     "MedioComunicacion",
     "Movimiento",
