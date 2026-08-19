@@ -6,7 +6,7 @@ current_phase: 29
 current_phase_name: decoder-observable
 status: executing
 stopped_at: Completed 29-09-PLAN.md
-last_updated: "2026-08-19T13:45:19.771Z"
+last_updated: "2026-08-19T22:39:08.103Z"
 last_activity: 2026-08-19
 last_activity_desc: "Plan 29-09 completo: gate de intactness normalize-then-hash (5 copias -> 1 hash) + step decode-intactness en el job lint + exencion de wallets"
 progress:
@@ -211,6 +211,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 29-09]: Comments stay inside the hashed decode body; ast.unparse rejected because it discards them. Settles Plans 05/07's open item on the two 'higyrus'-naming comments once for all five copies: keep verbatim, normalize nothing
 - [Phase ?]: [Phase 29-09]: The decode-intactness gate runs in the CI lint job, never under verification/ — the test job passes an explicit package path that overrides pyproject's testpaths, so verification/ has never executed in CI
 - [Phase ?]: [Phase 29-09]: wallets-client exempt from Phase 29 (no _state.py/_logging.py/_core.py/models.py, no Client class, module-level _request); Phase 31 bootstraps structure, Phase 32 D-16 settles enrollment. Every per-package Phase 29 criterion reads as five packages plus this documented exemption
+- [Phase 29 / 29-10]: **Sizing floor RATIFICADO** — sebadlf firmó "ratified" el 2026-08-19 en `29-SIZING.md`. Los pisos por paquete quedan como **presupuesto declarado** de la fase de verificación en vivo (**Phase 33**): `higyrus-client ≥ 22`, `matriz-client ≥ 24`, `market-data-client ≥ 50`, `iol-client` N/A (sus modelos llegan en la Phase 30), `ambito-financiero-client` N/A — nunca 0, porque un 0 se lee como limpio y un falso-limpio es exactamente lo que este milestone existe para eliminar. Total modelado **≥ 96** (56 missing / 0 wrong_type / 32 extra / 8 non_dict). Es un **piso**, no una estimación: el corpus type-only es ciego a divergencias de valor (NaN/Infinity, valores fuera de conjunto en las 9 aliases de `types.py` de matriz, rango/formato, inconsistencia cross-field, colecciones heterogéneas — `schema_of` reduce por el PRIMER elemento), así que el margen de error apunta **sólo hacia arriba**. **La Phase 33 debe contrastar su censo en vivo contra estos números** — son directamente comparables sin traducción porque ambas corridas emiten el mismo record de 6 claves por el mismo walker con el mismo triple de dedupe `(model, field_path, kind)` (D-06, locks 1 y 5 del contrato de agregación). Si el censo los **excede**, eso exige un **re-scope explícito**: cada finding diferido se rutea a una **fase destino nombrada** con paquete y campo registrados; diferir a "más adelante" sin destino, o silenciar angostando el walker, no es una opción disponible. Los 5 hallazgos estructurales (S-1…S-5) quedan documentados para corrección in-cycle en la Phase 33 — el de mayor consecuencia es S-3 (matriz `Instrument.instrumentId` ausente en byCFICode/bySegment: `marketId`/`symbol` llegan aplanados, se reportan como `extra` y se **descartan**, y todo consumidor de `inst.instrumentId.symbol` lee vacío en cada fila, en silencio).
 
 ### Pending Todos
 

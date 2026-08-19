@@ -390,6 +390,12 @@ false clean this milestone exists to remove.
 The operator must ratify this floor before it is treated as a downstream budget. Until the
 signature line below is filled, no phase may cite these numbers as a committed budget.
 
-Signed:
-Date:
-Decision recorded:
+Signed: "ratified" — sebadlf
+Date: 2026-08-19
+Decision recorded: The per-package floors above are accepted as the declared budget
+for the live-verification phase (Phase 33): `higyrus-client ≥ 22`, `matriz-client ≥ 24`,
+`market-data-client ≥ 50`, `iol-client` N/A (models arrive in Phase 30),
+`ambito-financiero-client` N/A. Total modelled `≥ 96`. Phase 33 must contrast its live
+census against these numbers; exceeding them requires an explicit re-scope with every
+deferred finding routed to a named destination phase. The five structural findings
+(S-1 … S-5) remain documented for in-cycle correction in Phase 33.
