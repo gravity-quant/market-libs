@@ -52,7 +52,7 @@ from typing import Any, Self
 
 import httpx
 
-from matriz_client import _atransport, _core
+from matriz_client import _atransport, _core, _decode
 from matriz_client._core import RequestSpec
 
 # B8 (D-04): import the shared, stateless helper from _core (NOT from
@@ -162,6 +162,7 @@ class AsyncClient:
         token_expires_at: float | None = None,
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06 (Phase 8 mirror): validate max_retries early.
         _validate_max_retries(max_retries)
@@ -176,6 +177,11 @@ class AsyncClient:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 29 D-03 (async mirror): ``None`` sentinel = "leave the state
+        # default"; the flag lands on the SHARED ``_state``, never on
+        # ``__slots__``, so a ``with_options`` view inherits it (T-29-17).
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1.
         self._max_retries = max_retries
         # Phase 13 D-T3 (async mirror sync): TokenStore retry cap source. View's
@@ -446,7 +452,20 @@ class AsyncClient:
           request with ``X-Auth-Token`` header; on 401 invalidate the TokenStore,
           re-ensure token, retry ONCE with refreshed header; on second 401 raise
           ``AuthenticationError``.
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response. Each
+        asyncio task carries its OWN copy of the context, so two interleaved
+        tasks in different modes never see each other's bind.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this coroutine returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in ``_core``'s
+        # parsers, which hold no reference to this AsyncClient. A reset in a
+        # ``finally`` would unbind the mode before the decoder ever reads it.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         http = await self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         request_id = uuid.uuid4().hex
@@ -724,6 +743,7 @@ def configure(
     token_expires_at: float | None = None,
     max_retries: int | None = None,
     http_client: httpx.AsyncClient | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL/token en runtime y resetea cache (D-04 mirror).
 
@@ -739,6 +759,10 @@ def configure(
     - Setting ``http_client=`` swaps the cached client AS-IS (D-16 — no
       auto-wrap). The caller MUST ``await aclose()`` BEFORE configure() to
       avoid leaking the prior connection pool (WR-07 mirror).
+
+    Phase 29 D-03: ``strict_decode`` uses the same ``None`` sentinel — "no
+    cambiar" — so a later ``configure(base_url=...)`` does NOT silently reset a
+    previous strict opt-in (Pitfall 5 on a security-relevant flag).
     """
     if max_retries is not None:
         _validate_max_retries(max_retries)
@@ -788,6 +812,8 @@ def configure(
                 stacklevel=2,
             )
         client._state.http_client = http_client
+    if strict_decode is not None:
+        client._state.strict_decode = strict_decode
 
 
 async def login() -> str:

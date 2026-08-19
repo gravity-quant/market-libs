@@ -26,7 +26,7 @@ from typing import Any, Self
 import httpx
 from dotenv import load_dotenv
 
-from matriz_client import _core, _transport
+from matriz_client import _core, _decode, _transport
 from matriz_client._core import RequestSpec
 from matriz_client._state import _REQUEST_TIMEOUT, _ClientState
 from matriz_client._token_store import build_token_store
@@ -134,6 +134,7 @@ class Client:
         token_expires_at: float | None = None,
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early.
         _validate_max_retries(max_retries)
@@ -148,6 +149,11 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 29 D-03: ``None`` sentinel = "leave the state default"; the
+        # flag lands on the SHARED ``_state``, never on ``__slots__``, so a
+        # ``with_options`` view inherits it (T-29-17).
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 8 D-15 / D-19: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         # max_retries=0 disables retries entirely per D-19 (max_attempts <= 1 bypass).
         self._max_retries = max_retries
@@ -393,7 +399,18 @@ class Client:
         out and is NEVER retried by the transport (200-OK is not in the
         retryable status set; the application-level error is raised AFTER the
         transport returns).
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this method returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in ``_core``'s
+        # parsers, which hold no reference to this Client. A reset in a
+        # ``finally`` would unbind the mode before the decoder ever reads it.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         http = self._ensure_http_client()
         url = f"{self._state.base_url}{spec.path}"
         request_id = uuid.uuid4().hex
@@ -694,6 +711,7 @@ def configure(
     token_expires_at: float | None = None,
     max_retries: int | None = None,
     http_client: httpx.Client | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL/token en runtime y resetea cache (D-04).
 
@@ -702,6 +720,10 @@ def configure(
     auto-wrapping with ``RetryTransport`` per D-16) are runtime overrides on
     the default singleton. Changing ``max_retries`` triggers a transport
     rebuild on the next ``_ensure_http_client()`` call.
+
+    Phase 29 D-03: ``strict_decode`` uses the same ``None`` sentinel — "no
+    cambiar" — so a later ``configure(base_url=...)`` does NOT silently reset a
+    previous strict opt-in (Pitfall 5 on a security-relevant flag).
     """
     # WR-06: validate max_retries (only when explicitly passed).
     if max_retries is not None:
@@ -747,6 +769,8 @@ def configure(
         if isinstance(existing, httpx.Client) and existing is not http_client:
             existing.close()
         default._state.http_client = http_client
+    if strict_decode is not None:
+        default._state.strict_decode = strict_decode
 
 
 def login() -> str:

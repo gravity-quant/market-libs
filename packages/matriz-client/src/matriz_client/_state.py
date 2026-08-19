@@ -13,6 +13,9 @@ Notes:
 - No ``refresh_token`` field: matriz does not implement OAuth refresh; the
   token simply expires after 24h and ``_ensure_token`` calls ``login()`` again.
 - No ``token_lock``: matriz has no async REST surface yet (Phase 10).
+- ``strict_decode`` (Phase 29 D-03/D-14) is the ONLY field here with a plain
+  literal default and no ``default_factory``: it must never be reachable from
+  an environment variable (T-29-16).
 """
 
 from __future__ import annotations
@@ -65,3 +68,14 @@ class _ClientState:
     # Phase 13 D-T3: TokenStore retry cap source (separate from HTTP-level
     # ``_max_retries`` which view can override via ``with_options``).
     client_max_retries: int = 2
+    # Phase 29 D-03 + D-14 (DEC-01): decode mode carrier. A plain ``bool``
+    # default with NO ``default_factory`` — deliberately unlike every
+    # credential field above. T-29-16 forbids an environment-variable carrier:
+    # turning payload divergences fatal is a security-relevant opt-in that must
+    # be a typed argument at a public entry point, never ambient process state.
+    # It lives on the SHARED state (not in ``Client.__slots__``) so a
+    # ``with_options`` view can never silently run a different mode than its
+    # parent (T-29-17), and it is read exactly once per request, at the top of
+    # ``Client._request`` / ``AsyncClient._request``, to bind
+    # ``_decode.STRICT_DECODE``.
+    strict_decode: bool = False
