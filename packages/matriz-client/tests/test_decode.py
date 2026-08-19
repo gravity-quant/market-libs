@@ -307,6 +307,29 @@ def test_bool_payload_never_collapses_into_an_int_field(
     assert observed[".i"] == "bool"
 
 
+def test_int_into_a_float_field_widens_and_is_not_reported() -> None:
+    """The ONE behavioural delta the seven policy axes do not cover.
+
+    ``walk_field``'s ``float`` branch returns ``float(value)`` for any
+    ``int | float``, *before* it consults ``scalar_passthrough``. matriz's old
+    ``_convert`` had no scalar branch at all, so a wire ``10`` for a
+    ``float``-declared field used to come back as the ``int`` ``10``; it now
+    comes back as ``10.0``. Numerically identical (``10 == 10.0``), and it
+    agrees with the field's own annotation — but it IS a type change on
+    published surface, so it is pinned here rather than left to be discovered.
+
+    Plan 02 signed this branch off deliberately: widening is a coercion, not a
+    substituted default, which is why no divergence is reported for it.
+    """
+    order = models.Order.from_api({"orderQty": 10, "lastQty": 3})
+    assert order.orderQty == 10
+    assert isinstance(order.orderQty, float)
+    assert order.lastQty == 3.0
+    # An ``int`` into an ``int``-declared field is untouched, as before.
+    assert models.MarketDataLevel.from_api({"size": 1000}).size == 1000
+    assert isinstance(models.MarketDataLevel.from_api({"size": 1000}).size, int)
+
+
 def test_missing_list_field_returns_empty_list_and_reports(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
