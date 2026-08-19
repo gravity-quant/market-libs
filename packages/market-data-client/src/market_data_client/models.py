@@ -35,15 +35,31 @@ carries a ``received_at`` at all.
 This module is a package-local copy of the higyrus ``SafeModel`` / ``_coerce``
 implementation (D-03): the no-shared-internals constraint forbids importing any
 symbol from ``higyrus_client``.
+
+Phase 29 (DEC-01): the per-field coercion now lives in
+:mod:`market_data_client._decode`, the canonical walker shared in verbatim
+copies across the paquetes. **The substitution behaviour above is unchanged** —
+every default listed is still the default, and :meth:`SafeModel.from_api` still
+takes exactly one positional argument and returns the same instance it always
+did. What is new is *reporting*: each substitution now emits a structured
+divergence record on the ``market_data_client`` logger, and an undeclared wire
+key — which ``_coerce`` structurally could not see, since it never received the
+payload's own key set — is reported too. The record names the field and the
+types, **never** the value: market-data payloads carry symbol and account
+identifiers (T-29-22).
+
+Both model-level exemptions of ``29-SEMANTICS-MATRIX.md`` Section 3 survive the
+delegation verbatim: :meth:`MarketDataSnapshot.from_api` keeps its extended
+signature and its ``received_at`` injection bypass, and :meth:`Symbol.from_api`
+keeps its wire-key mirror and its explicit two-argument ``super()``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
-from types import NoneType, UnionType
-from typing import Any, Self, Union, cast, get_args, get_origin, get_type_hints
+from dataclasses import dataclass
+from typing import Any, Self
 
-from market_data_client import _params
+from market_data_client import _decode, _params
 
 __all__ = [
     "CalendarConfig",
@@ -73,56 +89,28 @@ class SafeModel:
     @classmethod
     def from_api(cls, payload: Any) -> Self:
         """Build an instance from an API payload, with safe defaults."""
-        data: dict[str, Any] = payload if isinstance(payload, dict) else {}
-        hints = get_type_hints(cls)
-        kwargs: dict[str, Any] = {}
-        for field in fields(cast(Any, cls)):
-            kwargs[field.name] = _coerce(data.get(field.name), hints[field.name])
+        kwargs = _decode.walk_model(
+            cls, payload, policy=_decode.POLICY, sink=_decode.current_sink()
+        )
         return cls(**kwargs)
 
 
 def _coerce(value: Any, hint: Any) -> Any:
-    """Coerce ``value`` to match ``hint``, substituting safe defaults for ``None``."""
-    origin = get_origin(hint)
-    args = get_args(hint)
+    """Coerce ``value`` to match ``hint``, substituting safe defaults for ``None``.
 
-    # Optional[T] / T | None: explicit opt-in to nullable — a missing value
-    # stays None instead of collapsing to a typed zero.
-    if origin is Union or origin is UnionType:
-        if value is None:
-            return None
-        non_none = [a for a in args if a is not NoneType]
-        if len(non_none) == 1:
-            return _coerce(value, non_none[0])
-        return value
-
-    if origin is list:
-        if not isinstance(value, list):
-            return []
-        inner = args[0] if args else Any
-        return [_coerce(item, inner) for item in value]
-
-    if isinstance(hint, type) and issubclass(hint, SafeModel):
-        return hint.from_api(value)
-
-    if hint is str:
-        return value if isinstance(value, str) else ""
-    if hint is bool:
-        return value if isinstance(value, bool) else False
-    if hint is int:
-        # bool is a subclass of int in Python — exclude it so bool payloads
-        # don't collapse into "size=True".
-        if isinstance(value, bool):
-            return 0
-        return value if isinstance(value, int) else 0
-    if hint is float:
-        if isinstance(value, bool):
-            return 0.0
-        if isinstance(value, int | float):
-            return float(value)
-        return 0.0
-
-    return value
+    Back-compat shim over :func:`market_data_client._decode.walk_field`. Kept
+    with its original two-positional-argument signature and identical return
+    values so any existing caller keeps working; new code should reach for the
+    walker.
+    """
+    return _decode.walk_field(
+        value,
+        hint,
+        path="",
+        model="",
+        policy=_decode.POLICY,
+        sink=_decode.DecodeScope(),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,20 +139,38 @@ class MarketDataSnapshot(SafeModel):
     def from_api(cls, payload: Any, *, received_at: float = 0.0) -> Self:
         """Build a snapshot, injecting the client-supplied ``received_at`` stamp.
 
-        Every field except ``received_at`` is deserialized tolerantly via
-        ``_coerce``. ``received_at`` is set DIRECTLY from the keyword argument,
-        bypassing ``_coerce`` (which would otherwise collapse it to ``0.0``) —
-        this is the D-01 fidelity contract: a payload ``"received_at"`` key is
-        ignored and the injected stamp always wins.
+        Every field except ``received_at`` is deserialized tolerantly through
+        the walker (:mod:`market_data_client._decode`). ``received_at`` is set
+        DIRECTLY from the keyword argument, bypassing the walker (which would
+        otherwise collapse it to ``0.0`` when the payload omits the key) — this
+        is the D-01 fidelity contract, restated as ``29-SEMANTICS-MATRIX.md``
+        Section 3(a): a payload ``"received_at"`` key is IGNORED and the
+        injected stamp always wins.
+
+        Phase 29 mechanics, two steps and both load-bearing:
+
+        1. The stamp is written over the payload's own ``received_at`` BEFORE
+           the walk, the same pre-processing-hook shape :meth:`Symbol.from_api`
+           uses for its mirror. The walker therefore never sees a wire value at
+           that key, so it emits NO divergence for it in any case — absent,
+           conflicting or wrong-typed — and strict mode can never make a
+           client-stamped field fatal. Because ``received_at`` is a DECLARED
+           field, writing it also cannot produce an ``extra`` record.
+        2. The walker's output for that key is then DISCARDED and replaced with
+           the keyword verbatim, so the final value is the caller's ``float``
+           exactly as passed — never a coerced or policy-substituted one. This
+           is the step that makes "a wire-supplied ``received_at`` can never win
+           over the client stamp" true by construction rather than by argument.
+
+        The exemption is CLASS-keyed, not field-name-keyed: :class:`Symbol` also
+        declares a ``received_at``, but that one is a genuine wire field (the
+        server's ingest timestamp) and is read straight off the payload.
         """
-        data: dict[str, Any] = payload if isinstance(payload, dict) else {}
-        hints = get_type_hints(cls)
-        kwargs: dict[str, Any] = {}
-        for field in fields(cls):
-            if field.name == "received_at":
-                kwargs[field.name] = received_at  # INJECT — skip _coerce (D-01)
-            else:
-                kwargs[field.name] = _coerce(data.get(field.name), hints[field.name])
+        stamped: Any = {**payload, "received_at": received_at} if isinstance(payload, dict) else payload  # fmt: skip
+        kwargs = _decode.walk_model(
+            cls, stamped, policy=_decode.POLICY, sink=_decode.current_sink()
+        )
+        kwargs["received_at"] = received_at  # INJECT — skip the walker (D-01)
         return cls(**kwargs)
 
 
@@ -491,6 +497,12 @@ class Symbol(SafeModel):
         ``""`` forever and silently contradict :attr:`market_id`. An explicit
         ``marketId`` in the payload (a hand-built dict, an older fixture) still
         wins — the mirror only FILLS an absent key, it never overwrites.
+
+        Phase 29 (``29-SEMANTICS-MATRIX.md`` Section 3(b)): the mirror runs
+        BEFORE the walker sees the payload, which is what keeps extra-key
+        reporting correct. After the mirror ``marketId`` is a declared field
+        with a present key, so no ``extra`` record fires for it — right, because
+        the client synthesized that key, the vendor did not send it.
         """
         if isinstance(payload, dict) and "marketId" not in payload and "market_id" in payload:
             payload = {**payload, "marketId": payload["market_id"]}
