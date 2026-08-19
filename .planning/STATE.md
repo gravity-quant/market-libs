@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 status: planning
-last_updated: "2026-08-18T23:37:21.345Z"
+last_updated: "2026-08-18T00:00:00.000Z"
 last_activity: 2026-08-18
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,18 +17,18 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-31 after v1.4 milestone close)
+See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
-**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.5 extiende `market-data-client` v0.2.0 —solo lectura— con la superficie de **escritura** de la API primary-extractor: symbols + calendar, detrás de un mutating-gate de seguridad load-bearing, verificada en vivo de forma segura contra develop, y publicada v0.3.0.)
+**Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 28 — release-prep-publish-v0-3-0
+**Current focus:** Phase 29 — Decoder observable (DEC-01, load-bearing)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 29 — Decoder observable (next; not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-18 — Milestone v1.6 started
+Status: Planning — roadmap v1.6 creado (6 fases, 29-34), sin planes todavía
+Last activity: 2026-08-18 — ROADMAP v1.6 creado (Phases 29-34, 7/7 requisitos mapeados)
 
 ## Performance Metrics
 
@@ -104,6 +104,17 @@ Last activity: 2026-08-18 — Milestone v1.6 started
 | Phase 28 P01 | 12min | 3 tasks | 6 files |
 | Phase 28 P02 | 69min | 3 tasks | 0 files |
 
+**By Phase (v1.6 planned):**
+
+| Phase | Plans | Status      | Requirements | Notes |
+|-------|-------|-------------|--------------|-------|
+| 29    | ?     | Not started | DEC-01 | **Load-bearing, PRIMERO** — decoder único de política observable copiado verbatim 6× (DT-03), walker por-campo como motor primario (evolución de `_coerce`, NO reemplazado), modo estricto por `ContextVar` desde `_ClientState`, `from_api` preservado (DT-05). Artefactos de fase obligatorios: decisión msgspec-dos-motores-vs-stdlib-only, D-lock de `Literal` en RESPONSE, tabla 3-way de semánticas de matriz, fix del `RedactingFilter` × 6, test de intactness 6-way, **corrida exploratoria de sizing con el walker** sobre `verification/snapshots/`. ~3× el scope naive (14/25 pitfalls aterrizan acá). |
+| 30    | ?     | Not started | TYP-01 | `iol-client` tipado — `models.py` nuevo desde los schemas live ya capturados (`puntas` polimórfico resuelto), 16 firmas migradas + parsers de `_core.py`, `main_iol.py` a acceso por atributo (2 sitios reales, no 6). `mercado`/`plazo` quedan **`str`**; promoción a `Literal` diferida a F33 (DT-07). Paraleliza con Phase 31. |
+| 31    | ?     | Not started | TYP-02, TYP-03 | 5 endpoints de ops tipados (higyrus `get_health`; market-data `get_health`/`get_health_feed`/`add_holidays`/`delete_holiday`) — **response-only**, con prueba de **request byte-idéntico** para las 2 mutaciones ya publicadas en v0.4.0 (no perturbar el mutating-gate) + `models.py`/`types.py` en los 6 paquetes. Paraleliza con Phase 30. |
+| 32    | ?     | Not started | GATE-TYP-01 | Gate AST de superficie como **job de CI nuevo** (`verification/` nunca corrió en CI) + paridad sync/async no-vacua (lower bounds + fixture RED) + cierre de **D-16** reconciliando las **4** listas de enrollment en un commit atómico. Depende de 30 + 31; la mitad D-16 puede adelantarse a 29. |
+| 33    | ?     | Not started | LIVE-TYP-01 | Drivers en modo estricto contra APIs reales; `Literal` cerrados con evidencia (iol input + los de RESPONSE pre-existentes de matriz); divergencias corregidas in-cycle espejadas sync/async; cycle closure PASS. **Scope provisional** hasta la corrida de sizing de F29. |
+| 34    | ?     | Not started | PUB-TYP-01 | Releases sólo de los paquetes cuya superficie cambió; iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); `uv.lock` global refrescado **una sola vez**; ops irreversibles detrás de doble checkpoint humano independiente (precedente D-18). |
+
 ## Accumulated Context
 
 ### Decisions
@@ -111,6 +122,12 @@ Last activity: 2026-08-18 — Milestone v1.6 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.6 Roadmap]: Phase numbering CONTINUES from v1.5 (última fase = 28) — v1.6 arranca en **Phase 29** (no resetea). Sequential `phase_naming` per config.json.
+- [v1.6 Roadmap]: **6 fases (29-34)** pese a granularity `coarse` — la estructura del plan fuente (`.planning/future-plans/tipado_homogeneo.md`) queda intacta porque los cuatro researchers convergieron independientemente en los mismos límites de fase y el mismo orden load-bearing-first. La corrección del research es de **scope y contenido dentro de la Phase 29**, no de cantidad ni orden de fases. 7 requisitos → 6 fases, 1:1 salvo Phase 31 (TYP-02 + TYP-03).
+- [v1.6 Roadmap]: **Phase 29 es load-bearing y ~3× el scope naive de "copiar un decoder"** — 14 de 25 pitfalls aterrizan ahí. Varios D-locks de los que dependen 30-34 deben ser **artefactos explícitos de la fase**: (a) msgspec dos-motores vs stdlib-only un-motor; (b) los campos de RESPONSE **nunca** se cierran como `Literal` en este milestone (alcanza retroactivamente a `CFICode`/`MarketId`/`OrderType`/`Currency` de matriz); (c) tabla 3-way de semánticas (matriz **no** es copia verbatim de higyrus/market-data: missing → `None`, sin `slots`, `empty()`); (d) contrato de agregación anti-log-spam; (e) fix del `RedactingFilter` en las 6 copias.
+- [v1.6 Roadmap]: El **scope de la Phase 33 es provisional** hasta la corrida exploratoria de sizing del final de la Phase 29 — que debe usar el **walker por-campo** sobre `verification/snapshots/`, nunca un pase strict de msgspec (fail-fast + `json.loads` acepta NaN/Infinity → sub-cuenta por construcción). El número reportado es un **piso** (`≥ N`), no una estimación.
+- [v1.6 Roadmap]: Phases 30 y 31 **paralelizan** (ambas dependen sólo de la Phase 29). Phase 32 depende de 30 + 31 (aunque la mitad D-16 es independiente y puede adelantarse a 29); Phase 33 depende de 30/31/32; Phase 34 depende de 33.
+- [v1.6 Roadmap]: Phase 34 refresca el `uv.lock` global **exactamente una vez** para todos los bumps (corrección del research) y mantiene las ops irreversibles (merge, push de tag) detrás de **dos checkpoints humanos independientes, nunca colapsados** (precedente D-18 de v1.5).
 - [v1.5 Roadmap]: Phase numbering CONTINUES from v1.4 (last phase = 24) — v1.5 starts at **Phase 25** (does NOT reset). Sequential `phase_naming` per config.json. Granularity `coarse` → 4 phases, 1:1 con requisitos salvo Phase 25 (GATE-MD-01 + MUT-MD-01 combinados: el gate es load-bearing y symbols es la primera superficie que lo ejercita end-to-end).
 - [v1.5 Roadmap]: 4 fases lineales (25 gate+symbols → 26 calendar → 27 live verification → 28 publish). Phase 25 construye el mutating-gate PRIMERO (mitigación primaria del riesgo central = mutación accidental); Phases 26 y 27 dependen del gate. NO paralelizan: 25 es prerequisito estricto de 26, y 27 necesita ambas superficies (25 + 26).
 - [v1.5 Roadmap]: Verificación en vivo (Phase 27) es **destructiva** a diferencia de v1.4 (solo lectura) → obligatorio cleanup + identificadores de prueba dedicados (DM-06); nunca toca config real sin `confirm`. La idempotencia por-endpoint (DM-03) se revalida en vivo antes de confiar el retry-behavior. Plan fuente: `.planning/future-plans/market_data_mutations.md`.
@@ -168,6 +185,13 @@ Recent decisions affecting current work:
 
 [Issues that affect future work]
 
+- [v1.6 / Phase 33 risk]: **Descubrimiento masivo de divergencias.** La tolerancia silenciosa actual puede estar ocultando divergencias acumuladas; la primera corrida estricta podría destapar muchas de golpe y desbordar el scope del milestone. Mitigación locked: corrida exploratoria de sizing con el walker al final de la Phase 29, **antes** de comprometer 30-32. El resultado es un piso, no una estimación.
+- [v1.6 / Phase 29 decision gate]: La **decisión msgspec-dos-motores vs stdlib-only** cambia el perfil de dependencias de los 6 wheels (msgspec sería el primer artefacto compilado de un closure hoy 100% puro-Python) y el set de paquetes a re-publicar en la Phase 34. Debe resolverse en `discuss-phase` de la Phase 29 con evidencia de ambos lados, no pre-decidirse en el roadmap. Hecho load-bearing verificado: **msgspec no puede implementar el modo observable** (fail-fast, un error por decode, ignora claves extra en todos los modos, sin field-rename para dataclasses del stdlib) — el walker es el motor primario en cualquiera de los dos escenarios.
+- [v1.6 / Phase 31 risk]: `add_holidays` y `delete_holiday` son **mutaciones ya publicadas en v0.4.0** con contrato de idempotencia verificado en vivo y un invariante de orden del mutating-gate. El trabajo de tipado es **response-only**: hace falta un test de **request byte-idéntico** y el guard AST de `_ensure_mutation_allowed()` como primer statement debe seguir verde.
+- [v1.6 / Phase 32 blocker]: **`verification/` nunca corrió en CI** — `ci.yml` pasa un path `packages/${{ matrix.package }}` explícito a pytest que pisa `testpaths`, así que hasta el gate golden-file de superficie pre-existente estuvo inerte. GATE-TYP-01 no es "agregar un archivo de test": requiere superficie de CI nueva (script en el job de lint + tests in-package que viajen en la matrix 6×2).
+- [v1.6 / Phase 32 note]: Las **4** listas de enrollment de D-16 ya discrepan entre sí (mypy `files` 5/6; import-linter `root_packages` 4/6; loop de `ci.yml:85` 5/6; `test_public_surface._PACKAGES` 4/6 — market-data excluido **por diseño** desde Phase 25, hay que documentarlo, no "arreglarlo"). El backlog de mypy subyacente es trivial (2 errores `var-annotated`); el trabajo real es decidir explícitamente si `wallets_client` entra.
+- [v1.6 / Phase 30 unknown]: Se desconoce si algo **fuera de este repo** consume `iol-client` 0.2.0 — determina si la ruptura dict→modelo necesita alguna consideración transicional. Relevar antes de la Phase 30.
+- [v1.6 / operativo]: El `.venv/` del repo apuntaba a un intérprete inexistente y `uv` no podía recrearlo (`.venv/lib` tomado por un proceso). Cerrar el proceso y re-sincronizar antes de arrancar la Phase 29.
 - [v1.5 / Phase 27 risk]: La verificación en vivo es **destructiva** (crea/modifica estado en develop) — a diferencia de v1.4 (solo lectura). Requiere identificadores de prueba dedicados + cleanup obligatorio (crear→verificar→revertir, DM-06) y **confirmación del operator sobre qué es seguro tocar en develop** antes de Phase 27. El mutating-gate impide prod. Depende también de creds Auth0 + acceso a develop (mismo standing blocker que v1.4 Phase 23, ya resuelto post-close con creds provistas por el operator).
 - [v1.5 / Phase 27 risk]: La **idempotencia real** de los POST de symbols la declara el spec, pero un POST no idempotente reintentado duplicaría estado → se revalida en vivo (DM-03) antes de confiar el retry-behavior. `POST /calendar/holidays` se asume `idempotent=False` (no retry) salvo confirmación live.
 - [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
@@ -229,10 +253,12 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-01T22:16:52.271Z
-Stopped at: Completed 28-02-PLAN.md — PR #10 merged to main at 5d0825d; tag still pending 28-03 gate
+Last session: 2026-08-18
+Stopped at: ROADMAP v1.6 creado — 6 fases (29-34), 7/7 requisitos mapeados, sin planes todavía
 Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd-plan-phase 25` (Mutating-gate + Symbols write)
+- Revisar `.planning/ROADMAP.md` § Phases (v1.6) + § Phase Details (v1.6)
+- Correr `/gsd-discuss-phase 29` **antes** de planificar: la decisión msgspec-dos-motores-vs-stdlib-only cambia el perfil de dependencias de los 6 wheels y el set de releases de la Phase 34 (research flag explícito)
+- Luego `/gsd-plan-phase 29` (Decoder observable — load-bearing, PRIMERO)

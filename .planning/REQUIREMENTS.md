@@ -59,21 +59,26 @@ Deferred — carry-forwards del monorepo, sin cambios en este milestone.
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| DEC-01 | Phase 29 | Pending |
-| TYP-01 | Phase 30 | Pending |
-| TYP-02 | Phase 31 | Pending |
-| TYP-03 | Phase 31 | Pending |
-| GATE-TYP-01 | Phase 32 | Pending |
-| LIVE-TYP-01 | Phase 33 | Pending |
-| PUB-TYP-01 | Phase 34 | Pending |
+Fases definidas en `.planning/ROADMAP.md` § Phase Details (v1.6). Cada requisito mapea a **exactamente una** fase.
+
+| Requirement | Phase | Phase Name | Status |
+|-------------|-------|------------|--------|
+| DEC-01 | Phase 29 | Decoder observable *(load-bearing, PRIMERO)* | Pending |
+| TYP-01 | Phase 30 | `iol-client` tipado | Pending |
+| TYP-02 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
+| TYP-03 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
+| GATE-TYP-01 | Phase 32 | Gates de homogeneidad + D-16 | Pending |
+| LIVE-TYP-01 | Phase 33 | Verificación en vivo en modo estricto + fixes | Pending |
+| PUB-TYP-01 | Phase 34 | Releases por paquete | Pending |
 
 **Coverage:**
 - v1 requirements: 7 total
 - Mapped to phases: 7
 - Unmapped: 0
+- Orphaned (fase sin requisito): 0
+
+**Dependencias entre fases:** 29 → {30, 31} (paralelizan) → 32 → 33 → 34. La mitad D-16 de la Phase 32 es independiente y puede adelantarse a la Phase 29.
 
 ---
 *Requirements defined: 2026-08-18*
-*Last updated: 2026-08-18 after v1.6 milestone research*
+*Last updated: 2026-08-18 after v1.6 roadmap creation (phases 29-34 mapped; no requirement shifted phase)*
