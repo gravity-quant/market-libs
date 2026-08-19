@@ -1,7 +1,7 @@
 ---
 phase: 29-decoder-observable
 verified: 2026-08-19T23:47:56Z
-status: human_needed
+status: passed
 score: 5/5 roadmap success criteria verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -162,3 +162,7 @@ is routed to human verification rather than scored as a gap.
 
 _Verified: 2026-08-19T23:47:56Z_
 _Verifier: Claude (gsd-verifier)_
+
+
+---
+**Human verification resolved (2026-08-19):** WR-04 decidido por el operator (sebadlf) vía checkpoint: **mantener estricto** — un default de dataclass no legitima la ausencia del campo; missing sigue siendo divergencia (WARNING en observable, fatal en strict). Los campos genuinamente nullables se declararán `| None` con el censo vivo de la Phase 33. Status flip human_needed → passed.
