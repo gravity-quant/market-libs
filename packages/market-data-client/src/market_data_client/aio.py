@@ -38,7 +38,7 @@ from urllib.parse import urlsplit
 import httpx
 from dotenv import load_dotenv
 
-from market_data_client import _atransport, _core
+from market_data_client import _atransport, _core, _decode
 from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import (
@@ -115,6 +115,7 @@ class AsyncClient:
         http_client: httpx.AsyncClient | None = None,
         mutating_allowed: bool | None = None,
         expected_host: str | None = None,
+        strict_decode: bool | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: valida max_retries temprano (antes de mutar estado).
@@ -139,6 +140,10 @@ class AsyncClient:
             self._state.mutating_allowed = mutating_allowed
         if expected_host is not None:
             self._state.expected_host = expected_host
+        # Fase 29 D-03: mismo sentinel ``None`` = "no cambiar" que la superficie
+        # sync — un kwarg omitido nunca resetea un opt-in estricto previo.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         if token is not None:
             self._state.token = token
         if token_expires_at is not None:
@@ -352,7 +357,22 @@ class AsyncClient:
         reenvía una vez y re-levanta si el segundo response vuelve a dar 401
         (sin recursión — Pitfall 4). Anónimo (health): sin ``_aensure_token`` ni
         header ``Authorization``; un 401 levanta inmediatamente.
+
+        Fase 29 D-03 + lock 6 del aggregation contract: las dos PRIMERAS
+        sentencias bindean el modo de decode y un scope fresco para este
+        response.
         """
+        # Fase 29 D-03: bindea el modo de decode + un scope fresco. NO hay reset
+        # ni try/finally a propósito — este método retorna el ``httpx.Response``
+        # y el decode ocurre DESPUÉS, en el parser, que no tiene referencia a
+        # este AsyncClient. Un reset en un ``finally`` desbindearía el modo antes
+        # de que el decoder llegue a leerlo.
+        #
+        # Cada task de asyncio lleva su PROPIA copia del contexto, así que dos
+        # tasks interleaved en modos distintos jamás ven el bind del otro.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         http = await self._ensure_http_client()
         token_lock = self._ensure_token_lock()
         if spec.authenticated:
@@ -744,6 +764,7 @@ def configure(
     token_expires_at: float | None = None,
     mutating_allowed: bool | None = None,
     expected_host: str | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs del default async en runtime.
 
@@ -757,6 +778,9 @@ def configure(
     ``client.configure`` (WR-01 — el constraint dual sync/async exige que ambas
     superficies invaliden en ``base_url``). No expone credenciales de usuario,
     rotación de refresh ni override de reintentos (grant machine-to-machine, D-05).
+
+    Fase 29 D-03: ``strict_decode`` es config puro con el mismo sentinel
+    ``None`` = "no cambiar" que la superficie sync.
     """
     client = _get_default()
     rotated = False
@@ -792,6 +816,9 @@ def configure(
         client._state.mutating_allowed = mutating_allowed
     if expected_host is not None:
         client._state.expected_host = expected_host
+    # Fase 29 D-03: modo de decode, config puro con el mismo sentinel.
+    if strict_decode is not None:
+        client._state.strict_decode = strict_decode
 
 
 async def get_health() -> dict[str, Any]:

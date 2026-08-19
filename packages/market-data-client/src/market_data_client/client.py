@@ -49,7 +49,7 @@ from urllib.parse import urlsplit
 import httpx
 from dotenv import load_dotenv
 
-from market_data_client import _core, _transport
+from market_data_client import _core, _decode, _transport
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import (
     MarketDataAuthError,
@@ -133,6 +133,7 @@ class Client:
         auth0_token_url: str | None = None,
         mutating_allowed: bool | None = None,
         expected_host: str | None = None,
+        strict_decode: bool | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: validate max_retries early (before any state mutation).
@@ -155,6 +156,11 @@ class Client:
             self._state.mutating_allowed = mutating_allowed
         if expected_host is not None:
             self._state.expected_host = expected_host
+        # Fase 29 D-03: mismo sentinel ``None`` = "no cambiar". El modo de
+        # decode es un opt-in de seguridad, así que un kwarg omitido nunca lo
+        # resetea (Pitfall 5, igual que el gate de mutaciones).
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # D-08: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
         # D-08: normally-constructed Clients are NOT views; with_options sets
@@ -353,7 +359,24 @@ class Client:
         Body-consume-then-raise (Phase 7 D-06): ``resp.read()`` precedes every
         ``_raise_for_response`` in the re-auth carve-out so the surfacing error
         already has a fully-consumed body (HTTP/2-safe).
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this method returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in the parser,
+        # which holds no reference to this Client. A reset in a ``finally``
+        # would unbind the mode before the decoder ever reads it.
+        #
+        # The re-auth carve-out below re-sends the SAME request, so a response
+        # object can be replaced mid-method. That is exactly why the divergence
+        # collector is scoped to the decode ENTRY through ``open_request_scope``
+        # rather than tied to the response object: only the final response ever
+        # reaches a parser, and it decodes under the scope bound here.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         headers = dict(spec.headers or {})
         if spec.authenticated:
             self._ensure_token()
@@ -729,6 +752,7 @@ def configure(
     http_client: httpx.Client | None = None,
     mutating_allowed: bool | None = None,
     expected_host: str | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs en runtime con semántica carry-forward.
 
@@ -742,6 +766,10 @@ def configure(
 
     ``http_client`` se usa AS-IS (sin auto-wrap con ``RetryTransport``); el
     cliente cacheado previo se cierra antes de reemplazarlo.
+
+    Fase 29 D-03: ``strict_decode`` es config puro con el mismo sentinel
+    ``None`` = "no cambiar", así que un ``configure(base_url=...)`` posterior NO
+    resetea un opt-in estricto previo.
     """
     client = _get_default()
     state = client._state
@@ -782,6 +810,9 @@ def configure(
         state.mutating_allowed = mutating_allowed
     if expected_host is not None:
         state.expected_host = expected_host
+    # Fase 29 D-03: modo de decode, config puro con el mismo sentinel.
+    if strict_decode is not None:
+        state.strict_decode = strict_decode
 
 
 def get_health() -> dict[str, Any]:
