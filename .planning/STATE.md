@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 29
 current_phase_name: decoder-observable
 status: executing
-stopped_at: Completed 29-05-PLAN.md
-last_updated: "2026-08-19T12:33:58.746Z"
+stopped_at: Completed 29-06-PLAN.md
+last_updated: "2026-08-19T12:56:16.038Z"
 last_activity: 2026-08-19
 last_activity_desc: "Plan 29-04 completo: D-lock (a) msgspec firmado NO-GO (stdlib-only, un motor)"
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 10
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 29 (decoder-observable) — EXECUTING
-Plan: 6 of 10
+Plan: 7 of 10
 Status: Ready to execute
 Last activity: 2026-08-19 — Plan 29-04 completo: D-lock (a) msgspec firmado NO-GO (stdlib-only, un motor)
 
@@ -123,6 +123,7 @@ Last activity: 2026-08-19 — Plan 29-04 completo: D-lock (a) msgspec firmado NO
 | Phase 29 P03 | 9min | 2 tasks | 7 files |
 | Phase 29 P04 | 12min | 2 tasks | 1 files |
 | Phase 29 P05 | 11min | 3 tasks | 11 files |
+| Phase 29 P06 | 16min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 29-05: market-data's _decode.py differs from the higyrus original in FIVE lines below 'from __future__', not four — the exception SYMBOL appears at both the import and the raise site. Plan 09's intactness normalizer must normalize the name, not just the import statement.
 - [Phase ?]: 29-05: two comments inside the copied walker body still read 'higyrus' and were kept VERBATIM. Plan 09 should decide once, for all five copies, whether to normalize them rather than let each executor choose locally.
 - [Phase ?]: 29-05: a plain threading.Thread provably sees the ContextVar DEFAULT, not the spawning thread's value — matriz's websocket daemon thread cannot inherit the REST mode and Plan 08 must bind it explicitly.
+- [Phase 29]: 29-06: matriz's mapping axis (a dict-declared field falling back to {}) lives in models.py as a post-walk pass taking the walker's own sink, never as a walker branch — _decode.py stays byte-verbatim across the five copies (D-02)
+- [Phase 29]: 29-06: an int arriving for a float-declared matriz field now widens to float (walk_field coerces before consulting scalar_passthrough) — the one observable delta outside the seven declared policy axes, pinned by a test rather than prevented
+- [Phase 29]: 29-06: matriz has TWO decode bind sites, not one — Plan 03's 'no aio.py' note predates Phase 10 Plan 10-02's AsyncClient REST surface
 
 ### Pending Todos
 
@@ -274,8 +278,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-19T12:33:49.920Z
-Stopped at: Completed 29-05-PLAN.md
+Last session: 2026-08-19T12:56:16.033Z
+Stopped at: Completed 29-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
