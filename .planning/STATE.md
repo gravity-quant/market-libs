@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 29
-current_phase_name: next; not started
-status: planning
-stopped_at: Phase 29 context gathered (assumptions mode)
-last_updated: "2026-08-19T00:42:39.117Z"
-last_activity: 2026-08-18
-last_activity_desc: ROADMAP v1.6 creado (Phases 29-34, 7/7 requisitos mapeados)
+current_phase_name: decoder-observable
+status: executing
+stopped_at: Completed 29-01-PLAN.md
+last_updated: "2026-08-19T01:59:14.250Z"
+last_activity: 2026-08-19
+last_activity_desc: Phase 29 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 10
+  completed_plans: 1
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 29 — Decoder observable (DEC-01, load-bearing)
+**Current focus:** Phase 29 — decoder-observable
 
 ## Current Position
 
-Phase: 29 — Decoder observable (next; not started)
-Plan: —
-Status: Planning — roadmap v1.6 creado (6 fases, 29-34), sin planes todavía
-Last activity: 2026-08-18 — ROADMAP v1.6 creado (Phases 29-34, 7/7 requisitos mapeados)
+Phase: 29 (decoder-observable) — EXECUTING
+Plan: 2 of 10
+Status: Ready to execute
+Last activity: 2026-08-19 — Phase 29 execution started
 
 ## Performance Metrics
 
@@ -118,6 +118,7 @@ Last activity: 2026-08-18 — ROADMAP v1.6 creado (Phases 29-34, 7/7 requisitos 
 | 32    | ?     | Not started | GATE-TYP-01 | Gate AST de superficie como **job de CI nuevo** (`verification/` nunca corrió en CI) + paridad sync/async no-vacua (lower bounds + fixture RED) + cierre de **D-16** reconciliando las **4** listas de enrollment en un commit atómico. Depende de 30 + 31; la mitad D-16 puede adelantarse a 29. |
 | 33    | ?     | Not started | LIVE-TYP-01 | Drivers en modo estricto contra APIs reales; `Literal` cerrados con evidencia (iol input + los de RESPONSE pre-existentes de matriz); divergencias corregidas in-cycle espejadas sync/async; cycle closure PASS. **Scope provisional** hasta la corrida de sizing de F29. |
 | 34    | ?     | Not started | PUB-TYP-01 | Releases sólo de los paquetes cuya superficie cambió; iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); `uv.lock` global refrescado **una sola vez**; ops irreversibles detrás de doble checkpoint humano independiente (precedente D-18). |
+| Phase 29 P01 | 24 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -178,6 +179,10 @@ Recent decisions affecting current work:
 - [Phase 28-02]: El gate de 15 checks se asertó POR CONTEO (15 filas / 15 pass / 0 no-pass / 2 market-data-client), nunca por ausencia de la palabra fail — pending, skipping y cancelled leen como verde bajo el chequeo negativo, y cancel-in-progress:true (ci.yml:20) hace cancelled alcanzable
 - [Phase 28-02]: El merge corrió SOLO tras el 'approved' verbatim del operator (2026-08-01T22:13:53Z) en el checkpoint D-18a; main no tiene branch protection (protected:false, rulesets []), así que esa respuesta fue el único control de acceso sobre la operación irreversible
 - [Phase 28-02]: Ningún tag ni GitHub Release se creó en 28-02 — D-18 exige dos gates independientes y el tag queda detrás del SEGUNDO checkpoint en 28-03; los gates no se colapsaron
+- [Phase ?]: Phase 29 (signed sebadlf 2026-08-18): strict decode mode raises on missing/type/non_dict but NEVER on extra wire keys — vendor field growth stays informational (INFO) so Phase 33 strict driver runs are not broken by legitimate upstream additions
+- [Phase ?]: Phase 29 (signed sebadlf 2026-08-18): RESPONSE fields are never closed as Literal in v1.6 — they decode as str, out-of-set values are reported not enforced; reaches retroactively to matriz's 9 types.py aliases; closing deferred to Phase 33 with a live census
+- [Phase ?]: Phase 29: divergence record is six flat str keys (package, divergence, field_path, declared_type, observed_type, model) with NO occurrences counter; dedupe key is (model, field_path, kind) scoped per decode scope, never process-lifetime
+- [Phase ?]: Phase 29: per-package from_api differences are DecodePolicy axes, never harmonized — no row of the 6-way semantics matrix is a bug to fix in this phase
 
 ### Pending Todos
 
@@ -257,9 +262,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-19T00:42:39.108Z
-Stopped at: Phase 29 context gathered (assumptions mode)
-Resume file: .planning/phases/29-decoder-observable/29-CONTEXT.md
+Last session: 2026-08-19T01:59:14.246Z
+Stopped at: Completed 29-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

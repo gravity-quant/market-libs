@@ -9,7 +9,7 @@ Requirements for this milestone. Each maps to roadmap phases (29-34). Decisiones
 
 ### Decoder observable
 
-- [ ] **DEC-01**: Todo consumidor de las 6 libs recibe divergencias de forma **observables** (registro estructurado por el logger del paquete) en lugar de sustituciones silenciosas; los drivers `main_*.py` corren en modo estricto (divergencia → finding). Implementación: walker por-campo como motor primario (evolución de `_coerce`, NO reemplazado — corrección del research), emisión flat/all-str/type-not-value compatible con `RedactingFilter` (+ fix del filter en las 6 copias), modo estricto por `ContextVar` bindeado desde `_ClientState`, `from_api` preservado como constructor público (DT-05), copiado verbatim 6× con test de intactness por hash (DT-03), reconciliación explícita de la implementación divergente de matriz, decisión msgspec-dura-vs-stdlib-only como artefacto de fase, y corrida exploratoria de sizing con el walker sobre `verification/snapshots/` antes de comprometer F30-32.
+- [x] **DEC-01**: Todo consumidor de las 6 libs recibe divergencias de forma **observables** (registro estructurado por el logger del paquete) en lugar de sustituciones silenciosas; los drivers `main_*.py` corren en modo estricto (divergencia → finding). Implementación: walker por-campo como motor primario (evolución de `_coerce`, NO reemplazado — corrección del research), emisión flat/all-str/type-not-value compatible con `RedactingFilter` (+ fix del filter en las 6 copias), modo estricto por `ContextVar` bindeado desde `_ClientState`, `from_api` preservado como constructor público (DT-05), copiado verbatim 6× con test de intactness por hash (DT-03), reconciliación explícita de la implementación divergente de matriz, decisión msgspec-dura-vs-stdlib-only como artefacto de fase, y corrida exploratoria de sizing con el walker sobre `verification/snapshots/` antes de comprometer F30-32.
 
 ### Tipado de superficie
 
@@ -72,6 +72,7 @@ Fases definidas en `.planning/ROADMAP.md` § Phase Details (v1.6). Cada requisit
 | PUB-TYP-01 | Phase 34 | Releases por paquete | Pending |
 
 **Coverage:**
+
 - v1 requirements: 7 total
 - Mapped to phases: 7
 - Unmapped: 0
