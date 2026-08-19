@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
+current_phase: 29
+current_phase_name: next; not started
 status: planning
-last_updated: "2026-08-18T00:00:00.000Z"
+stopped_at: Phase 29 context gathered (assumptions mode)
+last_updated: "2026-08-19T00:42:39.117Z"
 last_activity: 2026-08-18
+last_activity_desc: ROADMAP v1.6 creado (Phases 29-34, 7/7 requisitos mapeados)
 progress:
   total_phases: 6
   completed_phases: 0
@@ -253,9 +257,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-18
-Stopped at: ROADMAP v1.6 creado — 6 fases (29-34), 7/7 requisitos mapeados, sin planes todavía
-Resume file: None
+Last session: 2026-08-19T00:42:39.108Z
+Stopped at: Phase 29 context gathered (assumptions mode)
+Resume file: .planning/phases/29-decoder-observable/29-CONTEXT.md
 
 ## Operator Next Steps
 
