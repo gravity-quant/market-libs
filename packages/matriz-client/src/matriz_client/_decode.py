@@ -171,14 +171,27 @@ class DecodeScope:
         triple = (model, path, kind)
         if triple in self._seen:
             return
-        self._seen.add(triple)
         # Lock 4, signed: strict mode raises on ``missing`` / ``type`` /
         # ``non_dict`` and NEVER on ``extra``. An extra key arrives on the
         # vendor's release schedule, not ours; making it fatal would fail a
         # strict driver run on every legitimate new field.
-        if kind not in _INFO_KINDS and STRICT_DECODE.get():
-            raise MatrizDecodeError(path, declared, observed, model)
+        strict = kind not in _INFO_KINDS and STRICT_DECODE.get()
+        # Phase 29 review CR-02: the triple is marked seen ONLY once this call has
+        # actually DISPOSED of the divergence by reporting it. Marking it ahead of
+        # the strict raise left the triple recorded while nothing had been
+        # reported, so any second decode of the same divergence inside one scope
+        # took the ``return`` branch above: no raise, no record, and the policy
+        # default substituted silently. That is a strict-mode escape, and
+        # ``ws_client``'s caught-and-continue frame handler is a path of exactly
+        # that shape.
+        if not strict:
+            self._seen.add(triple)
+        # Emitted BEFORE the raise so a strict run still leaves the record on the
+        # paquete logger. ``_emit`` never raises (lock 9), so it cannot mask the
+        # strict disposition that follows it.
         _emit(model, path, kind, declared, observed)
+        if strict:
+            raise MatrizDecodeError(path, declared, observed, model)
 
 
 class _SilentScope(DecodeScope):

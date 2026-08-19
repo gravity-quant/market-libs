@@ -1039,3 +1039,38 @@ def test_divergence_on_a_real_response_reaches_the_package_logger(
     kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}
     assert (".marketSegmentId", "type") in kinds
     assert (".vendorNew", "extra") in kinds
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 code review, CR-02 — strict mode must survive a re-decode
+# ---------------------------------------------------------------------------
+
+
+def test_strict_mode_raises_on_every_visit_of_one_divergence_in_one_scope(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CR-02: a caught-and-retried decode inside one scope is still fatal.
+
+    The dedupe triple is recorded only once the divergence has actually been
+    reported. Before the fix it was marked seen ahead of the strict raise, so a
+    second decode of the same divergence inside the same scope took the "already
+    reported" branch: no raise, no record, and the policy default substituted
+    silently.
+    """
+    scope = DecodeScope()
+    payload = {"s": 7, "i": 1, "f": 1.0, "b": True}
+    token = _decode.STRICT_DECODE.set(True)
+    caplog.clear()
+    try:
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            for _ in range(2):
+                with pytest.raises(MatrizDecodeError) as excinfo:
+                    walk_model(_Bare, payload, policy=POLICY, sink=scope)
+                assert excinfo.value.field_path == ".s"
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+    # The record survives the raise, on BOTH attempts: a strict run still leaves
+    # the divergence on the paquete logger (lock 9 — ``_emit`` never raises).
+    paths = [r.field_path for r in _divergences(caplog)]  # type: ignore[attr-defined]
+    assert paths == [".s", ".s"]
