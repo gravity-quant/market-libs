@@ -75,7 +75,7 @@ def test_401_then_login_then_200_triggers_exactly_one_reauth(
         # 3) retry → 200 with payload
         httpx_mock.add_response(
             url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-            json={"instrumentos": []},
+            json=[],
         )
         pkg.get_instruments("argentina")
         header_name = "Authorization"

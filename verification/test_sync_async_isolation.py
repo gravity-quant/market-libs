@@ -150,7 +150,7 @@ def test_sync_token_isolation_in_wire_request(
     if pkg_name == "iol_client":
         httpx_mock.add_response(
             url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-            json={"instrumentos": []},
+            json=[],
         )
         pkg.get_instruments("argentina")
     elif pkg_name == "higyrus_client":
@@ -201,7 +201,7 @@ async def test_async_token_isolation_in_wire_request(
     if pkg_name == "iol_client":
         httpx_mock.add_response(
             url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-            json={"instrumentos": []},
+            json=[],
         )
         await aio.get_instruments("argentina")
     elif pkg_name == "higyrus_client":
