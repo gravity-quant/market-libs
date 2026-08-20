@@ -54,7 +54,7 @@ import httpx
 from iol_client import _decode
 from iol_client._state import _TOKEN_TTL_BUFFER_SECONDS, _ClientState
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
-from iol_client.models import Cotizacion
+from iol_client.models import Cotizacion, Titulo
 
 __all__ = [
     "RequestSpec",
@@ -341,12 +341,47 @@ def parse_get_quote_response(resp: httpx.Response) -> Cotizacion:
     return Cotizacion.from_api(resp.json())
 
 
-def parse_get_historical_quotes_response(resp: httpx.Response) -> list[dict[str, Any]]:
-    """Pure: parse seriehistorica response → list of daily quote dicts."""
+@_decode._response_parser
+def _parse_list_or_raise(resp: httpx.Response, model_cls: type[Any]) -> list[Any]:
+    """Shared body for every parser whose wire shape is a **top-level list**.
+
+    Owns the response's :class:`~iol_client._decode.DecodeScope` (lock 6), so a
+    list of N rows emits at most one divergence record per field instead of N.
+    The decorator lives **here**; the one-line parsers that delegate stay
+    undecorated, and nesting would be safe anyway (the scope retires once, when
+    the outermost decorated frame returns).
+
+    T-30-06 / D-06 / ASVS V5: a body that is not a list **raises**. It never
+    degrades to ``[]`` — silent degradation masks a changed or compromised
+    upstream, which is the exact regression this milestone exists to remove.
+
+    Three deliberate departures from the higyrus original this was copied from:
+    iol has no ``_consume_and_check``, so the ``resp.read()`` +
+    ``raise_for_response`` pair its own parsers already use is what runs here
+    (copying higyrus' helper would smuggle in 204/empty-body tolerance iol does
+    not have today — a behavior change out of this plan's scope);
+    :class:`~iol_client.exceptions.IOLAPIError` takes **two positionals**, not
+    higyrus' error-list signature; and ``status_code=0`` marks a shape error
+    rather than an HTTP one — the transport succeeded, the payload did not.
+    """
     resp.read()
     raise_for_response(resp)
-    data: list[dict[str, Any]] = resp.json()
-    return data
+    raw = resp.json()
+    if not isinstance(raw, list):
+        raise IOLAPIError(0, f"shape mismatch: expected list, got {type(raw).__name__}")
+    return [model_cls.from_api(item) for item in raw]
+
+
+def parse_get_historical_quotes_response(resp: httpx.Response) -> list[Cotizacion]:
+    """Pure: parse seriehistorica response → ``list[Cotizacion]``.
+
+    Every row carries the same 20 keys as ``get_quote`` and differs only in
+    which arrive ``null`` (D-01), so the same model covers both. The annotated
+    local is load-bearing: the helper returns a generic list and this is what
+    narrows it for mypy strict.
+    """
+    result: list[Cotizacion] = _parse_list_or_raise(resp, Cotizacion)
+    return result
 
 
 def parse_get_instruments_response(resp: httpx.Response) -> Any:
@@ -360,10 +395,23 @@ def parse_get_instruments_response(resp: httpx.Response) -> Any:
     return resp.json()
 
 
-def parse_get_instruments_by_type_response(resp: httpx.Response) -> list[dict[str, Any]]:
-    """Pure: parse instruments-by-type response → list under ``titulos`` key."""
+@_decode._response_parser
+def parse_get_instruments_by_type_response(resp: httpx.Response) -> list[Titulo]:
+    """Pure: parse instruments-by-type response → ``list[Titulo]``.
+
+    Keeps its own body rather than delegating to :func:`_parse_list_or_raise`,
+    because the top-level wire shape here is a **dict envelope**, not a list.
+    The ``titulos`` unwrap is a raw-dict step that runs **before** any model is
+    built: the envelope is transport shape, not domain shape, and is therefore
+    never modelled (D-06).
+
+    An envelope missing the key still yields ``[]`` — that is the pre-existing
+    behavior and D-06 preserves it on purpose. It is not the silent-degradation
+    case the shape guard rejects: the body *is* the expected dict, it just has
+    no rows.
+    """
     resp.read()
     raise_for_response(resp)
     data: dict[str, Any] = resp.json()
-    titulos: list[dict[str, Any]] = data.get("titulos", [])
-    return titulos
+    titulos: list[Any] = data.get("titulos", [])
+    return [Titulo.from_api(fila) for fila in titulos]

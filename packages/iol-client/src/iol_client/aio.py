@@ -61,7 +61,7 @@ from iol_client._core import raise_for_response as _raise_for_response
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.client import InstrumentType, _validate_max_retries
 from iol_client.exceptions import IOLAuthError
-from iol_client.models import Cotizacion
+from iol_client.models import Cotizacion, Titulo
 
 # Suppress ruff F401 for the deliberate re-export alias (consumed by tests
 # via ``from iol_client.aio import _raise_for_response``).
@@ -554,7 +554,7 @@ class AsyncClient:
         *,
         mercado: str = "bcba",
         ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Cotizacion]:
         """Serie histórica de cotizaciones diarias (async)."""
         spec = _core.build_get_historical_quotes_request(
             self._state, simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
@@ -573,7 +573,7 @@ class AsyncClient:
         instrument_type: InstrumentType,
         *,
         pais: str = "argentina",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Titulo]:
         """Listado de instrumentos por tipo y país (async)."""
         spec = _core.build_get_instruments_by_type_request(self._state, instrument_type, pais=pais)
         resp = await self._request(spec)
@@ -707,7 +707,7 @@ async def get_historical_quotes(
     *,
     mercado: str = "bcba",
     ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-) -> list[dict[str, Any]]:
+) -> list[Cotizacion]:
     return await _get_default().get_historical_quotes(
         simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
     )
@@ -721,7 +721,7 @@ async def get_instruments_by_type(
     instrument_type: InstrumentType,
     *,
     pais: str = "argentina",
-) -> list[dict[str, Any]]:
+) -> list[Titulo]:
     return await _get_default().get_instruments_by_type(instrument_type, pais=pais)
 
 

@@ -62,6 +62,7 @@ def _divergences(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     """Los registros de divergencia capturados, en orden de emisión."""
     return [r for r in caplog.records if r.getMessage() == _DIVERGENCE_MESSAGE]
 
+
 # ----------------------------------------------------------------------
 # RequestSpec shape
 # ----------------------------------------------------------------------

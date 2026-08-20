@@ -58,7 +58,7 @@ from iol_client import _core, _decode, _token_cache, _transport
 from iol_client._core import RequestSpec
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.exceptions import IOLAuthError
-from iol_client.models import Cotizacion
+from iol_client.models import Cotizacion, Titulo
 
 InstrumentType = Literal[
     "obligacionesNegociables",
@@ -535,7 +535,7 @@ class Client:
         *,
         mercado: str = "bcba",
         ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Cotizacion]:
         """Serie histórica de cotizaciones diarias para ``[desde, hasta]``.
 
         Endpoint:
@@ -561,7 +561,7 @@ class Client:
         instrument_type: InstrumentType,
         *,
         pais: str = "argentina",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Titulo]:
         """Listado de instrumentos filtrado por tipo y país.
 
         Endpoint: ``GET /api/v2/Cotizaciones/{instrument_type}/{pais}/Todos``.
@@ -688,7 +688,7 @@ def get_historical_quotes(
     *,
     mercado: str = "bcba",
     ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-) -> list[dict[str, Any]]:
+) -> list[Cotizacion]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_historical_quotes(
         simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
@@ -704,7 +704,7 @@ def get_instruments_by_type(
     instrument_type: InstrumentType,
     *,
     pais: str = "argentina",
-) -> list[dict[str, Any]]:
+) -> list[Titulo]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_instruments_by_type(instrument_type, pais=pais)
 

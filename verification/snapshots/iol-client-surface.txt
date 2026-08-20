@@ -17,9 +17,10 @@ IOLRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
 InstrumentType : _LiteralGenericAlias :
 Punta : class : (cantidadCompra: 'float', cantidadVenta: 'float', precioCompra: 'float', precioVenta: 'float') -> None
 SafeModel : class : ()
+Titulo : class : (apertura: 'float', cantidadOperaciones: 'float', descripcion: 'str', fecha: 'str', fechaVencimiento: 'str | None', laminaMinima: 'int', lote: 'int', maximo: 'float', mercado: 'str', minimo: 'float', moneda: 'str', plazo: 'str', precioEjercicio: 'float | None', puntas: 'Punta | None', simbolo: 'str', tipoOpcion: 'str | None', ultimoCierre: 'float', ultimoPrecio: 'float', variacionPorcentual: 'float', volumen: 'float') -> None
 configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
-get_historical_quotes : function : (simbolo: 'str', desde: 'dt.date', hasta: 'dt.date', *, mercado: 'str' = 'bcba', ajustada: "Literal['ajustada', 'sinAjustar']" = 'sinAjustar') -> 'list[dict[str, Any]]'
+get_historical_quotes : function : (simbolo: 'str', desde: 'dt.date', hasta: 'dt.date', *, mercado: 'str' = 'bcba', ajustada: "Literal['ajustada', 'sinAjustar']" = 'sinAjustar') -> 'list[Cotizacion]'
 get_instruments : function : (pais: 'str' = 'argentina') -> 'Any'
-get_instruments_by_type : function : (instrument_type: 'InstrumentType', *, pais: 'str' = 'argentina') -> 'list[dict[str, Any]]'
+get_instruments_by_type : function : (instrument_type: 'InstrumentType', *, pais: 'str' = 'argentina') -> 'list[Titulo]'
 get_quote : function : (simbolo: 'str', *, mercado: 'str' = 'bcba', plazo: 'str' = 't2') -> 'Cotizacion'
 login : function : () -> 'str'
