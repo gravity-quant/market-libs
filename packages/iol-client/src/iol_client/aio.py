@@ -61,6 +61,7 @@ from iol_client._core import raise_for_response as _raise_for_response
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.client import InstrumentType, _validate_max_retries
 from iol_client.exceptions import IOLAuthError
+from iol_client.models import Cotizacion
 
 # Suppress ruff F401 for the deliberate re-export alias (consumed by tests
 # via ``from iol_client.aio import _raise_for_response``).
@@ -539,7 +540,7 @@ class AsyncClient:
         *,
         mercado: str = "bcba",
         plazo: str = "t2",
-    ) -> dict[str, Any]:
+    ) -> Cotizacion:
         """Cotización actual de un título (async)."""
         spec = _core.build_get_quote_request(self._state, simbolo, mercado=mercado, plazo=plazo)
         resp = await self._request(spec)
@@ -695,7 +696,7 @@ async def get_quote(
     *,
     mercado: str = "bcba",
     plazo: str = "t2",
-) -> dict[str, Any]:
+) -> Cotizacion:
     return await _get_default().get_quote(simbolo, mercado=mercado, plazo=plazo)
 
 

@@ -69,8 +69,8 @@ async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
 async def test_async_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
     """Phase 3: locking URL exacta de aio.get_quote + ultimoPrecio numeric (IOL-02 + IOL-04).
 
-    Plan 30-01: the ``quote["simbolo"] == "GGAL"`` assertion was **removed**,
-    not migrated — same reason as the sync twin: ``simbolo`` is not one of the
+    Plan 30-01: the assertion on the ``simbolo`` key was **removed**, not
+    migrated — same reason as the sync twin: ``simbolo`` is not one of the
     20 keys ``get-quote.json`` records, so it is not a field of
     :class:`Cotizacion`.
     """
@@ -348,7 +348,8 @@ async def test_concurrent_401_triggers_exactly_one_reauth(httpx_mock: HTTPXMock)
         aio.get_quote("GGAL"),
         aio.get_quote("GGAL"),
     )
-    assert all(r["ultimoPrecio"] == 999.9 for r in results)
+    assert all(isinstance(r, Cotizacion) for r in results)
+    assert all(r.ultimoPrecio == 999.9 for r in results)
 
     # Assert exactly ONE login wire request (deduplication via token_lock).
     login_requests = [

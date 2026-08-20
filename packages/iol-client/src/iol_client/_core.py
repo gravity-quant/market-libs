@@ -51,8 +51,10 @@ from typing import Any, Literal
 
 import httpx
 
+from iol_client import _decode
 from iol_client._state import _TOKEN_TTL_BUFFER_SECONDS, _ClientState
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
+from iol_client.models import Cotizacion
 
 __all__ = [
     "RequestSpec",
@@ -324,12 +326,19 @@ def build_get_instruments_by_type_request(
 # ----------------------------------------------------------------------
 
 
-def parse_get_quote_response(resp: httpx.Response) -> dict[str, Any]:
-    """Pure: parse cotización response → JSON dict."""
+@_decode._response_parser
+def parse_get_quote_response(resp: httpx.Response) -> Cotizacion:
+    """Pure: parse cotización response → :class:`~iol_client.models.Cotizacion`.
+
+    Plan 30-01 (TYP-01): the wire dict becomes a typed model here, so the whole
+    ``get_quote`` surface — method and shim, sync and async — is attribute
+    access verified by mypy. ``@_response_parser`` makes this frame the owner
+    of the response's :class:`~iol_client._decode.DecodeScope`, which is what
+    keeps one divergence per field per HTTP response instead of one per model.
+    """
     resp.read()
     raise_for_response(resp)
-    data: dict[str, Any] = resp.json()
-    return data
+    return Cotizacion.from_api(resp.json())
 
 
 def parse_get_historical_quotes_response(resp: httpx.Response) -> list[dict[str, Any]]:

@@ -108,8 +108,8 @@ def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
 def test_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
     """Phase 3: locking URL exacta de get_quote + ultimoPrecio numeric (IOL-02 + IOL-04).
 
-    Plan 30-01: the ``quote["simbolo"] == "GGAL"`` assertion was **removed**,
-    not migrated — ``simbolo`` is not among the 20 keys the live corpus
+    Plan 30-01: the assertion on the ``simbolo`` key was **removed**, not
+    migrated — ``simbolo`` is not among the 20 keys the live corpus
     records for this endpoint (``get-quote.json``, captured 2026-06-06), so it
     is not a field of :class:`Cotizacion` and the mock key now decodes as an
     ``extra`` divergence. The key stays in the mock precisely to exercise that

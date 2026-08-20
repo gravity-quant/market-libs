@@ -58,6 +58,7 @@ from iol_client import _core, _decode, _token_cache, _transport
 from iol_client._core import RequestSpec
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.exceptions import IOLAuthError
+from iol_client.models import Cotizacion
 
 InstrumentType = Literal[
     "obligacionesNegociables",
@@ -517,7 +518,7 @@ class Client:
         *,
         mercado: str = "bcba",
         plazo: str = "t2",
-    ) -> dict[str, Any]:
+    ) -> Cotizacion:
         """Cotización actual de un título.
 
         Endpoint: ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion``.
@@ -675,7 +676,7 @@ def get_quote(
     *,
     mercado: str = "bcba",
     plazo: str = "t2",
-) -> dict[str, Any]:
+) -> Cotizacion:
     """Top-level shim: delega al default Client."""
     return _get_default().get_quote(simbolo, mercado=mercado, plazo=plazo)
 

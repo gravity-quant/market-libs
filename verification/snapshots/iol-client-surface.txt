@@ -8,15 +8,18 @@
 #
 AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, token_cache_path: 'Path | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, token_cache_path: 'Path | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
+Cotizacion : class : (apertura: 'float', cantidadOperaciones: 'int', cierreAnterior: 'float', descripcionTitulo: 'str | None', fechaHora: 'str', interesesAbiertos: 'float', laminaMinima: 'int', lote: 'int', maximo: 'float', minimo: 'float', moneda: 'str', montoOperado: 'float', plazo: 'str | None', precioAjuste: 'float', precioPromedio: 'float', puntas: 'list[Punta] | None', tendencia: 'str', ultimoPrecio: 'float', variacion: 'float', volumenNominal: 'float') -> None
 IOLAPIError : class : (status_code: 'int', message: 'str') -> 'None'
 IOLAuthError : class : (status_code: 'int', message: 'str') -> 'None'
 IOLClientError : class :
 IOLDecodeError : class : (field_path: 'str', declared_type: 'str', observed_type: 'str', model: 'str') -> 'None'
 IOLRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
 InstrumentType : _LiteralGenericAlias :
+Punta : class : (cantidadCompra: 'float', cantidadVenta: 'float', precioCompra: 'float', precioVenta: 'float') -> None
+SafeModel : class : ()
 configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, refresh_token: 'str | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 get_historical_quotes : function : (simbolo: 'str', desde: 'dt.date', hasta: 'dt.date', *, mercado: 'str' = 'bcba', ajustada: "Literal['ajustada', 'sinAjustar']" = 'sinAjustar') -> 'list[dict[str, Any]]'
 get_instruments : function : (pais: 'str' = 'argentina') -> 'Any'
 get_instruments_by_type : function : (instrument_type: 'InstrumentType', *, pais: 'str' = 'argentina') -> 'list[dict[str, Any]]'
-get_quote : function : (simbolo: 'str', *, mercado: 'str' = 'bcba', plazo: 'str' = 't2') -> 'dict[str, Any]'
+get_quote : function : (simbolo: 'str', *, mercado: 'str' = 'bcba', plazo: 'str' = 't2') -> 'Cotizacion'
 login : function : () -> 'str'
