@@ -6,14 +6,14 @@ current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
 stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-08-20T02:57:03.232Z"
+last_updated: "2026-08-20T03:06:35.005Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 30 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 17
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 30 (iol-client-tipado) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-08-20 — Phase 30 execution started
 
@@ -130,6 +130,7 @@ Last activity: 2026-08-20 — Phase 30 execution started
 | Phase 29 P10 | 15min | 2 tasks | 2 files |
 | Phase 30 P01 | 36min | 3 tasks | 12 files |
 | Phase 30 P02 | 8min | 3 tasks | 10 files |
+| Phase 30 P03 | 6min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -220,6 +221,8 @@ Recent decisions affecting current work:
 - [Phase 30]: Plan 30-02: _parse_list_or_raise levanta IOLAPIError(0, ...) ante una forma inesperada; jamas degrada a lista vacia (D-06/T-30-06)
 - [Phase 30]: Plan 30-02: el envelope titulos se desenvuelve como paso raw-dict y no se modela; su ausencia sigue dando lista vacia a proposito (D-06)
 - [Phase 30]: Plan 30-02: FA-05 resuelta a favor del schema — Titulo tiene 20 campos, no los 21 que dicen D-01 y RESEARCH
+- [Phase ?]: 30-03: el desajuste de get_instruments se corrigio del lado del test (16 mocks re-mockeados a la lista top-level capturada), nunca aflojando el guard del parser a tolerancia dict-o-lista
+- [Phase ?]: 30-03: las 16 firmas de iol-client devuelven modelos; el guard de forma levanta IOLAPIError ante un body no-lista y sigue aceptando la lista vacia
 
 ### Pending Todos
 
@@ -299,7 +302,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-20T02:57:03.228Z
+Last session: 2026-08-20T03:06:30.908Z
 Stopped at: Completed 30-02-PLAN.md
 Resume file: None
 
