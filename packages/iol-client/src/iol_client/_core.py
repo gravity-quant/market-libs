@@ -419,13 +419,42 @@ def parse_get_instruments_by_type_response(resp: httpx.Response) -> list[Titulo]
     built: the envelope is transport shape, not domain shape, and is therefore
     never modelled (D-06).
 
-    An envelope missing the key still yields ``[]`` — that is the pre-existing
-    behavior and D-06 preserves it on purpose. It is not the silent-degradation
-    case the shape guard rejects: the body *is* the expected dict, it just has
-    no rows.
+    CR-02 / D-06 / ASVS V5 — **two** shape guards, for the two levels this wire
+    shape has. The envelope guard rejects a body that is not a dict (a top-level
+    list used to reach ``.get`` and raise a bare ``AttributeError``, escaping the
+    :class:`~iol_client.exceptions.IOLClientError` hierarchy every documented
+    caller catches). The value guard rejects a ``titulos`` that is not a list (a
+    string or a dict used to be *iterated*, manufacturing one all-default
+    :class:`~iol_client.models.Titulo` per character or per key — synthetic
+    financial rows indistinguishable from real instruments). Both raise
+    :class:`~iol_client.exceptions.IOLAPIError` with ``status_code=0``, the same
+    convention :func:`_parse_list_or_raise` established: the transport
+    succeeded, the payload did not. The message carries the received **type
+    name** only — never a wire value (T-30-05-04).
+
+    The two behaviors this function now distinguishes, stated together because
+    they look adjacent and are not:
+
+    - **Missing key yields ``[]``.** The body *is* the expected dict, it just has
+      no rows. That is the pre-existing behavior and D-06 preserves it on
+      purpose; the ``.get("titulos", [])`` default runs *before* the value guard,
+      so this path never raises.
+    - **Wrong-typed value raises.** The body does not have the expected shape at
+      all. Degrading it silently — to ``[]`` or, worse, to fabricated rows —
+      would mask a changed or compromised upstream, which is the exact
+      regression this milestone exists to remove.
+
+    The guards discriminate **shape, not cardinality**: ``{"titulos": []}`` is a
+    legitimate response and parses to ``[]`` without raising.
     """
     resp.read()
     raise_for_response(resp)
-    data: dict[str, Any] = resp.json()
-    titulos: list[Any] = data.get("titulos", [])
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        raise IOLAPIError(0, f"shape mismatch: expected dict envelope, got {type(raw).__name__}")
+    titulos = raw.get("titulos", [])
+    if not isinstance(titulos, list):
+        raise IOLAPIError(
+            0, f"shape mismatch: 'titulos' expected list, got {type(titulos).__name__}"
+        )
     return [Titulo.from_api(fila) for fila in titulos]
