@@ -156,3 +156,59 @@ class Cotizacion(SafeModel):
     ultimoPrecio: float
     variacion: float
     volumenNominal: float
+
+
+@dataclass(frozen=True, slots=True)
+class Titulo(SafeModel):
+    """Un título del listado por tipo — una fila del envelope ``titulos``.
+
+    Verificado contra el schema committeado capturado el **2026-06-06**
+    (``.planning/verification/schemas/iol-client/get-instruments-by-type.json``).
+
+    - Este modelo es **cada fila** del envelope. El envelope en sí —el dict
+      ``{"titulos": [...]}`` que la respuesta trae al tope— **no** se modela:
+      es forma de transporte, no de dominio, y se desenvuelve como paso
+      raw-dict en el parser antes de que exista ningún modelo (D-06).
+    - ``fechaVencimiento``, ``precioEjercicio`` y ``tipoOpcion`` llegaron
+      **sin valor** en toda la captura: el corpus sólo registra su ausencia.
+      Su tipo no-nulo (texto para las dos primeras y para la opción, decimal
+      para el precio de ejercicio) está por lo tanto **inferido del nombre del
+      campo y nunca observado** — FA-02 / RESEARCH Assumptions Log A1, a
+      confirmar en Phase 33. Una divergencia de tipo sobre cualquiera de los
+      tres es **esta asunción corrigiéndose sola**, no un defecto del modelo.
+      Se declaran ``Optional`` por D-03, que es también lo que evita
+      pre-cargar el censo de Phase 33 con divergencias garantizadas.
+    - ``puntas`` es acá un :class:`Punta` **singular**, mientras que en
+      :class:`Cotizacion` es una colección: dos formas de la misma clave en el
+      mismo corpus, cada una siguiendo su propia captura (D-02).
+    - ``cantidadOperaciones`` es **decimal** acá y entero en
+      :class:`Cotizacion` (D-04). La asimetría es deliberada y observable: la
+      rama decimal del walker **ensancha en silencio** un entero del wire,
+      mientras que la entera sustituye el typed zero y **reporta**. Sigue la
+      evidencia de cada endpoint, no una convención (RESEARCH Pitfall 4).
+    - ``mercado`` y ``plazo`` quedan como **texto libre**. Ningún campo de
+      RESPONSE gana un tipo de conjunto cerrado en este milestone; la
+      promoción a ``Literal`` es trabajo de Phase 33 con un censo vivo detrás
+      (D-09 / DT-07).
+    """
+
+    apertura: float
+    cantidadOperaciones: float
+    descripcion: str
+    fecha: str
+    fechaVencimiento: str | None
+    laminaMinima: int
+    lote: int
+    maximo: float
+    mercado: str
+    minimo: float
+    moneda: str
+    plazo: str
+    precioEjercicio: float | None
+    puntas: Punta | None
+    simbolo: str
+    tipoOpcion: str | None
+    ultimoCierre: float
+    ultimoPrecio: float
+    variacionPorcentual: float
+    volumen: float

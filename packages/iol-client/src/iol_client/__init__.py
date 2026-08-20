@@ -52,6 +52,7 @@ from iol_client.models import (  # noqa: E402
     Cotizacion,
     Punta,
     SafeModel,
+    Titulo,
 )
 
 # ``_get_default`` is intentionally re-exported (private name with leading
@@ -69,6 +70,7 @@ __all__ = [
     "InstrumentType",
     "Punta",
     "SafeModel",
+    "Titulo",
     "configure",
     "get_historical_quotes",
     "get_instruments",
