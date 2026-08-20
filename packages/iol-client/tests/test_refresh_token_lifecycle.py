@@ -63,7 +63,7 @@ def test_refresh_token_success_path_rotates(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
@@ -115,7 +115,7 @@ def test_refresh_401_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
     # 3) Endpoint downstream.
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     # NO raise — el fallback es silencioso (Phase 6 D-IOL-10).
@@ -156,7 +156,7 @@ def test_refresh_preserves_token_when_server_omits_refresh_field(
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
@@ -198,7 +198,7 @@ def test_refresh_rotates_when_server_provides_new_field(
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")

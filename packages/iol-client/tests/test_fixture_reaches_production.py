@@ -40,7 +40,7 @@ def test_iol_sync_sentinel_token_reaches_authorization_header(httpx_mock: HTTPXM
 
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
@@ -61,7 +61,7 @@ async def test_iol_async_sentinel_token_reaches_authorization_header(httpx_mock:
 
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")

@@ -431,9 +431,10 @@ def test_parse_list_or_raise_emite_un_registro_por_campo_no_uno_por_fila(
 
 
 def test_parse_get_instruments_response_passthrough() -> None:
-    resp = httpx.Response(200, content=b'{"instrumentos": [{"simbolo": "GGAL"}]}')
+    """El body es la lista top-level que el schema committeado demuestra (D-06)."""
+    resp = httpx.Response(200, content=b'[{"instrumento": "acciones", "pais": "argentina"}]')
     data = _core.parse_get_instruments_response(resp)
-    assert data == {"instrumentos": [{"simbolo": "GGAL"}]}
+    assert data == [{"instrumento": "acciones", "pais": "argentina"}]
 
 
 def test_parse_get_instruments_by_type_response_extracts_titulos_key() -> None:

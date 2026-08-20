@@ -156,7 +156,7 @@ async def test_async_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")
@@ -191,7 +191,7 @@ async def test_async_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock)
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")

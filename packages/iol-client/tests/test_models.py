@@ -27,7 +27,7 @@ impone contra `Cotizacion`:
 Plan 30-03 agrega `Instrumento`, cada elemento de la **lista top-level** que
 devuelve `get_instruments`. Es el modelo más chico de la fase (dos claves de
 texto) y el que más divergía de lo que la suite creía: 16 mocks construían un
-envelope `{"instrumentos": …}` que la captura del 2026-06-06 contradice (D-06).
+envelope de una sola clave que la captura del 2026-06-06 contradice (D-06).
 """
 
 from __future__ import annotations
@@ -460,7 +460,7 @@ def test_titulo_cantidad_operaciones_entera_se_ensancha_sin_registro(
     assert _divergences(caplog) == []
 
 
-def test_round_trip_reproduce_el_schema_committeado_de_instrumentos_por_tipo() -> None:
+def test_round_trip_reproduce_el_schema_committeado_de_titulo() -> None:
     titulo = Titulo.from_api(_TITULO_ROW)
     assert schema_of(titulo.to_dict()) == _committed_schema("get-instruments-by-type")["titulos"][0]
 
@@ -500,7 +500,7 @@ def test_instrumento_from_api_none_does_not_raise() -> None:
     assert instrumento.pais == ""
 
 
-def test_round_trip_reproduce_el_schema_committeado_de_instrumentos() -> None:
+def test_round_trip_reproduce_el_schema_committeado_de_instrumento() -> None:
     elemento = _committed_schema("get-instruments")[0]
     instrumento = Instrumento.from_api(_INSTRUMENTO_ROW)
     assert schema_of(instrumento.to_dict()) == elemento

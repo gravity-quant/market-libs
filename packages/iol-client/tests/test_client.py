@@ -88,12 +88,24 @@ def test_get_historical_quotes_arma_path(httpx_mock: HTTPXMock) -> None:
 
 
 def test_get_instruments_devuelve_payload(httpx_mock: HTTPXMock) -> None:
+    """El wire es una **lista top-level**, no el envelope que este mock asumía.
+
+    La captura 2026-06-06 (``get-instruments.json``) registra
+    ``[{"instrumento": …, "pais": …}]`` al tope. El payload viejo describía un
+    mundo que el endpoint no devuelve (D-06, Plan 30-03).
+    """
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": ["acciones", "cedears"]},
+        json=[
+            {"instrumento": "acciones", "pais": "argentina"},
+            {"instrumento": "cedears", "pais": "argentina"},
+        ],
     )
     payload = iol_client.get_instruments()
-    assert payload == {"instrumentos": ["acciones", "cedears"]}
+    assert payload == [
+        {"instrumento": "acciones", "pais": "argentina"},
+        {"instrumento": "cedears", "pais": "argentina"},
+    ]
 
 
 def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
@@ -199,7 +211,7 @@ def test_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
@@ -236,7 +248,7 @@ def test_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
