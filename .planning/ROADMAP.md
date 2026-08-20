@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 6/6 plans executed (30-05 y 30-06 son cierre de gaps de verificación: CR-01 y CR-02)
+**Plans:** 7 plans — 6 ejecutados, 30-07 pendiente (30-05/30-06/30-07 son cierre de gaps de verificación: CR-02 y las dos mitades de CR-01)
 
 Plans:
 **Wave 1**
@@ -105,6 +105,10 @@ Plans:
 
 - [x] 30-05-PLAN.md — CR-02: guards de forma en `parse_get_instruments_by_type_response` (envelope dict + valor `titulos` list) levantando `IOLAPIError`, con paridad sync/async probada
 - [x] 30-06-PLAN.md — CR-01: los probes de drift leen el **wire crudo** en vez de la proyección del modelo (captura por endpoint + probes 12/13 recableados + lock de regresión offline), más WR-02 y WR-06
+
+**Wave 6 — segundo cierre de CR-01** *(30-VERIFICATION.md re-verificación: 6/7; CR-02 cerrado, CR-01 sustancialmente cerrado pero con un BLOCKER nuevo en el código de reemplazo)*
+
+- [ ] 30-07-PLAN.md — CR-01 (post-cierre): un body capturado como JSON `null` deja de ser indistinguible de una captura fallida — los probes 12/13 gatean por membresía en `raw_wire` en vez de por el centinela nulo, más el caso de regresión que el lock de 30-06 no cubría
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
