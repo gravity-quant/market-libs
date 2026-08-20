@@ -116,9 +116,18 @@ _ALL_INSTRUMENT_TYPES: tuple[iol_client.InstrumentType, ...] = (
 # D-IOL-14: caller assumptions hardcoded como state público del driver.
 # Listas mínimas — campos cuya presencia/tipo el caller asume; ampliar a
 # discreción al observar payloads reales (Discretion).
+#
+# WR-02: **toda** entrada de estos dicts debe estar sostenida por el baseline
+# committeado correspondiente bajo ``.planning/verification/schemas/iol-client/``.
+# Una clave asumida que el corpus no registra emite, ahora que el probe vuelve a
+# leer wire real, un finding SHAPE OPEN en cada corrida viva que ningún cambio
+# upstream puede cerrar — ruido que entrena al operador a ignorar el archivo de
+# findings, que es lo opuesto a lo que este harness busca.
+# ``verification/test_main_iol_raw_wire_drift.py::
+# test_assumed_quote_fields_are_all_present_in_committed_baseline`` lo enforcea
+# offline: una entrada sin respaldo falla ahí, no en producción.
 _ASSUMED_QUOTE_FIELDS: dict[str, str] = {
     "ultimoPrecio": "float",  # IOL-04: numeric, JSON number
-    "simbolo": "str",
 }
 _ASSUMED_HISTORICAL_FIELDS: dict[str, str] = {
     "fechaHora": "str",
@@ -194,24 +203,26 @@ def _last_business_day(today: dt.date) -> dt.date:
 def _as_wire(value: Any) -> Any:
     """Proyecta un modelo (o una lista de modelos) de vuelta a su dict de wire.
 
+    **Un solo consumidor:** :func:`probe_parity_sync_async` (probe 11). Los
+    probes 12 y 13 tenían call sites acá y los perdieron con CR-01: ahora leen
+    el wire CRUDO capturado por :func:`_capture_raw_wire`, porque una proyección
+    del modelo es función de la **declaración** del modelo y no del wire, y por
+    lo tanto ciega al type-drift, a las claves agregadas y a las quitadas.
+
+    Lo que la proyección sigue habilitando en el probe de paridad:
     ``verification.schema.schema_of`` reduce cualquier cosa que no sea ``dict``
-    ni ``list`` al **nombre de su tipo**, así que desde Phase 30 una instancia de
-    modelo se colapsaría al string ``"Cotizacion"``. Eso rompe tres sitios de
-    este driver y **dos lo harían en silencio**:
+    ni ``list`` al **nombre de su tipo**, así que sin este adaptador el probe
+    compararía ``"Cotizacion" == "Cotizacion"``: siempre igual, PASS habiendo
+    perdido todo su poder discriminante.
 
-    - el probe de paridad compararía ``"Cotizacion" == "Cotizacion"``: siempre
-      igual, PASS habiendo perdido **todo** su poder discriminante;
-    - los dos probes de mapa de campos guardan con un chequeo de tipo ``dict``
-      que pasaría a ser falso: el bucle entero se saltea y el probe reporta
-      "sin drift" sin haber mirado un solo campo;
-    - el escritor/verificador de snapshots compararía un string contra el dict
-      committeado: findings de forma espurios (ruidoso, y **no** sobreescribe el
-      baseline, D-25).
-
-    Por eso la normalización vive acá, en la frontera, y no en cada sitio de
-    llamada. El envelope de ``get_instruments_by_type`` viene de un ``_request``
-    **crudo** (ver ``probe_field_type_map``), ya es un dict y atraviesa este
-    adaptador **tal cual** — que es lo correcto.
+    **Qué prueba —y qué NO prueba— un PASS de paridad (WR-07).** Los dos lados
+    son proyecciones de la *misma* clase, así que el conjunto de claves es
+    idéntico por construcción y los tipos de las hojas no-opcionales también:
+    esas dos clases de drift el probe **no puede** detectarlas. Lo que sí
+    discrimina es la presencia de campos ``Optional`` (``None`` vs valor) y la
+    cardinalidad de las listas. Un PASS acá no es evidencia de que sync y async
+    hayan recibido el mismo wire; es evidencia de que produjeron modelos con la
+    misma forma poblada. Un lector futuro no debe tomarlo por más de eso.
 
     La salida alimenta ``schema_of`` y **nada más**: esa función emite claves y
     nombres de tipo, jamás valores, y por eso es libre de datos personales por
@@ -931,8 +942,18 @@ def probe_get_instruments_by_type_sync(
         # Phase 30: el wrapper devuelve ``list[Titulo]``, no ``list[dict]``. Sin
         # migrar este chequeo, los 6 types caerían en ``bad_types`` y cada
         # corrida viva emitiría un finding SHAPE espurio.
-        if not (isinstance(titulos, list) and titulos and isinstance(titulos[0], Titulo)):
+        #
+        # WR-06: el chequeo discrimina **forma, no cardinalidad** — la misma
+        # regla que ``_core.py::parse_get_instruments_response`` ya enuncia en
+        # su docstring ("the guard discriminates shape, not cardinality"). Una
+        # lista vacía es legítima: ``cauciones`` o ``letras`` fuera de horario
+        # de mercado devuelven ``[]`` sin que nada esté roto. Lo que sí es
+        # defecto de forma: un no-list, o una lista no vacía cuyo elemento 0 no
+        # es un ``Titulo``.
+        if not isinstance(titulos, list):
             bad_types.append(f"{itype}: shape={type(titulos).__name__}")
+        elif titulos and not isinstance(titulos[0], Titulo):
+            bad_types.append(f"{itype}: shape=list[{type(titulos[0]).__name__}]")
     if bad_types:
         fid = _next_fid()
         append_finding(
@@ -942,9 +963,9 @@ def probe_get_instruments_by_type_sync(
             surface="sync",
             status="OPEN",
             title="sanity check de InstrumentType: algún type devolvió shape inesperada",
-            expected="cada InstrumentType retorna list[dict] no vacía",
+            expected="cada InstrumentType retorna list[Titulo] (una lista vacía es válida)",
             actual=f"bad_types={bad_types!r}",
-            diff="shape !=list[dict] o lista vacía en algún type",
+            diff="shape != list[Titulo] en algún type",
             base_url=base_url,
         )
         return (
@@ -1078,10 +1099,13 @@ def probe_parity_sync_async(
         if sync_data is None or async_data is None:
             skipped.append(endpoint)
             continue
-        # D-07/D-08: los payloads llegan opacos (modelo, lista de modelos o dict
-        # crudo), así que la normalización va acá, en la frontera. Sin ella este
-        # probe compararía dos veces el mismo nombre de clase y reportaría PASS
-        # habiendo perdido todo su poder discriminante.
+        # D-07/D-08: los payloads llegan como modelos o listas de modelos, así
+        # que la normalización va acá, en la frontera. Sin ella este probe
+        # compararía dos veces el mismo nombre de clase y reportaría PASS
+        # habiendo perdido todo su poder discriminante. Alcance real del PASS
+        # (WR-07): ver el docstring de ``_as_wire`` — claves y tipos de hojas
+        # no-opcionales son idénticos por construcción; lo discriminante es la
+        # presencia de ``Optional`` y la cardinalidad de las listas.
         schema_sync = schema_of(_as_wire(sync_data))
         schema_async = schema_of(_as_wire(async_data))
         if schema_sync == schema_async:
