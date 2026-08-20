@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: Completed 30-01-PLAN.md
-last_updated: "2026-08-20T02:46:14.978Z"
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-08-20T02:57:03.232Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 30 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
   percent: 17
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 30 (iol-client-tipado) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-20 — Phase 30 execution started
 
@@ -129,6 +129,7 @@ Last activity: 2026-08-20 — Phase 30 execution started
 | Phase 29 P09 | 24min | 2 tasks | 3 files |
 | Phase 29 P10 | 15min | 2 tasks | 2 files |
 | Phase 30 P01 | 36min | 3 tasks | 12 files |
+| Phase 30 P02 | 8min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -216,6 +217,9 @@ Recent decisions affecting current work:
 - [Phase 29 / 29-10]: **Sizing floor RATIFICADO** — sebadlf firmó "ratified" el 2026-08-19 en `29-SIZING.md`. Los pisos por paquete quedan como **presupuesto declarado** de la fase de verificación en vivo (**Phase 33**): `higyrus-client ≥ 22`, `matriz-client ≥ 24`, `market-data-client ≥ 50`, `iol-client` N/A (sus modelos llegan en la Phase 30), `ambito-financiero-client` N/A — nunca 0, porque un 0 se lee como limpio y un falso-limpio es exactamente lo que este milestone existe para eliminar. Total modelado **≥ 96** (56 missing / 0 wrong_type / 32 extra / 8 non_dict). Es un **piso**, no una estimación: el corpus type-only es ciego a divergencias de valor (NaN/Infinity, valores fuera de conjunto en las 9 aliases de `types.py` de matriz, rango/formato, inconsistencia cross-field, colecciones heterogéneas — `schema_of` reduce por el PRIMER elemento), así que el margen de error apunta **sólo hacia arriba**. **La Phase 33 debe contrastar su censo en vivo contra estos números** — son directamente comparables sin traducción porque ambas corridas emiten el mismo record de 6 claves por el mismo walker con el mismo triple de dedupe `(model, field_path, kind)` (D-06, locks 1 y 5 del contrato de agregación). Si el censo los **excede**, eso exige un **re-scope explícito**: cada finding diferido se rutea a una **fase destino nombrada** con paquete y campo registrados; diferir a "más adelante" sin destino, o silenciar angostando el walker, no es una opción disponible. Los 5 hallazgos estructurales (S-1…S-5) quedan documentados para corrección in-cycle en la Phase 33 — el de mayor consecuencia es S-3 (matriz `Instrument.instrumentId` ausente en byCFICode/bySegment: `marketId`/`symbol` llegan aplanados, se reportan como `extra` y se **descartan**, y todo consumidor de `inst.instrumentId.symbol` lee vacío en cada fila, en silencio).
 - [Phase ?]: Plan 30-01: DecodePolicy de iol re-ratificada (typed zeros); la confirmacion vive en el docstring de models.py
 - [Phase ?]: Plan 30-01: to_dict() vive en SafeModel via dataclasses.asdict + cast(Any, self), no per-modelo
+- [Phase 30]: Plan 30-02: _parse_list_or_raise levanta IOLAPIError(0, ...) ante una forma inesperada; jamas degrada a lista vacia (D-06/T-30-06)
+- [Phase 30]: Plan 30-02: el envelope titulos se desenvuelve como paso raw-dict y no se modela; su ausencia sigue dando lista vacia a proposito (D-06)
+- [Phase 30]: Plan 30-02: FA-05 resuelta a favor del schema — Titulo tiene 20 campos, no los 21 que dicen D-01 y RESEARCH
 
 ### Pending Todos
 
@@ -295,8 +299,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-20T02:46:10.585Z
-Stopped at: Completed 30-01-PLAN.md
+Last session: 2026-08-20T02:57:03.228Z
+Stopped at: Completed 30-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
