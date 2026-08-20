@@ -48,6 +48,11 @@ from iol_client.exceptions import (  # noqa: E402
     IOLDecodeError,
     IOLRateLimitError,
 )
+from iol_client.models import (  # noqa: E402
+    Cotizacion,
+    Punta,
+    SafeModel,
+)
 
 # ``_get_default`` is intentionally re-exported (private name with leading
 # underscore — NOT in ``__all__``) so tests and snapshot-helpers can access
@@ -55,12 +60,15 @@ from iol_client.exceptions import (  # noqa: E402
 __all__ = [
     "AsyncClient",
     "Client",
+    "Cotizacion",
     "IOLAPIError",
     "IOLAuthError",
     "IOLClientError",
     "IOLDecodeError",
     "IOLRateLimitError",
     "InstrumentType",
+    "Punta",
+    "SafeModel",
     "configure",
     "get_historical_quotes",
     "get_instruments",

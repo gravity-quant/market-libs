@@ -1,17 +1,15 @@
 """Behaviour contract for ``iol_client._decode`` — the walker copy.
 
-Phase 29 Plan 07 (DEC-01). ``iol-client`` has **no models module yet** — it
-lands in Phase 30 — so this suite is the only thing that exercises the copy
-today, and that is exactly what makes it load-bearing: it proves the walker
-stands alone in a package with no ``models.py``, which is the strongest
-available evidence that the module has no hidden coupling to one.
+Phase 29 Plan 07 (DEC-01). When this suite was written ``iol-client`` had **no
+models module** — it landed in Plan 30-01 — so the suite was the only thing
+exercising the copy, which is what made it load-bearing: it proved the walker
+stands alone in a package with no ``models.py``.
 
-The model fixtures are declared module-locally as frozen slotted dataclasses
+The model fixtures stay declared module-locally as frozen slotted dataclasses
 exposing a ``from_api`` classmethod that delegates to :func:`walk_model` —
-precisely the shape Phase 30 will generate. A shipped model gaining or losing
-a field can therefore never turn a walker regression green, and Phase 30
-inherits a decoder that is already proven functional rather than merely
-present.
+precisely the shape Phase 30 generated. Keeping them local is deliberate even
+now that ``iol_client.models`` exists: a shipped model gaining or losing a
+field can therefore never turn a walker regression green.
 
 Covered: the five divergence classes across both decode modes, the twelve
 locks of ``29-AGGREGATION-CONTRACT.md``, the D-09 lock in
@@ -35,7 +33,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import iol_client
-from iol_client import _decode, aio
+from iol_client import _decode, aio, models
 from iol_client import client as client_mod
 from iol_client._core import RequestSpec
 from iol_client._decode import POLICY, DecodeScope, walk_field, walk_model
@@ -84,9 +82,9 @@ _CONTRACT_KEYS = (
 # ---------------------------------------------------------------------------
 # Module-local model fixtures
 #
-# iol has no ``models.py`` until Phase 30. These are the shape that phase will
-# generate: a frozen slotted dataclass whose ``from_api`` delegates to
-# ``walk_model`` and constructs from the returned kwargs. Declaring them here
+# These are the shape Phase 30 generated for ``iol_client.models``: a frozen
+# slotted dataclass whose ``from_api`` delegates to ``walk_model`` and
+# constructs from the returned kwargs. Keeping them module-local here
 # also exercises the walker's duck-typed ``_is_model`` predicate — the whole
 # reason the module can stand alone without importing ``models``.
 # ---------------------------------------------------------------------------
@@ -203,7 +201,9 @@ def test_policy_constant_matches_the_semantics_matrix() -> None:
     The matrix records that iol's value is **re-ratified in Phase 30**, when
     ``iol_client/models.py`` lands and the planner must confirm those models
     actually want typed-zero substitution rather than matriz-style ``None``.
-    Until then this assertion pins what was signed.
+    Plan 30-01 discharged that obligation and recorded the ratification in the
+    ``iol_client.models`` module docstring; this assertion pins the constant
+    that was ratified.
     """
     assert POLICY.missing_str == ""
     assert POLICY.missing_int == 0
@@ -246,10 +246,11 @@ def test_decode_scope_declaration_is_reflowed_by_the_formatter() -> None:
 
 
 def test_decode_module_never_imports_models() -> None:
-    """``_decode`` must stand alone: two of the five copies have no ``models.py``.
+    """``_decode`` must stand alone: it never names the ``models`` module.
 
-    iol is one of those two, so this is not a hypothetical here — the module
-    imports cleanly in a package where ``models`` does not exist at all.
+    Phase 29 could lean on iol having no ``models.py`` at all. Phase 30 created
+    one, so the decoupling is no longer structural — it is a property this
+    assertion has to carry on its own.
     """
     source = pathlib.Path(inspect.getfile(_decode)).read_text(encoding="utf-8")
     imported: set[str] = set()
@@ -263,13 +264,21 @@ def test_decode_module_never_imports_models() -> None:
     assert package_imports == {"iol_client.exceptions"}
 
 
-def test_this_package_really_has_no_models_module() -> None:
-    """The precondition that makes the standalone-import evidence meaningful."""
+def test_decode_stays_decoupled_now_that_models_exists() -> None:
+    """Phase 30 inverted Phase 29's precondition, and the property survived it.
+
+    Until Phase 30 this test asserted the opposite — that iol had no
+    ``models.py`` at all — which made the standalone-import evidence above
+    structural and therefore un-loseable. Plan 30-01 created the module, so the
+    precondition is gone. What replaces it is the stronger statement: the
+    module exists, ``_decode`` still does not import it (asserted above), and
+    the walker recognises a model purely by duck-typing.
+    """
     package_dir = pathlib.Path(inspect.getfile(client_mod)).parent
 
-    assert not (package_dir / "models.py").exists()
-    with pytest.raises(ModuleNotFoundError):
-        __import__("iol_client.models")
+    assert (package_dir / "models.py").exists()
+    assert _decode._is_model(models.Cotizacion)
+    assert not _decode._is_model(dict)
 
 
 # ---------------------------------------------------------------------------
@@ -733,7 +742,11 @@ def test_silent_sink_records_nothing_emits_nothing_and_never_raises(
     try:
         with caplog.at_level(logging.DEBUG, logger="iol_client"):
             for kind in ("missing", "type", "extra", "non_dict"):
-                assert _decode.SILENT_SINK("M", ".campo", kind, "str", "int") is None
+                # ``SILENT_SINK`` is annotated ``-> None``, so mypy proves the
+                # "returns nothing" leg statically and asserting it at runtime
+                # is a ``func-returns-value`` error under strict mode. The bare
+                # call still pins the leg that matters: it never raises.
+                _decode.SILENT_SINK("M", ".campo", kind, "str", "int")
             kwargs = walk_model(_Scalars, None, policy=POLICY, sink=_decode.SILENT_SINK)
     finally:
         _decode.STRICT_DECODE.reset(token)
@@ -802,7 +815,7 @@ def _full_payload(cls: type) -> dict[str, Any]:
     """A type-correct wire payload covering every declared field of ``cls``."""
     filler: dict[Any, Any] = {str: "x", int: 1, float: 1.0, bool: True}
     hints = _decode.hints_for(cls)
-    return {f.name: filler.get(hints[f.name], []) for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
+    return {f.name: filler.get(hints[f.name], []) for f in dataclasses.fields(cls)}
 
 
 def test_from_api_shape_decodes_a_clean_payload_without_a_single_record(

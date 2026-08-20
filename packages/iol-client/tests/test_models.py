@@ -25,10 +25,10 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from iol_client.models import Cotizacion, Punta, SafeModel
 from verification.schema import schema_of
 
 from iol_client import _decode
+from iol_client.models import Cotizacion, Punta, SafeModel
 
 _MESSAGE = "decode divergence"
 
@@ -248,8 +248,10 @@ def test_cantidad_operaciones_decimal_sustituye_typed_zero_y_reporta(
         quote = Cotizacion.from_api({**_QUOTE_PAYLOAD, "cantidadOperaciones": 7.0})
 
     assert quote.cantidadOperaciones == 0
+    # El walker prefija cada segmento con ``.``; en el tope el path es
+    # ``.<campo>`` (``_decode.walk_model``).
     registros = [
-        r for r in _divergences(caplog) if getattr(r, "field_path", None) == "cantidadOperaciones"
+        r for r in _divergences(caplog) if getattr(r, "field_path", None) == ".cantidadOperaciones"
     ]
     assert len(registros) == 1
     assert registros[0].divergence == "type"  # type: ignore[attr-defined]
