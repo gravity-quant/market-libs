@@ -18,8 +18,8 @@ Probes en orden de ejecución (D-IOL-5; ``probe_auth_401`` ÚLTIMO, D-IOL-4):
 9.  ``probe_get_instruments_by_type_sync``  — ``instrument_type="acciones"`` + sanity 6 types (IOL-02 + IOL-04 + IOL-17).
 10. ``probe_get_instruments_by_type_async`` — espejo async sample (IOL-02).
 11. ``probe_parity_sync_async``             — diff estructural sync↔async (IOL-06, D-IOL-20).
-12. ``probe_field_type_map``                — ``schema_of`` vs ``_ASSUMED_*`` + envelope check ``"titulos"`` (IOL-03 + IOL-04 detail + Pitfall 2).
-13. ``probe_schema_snapshot``               — 4 snapshots con envelope D-21 + D-25 no-overwrite (DRIFT-01).
+12. ``probe_field_type_map``                — ``schema_of`` vs ``_ASSUMED_*`` + envelope check ``"titulos"``, sobre la captura de wire CRUDO de los 4 endpoints (IOL-03 + IOL-04 detail + Pitfall 2 + CR-01).
+13. ``probe_schema_snapshot``               — 4 snapshots tomados del wire CRUDO, con envelope D-21 + D-25 no-overwrite (DRIFT-01 + CR-01).
 14. ``probe_refresh_token``                 — verifica IOL-07 in-vivo (D-IOL-11).
 15. ``probe_auth_401``                      — opt-in vía ``VERIFY_IOL_BAD_CREDS=1`` (D-IOL-1/2/4).
 
@@ -83,8 +83,8 @@ from iol_client import (
     IOLAPIError,
     IOLAuthError,
     Titulo,
+    _core,
 )
-from iol_client._core import RequestSpec
 from iol_client.client import _raise_for_response
 
 # ---------------------------------------------------------------------------
@@ -116,9 +116,18 @@ _ALL_INSTRUMENT_TYPES: tuple[iol_client.InstrumentType, ...] = (
 # D-IOL-14: caller assumptions hardcoded como state público del driver.
 # Listas mínimas — campos cuya presencia/tipo el caller asume; ampliar a
 # discreción al observar payloads reales (Discretion).
+#
+# WR-02: **toda** entrada de estos dicts debe estar sostenida por el baseline
+# committeado correspondiente bajo ``.planning/verification/schemas/iol-client/``.
+# Una clave asumida que el corpus no registra emite, ahora que el probe vuelve a
+# leer wire real, un finding SHAPE OPEN en cada corrida viva que ningún cambio
+# upstream puede cerrar — ruido que entrena al operador a ignorar el archivo de
+# findings, que es lo opuesto a lo que este harness busca.
+# ``verification/test_main_iol_raw_wire_drift.py::
+# test_assumed_quote_fields_are_all_present_in_committed_baseline`` lo enforcea
+# offline: una entrada sin respaldo falla ahí, no en producción.
 _ASSUMED_QUOTE_FIELDS: dict[str, str] = {
     "ultimoPrecio": "float",  # IOL-04: numeric, JSON number
-    "simbolo": "str",
 }
 _ASSUMED_HISTORICAL_FIELDS: dict[str, str] = {
     "fechaHora": "str",
@@ -194,24 +203,26 @@ def _last_business_day(today: dt.date) -> dt.date:
 def _as_wire(value: Any) -> Any:
     """Proyecta un modelo (o una lista de modelos) de vuelta a su dict de wire.
 
+    **Un solo consumidor:** :func:`probe_parity_sync_async` (probe 11). Los
+    probes 12 y 13 tenían call sites acá y los perdieron con CR-01: ahora leen
+    el wire CRUDO capturado por :func:`_capture_raw_wire`, porque una proyección
+    del modelo es función de la **declaración** del modelo y no del wire, y por
+    lo tanto ciega al type-drift, a las claves agregadas y a las quitadas.
+
+    Lo que la proyección sigue habilitando en el probe de paridad:
     ``verification.schema.schema_of`` reduce cualquier cosa que no sea ``dict``
-    ni ``list`` al **nombre de su tipo**, así que desde Phase 30 una instancia de
-    modelo se colapsaría al string ``"Cotizacion"``. Eso rompe tres sitios de
-    este driver y **dos lo harían en silencio**:
+    ni ``list`` al **nombre de su tipo**, así que sin este adaptador el probe
+    compararía ``"Cotizacion" == "Cotizacion"``: siempre igual, PASS habiendo
+    perdido todo su poder discriminante.
 
-    - el probe de paridad compararía ``"Cotizacion" == "Cotizacion"``: siempre
-      igual, PASS habiendo perdido **todo** su poder discriminante;
-    - los dos probes de mapa de campos guardan con un chequeo de tipo ``dict``
-      que pasaría a ser falso: el bucle entero se saltea y el probe reporta
-      "sin drift" sin haber mirado un solo campo;
-    - el escritor/verificador de snapshots compararía un string contra el dict
-      committeado: findings de forma espurios (ruidoso, y **no** sobreescribe el
-      baseline, D-25).
-
-    Por eso la normalización vive acá, en la frontera, y no en cada sitio de
-    llamada. El envelope de ``get_instruments_by_type`` viene de un ``_request``
-    **crudo** (ver ``probe_field_type_map``), ya es un dict y atraviesa este
-    adaptador **tal cual** — que es lo correcto.
+    **Qué prueba —y qué NO prueba— un PASS de paridad (WR-07).** Los dos lados
+    son proyecciones de la *misma* clase, así que el conjunto de claves es
+    idéntico por construcción y los tipos de las hojas no-opcionales también:
+    esas dos clases de drift el probe **no puede** detectarlas. Lo que sí
+    discrimina es la presencia de campos ``Optional`` (``None`` vs valor) y la
+    cardinalidad de las listas. Un PASS acá no es evidencia de que sync y async
+    hayan recibido el mismo wire; es evidencia de que produjeron modelos con la
+    misma forma poblada. Un lector futuro no debe tomarlo por más de eso.
 
     La salida alimenta ``schema_of`` y **nada más**: esa función emite claves y
     nombres de tipo, jamás valores, y por eso es libre de datos personales por
@@ -221,6 +232,111 @@ def _as_wire(value: Any) -> Any:
     if isinstance(value, list):
         return [_as_wire(v) for v in value]
     return value.to_dict() if hasattr(value, "to_dict") else value
+
+
+def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], list[str]]:
+    """Captura el body CRUDO de los 4 endpoints, una vez cada uno (CR-01).
+
+    Devuelve ``(raw_by_endpoint, capture_fids)``. Las claves de
+    ``raw_by_endpoint`` son las 4 de ``_SCHEMA_FILES``. Un endpoint cuya captura
+    levantó queda **ausente** del dict — ausente, no ``None``, para que aguas
+    abajo no se pueda confundir "no capturado" con "capturado como null".
+
+    **Por qué existe (CR-01 / 30-VERIFICATION.md truth 6):** los wrappers
+    públicos devuelven modelos. Para cuando un modelo existe, el walker de la
+    Phase 29 ya coercionó cada campo no-opcional a su tipo declarado y descartó
+    cada clave que ningún campo declara, así que ``schema_of`` sobre la
+    proyección del modelo es función de la **declaración**, no del wire: un
+    ``float→str``, una clave agregada y una clave quitada son las tres
+    invisibles. Los probes de drift deben volver a ser función de lo que la API
+    efectivamente devolvió.
+
+    Esto generaliza —no inventa— la excepción ya razonada como "la ÚNICA HTTP
+    call duplicada permitida (Pitfall 2)": el mismo argumento, descubierto
+    aplicable a tres endpoints más. Costo: 3 GET autenticados extra por corrida
+    viva, sobre un token ya cacheado por la disciplina auth-once.
+
+    Los ``RequestSpec`` se construyen con los **builders de ``_core``**, no con
+    paths hardcodeados: así el body capturado es el body que el wrapper habría
+    recibido, y un drift en el builder mismo no puede quedar enmascarado por una
+    captura que reproduce un path viejo.
+
+    Discipline de datos (T-30-06-01): el body crudo alimenta ``schema_of`` y
+    nada más. Ningún argumento de ``append_finding`` recibe un body.
+    """
+    if _auth_failed:
+        # D-IOL-3: los probes 12 y 13 conservan sus propias ramas SKIPPED por
+        # _auth_failed, así que la cascada no cambia.
+        return ({}, [])
+
+    base_url = client._state.base_url
+    hasta = _last_business_day(today)
+    desde = hasta - dt.timedelta(days=7)
+    # Parámetros idénticos a los que manda el wrapper público e idénticos a los
+    # que el probe 13 documenta en ``sample_params``.
+    specs: list[tuple[str, _core.RequestSpec]] = [
+        (
+            "get_quote",
+            _core.build_get_quote_request(
+                client._state, _SAMPLE_SYMBOL, mercado="bcba", plazo="t2"
+            ),
+        ),
+        (
+            "get_historical_quotes",
+            _core.build_get_historical_quotes_request(
+                client._state,
+                _SAMPLE_SYMBOL,
+                desde,
+                hasta,
+                mercado="bcba",
+                ajustada="sinAjustar",
+            ),
+        ),
+        (
+            "get_instruments",
+            _core.build_get_instruments_request(client._state, "argentina"),
+        ),
+        (
+            "get_instruments_by_type",
+            _core.build_get_instruments_by_type_request(
+                client._state, _SAMPLE_INSTRUMENT_TYPE, pais="argentina"
+            ),
+        ),
+    ]
+
+    raw_by_endpoint: dict[str, Any] = {}
+    capture_fids: list[str] = []
+    for func_name, spec in specs:
+        try:
+            # WR-08 (fuera de scope de este cierre): cada uno de estos
+            # ``_request`` bindea un ``DecodeScope`` que ningún parser decorado
+            # retira, porque acá no corre ningún parser. Sigue inalcanzable
+            # SÓLO porque entre esta captura y el próximo ``_request`` (probe
+            # 14) no hay ningún ``from_api`` suelto: los probes 12 y 13 no
+            # decodifican. Un reordenamiento futuro del driver debe revisarlo.
+            resp = client._request(spec)
+            # ``Client._request`` (D-03) devuelve el response crudo sin levantar;
+            # replicamos el raise-on-error del shim module-level legacy.
+            if resp.is_error:
+                _raise_for_response(resp)
+            raw_by_endpoint[func_name] = resp.json()
+        except Exception as exc:
+            # Un endpoint que falla no aborta los otros tres: se registra y sigue.
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"captura de wire crudo falló en {func_name}",
+                expected=f"200 OK con el body crudo de {func_name} para schema_of",
+                actual=repr(exc),
+                diff=f"type={type(exc).__name__}",
+                base_url=base_url,
+            )
+            capture_fids.append(fid)
+    return (raw_by_endpoint, capture_fids)
 
 
 # ---------------------------------------------------------------------------
@@ -826,8 +942,18 @@ def probe_get_instruments_by_type_sync(
         # Phase 30: el wrapper devuelve ``list[Titulo]``, no ``list[dict]``. Sin
         # migrar este chequeo, los 6 types caerían en ``bad_types`` y cada
         # corrida viva emitiría un finding SHAPE espurio.
-        if not (isinstance(titulos, list) and titulos and isinstance(titulos[0], Titulo)):
+        #
+        # WR-06: el chequeo discrimina **forma, no cardinalidad** — la misma
+        # regla que ``_core.py::parse_get_instruments_response`` ya enuncia en
+        # su docstring ("the guard discriminates shape, not cardinality"). Una
+        # lista vacía es legítima: ``cauciones`` o ``letras`` fuera de horario
+        # de mercado devuelven ``[]`` sin que nada esté roto. Lo que sí es
+        # defecto de forma: un no-list, o una lista no vacía cuyo elemento 0 no
+        # es un ``Titulo``.
+        if not isinstance(titulos, list):
             bad_types.append(f"{itype}: shape={type(titulos).__name__}")
+        elif titulos and not isinstance(titulos[0], Titulo):
+            bad_types.append(f"{itype}: shape=list[{type(titulos[0]).__name__}]")
     if bad_types:
         fid = _next_fid()
         append_finding(
@@ -837,9 +963,9 @@ def probe_get_instruments_by_type_sync(
             surface="sync",
             status="OPEN",
             title="sanity check de InstrumentType: algún type devolvió shape inesperada",
-            expected="cada InstrumentType retorna list[dict] no vacía",
+            expected="cada InstrumentType retorna list[Titulo] (una lista vacía es válida)",
             actual=f"bad_types={bad_types!r}",
-            diff="shape !=list[dict] o lista vacía en algún type",
+            diff="shape != list[Titulo] en algún type",
             base_url=base_url,
         )
         return (
@@ -973,10 +1099,13 @@ def probe_parity_sync_async(
         if sync_data is None or async_data is None:
             skipped.append(endpoint)
             continue
-        # D-07/D-08: los payloads llegan opacos (modelo, lista de modelos o dict
-        # crudo), así que la normalización va acá, en la frontera. Sin ella este
-        # probe compararía dos veces el mismo nombre de clase y reportaría PASS
-        # habiendo perdido todo su poder discriminante.
+        # D-07/D-08: los payloads llegan como modelos o listas de modelos, así
+        # que la normalización va acá, en la frontera. Sin ella este probe
+        # compararía dos veces el mismo nombre de clase y reportaría PASS
+        # habiendo perdido todo su poder discriminante. Alcance real del PASS
+        # (WR-07): ver el docstring de ``_as_wire`` — claves y tipos de hojas
+        # no-opcionales son idénticos por construcción; lo discriminante es la
+        # presencia de ``Optional`` y la cardinalidad de las listas.
         schema_sync = schema_of(_as_wire(sync_data))
         schema_async = schema_of(_as_wire(async_data))
         if schema_sync == schema_async:
@@ -1012,69 +1141,36 @@ def probe_parity_sync_async(
 
 def probe_field_type_map(
     client: Client,
-    quote: Cotizacion | None,
-    historical: list[Cotizacion] | None,
-    # El envelope NO cambia de tipo: se captura de una petición cruda, no del
-    # wrapper del cliente, así que es inmune a la migración a modelos (D-07).
-    instruments_by_type_envelope: dict[str, Any] | None,
-) -> tuple[ProbeResult, dict[str, Any] | None]:
+    raw_wire: dict[str, Any],
+    capture_fids: list[str],
+) -> ProbeResult:
     """Probe 12: field→type map vs ``_ASSUMED_*`` (IOL-03 + IOL-04, D-IOL-13/15).
 
-    **Pitfall 2:** el envelope check de ``get_instruments_by_type`` requiere
-    capturar el payload CRUDO con ``_request`` directo — el wrapper público
-    silenciosamente devuelve ``[]`` si falta la clave ``"titulos"``, ocultando
-    el drift. Por eso este probe hace una HTTP call adicional al endpoint
-    by_type vía ``client._request(RequestSpec(...))``; el resultado es el ÚNICO
-    caso permitido de duplicación (documentado en Pitfall 2).
+    **Pitfall 2, generalizado por CR-01:** este probe lee el wire **crudo**
+    capturado por :func:`_capture_raw_wire`, nunca el retorno del wrapper. El
+    argumento original cubría un solo endpoint —el wrapper de by_type devuelve
+    ``[]`` en silencio si falta la clave ``"titulos"``, ocultando el drift— y
+    CR-01 lo encontró aplicable a tres más: desde la Phase 30 los wrappers
+    devuelven modelos, y ``schema_of`` sobre un modelo es función de su
+    **declaración**, no del wire. Un ``float→str``, una clave agregada y una
+    clave quitada son las tres invisibles aguas abajo del wrapper
+    (30-VERIFICATION.md truth 6). Las 4 HTTP calls duplicadas de la captura son
+    la versión ampliada de la excepción ya documentada en Pitfall 2.
 
-    Devuelve el envelope capturado además del ProbeResult, para que el probe 13
-    (schema_snapshot) lo reuse sin volver a llamar.
+    ``capture_fids`` siembra ``finding_fids``: si la captura de un endpoint
+    falló, este probe **no puede** reportar PASS. Un probe cuyo insumo nunca
+    llegó no atestigua nada.
     """
     if _auth_failed:
-        return (
-            ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            instruments_by_type_envelope,
-        )
+        return ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     base_url = client._state.base_url
-    finding_fids: list[str] = []
-    envelope: dict[str, Any] | None = instruments_by_type_envelope
-
-    # --- Envelope check IOL-04 (Pitfall 2): _request directo, NO el wrapper. ---
-    if envelope is None:
-        try:
-            # ÚNICA HTTP call duplicada permitida (Pitfall 2): capturamos el
-            # payload crudo del wrapper de by_type para verificar la clave
-            # "titulos" sin que el wrapper la silencie. Usamos la instancia
-            # threaded ``client`` (D-03): construimos el ``RequestSpec`` y
-            # replicamos el raise-on-error del shim module-level legacy, ya que
-            # ``Client._request`` (D-03) devuelve el response crudo sin levantar.
-            resp = client._request(
-                RequestSpec(
-                    method="GET",
-                    path=f"/api/v2/Cotizaciones/{_SAMPLE_INSTRUMENT_TYPE}/argentina/Todos",
-                )
-            )
-            if resp.is_error:
-                _raise_for_response(resp)
-            envelope = resp.json()
-        except Exception as exc:
-            # Cualquier excepción del transporte o del cliente al pegarle al
-            # endpoint by_type cuenta como ERROR-MAP — el envelope check no
-            # puede continuar si _request falló.
-            fid = _next_fid()
-            append_finding(
-                _PKG,
-                fid=fid,
-                class_="ERROR-MAP",
-                surface="sync",
-                status="OPEN",
-                title="field_type_map: _request directo a by_type levantó excepción",
-                expected="200 OK con dict {'titulos': [...]}",
-                actual=repr(exc),
-                diff=f"type={type(exc).__name__}",
-                base_url=base_url,
-            )
-            finding_fids.append(fid)
+    # Anti-vacuidad (T-30-06-05): una captura fallida garantiza FINDING.
+    finding_fids: list[str] = list(capture_fids)
+    quote_raw = raw_wire.get("get_quote")
+    historical_raw = raw_wire.get("get_historical_quotes")
+    # Ausente = la captura falló y ``_capture_raw_wire`` ya emitió su ERROR-MAP,
+    # cuyo fid ya está en ``finding_fids``: no se re-reporta acá.
+    envelope: Any = raw_wire.get("get_instruments_by_type")
 
     if isinstance(envelope, dict):
         if "titulos" not in envelope:
@@ -1126,11 +1222,28 @@ def probe_field_type_map(
         finding_fids.append(fid)
 
     # --- get_quote field→type map (D-IOL-14/15) ---
-    if quote is not None:
-        # D-07/D-08: sin la proyección a dict el guard de tipo de abajo pasa a
-        # ser falso y este bucle entero se saltea, reportando "sin drift".
-        observed = schema_of(quote.to_dict())
-        if isinstance(observed, dict):
+    if quote_raw is not None:
+        if not isinstance(quote_raw, dict):
+            # Un tipo top-level inesperado ES un defecto de forma, no un skip.
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="both",
+                status="OPEN",
+                title="get_quote devolvió tipo top-level no-dict",
+                expected="dict con los campos de la cotización",
+                actual=f"type={type(quote_raw).__name__}",
+                diff="el body crudo de get_quote cambió fuera del contrato dict",
+                base_url=base_url,
+            )
+            finding_fids.append(fid)
+        else:
+            # CR-01: ``schema_of`` sobre el WIRE CRUDO. Sobre la proyección del
+            # modelo la rama ``elif`` de type-drift de abajo es inalcanzable —
+            # el walker ya coercionó el campo a su tipo declarado.
+            observed = schema_of(quote_raw)
             for key, expected_type in _ASSUMED_QUOTE_FIELDS.items():
                 if key not in observed:
                     fid = _next_fid()
@@ -1164,10 +1277,41 @@ def probe_field_type_map(
                     finding_fids.append(fid)
 
     # --- get_historical_quotes field→type map (sobre el primer row) ---
-    if historical is not None and len(historical) >= 1:
-        # D-07/D-08: ídem sobre la fila 0 de la serie histórica.
-        observed_row = schema_of(historical[0].to_dict())
-        if isinstance(observed_row, dict):
+    if historical_raw is not None:
+        if not isinstance(historical_raw, list):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="both",
+                status="OPEN",
+                title="get_historical_quotes devolvió tipo top-level no-list",
+                expected="list de rows de cotización",
+                actual=f"type={type(historical_raw).__name__}",
+                diff="el body crudo de get_historical_quotes cambió fuera del contrato list",
+                base_url=base_url,
+            )
+            finding_fids.append(fid)
+        elif historical_raw and not isinstance(historical_raw[0], dict):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="both",
+                status="OPEN",
+                title="get_historical_quotes[0] no es dict",
+                expected="cada row es un dict de cotización",
+                actual=f"type={type(historical_raw[0]).__name__}",
+                diff="el elemento 0 de la serie cambió fuera del contrato dict",
+                base_url=base_url,
+            )
+            finding_fids.append(fid)
+        elif historical_raw:
+            # CR-01: ídem sobre la fila 0 del WIRE CRUDO. Una serie vacía es
+            # cardinalidad, no forma: no se reporta.
+            observed_row = schema_of(historical_raw[0])
             for key, expected_type in _ASSUMED_HISTORICAL_FIELDS.items():
                 if key not in observed_row:
                     fid = _next_fid()
@@ -1201,17 +1345,23 @@ def probe_field_type_map(
                     finding_fids.append(fid)
 
     if finding_fids:
-        return (
-            ProbeResult(
-                "field_type_map",
-                "FINDING",
-                f"{', '.join(finding_fids)} (OPEN)",
-            ),
-            envelope if isinstance(envelope, dict) else None,
+        return ProbeResult(
+            "field_type_map",
+            "FINDING",
+            f"{', '.join(finding_fids)} (OPEN)",
         )
-    return (
-        ProbeResult("field_type_map", "PASS", "3 endpoints checked, no drift"),
-        envelope if isinstance(envelope, dict) else None,
+    # El detalle reporta lo que efectivamente se miró, no un conteo fijo: un PASS
+    # que nombra tres endpoints habiendo llegado uno es exactamente el modo de
+    # falla que este plan existe para eliminar (T-30-06-05).
+    checked = [
+        name
+        for name in ("get_quote", "get_historical_quotes", "get_instruments_by_type")
+        if name in raw_wire
+    ]
+    return ProbeResult(
+        "field_type_map",
+        "PASS",
+        f"{len(checked)} endpoints checked ({', '.join(checked) or 'ninguno'}), no drift",
     )
 
 
@@ -1267,31 +1417,27 @@ def _write_or_check_schema(
 def probe_schema_snapshot(
     client: Client,
     today: dt.date,
-    quote: Cotizacion | None,
-    historical: list[Cotizacion] | None,
-    instruments: list[Instrumento] | None,
-    # El envelope de by_type sigue siendo un dict crudo (ver arriba).
-    by_type_envelope: dict[str, Any] | None,
+    raw_wire: dict[str, Any],
 ) -> ProbeResult:
     """Probe 13: 4 schema snapshots con envelope D-21 + D-25 (DRIFT-01 mirror).
 
-    Para ``get_instruments_by_type`` snapshea el envelope CRUDO (con ``titulos``),
-    no el unwrapped list, para detectar drift de la envelope key.
+    Los 4 payloads vienen del WIRE CRUDO capturado por
+    :func:`_capture_raw_wire`. Para ``get_instruments_by_type`` eso incluye el
+    envelope completo (con ``titulos``), no el unwrapped list, para detectar
+    drift de la envelope key.
     """
     if _auth_failed:
         return ProbeResult("schema_snapshot", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     base_url = client._state.base_url
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
-    targets: list[tuple[str, Any, dict[str, Any]]] = [
+    targets: list[tuple[str, dict[str, Any]]] = [
         (
             "get_quote",
-            quote,
             {"simbolo": _SAMPLE_SYMBOL, "mercado": "bcba", "plazo": "t2"},
         ),
         (
             "get_historical_quotes",
-            historical,
             {
                 "simbolo": _SAMPLE_SYMBOL,
                 "mercado": "bcba",
@@ -1302,12 +1448,10 @@ def probe_schema_snapshot(
         ),
         (
             "get_instruments",
-            instruments,
             {"pais": "argentina"},
         ),
         (
             "get_instruments_by_type",
-            by_type_envelope,
             {"instrument_type": _SAMPLE_INSTRUMENT_TYPE, "pais": "argentina"},
         ),
     ]
@@ -1315,22 +1459,25 @@ def probe_schema_snapshot(
     written: list[str] = []
     matched: list[str] = []
     skipped: list[str] = []
-    for func_name, payload, sample_params in targets:
+    for func_name, sample_params in targets:
+        payload = raw_wire.get(func_name)
         if payload is None:
+            # Ausente del dict = la captura falló; ``_capture_raw_wire`` ya
+            # emitió su ERROR-MAP y el probe 12 lo convierte en FINDING.
             skipped.append(func_name)
             continue
         status, detail = _write_or_check_schema(
             func_name,
             _ENDPOINT_TEMPLATES[func_name],
             sample_params,
-            # D-07/D-08: la proyección alcanza a **3 de los 4** destinos —
-            # cotización, serie histórica y listado de instrumentos, los que
-            # pasan por el wrapper del cliente y por lo tanto llegan como
-            # modelos. El envelope de by_type viene de un ``_request`` crudo y
-            # ``_as_wire`` lo pasa tal cual, sin forzarlo por una ruta que asuma
-            # un modelo. Sin esto los 3 primeros emitirían findings de forma
-            # espurios contra baselines que siguen siendo correctos.
-            _as_wire(payload),
+            # CR-01: el payload crudo va TAL CUAL. El snapshot compara
+            # ``schema_of(wire crudo)`` contra baselines que son ellos mismos
+            # documentos ``schema_of(wire crudo)`` — la única comparación
+            # like-for-like. La proyección del modelo que había acá antes hacía
+            # del snapshot una función de la declaración del modelo, ciega a
+            # type-drift, a claves agregadas y a claves quitadas
+            # (30-VERIFICATION.md truth 6).
+            payload,
             base_url,
         )
         if status == "FINDING":
@@ -1723,23 +1870,17 @@ def main() -> None:
         )
     )
 
-    # Probe 12: field→type map + envelope check (captura by_type_envelope).
-    result_field_type_map, by_type_envelope = probe_field_type_map(
-        client, quote_sync, historical_sync, None
-    )
-    results.append(result_field_type_map)
+    # CR-01: captura del wire CRUDO de los 4 endpoints, una vez cada uno. Los
+    # probes 12 y 13 son funciones puras de este dict — no vuelven a pegarle a
+    # la API — y así el drift vuelve a ser función de lo que la API devolvió y
+    # no de lo que los modelos declaran.
+    raw_wire, capture_fids = _capture_raw_wire(client, today)
 
-    # Probe 13: schema snapshots (reusa by_type_envelope si fue capturado).
-    results.append(
-        probe_schema_snapshot(
-            client,
-            today,
-            quote_sync,
-            historical_sync,
-            instruments_sync,
-            by_type_envelope,
-        )
-    )
+    # Probe 12: field→type map + envelope check sobre el wire crudo.
+    results.append(probe_field_type_map(client, raw_wire, capture_fids))
+
+    # Probe 13: schema snapshots sobre el mismo wire crudo (D-25 no-overwrite).
+    results.append(probe_schema_snapshot(client, today, raw_wire))
 
     # Probe 14: refresh_token in-vivo.
     results.append(probe_refresh_token(client))
