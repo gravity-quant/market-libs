@@ -4,17 +4,17 @@ milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
-status: executing
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-08-20T03:06:35.005Z"
+status: verifying
+stopped_at: Completed 30-04-PLAN.md
+last_updated: "2026-08-20T03:43:26.367Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 30 execution started
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 14
-  completed_plans: 13
-  percent: 17
+  completed_plans: 14
+  percent: 33
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 30 (iol-client-tipado) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-20 — Phase 30 execution started
 
 ## Performance Metrics
@@ -131,6 +131,7 @@ Last activity: 2026-08-20 — Phase 30 execution started
 | Phase 30 P01 | 36min | 3 tasks | 12 files |
 | Phase 30 P02 | 8min | 3 tasks | 10 files |
 | Phase 30 P03 | 6min | 3 tasks | 13 files |
+| Phase 30 P04 | 31min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -223,6 +224,10 @@ Recent decisions affecting current work:
 - [Phase 30]: Plan 30-02: FA-05 resuelta a favor del schema — Titulo tiene 20 campos, no los 21 que dicen D-01 y RESEARCH
 - [Phase ?]: 30-03: el desajuste de get_instruments se corrigio del lado del test (16 mocks re-mockeados a la lista top-level capturada), nunca aflojando el guard del parser a tolerancia dict-o-lista
 - [Phase ?]: 30-03: las 16 firmas de iol-client devuelven modelos; el guard de forma levanta IOLAPIError ante un body no-lista y sigue aceptando la lista vacia
+- [Phase 30]: Normalizar modelo→wire en la frontera hacia el harness de verificación (_as_wire), no en cada sitio de llamada — los payloads del probe de paridad llegan opacos y un dict crudo debe atravesar el adaptador intacto (30-04)
+- [Phase 30]: Verificar no-vacuidad de los probes por aserción positiva, nunca por ausencia de findings — tres de los cuatro sitios de frontera reportan PASS precisamente cuando están rotos (30-04)
+- [Phase 30]: El guard de tipo del precio se elimina, no se relaja — ultimoPrecio está declarado float y el walker lo garantiza; conservarlo implicaría no creerle al tipo que la fase entrega (30-04)
+- [Phase 30]: Para los endpoints modelados de iol la señal autoritativa de drift pasa a ser el censo de divergencias, no el diff del snapshot de schema — to_dict() proyecta el drift afuera por construcción; carry-forward FA-09 a Phase 33 (30-04)
 
 ### Pending Todos
 
@@ -302,8 +307,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-20T03:06:30.908Z
-Stopped at: Completed 30-02-PLAN.md
+Last session: 2026-08-20T03:43:08.466Z
+Stopped at: Completed 30-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

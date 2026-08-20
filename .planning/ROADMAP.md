@@ -20,7 +20,7 @@
 > **El scope de la Phase 33 es provisional** hasta que corra la **corrida exploratoria de sizing** del final de la Phase 29 (walker por-campo sobre `verification/snapshots/`, nunca un pase strict de msgspec, que sub-cuenta por construcción). El número que salga es un **piso** ("≥ N"), no una estimación.
 
 - [x] **Phase 29: Decoder observable** *(load-bearing, PRIMERO)* — decoder único de política observable copiado verbatim 6×, divergencias emitidas estructuradas por el logger del paquete, modo estricto por `ContextVar`, decisión msgspec-vs-stdlib como artefacto, reconciliación de matriz y corrida de sizing — DEC-01 (completed 2026-08-19)
-- [ ] **Phase 30: `iol-client` tipado** — `models.py` nuevo + 16 firmas migradas + parsers de `_core.py` + `main_iol.py` a acceso por atributo; `mercado`/`plazo` quedan `str` (promoción a `Literal` diferida a F33) — TYP-01
+- [x] **Phase 30: `iol-client` tipado** — `models.py` nuevo + 16 firmas migradas + parsers de `_core.py` + `main_iol.py` a acceso por atributo; `mercado`/`plazo` quedan `str` (promoción a `Literal` diferida a F33) — TYP-01 (completed 2026-08-20)
 - [ ] **Phase 31: Endpoints de ops + estructura uniforme** — modelos para los 5 endpoints de ops (higyrus + market-data), request byte-idéntico probado para las 2 mutaciones ya publicadas, `models.py`/`types.py` presentes en los 6 paquetes — TYP-02, TYP-03
 - [ ] **Phase 32: Gates de homogeneidad + D-16** — gate AST de superficie como **job de CI nuevo** + test de paridad sync/async no-vacuo + cierre de D-16 reconciliando las **4** listas de enrollment — GATE-TYP-01
 - [ ] **Phase 33: Verificación en vivo en modo estricto + fixes** — drivers en modo estricto contra APIs reales, `Literal` cerrados con evidencia, divergencias corregidas in-cycle, cycle closure PASS por paquete — LIVE-TYP-01
@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -99,7 +99,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 30-04-PLAN.md — Driver a acceso por atributo + frontera `to_dict()` no-vacua hacia el harness + snapshot de superficie regenerado + README con changelog v0.3.0
+- [x] 30-04-PLAN.md — Driver a acceso por atributo + frontera `to_dict()` no-vacua hacia el harness + snapshot de superficie regenerado + README con changelog v0.3.0
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
@@ -192,7 +192,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 3/4 | In Progress|  |
+| 30. `iol-client` tipado                                     | v1.6      | 4/4 | Complete   | 2026-08-20 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
