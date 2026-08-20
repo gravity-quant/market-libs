@@ -4,9 +4,9 @@ milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: `iol-client` tipado
-status: verifying
+status: executing
 stopped_at: Phase 30 context gathered (assumptions mode)
-last_updated: "2026-08-20T01:28:42.644Z"
+last_updated: "2026-08-20T02:06:21.667Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 29 complete, transitioned to Phase 30
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 30 — `iol-client` tipado
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-08-19 — Phase 29 complete, transitioned to Phase 30
 
 ## Performance Metrics
