@@ -33,7 +33,7 @@ import pytest
 from iol_client import _core, _decode
 from iol_client._state import _TOKEN_TTL_BUFFER_SECONDS, _ClientState
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
-from iol_client.models import Cotizacion, Titulo
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 _DIVERGENCE_MESSAGE = "decode divergence"
 
@@ -430,11 +430,41 @@ def test_parse_list_or_raise_emite_un_registro_por_campo_no_uno_por_fila(
     assert len(moneda) == 1
 
 
-def test_parse_get_instruments_response_passthrough() -> None:
+def test_parse_get_instruments_response_devuelve_instrumentos() -> None:
     """El body es la lista top-level que el schema committeado demuestra (D-06)."""
-    resp = httpx.Response(200, content=b'[{"instrumento": "acciones", "pais": "argentina"}]')
+    resp = httpx.Response(
+        200,
+        content=(
+            b'[{"instrumento": "acciones", "pais": "argentina"},'
+            b' {"instrumento": "cedears", "pais": "argentina"}]'
+        ),
+    )
     data = _core.parse_get_instruments_response(resp)
-    assert data == [{"instrumento": "acciones", "pais": "argentina"}]
+    assert len(data) == 2
+    assert all(isinstance(i, Instrumento) for i in data)
+    assert data[0].instrumento == "acciones"
+    assert data[0].pais == "argentina"
+    assert [i.instrumento for i in data] == ["acciones", "cedears"]
+
+
+def test_parse_get_instruments_response_raises_on_non_list_body() -> None:
+    """D-06 / T-30-08: el envelope que la suite asumía **levanta**, no degrada.
+
+    Éste es el test que fija la decisión: una respuesta que no es una lista al
+    tope produce ``IOLAPIError`` nombrando el tipo recibido. Devolver ``[]`` acá
+    reintroduciría el vacío silencioso que este milestone existe para eliminar,
+    y enmascararía un upstream cambiado o comprometido (ASVS V5).
+    """
+    resp = httpx.Response(200, content=b'{"instrumentos": []}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_response(resp)
+    assert "dict" in str(excinfo.value)
+
+
+def test_parse_get_instruments_response_lista_vacia_no_levanta() -> None:
+    """El guard discrimina **forma**, no cardinalidad: ``[]`` es una lista válida."""
+    resp = httpx.Response(200, content=b"[]")
+    assert _core.parse_get_instruments_response(resp) == []
 
 
 def test_parse_get_instruments_by_type_response_extracts_titulos_key() -> None:

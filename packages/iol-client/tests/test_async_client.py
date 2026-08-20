@@ -8,7 +8,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from iol_client import IOLAuthError, aio
-from iol_client.models import Cotizacion, Titulo
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 
 async def test_async_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -65,6 +65,26 @@ async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
     assert len(titulos) == 1
     assert isinstance(titulos[0], Titulo)
     assert titulos[0].simbolo == "AAPL"
+
+
+async def test_async_get_instruments_devuelve_instrumentos(httpx_mock: HTTPXMock) -> None:
+    """Paridad sync/async del último endpoint migrado (Plan 30-03).
+
+    El espejo exacto de ``test_get_instruments_devuelve_payload``: la misma
+    lista top-level entra y salen las mismas dos clases por las dos superficies.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json=[
+            {"instrumento": "acciones", "pais": "argentina"},
+            {"instrumento": "cedears", "pais": "argentina"},
+        ],
+    )
+    payload = await aio.get_instruments()
+    assert len(payload) == 2
+    assert all(isinstance(i, Instrumento) for i in payload)
+    assert [i.instrumento for i in payload] == ["acciones", "cedears"]
+    assert [i.pais for i in payload] == ["argentina", "argentina"]
 
 
 # ------ Verified live (Phase 3) ------

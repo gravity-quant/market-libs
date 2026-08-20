@@ -9,7 +9,7 @@ from pytest_httpx import HTTPXMock
 
 import iol_client
 from iol_client import IOLAuthError, IOLRateLimitError
-from iol_client.models import Cotizacion, Titulo
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 
 def test_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -102,10 +102,10 @@ def test_get_instruments_devuelve_payload(httpx_mock: HTTPXMock) -> None:
         ],
     )
     payload = iol_client.get_instruments()
-    assert payload == [
-        {"instrumento": "acciones", "pais": "argentina"},
-        {"instrumento": "cedears", "pais": "argentina"},
-    ]
+    assert len(payload) == 2
+    assert all(isinstance(i, Instrumento) for i in payload)
+    assert [i.instrumento for i in payload] == ["acciones", "cedears"]
+    assert [i.pais for i in payload] == ["argentina", "argentina"]
 
 
 def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
