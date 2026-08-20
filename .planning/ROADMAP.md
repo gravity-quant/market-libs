@@ -82,12 +82,12 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 30-01-PLAN.md — TRACER: `get_quote` tipado end-to-end — `models.py` con `SafeModel`/`Punta`/`Cotizacion` + parser con scope per-response + 4 firmas + fixture RED de typecheck
+- [x] 30-01-PLAN.md — TRACER: `get_quote` tipado end-to-end — `models.py` con `SafeModel`/`Punta`/`Cotizacion` + parser con scope per-response + 4 firmas + fixture RED de typecheck
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -192,7 +192,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 0/? | Not started | -          |
+| 30. `iol-client` tipado                                     | v1.6      | 1/4 | In Progress|  |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |

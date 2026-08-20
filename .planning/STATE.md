@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
-current_phase_name: `iol-client` tipado
+current_phase_name: iol-client-tipado
 status: executing
-stopped_at: Phase 30 context gathered (assumptions mode)
-last_updated: "2026-08-20T02:06:21.667Z"
-last_activity: 2026-08-19
-last_activity_desc: Phase 29 complete, transitioned to Phase 30
+stopped_at: Completed 30-01-PLAN.md
+last_updated: "2026-08-20T02:46:14.978Z"
+last_activity: 2026-08-20
+last_activity_desc: Phase 30 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 14
+  completed_plans: 11
   percent: 17
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 29 — decoder-observable
+**Current focus:** Phase 30 — iol-client-tipado
 
 ## Current Position
 
-Phase: 30 — `iol-client` tipado
-Plan: Not started
+Phase: 30 (iol-client-tipado) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-08-19 — Phase 29 complete, transitioned to Phase 30
+Last activity: 2026-08-20 — Phase 30 execution started
 
 ## Performance Metrics
 
@@ -128,6 +128,7 @@ Last activity: 2026-08-19 — Phase 29 complete, transitioned to Phase 30
 | Phase 29 P08 | 9min | 2 tasks | 2 files |
 | Phase 29 P09 | 24min | 2 tasks | 3 files |
 | Phase 29 P10 | 15min | 2 tasks | 2 files |
+| Phase 30 P01 | 36min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -213,6 +214,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 29-09]: The decode-intactness gate runs in the CI lint job, never under verification/ — the test job passes an explicit package path that overrides pyproject's testpaths, so verification/ has never executed in CI
 - [Phase ?]: [Phase 29-09]: wallets-client exempt from Phase 29 (no _state.py/_logging.py/_core.py/models.py, no Client class, module-level _request); Phase 31 bootstraps structure, Phase 32 D-16 settles enrollment. Every per-package Phase 29 criterion reads as five packages plus this documented exemption
 - [Phase 29 / 29-10]: **Sizing floor RATIFICADO** — sebadlf firmó "ratified" el 2026-08-19 en `29-SIZING.md`. Los pisos por paquete quedan como **presupuesto declarado** de la fase de verificación en vivo (**Phase 33**): `higyrus-client ≥ 22`, `matriz-client ≥ 24`, `market-data-client ≥ 50`, `iol-client` N/A (sus modelos llegan en la Phase 30), `ambito-financiero-client` N/A — nunca 0, porque un 0 se lee como limpio y un falso-limpio es exactamente lo que este milestone existe para eliminar. Total modelado **≥ 96** (56 missing / 0 wrong_type / 32 extra / 8 non_dict). Es un **piso**, no una estimación: el corpus type-only es ciego a divergencias de valor (NaN/Infinity, valores fuera de conjunto en las 9 aliases de `types.py` de matriz, rango/formato, inconsistencia cross-field, colecciones heterogéneas — `schema_of` reduce por el PRIMER elemento), así que el margen de error apunta **sólo hacia arriba**. **La Phase 33 debe contrastar su censo en vivo contra estos números** — son directamente comparables sin traducción porque ambas corridas emiten el mismo record de 6 claves por el mismo walker con el mismo triple de dedupe `(model, field_path, kind)` (D-06, locks 1 y 5 del contrato de agregación). Si el censo los **excede**, eso exige un **re-scope explícito**: cada finding diferido se rutea a una **fase destino nombrada** con paquete y campo registrados; diferir a "más adelante" sin destino, o silenciar angostando el walker, no es una opción disponible. Los 5 hallazgos estructurales (S-1…S-5) quedan documentados para corrección in-cycle en la Phase 33 — el de mayor consecuencia es S-3 (matriz `Instrument.instrumentId` ausente en byCFICode/bySegment: `marketId`/`symbol` llegan aplanados, se reportan como `extra` y se **descartan**, y todo consumidor de `inst.instrumentId.symbol` lee vacío en cada fila, en silencio).
+- [Phase ?]: Plan 30-01: DecodePolicy de iol re-ratificada (typed zeros); la confirmacion vive en el docstring de models.py
+- [Phase ?]: Plan 30-01: to_dict() vive en SafeModel via dataclasses.asdict + cast(Any, self), no per-modelo
 
 ### Pending Todos
 
@@ -292,9 +295,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-20T01:28:42.640Z
-Stopped at: Phase 30 context gathered (assumptions mode)
-Resume file: .planning/phases/30-iol-client-tipado/30-CONTEXT.md
+Last session: 2026-08-20T02:46:10.585Z
+Stopped at: Completed 30-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
