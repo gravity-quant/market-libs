@@ -9,6 +9,7 @@ from pytest_httpx import HTTPXMock
 
 import iol_client
 from iol_client import IOLAuthError, IOLRateLimitError
+from iol_client.models import Cotizacion
 
 
 def test_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -58,7 +59,8 @@ def test_get_quote_arma_url_y_params(httpx_mock: HTTPXMock) -> None:
         json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
     )
     quote = iol_client.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
 
 
 def test_get_quote_acepta_mercado_custom(httpx_mock: HTTPXMock) -> None:
@@ -67,7 +69,8 @@ def test_get_quote_acepta_mercado_custom(httpx_mock: HTTPXMock) -> None:
         json={"ultimoPrecio": 60.1},
     )
     quote = iol_client.get_quote("KO", mercado="nyse", plazo="t1")
-    assert quote["ultimoPrecio"] == 60.1
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 60.1
 
 
 def test_get_historical_quotes_arma_path(httpx_mock: HTTPXMock) -> None:
@@ -103,15 +106,23 @@ def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
 
 
 def test_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
-    """Phase 3: locking URL exacta de get_quote + ultimoPrecio numeric (IOL-02 + IOL-04)."""
+    """Phase 3: locking URL exacta de get_quote + ultimoPrecio numeric (IOL-02 + IOL-04).
+
+    Plan 30-01: the ``quote["simbolo"] == "GGAL"`` assertion was **removed**,
+    not migrated — ``simbolo`` is not among the 20 keys the live corpus
+    records for this endpoint (``get-quote.json``, captured 2026-06-06), so it
+    is not a field of :class:`Cotizacion` and the mock key now decodes as an
+    ``extra`` divergence. The key stays in the mock precisely to exercise that
+    tolerance.
+    """
     httpx_mock.add_response(
         url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
         json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
     )
     quote = iol_client.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
-    assert isinstance(quote["ultimoPrecio"], int | float)
-    assert quote["simbolo"] == "GGAL"
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
+    assert isinstance(quote.ultimoPrecio, int | float)
 
 
 def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
@@ -552,8 +563,9 @@ def test_with_options_view_401_triggers_reauth_via_shared_refresh_token(
 
     quote = view.get_quote("GGAL")
 
-    # The returned quote is the success body.
-    assert quote == {"ultimoPrecio": 123.45}
+    # The returned quote is the success body, now decoded as a model.
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 123.45
     # Parent's state updated by view's re-auth path — SHARED _state semantics.
     assert client._state.token == "new-token"
     assert client._state.refresh_token == "new-refresh"

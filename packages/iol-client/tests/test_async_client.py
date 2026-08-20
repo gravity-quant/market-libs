@@ -8,6 +8,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from iol_client import IOLAuthError, aio
+from iol_client.models import Cotizacion
 
 
 async def test_async_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -38,7 +39,8 @@ async def test_async_get_quote(httpx_mock: HTTPXMock) -> None:
         json={"ultimoPrecio": 1234.5},
     )
     quote = await aio.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
 
 
 async def test_async_get_historical_quotes(httpx_mock: HTTPXMock) -> None:
@@ -65,15 +67,21 @@ async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_async_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
-    """Phase 3: locking URL exacta de aio.get_quote + ultimoPrecio numeric (IOL-02 + IOL-04)."""
+    """Phase 3: locking URL exacta de aio.get_quote + ultimoPrecio numeric (IOL-02 + IOL-04).
+
+    Plan 30-01: the ``quote["simbolo"] == "GGAL"`` assertion was **removed**,
+    not migrated — same reason as the sync twin: ``simbolo`` is not one of the
+    20 keys ``get-quote.json`` records, so it is not a field of
+    :class:`Cotizacion`.
+    """
     httpx_mock.add_response(
         url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
         json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
     )
     quote = await aio.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
-    assert isinstance(quote["ultimoPrecio"], int | float)
-    assert quote["simbolo"] == "GGAL"
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
+    assert isinstance(quote.ultimoPrecio, int | float)
 
 
 async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
@@ -540,7 +548,8 @@ async def test_with_options_async_view_401_triggers_reauth_via_shared_refresh_to
 
     quote = await view.get_quote("GGAL")
 
-    assert quote == {"ultimoPrecio": 123.45}
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 123.45
     # Parent's state updated by view's re-auth path — SHARED _state semantics.
     assert client._state.token == "new-token"
     assert client._state.refresh_token == "new-refresh"

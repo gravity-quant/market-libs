@@ -31,6 +31,7 @@ import pytest
 from iol_client import _core
 from iol_client._state import _TOKEN_TTL_BUFFER_SECONDS, _ClientState
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
+from iol_client.models import Cotizacion
 
 # ----------------------------------------------------------------------
 # RequestSpec shape
@@ -332,10 +333,18 @@ def test_build_get_instruments_by_type_request_correct_path() -> None:
 # ----------------------------------------------------------------------
 
 
-def test_parse_get_quote_response_returns_json_dict() -> None:
-    resp = httpx.Response(200, content=b'{"simbolo": "GGAL", "precio": 1234.5}')
+def test_parse_get_quote_response_returns_a_cotizacion() -> None:
+    """Plan 30-01: the parser now builds a model, not a dict.
+
+    The previous form asserted equality against ``{"simbolo": ..., "precio":
+    ...}`` — neither key is a field of :class:`Cotizacion` and neither appears
+    in the committed ``get-quote.json`` corpus, so the payload is rewritten
+    with a real corpus key.
+    """
+    resp = httpx.Response(200, content=b'{"ultimoPrecio": 1234.5}')
     data = _core.parse_get_quote_response(resp)
-    assert data == {"simbolo": "GGAL", "precio": 1234.5}
+    assert isinstance(data, Cotizacion)
+    assert data.ultimoPrecio == 1234.5
 
 
 def test_parse_get_quote_response_propagates_429() -> None:
