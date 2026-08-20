@@ -61,7 +61,7 @@ from iol_client._core import raise_for_response as _raise_for_response
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.client import InstrumentType, _validate_max_retries
 from iol_client.exceptions import IOLAuthError
-from iol_client.models import Cotizacion, Titulo
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 # Suppress ruff F401 for the deliberate re-export alias (consumed by tests
 # via ``from iol_client.aio import _raise_for_response``).
@@ -562,7 +562,7 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_get_historical_quotes_response(resp)
 
-    async def get_instruments(self, pais: str = "argentina") -> Any:
+    async def get_instruments(self, pais: str = "argentina") -> list[Instrumento]:
         """Listado de instrumentos cotizando en ``pais`` (async)."""
         spec = _core.build_get_instruments_request(self._state, pais)
         resp = await self._request(spec)
@@ -713,7 +713,7 @@ async def get_historical_quotes(
     )
 
 
-async def get_instruments(pais: str = "argentina") -> Any:
+async def get_instruments(pais: str = "argentina") -> list[Instrumento]:
     return await _get_default().get_instruments(pais)
 
 

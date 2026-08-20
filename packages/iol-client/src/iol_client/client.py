@@ -58,7 +58,7 @@ from iol_client import _core, _decode, _token_cache, _transport
 from iol_client._core import RequestSpec
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.exceptions import IOLAuthError
-from iol_client.models import Cotizacion, Titulo
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 InstrumentType = Literal[
     "obligacionesNegociables",
@@ -547,7 +547,7 @@ class Client:
         resp = self._request(spec)
         return _core.parse_get_historical_quotes_response(resp)
 
-    def get_instruments(self, pais: str = "argentina") -> Any:
+    def get_instruments(self, pais: str = "argentina") -> list[Instrumento]:
         """Listado de instrumentos cotizando en ``pais``.
 
         Endpoint: ``GET /api/v2/{pais}/Titulos/Cotizacion/Instrumentos``.
@@ -695,7 +695,7 @@ def get_historical_quotes(
     )
 
 
-def get_instruments(pais: str = "argentina") -> Any:
+def get_instruments(pais: str = "argentina") -> list[Instrumento]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_instruments(pais)
 

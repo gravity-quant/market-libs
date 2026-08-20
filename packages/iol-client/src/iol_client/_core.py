@@ -54,7 +54,7 @@ import httpx
 from iol_client import _decode
 from iol_client._state import _TOKEN_TTL_BUFFER_SECONDS, _ClientState
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
-from iol_client.models import Cotizacion, Titulo
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 __all__ = [
     "RequestSpec",
@@ -384,15 +384,29 @@ def parse_get_historical_quotes_response(resp: httpx.Response) -> list[Cotizacio
     return result
 
 
-def parse_get_instruments_response(resp: httpx.Response) -> Any:
-    """Pure: parse instruments listing response (pass-through ``Any``).
+def parse_get_instruments_response(resp: httpx.Response) -> list[Instrumento]:
+    """Pure: parse instruments listing response → ``list[Instrumento]``.
 
-    Phase 6 sync ``Client.get_instruments`` typed the return as ``Any``
-    because the upstream payload shape varies; preserved here.
+    Phase 6 typed this return as ``Any`` on the premise that "the upstream
+    payload shape varies". The 2026-06-06 capture
+    (``.planning/verification/schemas/iol-client/get-instruments.json``) settles
+    it: the wire is a **top-level list** of two-key objects. It is not the
+    single-key envelope 16 test mocks were asserting — those mocks were
+    validating a world the endpoint does not return, and Plan 30-03 corrected
+    them against the capture.
+
+    D-06 / T-30-08 / ASVS V5: the guard inside :func:`_parse_list_or_raise`
+    **raises** on any other shape. It does not degrade to ``[]`` and it does
+    **not** get a dict-or-list tolerance to accommodate the old mocks — either
+    would reintroduce the silent-empty bug this milestone exists to remove, and
+    would mask a changed or compromised upstream. An empty list still parses
+    fine: the guard discriminates shape, not cardinality.
+
+    The annotated local is load-bearing — the helper returns a generic list and
+    this is what narrows it for mypy strict.
     """
-    resp.read()
-    raise_for_response(resp)
-    return resp.json()
+    result: list[Instrumento] = _parse_list_or_raise(resp, Instrumento)
+    return result
 
 
 @_decode._response_parser
