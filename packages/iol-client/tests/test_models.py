@@ -1,4 +1,4 @@
-"""Tests del layer tolerante ``iol_client.models`` (Planes 30-01 y 30-02).
+"""Tests del layer tolerante ``iol_client.models`` (Planes 30-01, 30-02 y 30-03).
 
 Fija el comportamiento que D-01..D-04 y D-08 especifican para `Cotizacion`,
 `Punta` y `Titulo`:
@@ -23,6 +23,11 @@ impone contra `Cotizacion`:
   **ensancha en silencio** un entero del wire — el contraste exacto con el
   test de `Cotizacion`, donde la rama entera sustituye typed-zero y reporta
   (D-04).
+
+Plan 30-03 agrega `Instrumento`, cada elemento de la **lista top-level** que
+devuelve `get_instruments`. Es el modelo más chico de la fase (dos claves de
+texto) y el que más divergía de lo que la suite creía: 16 mocks construían un
+envelope `{"instrumentos": …}` que la captura del 2026-06-06 contradice (D-06).
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ import pytest
 from verification.schema import schema_of
 
 from iol_client import _decode
-from iol_client.models import Cotizacion, Punta, SafeModel, Titulo
+from iol_client.models import Cotizacion, Instrumento, Punta, SafeModel, Titulo
 
 _MESSAGE = "decode divergence"
 
@@ -119,6 +124,16 @@ _TITULO_ROW: dict[str, Any] = {
     "ultimoPrecio": 1234.5,
     "variacionPorcentual": 4.62,
     "volumen": 812345.0,
+}
+
+
+# Un elemento de la **lista top-level** que devuelve ``get_instruments``, con
+# las dos claves exactas de
+# ``.planning/verification/schemas/iol-client/get-instruments.json`` (captura
+# 2026-06-06). No hay envelope: el schema registra la lista al tope (D-06).
+_INSTRUMENTO_ROW: dict[str, Any] = {
+    "instrumento": "acciones",
+    "pais": "argentina",
 }
 
 
@@ -448,3 +463,44 @@ def test_titulo_cantidad_operaciones_entera_se_ensancha_sin_registro(
 def test_round_trip_reproduce_el_schema_committeado_de_instrumentos_por_tipo() -> None:
     titulo = Titulo.from_api(_TITULO_ROW)
     assert schema_of(titulo.to_dict()) == _committed_schema("get-instruments-by-type")["titulos"][0]
+
+
+# ---------------------------------------------------------------------------
+# ``Instrumento`` — cada elemento de la lista top-level (Plan 30-03)
+# ---------------------------------------------------------------------------
+
+
+def test_instrumento_from_api_elemento_del_corpus_tiene_cero_divergencias(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.DEBUG, logger="iol_client"):
+        instrumento = Instrumento.from_api(_INSTRUMENTO_ROW)
+
+    assert _divergences(caplog) == []
+    assert instrumento.instrumento == "acciones"
+    assert instrumento.pais == "argentina"
+
+
+def test_instrumento_declara_exactamente_dos_campos() -> None:
+    """El elemento del corpus tiene exactamente dos claves, ambas de texto."""
+    campos = [f.name for f in dataclasses.fields(Instrumento)]
+    assert campos == ["instrumento", "pais"]
+
+
+def test_instrumento_from_api_empty_dict_yields_typed_zeros() -> None:
+    instrumento = Instrumento.from_api({})
+    assert instrumento.instrumento == ""
+    assert instrumento.pais == ""
+
+
+def test_instrumento_from_api_none_does_not_raise() -> None:
+    instrumento = Instrumento.from_api(None)
+    assert isinstance(instrumento, SafeModel)
+    assert instrumento.instrumento == ""
+    assert instrumento.pais == ""
+
+
+def test_round_trip_reproduce_el_schema_committeado_de_instrumentos() -> None:
+    elemento = _committed_schema("get-instruments")[0]
+    instrumento = Instrumento.from_api(_INSTRUMENTO_ROW)
+    assert schema_of(instrumento.to_dict()) == elemento
