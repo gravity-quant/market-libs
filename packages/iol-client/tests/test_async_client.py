@@ -7,7 +7,7 @@ import datetime as dt
 import pytest
 from pytest_httpx import HTTPXMock
 
-from iol_client import IOLAuthError, aio
+from iol_client import IOLAPIError, IOLAuthError, aio
 from iol_client.models import Cotizacion, Instrumento, Titulo
 
 
@@ -127,6 +127,40 @@ async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMo
     assert len(titulos) == 2
     assert all(isinstance(t, Titulo) for t in titulos)
     assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
+
+
+async def test_async_get_instruments_by_type_raises_on_malformed_titulos(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """CR-02: la superficie async hereda el guard de forma, no lo duplica.
+
+    CLAUDE.md registra la duplicación sync/async de ``client.py`` y ``aio.py``
+    como deuda conocida; para **este** parser no la hay — las dos superficies
+    despachan a la misma función de ``_core``. Este test convierte esa afirmación
+    de algo que un lector deduce leyendo dos archivos en una aserción ejecutable:
+    si alguien reintroduce una copia por-superficie de la lógica de parseo, el
+    guard deja de alcanzar a ``aio`` y este test falla.
+
+    El envelope malformado levanta el mismo ``IOLAPIError`` nombrando ``str`` que
+    la superficie sync, y el happy path sigue devolviendo un ``Titulo`` real —
+    el guard no es daño colateral sobre la ruta buena.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
+        json={"titulos": "GGAL"},
+    )
+    with pytest.raises(IOLAPIError) as excinfo:
+        await aio.get_instruments_by_type("acciones")
+    assert "str" in str(excinfo.value)
+
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
+        json={"titulos": [{"simbolo": "GGAL"}]},
+    )
+    titulos = await aio.get_instruments_by_type("acciones")
+    assert len(titulos) == 1
+    assert isinstance(titulos[0], Titulo)
+    assert titulos[0].simbolo == "GGAL"
 
 
 async def test_async_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:

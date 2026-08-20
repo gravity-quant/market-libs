@@ -489,3 +489,58 @@ def test_parse_get_instruments_by_type_response_returns_empty_list_when_missing(
     resp = httpx.Response(200, content=b"{}")
     data = _core.parse_get_instruments_by_type_response(resp)
     assert data == []
+
+
+def test_parse_get_instruments_by_type_response_raises_on_top_level_list_body() -> None:
+    """CR-02 / D-06 / ASVS V5: un body lista al tope **levanta** ``IOLAPIError``.
+
+    Antes del guard, ``resp.json()`` devolvía una lista y el ``.get("titulos")``
+    siguiente reventaba con un ``AttributeError`` crudo que escapaba la
+    jerarquía ``IOLClientError`` — la única jerarquía que el README y las
+    escaleras ``except IOLAPIError`` del driver documentan atrapar. Un upstream
+    cambiado dejaba de ser un error de forma reportable y pasaba a ser un crash.
+    """
+    resp = httpx.Response(200, content=b'[{"simbolo": "GGAL"}]')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_by_type_response(resp)
+    assert "list" in str(excinfo.value)
+
+
+def test_parse_get_instruments_by_type_response_raises_on_string_titulos() -> None:
+    """CR-02 / D-06 / ASVS V5: un ``titulos`` string **levanta**, no fabrica filas.
+
+    Antes del guard, ``"GGAL"`` se iteraba carácter por carácter y salían cuatro
+    ``Titulo`` con todos los campos en su default — filas financieras sintéticas
+    que el llamador no puede distinguir de instrumentos reales. Ésa es la
+    degradación silenciosa que enmascara un upstream cambiado o comprometido.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": "GGAL"}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_by_type_response(resp)
+    assert "str" in str(excinfo.value)
+
+
+def test_parse_get_instruments_by_type_response_raises_on_dict_titulos() -> None:
+    """CR-02 / D-06 / ASVS V5: un ``titulos`` dict **levanta**, no fabrica filas.
+
+    Mismo mecanismo que el caso string: iterar un dict recorre sus claves, así
+    que ``{"a": 1, "b": 2}`` producía dos ``Titulo`` all-default. El guard
+    nombra el tipo recibido para que un operator leyendo un traceback en vivo
+    sepa qué forma llegó.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": {"a": 1, "b": 2}}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_by_type_response(resp)
+    assert "dict" in str(excinfo.value)
+
+
+def test_parse_get_instruments_by_type_response_empty_titulos_list_no_levanta() -> None:
+    """CR-02: el guard discrimina **forma**, no cardinalidad — ``[]`` es válido.
+
+    El lock de regresión del par cardinalidad-vs-forma: un envelope con la clave
+    presente y la lista vacía es una respuesta legítima del upstream (no hay
+    títulos de ese tipo) y jamás debe levantar. Junto con el test de la clave
+    ausente de arriba, fija las dos rutas que el guard **no** toca.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": []}')
+    assert _core.parse_get_instruments_by_type_response(resp) == []
