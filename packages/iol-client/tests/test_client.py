@@ -9,7 +9,7 @@ from pytest_httpx import HTTPXMock
 
 import iol_client
 from iol_client import IOLAuthError, IOLRateLimitError
-from iol_client.models import Cotizacion
+from iol_client.models import Cotizacion, Titulo
 
 
 def test_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -81,7 +81,10 @@ def test_get_historical_quotes_arma_path(httpx_mock: HTTPXMock) -> None:
         json=[{"fechaHora": "2026-04-04T17:00:00", "ultimoPrecio": 999.9}],
     )
     serie = iol_client.get_historical_quotes("GGAL", desde, hasta)
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert len(serie) == 1
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
+    assert serie[-1].fechaHora == "2026-04-04T17:00:00"
 
 
 def test_get_instruments_devuelve_payload(httpx_mock: HTTPXMock) -> None:
@@ -99,7 +102,9 @@ def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
         json={"titulos": [{"simbolo": "GGAL"}, {"simbolo": "PAMP"}]},
     )
     titulos = iol_client.get_instruments_by_type("acciones")
-    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+    assert len(titulos) == 2
+    assert all(isinstance(t, Titulo) for t in titulos)
+    assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
 
 
 # ------ Verified live (Phase 3) ------
@@ -130,6 +135,11 @@ def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
 
     Si el wire deja de emitir 'titulos', el cliente devuelve [] silenciosamente —
     drift detectado por probe_field_type_map in-vivo (Pitfall 2), no por este test.
+
+    Plan 30-02: el unwrap sobrevive intacto y sigue siendo un paso raw-dict, pero
+    lo que sale de él son ahora filas :class:`Titulo`. La aserción de forma pasó
+    de ``isinstance(t, dict)`` a ``isinstance(t, Titulo)`` — estrictamente más
+    fuerte, porque nombra la clase en vez del contenedor.
     """
     httpx_mock.add_response(
         url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
@@ -138,8 +148,8 @@ def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
     titulos = iol_client.get_instruments_by_type("acciones")
     assert isinstance(titulos, list)
     assert len(titulos) == 2
-    assert all(isinstance(t, dict) for t in titulos)
-    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+    assert all(isinstance(t, Titulo) for t in titulos)
+    assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
 
 
 def test_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
@@ -156,7 +166,8 @@ def test_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
     serie = iol_client.get_historical_quotes("GGAL", desde, hasta)
     assert isinstance(serie, list)
     assert len(serie) >= 1
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
 
 
 # ------ Regressions ------

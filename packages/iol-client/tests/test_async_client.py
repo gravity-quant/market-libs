@@ -8,7 +8,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from iol_client import IOLAuthError, aio
-from iol_client.models import Cotizacion
+from iol_client.models import Cotizacion, Titulo
 
 
 async def test_async_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -51,7 +51,9 @@ async def test_async_get_historical_quotes(httpx_mock: HTTPXMock) -> None:
         json=[{"ultimoPrecio": 999.9}],
     )
     serie = await aio.get_historical_quotes("GGAL", desde, hasta)
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert len(serie) == 1
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
 
 
 async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
@@ -60,7 +62,9 @@ async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
         json={"titulos": [{"simbolo": "AAPL"}]},
     )
     titulos = await aio.get_instruments_by_type("cedears")
-    assert titulos[0]["simbolo"] == "AAPL"
+    assert len(titulos) == 1
+    assert isinstance(titulos[0], Titulo)
+    assert titulos[0].simbolo == "AAPL"
 
 
 # ------ Verified live (Phase 3) ------
@@ -89,6 +93,10 @@ async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMo
 
     Espejo del sync — si el wire deja de emitir 'titulos', el cliente devuelve []
     silenciosamente; drift detectado por probe_field_type_map in-vivo (Pitfall 2).
+
+    Plan 30-02: el unwrap sobrevive intacto como paso raw-dict y lo que sale de
+    él son filas :class:`Titulo`; la aserción de forma pasó de nombrar el
+    contenedor a nombrar la clase.
     """
     httpx_mock.add_response(
         url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
@@ -97,8 +105,8 @@ async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMo
     titulos = await aio.get_instruments_by_type("acciones")
     assert isinstance(titulos, list)
     assert len(titulos) == 2
-    assert all(isinstance(t, dict) for t in titulos)
-    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+    assert all(isinstance(t, Titulo) for t in titulos)
+    assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
 
 
 async def test_async_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
@@ -115,7 +123,8 @@ async def test_async_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) 
     serie = await aio.get_historical_quotes("GGAL", desde, hasta)
     assert isinstance(serie, list)
     assert len(serie) >= 1
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
 
 
 # ------ Regressions ------
