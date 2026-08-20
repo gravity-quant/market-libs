@@ -159,6 +159,31 @@ class Cotizacion(SafeModel):
 
 
 @dataclass(frozen=True, slots=True)
+class Instrumento(SafeModel):
+    """Un instrumento del listado — un elemento de la **lista top-level**.
+
+    Verificado contra el schema committeado capturado el **2026-06-06**
+    (``.planning/verification/schemas/iol-client/get-instruments.json``).
+
+    - El endpoint de listado devuelve una **lista al tope**, cuyos elementos
+      traen exactamente estas dos claves. No hay envelope: la captura
+      contradice la forma ``{"instrumentos": [...]}`` que 16 mocks de la suite
+      venían asumiendo. Ese desajuste es el que motiva D-06 — el parser gana un
+      guard de forma que **levanta**, y los 16 payloads se corrigieron a la
+      forma que el corpus demuestra (Plan 30-03).
+    - ``instrumento`` y ``pais`` son **texto libre**. Aunque el corpus muestre
+      un vocabulario chico (``acciones``, ``cedears``, ``argentina``…), ningún
+      campo de RESPONSE gana un tipo de conjunto cerrado en este milestone: la
+      promoción a ``Literal`` es trabajo de Phase 33 con un censo vivo detrás
+      (D-09 / DT-07). El ``pais`` que llega en la respuesta es distinto del
+      parámetro ``pais`` de entrada, que sí puede tener su propio dominio.
+    """
+
+    instrumento: str
+    pais: str
+
+
+@dataclass(frozen=True, slots=True)
 class Titulo(SafeModel):
     """Un título del listado por tipo — una fila del envelope ``titulos``.
 

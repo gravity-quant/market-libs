@@ -50,6 +50,7 @@ from iol_client.exceptions import (  # noqa: E402
 )
 from iol_client.models import (  # noqa: E402
     Cotizacion,
+    Instrumento,
     Punta,
     SafeModel,
     Titulo,
@@ -68,6 +69,7 @@ __all__ = [
     "IOLDecodeError",
     "IOLRateLimitError",
     "InstrumentType",
+    "Instrumento",
     "Punta",
     "SafeModel",
     "Titulo",

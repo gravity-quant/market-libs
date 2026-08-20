@@ -15,6 +15,7 @@ IOLClientError : class :
 IOLDecodeError : class : (field_path: 'str', declared_type: 'str', observed_type: 'str', model: 'str') -> 'None'
 IOLRateLimitError : class : (status_code: 'int', message: 'str') -> 'None'
 InstrumentType : _LiteralGenericAlias :
+Instrumento : class : (instrumento: 'str', pais: 'str') -> None
 Punta : class : (cantidadCompra: 'float', cantidadVenta: 'float', precioCompra: 'float', precioVenta: 'float') -> None
 SafeModel : class : ()
 Titulo : class : (apertura: 'float', cantidadOperaciones: 'float', descripcion: 'str', fecha: 'str', fechaVencimiento: 'str | None', laminaMinima: 'int', lote: 'int', maximo: 'float', mercado: 'str', minimo: 'float', moneda: 'str', plazo: 'str', precioEjercicio: 'float | None', puntas: 'Punta | None', simbolo: 'str', tipoOpcion: 'str | None', ultimoCierre: 'float', ultimoPrecio: 'float', variacionPorcentual: 'float', volumen: 'float') -> None
