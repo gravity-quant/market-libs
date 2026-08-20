@@ -75,7 +75,15 @@ from verification import require_env, safe_print, schema_of, write_findings
 from verification.findings import append_finding
 
 import iol_client
-from iol_client import AsyncClient, Client, IOLAPIError, IOLAuthError
+from iol_client import (
+    AsyncClient,
+    Client,
+    Cotizacion,
+    Instrumento,
+    IOLAPIError,
+    IOLAuthError,
+    Titulo,
+)
 from iol_client._core import RequestSpec
 from iol_client.client import _raise_for_response
 
@@ -179,6 +187,43 @@ def _last_business_day(today: dt.date) -> dt.date:
 
 
 # ---------------------------------------------------------------------------
+# Frontera hacia el harness de verificación (Phase 30, D-07/D-08)
+# ---------------------------------------------------------------------------
+
+
+def _as_wire(value: Any) -> Any:
+    """Proyecta un modelo (o una lista de modelos) de vuelta a su dict de wire.
+
+    ``verification.schema.schema_of`` reduce cualquier cosa que no sea ``dict``
+    ni ``list`` al **nombre de su tipo**, así que desde Phase 30 una instancia de
+    modelo se colapsaría al string ``"Cotizacion"``. Eso rompe tres sitios de
+    este driver y **dos lo harían en silencio**:
+
+    - el probe de paridad compararía ``"Cotizacion" == "Cotizacion"``: siempre
+      igual, PASS habiendo perdido **todo** su poder discriminante;
+    - los dos probes de mapa de campos guardan con un chequeo de tipo ``dict``
+      que pasaría a ser falso: el bucle entero se saltea y el probe reporta
+      "sin drift" sin haber mirado un solo campo;
+    - el escritor/verificador de snapshots compararía un string contra el dict
+      committeado: findings de forma espurios (ruidoso, y **no** sobreescribe el
+      baseline, D-25).
+
+    Por eso la normalización vive acá, en la frontera, y no en cada sitio de
+    llamada. El envelope de ``get_instruments_by_type`` viene de un ``_request``
+    **crudo** (ver ``probe_field_type_map``), ya es un dict y atraviesa este
+    adaptador **tal cual** — que es lo correcto.
+
+    La salida alimenta ``schema_of`` y **nada más**: esa función emite claves y
+    nombres de tipo, jamás valores, y por eso es libre de datos personales por
+    construcción. Ningún llamador la escribe a un archivo de findings ni
+    directamente a un snapshot.
+    """
+    if isinstance(value, list):
+        return [_as_wire(v) for v in value]
+    return value.to_dict() if hasattr(value, "to_dict") else value
+
+
+# ---------------------------------------------------------------------------
 # Probes — orden D-IOL-5 (probe_auth_401 último, D-IOL-4)
 # ---------------------------------------------------------------------------
 
@@ -253,7 +298,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
-def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
+def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None]:
     """Probe 3: ``client.get_quote(GGAL)`` (IOL-02).
 
     WR-03: single HTTP call por probe. WR-01: ``exc.status_code`` typed directo.
@@ -306,15 +351,22 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | 
             surface="sync",
             status="OPEN",
             title=f"get_quote_sync unexpected {type(exc).__name__}",
-            expected="200 OK + dict",
+            expected="200 OK + Cotizacion",
             actual=repr(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
         return (ProbeResult("get_quote_sync", "FINDING", f"{fid} (OPEN)"), None)
     # Plausibility check del precio (Discretion).
-    ultimo = quote.get("ultimoPrecio")
-    if isinstance(ultimo, int | float) and not (_PRICE_MIN < float(ultimo) < _PRICE_MAX):
+    # TYP-01: acceso por atributo tipado. El guard de tipo que envolvía esta
+    # comparación desapareció por ser código muerto demostrable — ``ultimoPrecio``
+    # está declarado ``float`` en ``Cotizacion`` y el walker garantiza que un
+    # decimal llega al atributo (sustituye el typed-zero y reporta si el wire
+    # diverge). Dejarlo puesto implicaría no creerle al tipo que esta fase
+    # entrega. El guard de **ausencia** sobre ``quote`` sí se conserva: el probe
+    # sigue recibiendo un valor opcional.
+    ultimo = quote.ultimoPrecio
+    if not (_PRICE_MIN < ultimo < _PRICE_MAX):
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -337,7 +389,7 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | 
 
 async def probe_get_quote_async(
     aclient: AsyncClient,
-) -> tuple[ProbeResult, dict[str, Any] | None]:
+) -> tuple[ProbeResult, Cotizacion | None]:
     """Probe 4: ``await aclient.get_quote(GGAL)`` (IOL-02). Espejo async del probe 3."""
     if _auth_failed:
         return (
@@ -386,20 +438,21 @@ async def probe_get_quote_async(
             surface="async",
             status="OPEN",
             title=f"get_quote_async unexpected {type(exc).__name__}",
-            expected="200 OK + dict",
+            expected="200 OK + Cotizacion",
             actual=repr(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
         return (ProbeResult("get_quote_async", "FINDING", f"{fid} (OPEN)"), None)
-    ultimo = quote.get("ultimoPrecio")
+    # TYP-01: acceso por atributo tipado (espejo async del sitio sync).
+    ultimo = quote.ultimoPrecio
     return (ProbeResult("get_quote_async", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
 
 
 def probe_get_historical_quotes_sync(
     client: Client,
     today: dt.date,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Cotizacion] | None]:
     """Probe 5: serie histórica de GGAL (IOL-02, D-IOL-19)."""
     if _auth_failed:
         return (
@@ -479,7 +532,7 @@ def probe_get_historical_quotes_sync(
 async def probe_get_historical_quotes_async(
     aclient: AsyncClient,
     today: dt.date,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Cotizacion] | None]:
     """Probe 6: serie histórica de GGAL — espejo async (IOL-02, D-IOL-19)."""
     if _auth_failed:
         return (
@@ -555,7 +608,7 @@ async def probe_get_historical_quotes_async(
     )
 
 
-def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
+def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instrumento] | None]:
     """Probe 7: ``client.get_instruments("argentina")`` (IOL-02)."""
     if _auth_failed:
         return (
@@ -616,7 +669,9 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
     )
 
 
-async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult, Any]:
+async def probe_get_instruments_async(
+    aclient: AsyncClient,
+) -> tuple[ProbeResult, list[Instrumento] | None]:
     """Probe 8: ``await aclient.get_instruments("argentina")`` (IOL-02). Espejo async."""
     if _auth_failed:
         return (
@@ -679,7 +734,7 @@ async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult
 
 def probe_get_instruments_by_type_sync(
     client: Client,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Titulo] | None]:
     """Probe 9: ``client.get_instruments_by_type("acciones")`` + sanity 6 (IOL-02/17).
 
     Discretion: el sanity check de los 6 ``InstrumentType`` (type-only assertion)
@@ -768,7 +823,10 @@ def probe_get_instruments_by_type_sync(
             # cualquiera de los 6 types que falle se registra para el finding.
             bad_types.append(f"{itype}: {type(exc).__name__}")
             continue
-        if not (isinstance(titulos, list) and titulos and isinstance(titulos[0], dict)):
+        # Phase 30: el wrapper devuelve ``list[Titulo]``, no ``list[dict]``. Sin
+        # migrar este chequeo, los 6 types caerían en ``bad_types`` y cada
+        # corrida viva emitiría un finding SHAPE espurio.
+        if not (isinstance(titulos, list) and titulos and isinstance(titulos[0], Titulo)):
             bad_types.append(f"{itype}: shape={type(titulos).__name__}")
     if bad_types:
         fid = _next_fid()
@@ -801,7 +859,7 @@ def probe_get_instruments_by_type_sync(
 
 async def probe_get_instruments_by_type_async(
     aclient: AsyncClient,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Titulo] | None]:
     """Probe 10: espejo async (solo sample principal — sanity 6 vive en sync, probe 9)."""
     if _auth_failed:
         return (
@@ -886,14 +944,14 @@ async def probe_get_instruments_by_type_async(
 
 def probe_parity_sync_async(
     client: Client,
-    quote_sync: dict[str, Any] | None,
-    quote_async: dict[str, Any] | None,
-    historical_sync: list[dict[str, Any]] | None,
-    historical_async: list[dict[str, Any]] | None,
-    instruments_sync: Any,
-    instruments_async: Any,
-    by_type_sync: list[dict[str, Any]] | None,
-    by_type_async: list[dict[str, Any]] | None,
+    quote_sync: Cotizacion | None,
+    quote_async: Cotizacion | None,
+    historical_sync: list[Cotizacion] | None,
+    historical_async: list[Cotizacion] | None,
+    instruments_sync: list[Instrumento] | None,
+    instruments_async: list[Instrumento] | None,
+    by_type_sync: list[Titulo] | None,
+    by_type_async: list[Titulo] | None,
 ) -> ProbeResult:
     """Probe 11: paridad estructural sync↔async (IOL-06, D-IOL-20).
 
@@ -915,8 +973,12 @@ def probe_parity_sync_async(
         if sync_data is None or async_data is None:
             skipped.append(endpoint)
             continue
-        schema_sync = schema_of(sync_data)
-        schema_async = schema_of(async_data)
+        # D-07/D-08: los payloads llegan opacos (modelo, lista de modelos o dict
+        # crudo), así que la normalización va acá, en la frontera. Sin ella este
+        # probe compararía dos veces el mismo nombre de clase y reportaría PASS
+        # habiendo perdido todo su poder discriminante.
+        schema_sync = schema_of(_as_wire(sync_data))
+        schema_async = schema_of(_as_wire(async_data))
         if schema_sync == schema_async:
             continue
         fid = _next_fid()
@@ -950,8 +1012,10 @@ def probe_parity_sync_async(
 
 def probe_field_type_map(
     client: Client,
-    quote: dict[str, Any] | None,
-    historical: list[dict[str, Any]] | None,
+    quote: Cotizacion | None,
+    historical: list[Cotizacion] | None,
+    # El envelope NO cambia de tipo: se captura de una petición cruda, no del
+    # wrapper del cliente, así que es inmune a la migración a modelos (D-07).
     instruments_by_type_envelope: dict[str, Any] | None,
 ) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 12: field→type map vs ``_ASSUMED_*`` (IOL-03 + IOL-04, D-IOL-13/15).
@@ -1063,7 +1127,9 @@ def probe_field_type_map(
 
     # --- get_quote field→type map (D-IOL-14/15) ---
     if quote is not None:
-        observed = schema_of(quote)
+        # D-07/D-08: sin la proyección a dict el guard de tipo de abajo pasa a
+        # ser falso y este bucle entero se saltea, reportando "sin drift".
+        observed = schema_of(quote.to_dict())
         if isinstance(observed, dict):
             for key, expected_type in _ASSUMED_QUOTE_FIELDS.items():
                 if key not in observed:
@@ -1099,7 +1165,8 @@ def probe_field_type_map(
 
     # --- get_historical_quotes field→type map (sobre el primer row) ---
     if historical is not None and len(historical) >= 1:
-        observed_row = schema_of(historical[0])
+        # D-07/D-08: ídem sobre la fila 0 de la serie histórica.
+        observed_row = schema_of(historical[0].to_dict())
         if isinstance(observed_row, dict):
             for key, expected_type in _ASSUMED_HISTORICAL_FIELDS.items():
                 if key not in observed_row:
@@ -1200,9 +1267,10 @@ def _write_or_check_schema(
 def probe_schema_snapshot(
     client: Client,
     today: dt.date,
-    quote: dict[str, Any] | None,
-    historical: list[dict[str, Any]] | None,
-    instruments: Any,
+    quote: Cotizacion | None,
+    historical: list[Cotizacion] | None,
+    instruments: list[Instrumento] | None,
+    # El envelope de by_type sigue siendo un dict crudo (ver arriba).
     by_type_envelope: dict[str, Any] | None,
 ) -> ProbeResult:
     """Probe 13: 4 schema snapshots con envelope D-21 + D-25 (DRIFT-01 mirror).
@@ -1255,7 +1323,14 @@ def probe_schema_snapshot(
             func_name,
             _ENDPOINT_TEMPLATES[func_name],
             sample_params,
-            payload,
+            # D-07/D-08: la proyección alcanza a **3 de los 4** destinos —
+            # cotización, serie histórica y listado de instrumentos, los que
+            # pasan por el wrapper del cliente y por lo tanto llegan como
+            # modelos. El envelope de by_type viene de un ``_request`` crudo y
+            # ``_as_wire`` lo pasa tal cual, sin forzarlo por una ruta que asuma
+            # un modelo. Sin esto los 3 primeros emitirían findings de forma
+            # espurios contra baselines que siguen siendo correctos.
+            _as_wire(payload),
             base_url,
         )
         if status == "FINDING":
@@ -1533,13 +1608,13 @@ async def _async_main(
 ) -> tuple[
     ProbeResult,
     ProbeResult,
-    dict[str, Any] | None,
+    Cotizacion | None,
     ProbeResult,
-    list[dict[str, Any]] | None,
+    list[Cotizacion] | None,
     ProbeResult,
-    Any,
+    list[Instrumento] | None,
     ProbeResult,
-    list[dict[str, Any]] | None,
+    list[Titulo] | None,
 ]:
     """Compone los probes async (2/4/6/8/10) y cierra el AsyncClient.
 
