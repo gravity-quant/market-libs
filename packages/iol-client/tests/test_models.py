@@ -1,7 +1,7 @@
-"""Tests del layer tolerante ``iol_client.models`` (Plan 30-01).
+"""Tests del layer tolerante ``iol_client.models`` (Planes 30-01 y 30-02).
 
-Fija el comportamiento que D-01..D-04 y D-08 especifican para `Cotizacion` y
-`Punta`:
+Fija el comportamiento que D-01..D-04 y D-08 especifican para `Cotizacion`,
+`Punta` y `Titulo`:
 
 - Los **dos** schemas capturados que usan `Cotizacion` (`get-quote.json` y cada
   fila de `get-historical-quotes.json`) decodifican con **cero** registros de
@@ -13,6 +13,16 @@ Fija el comportamiento que D-01..D-04 y D-08 especifican para `Cotizacion` y
   typed zero y emite un registro de clase ``type``.
 - El round-trip D-08: `schema_of(model.to_dict())` reproduce el `schema`
   committeado byte-idéntico, en los dos schemas.
+
+Plan 30-02 agrega `Titulo`, cada fila del envelope `titulos` de
+`get-instruments-by-type.json`, y con él las dos asimetrías que el corpus
+impone contra `Cotizacion`:
+
+- `puntas` es acá un `Punta` **singular**, no una colección (D-02).
+- `cantidadOperaciones` es acá `float`, y la rama decimal del walker
+  **ensancha en silencio** un entero del wire — el contraste exacto con el
+  test de `Cotizacion`, donde la rama entera sustituye typed-zero y reporta
+  (D-04).
 """
 
 from __future__ import annotations
@@ -28,7 +38,7 @@ import pytest
 from verification.schema import schema_of
 
 from iol_client import _decode
-from iol_client.models import Cotizacion, Punta, SafeModel
+from iol_client.models import Cotizacion, Punta, SafeModel, Titulo
 
 _MESSAGE = "decode divergence"
 
@@ -74,6 +84,41 @@ _HISTORICAL_ROW: dict[str, Any] = {
     "descripcionTitulo": None,
     "plazo": None,
     "puntas": None,
+}
+
+
+# Payload sintético con las 20 claves y los tipos exactos de
+# ``.planning/verification/schemas/iol-client/get-instruments-by-type.json``
+# (captura 2026-06-06), es decir una fila del envelope ``titulos``. Los tres
+# campos que el corpus registró **sin valor** (``fechaVencimiento``,
+# ``precioEjercicio``, ``tipoOpcion``) viajan ``None`` porque eso es
+# exactamente lo que se observó — FA-02/A1.
+_TITULO_ROW: dict[str, Any] = {
+    "apertura": 1200.0,
+    "cantidadOperaciones": 1543.0,
+    "descripcion": "GRUPO FINANCIERO GALICIA",
+    "fecha": "2026-06-06T11:56:08.19",
+    "fechaVencimiento": None,
+    "laminaMinima": 1,
+    "lote": 1,
+    "maximo": 1250.0,
+    "mercado": "bCBA",
+    "minimo": 1190.0,
+    "moneda": "peso_Argentino",
+    "plazo": "t2",
+    "precioEjercicio": None,
+    "puntas": {
+        "cantidadCompra": 100.0,
+        "cantidadVenta": 250.0,
+        "precioCompra": 1233.0,
+        "precioVenta": 1235.0,
+    },
+    "simbolo": "GGAL",
+    "tipoOpcion": None,
+    "ultimoCierre": 1180.5,
+    "ultimoPrecio": 1234.5,
+    "variacionPorcentual": 4.62,
+    "volumen": 812345.0,
 }
 
 
@@ -293,3 +338,113 @@ def test_round_trip_reproduce_el_schema_committeado_de_get_quote() -> None:
 def test_round_trip_reproduce_el_schema_committeado_de_serie_historica() -> None:
     row = Cotizacion.from_api(_HISTORICAL_ROW)
     assert schema_of(row.to_dict()) == _committed_schema("get-historical-quotes")[0]
+
+
+# ---------------------------------------------------------------------------
+# ``Titulo`` — cada fila del envelope ``titulos`` (Plan 30-02)
+# ---------------------------------------------------------------------------
+
+
+def test_titulo_from_api_fila_del_corpus_tiene_cero_divergencias(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.DEBUG, logger="iol_client"):
+        titulo = Titulo.from_api(_TITULO_ROW)
+
+    assert _divergences(caplog) == []
+    assert titulo.apertura == 1200.0
+    assert titulo.cantidadOperaciones == 1543.0
+    assert titulo.descripcion == "GRUPO FINANCIERO GALICIA"
+    assert titulo.fecha == "2026-06-06T11:56:08.19"
+    assert titulo.fechaVencimiento is None
+    assert titulo.laminaMinima == 1
+    assert titulo.lote == 1
+    assert titulo.maximo == 1250.0
+    assert titulo.mercado == "bCBA"
+    assert titulo.minimo == 1190.0
+    assert titulo.moneda == "peso_Argentino"
+    assert titulo.plazo == "t2"
+    assert titulo.precioEjercicio is None
+    assert titulo.simbolo == "GGAL"
+    assert titulo.tipoOpcion is None
+    assert titulo.ultimoCierre == 1180.5
+    assert titulo.ultimoPrecio == 1234.5
+    assert titulo.variacionPorcentual == 4.62
+    assert titulo.volumen == 812345.0
+    assert titulo.puntas is not None
+    assert titulo.puntas.precioVenta == 1235.0
+
+
+def test_titulo_declara_exactamente_veinte_campos() -> None:
+    """FA-05: D-01 y RESEARCH dicen 21; el schema committeado tiene 20.
+
+    CONTEXT declara el schema fuente de verdad, así que 20 no es una omisión.
+    """
+    assert len(dataclasses.fields(Titulo)) == 20
+
+
+def test_titulo_from_api_empty_dict_yields_typed_zeros() -> None:
+    titulo = Titulo.from_api({})
+    assert titulo.descripcion == ""
+    assert titulo.apertura == 0.0
+    assert titulo.lote == 0
+    assert titulo.laminaMinima == 0
+    assert titulo.mercado == ""
+    assert titulo.plazo == ""
+    assert titulo.fechaVencimiento is None
+    assert titulo.precioEjercicio is None
+    assert titulo.tipoOpcion is None
+    assert titulo.puntas is None
+
+
+def test_titulo_puntas_es_singular_no_una_lista() -> None:
+    """D-02: la misma clave ``puntas`` tiene dos formas en el mismo corpus."""
+    titulo = Titulo.from_api(
+        {
+            **_TITULO_ROW,
+            "puntas": {
+                "cantidadCompra": 1.0,
+                "cantidadVenta": 2.0,
+                "precioCompra": 3.0,
+                "precioVenta": 4.0,
+            },
+        }
+    )
+    assert isinstance(titulo.puntas, Punta)
+    assert not isinstance(titulo.puntas, list)
+    assert titulo.puntas.cantidadCompra == 1.0
+    assert titulo.puntas.cantidadVenta == 2.0
+    assert titulo.puntas.precioCompra == 3.0
+    assert titulo.puntas.precioVenta == 4.0
+
+
+def test_titulo_puntas_nula_no_emite_registro(caplog: pytest.LogCaptureFixture) -> None:
+    """La rama Optional del walker devuelve ``None`` sin reportar."""
+    with caplog.at_level(logging.DEBUG, logger="iol_client"):
+        titulo = Titulo.from_api({**_TITULO_ROW, "puntas": None})
+
+    assert titulo.puntas is None
+    assert _divergences(caplog) == []
+
+
+def test_titulo_cantidad_operaciones_entera_se_ensancha_sin_registro(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-04 en el sentido inverso al de ``Cotizacion``.
+
+    Acá el campo es decimal y la rama ``float`` del walker **ensancha** un
+    entero del wire en silencio; en ``Cotizacion`` el campo es entero y un
+    decimal sustituye typed-zero y reporta. Las dos siguen la evidencia de su
+    propia captura, no una convención.
+    """
+    with caplog.at_level(logging.DEBUG, logger="iol_client"):
+        titulo = Titulo.from_api({**_TITULO_ROW, "cantidadOperaciones": 7})
+
+    assert titulo.cantidadOperaciones == 7.0
+    assert isinstance(titulo.cantidadOperaciones, float)
+    assert _divergences(caplog) == []
+
+
+def test_round_trip_reproduce_el_schema_committeado_de_instrumentos_por_tipo() -> None:
+    titulo = Titulo.from_api(_TITULO_ROW)
+    assert schema_of(titulo.to_dict()) == _committed_schema("get-instruments-by-type")["titulos"][0]
