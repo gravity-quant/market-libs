@@ -5,8 +5,8 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: verifying
-stopped_at: Completed 30-04-PLAN.md
-last_updated: "2026-08-20T03:43:26.367Z"
+stopped_at: "Phase 30 executed 4/4 plans; verifier gaps_found (2 gaps: DRIFT-01 probe blindness, envelope guard)"
+last_updated: "2026-08-20T04:05:08.472Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 30 execution started
 progress:
@@ -307,9 +307,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-20T03:43:08.466Z
-Stopped at: Completed 30-04-PLAN.md
-Resume file: None
+Last session: 2026-08-20T04:05:08.464Z
+Stopped at: Phase 30 executed 4/4 plans; verifier gaps_found (2 gaps: DRIFT-01 probe blindness, envelope guard)
+Resume file: .planning/phases/30-iol-client-tipado/30-VERIFICATION.md
 
 ## Operator Next Steps
 
