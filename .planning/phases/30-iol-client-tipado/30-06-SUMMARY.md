@@ -274,6 +274,22 @@ Ninguno. No hay valores hardcodeados, placeholders ni componentes sin fuente de 
 
 Ninguno — no se requiere configuración de servicios externos. Todos los tests de este plan corren sin credenciales y sin red.
 
+## Self-Check: PASSED
+
+Archivos declarados creados/modificados, verificados en disco:
+
+- `verification/test_main_iol_raw_wire_drift.py` — FOUND (13 535 bytes)
+- `main_iol.py` — FOUND, modificado en `f0db7b9` y `a5ab7d4`
+- `.planning/phases/30-iol-client-tipado/30-06-SUMMARY.md` — FOUND
+
+Commits declarados, verificados en `git log`:
+
+- `b5cd36e` — FOUND (`test(30-06): lock raw-wire drift detection...`)
+- `f0db7b9` — FOUND (`fix(30-06): feed the drift probes the raw wire...`)
+- `a5ab7d4` — FOUND (`fix(30-06): retire two guaranteed-false findings...`)
+
+Árbol de trabajo limpio tras el commit del SUMMARY.
+
 ---
 *Phase: 30-iol-client-tipado*
 *Completed: 2026-08-20*
