@@ -82,7 +82,24 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 30-01-PLAN.md — TRACER: `get_quote` tipado end-to-end — `models.py` con `SafeModel`/`Punta`/`Cotizacion` + parser con scope per-response + 4 firmas + fixture RED de typecheck
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 30-02-PLAN.md — Expansión list-shaped: modelo `Titulo` + helper `_parse_list_or_raise` con guard que levanta + 8 firmas de serie histórica e instrumentos-por-tipo
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 30-03-PLAN.md — Modelo `Instrumento` + corrección de los 16 mocks a la forma del schema vivo + últimas 4 firmas (16/16 migradas)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 30-04-PLAN.md — Driver a acceso por atributo + frontera `to_dict()` no-vacua hacia el harness + snapshot de superficie regenerado + README con changelog v0.3.0
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
