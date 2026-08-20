@@ -5,8 +5,8 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: `iol-client` tipado
 status: verifying
-stopped_at: "Completed 29-10-PLAN.md (Phase 29 complete: 10/10 plans)"
-last_updated: "2026-08-19T23:51:18.534Z"
+stopped_at: Phase 30 context gathered (assumptions mode)
+last_updated: "2026-08-20T01:28:42.644Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 29 complete, transitioned to Phase 30
 progress:
@@ -292,9 +292,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-19T22:41:03.216Z
-Stopped at: Completed 29-10-PLAN.md (Phase 29 complete: 10/10 plans)
-Resume file: None
+Last session: 2026-08-20T01:28:42.640Z
+Stopped at: Phase 30 context gathered (assumptions mode)
+Resume file: .planning/phases/30-iol-client-tipado/30-CONTEXT.md
 
 ## Operator Next Steps
 
