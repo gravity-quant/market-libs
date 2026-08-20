@@ -1,6 +1,6 @@
 ---
 phase: 30-iol-client-tipado
-reviewed: 2026-08-20T03:50:27Z
+reviewed: 2026-08-20T19:45:00Z
 depth: standard
 files_reviewed: 22
 files_reviewed_list:
@@ -17,473 +17,497 @@ files_reviewed_list:
   - packages/iol-client/tests/test_decode.py
   - packages/iol-client/tests/test_fixture_reaches_production.py
   - packages/iol-client/tests/test_models.py
-  - packages/iol-client/tests/test_refresh_token_lifecycle.py
   - packages/iol-client/tests/test_refresh_token_lifecycle_async.py
+  - packages/iol-client/tests/test_refresh_token_lifecycle.py
   - packages/iol-client/tests/test_typed_surface_red.py
   - verification/snapshots/iol-client-surface.txt
   - verification/test_logging_no_token_leak.py
+  - verification/test_main_iol_raw_wire_drift.py
   - verification/test_retry_401_reauth.py
   - verification/test_retry_after_cap.py
   - verification/test_sync_async_isolation.py
-  - packages/iol-client/src/iol_client/_decode.py (read-only context; intactness gate)
 findings:
-  critical: 2
-  warning: 8
-  info: 4
-  total: 14
+  critical: 1
+  warning: 10
+  info: 0
+  total: 11
 status: issues_found
 ---
 
-# Phase 30: Code Review Report
+# Phase 30: Code Review Report (RE-REVIEW after gap closure)
 
-**Reviewed:** 2026-08-20T03:50:27Z
+**Reviewed:** 2026-08-20T19:45:00Z
 **Depth:** standard
 **Files Reviewed:** 22
 **Status:** issues_found
 
 ## Summary
 
-The typed surface itself is well built. The 16 signature migrations are complete
-and consistent across the four axes (method/shim × sync/async), the sync↔async
-mirroring is exact, `__version__` correctly stays at `"0.2.0"`, `_decode.py` is
-byte-unchanged, no RESPONSE field gained a `Literal`, `mercado`/`plazo` stay
-`str`, `from_api(payload)` is preserved, no cross-package imports were added, and
-the divergence records are type-not-value (no credential exposure). 237 tests
-pass.
+**Both prior BLOCKERs are genuinely fixed, and the fixes are sound on the paths
+they cover.**
 
-The defects are all at the **boundaries** the phase created, and the two most
-serious ones are in the same place: the seam between the new typed models and the
-verification harness that this whole milestone exists to serve.
+- **CR-01 (prior)** — `probe_field_type_map` and `probe_schema_snapshot` no
+  longer receive `_as_wire(model)`. `_capture_raw_wire()` re-captures the raw
+  body of all four endpoints through the real `_core` builders, and both probes
+  are now pure functions of that dict. The `get_instruments_by_type` baseline is
+  the full envelope (`schema` top-level key is `titulos`), so feeding the raw
+  envelope is like-for-like against the committed corpus — verified. `_as_wire`
+  now has exactly one call site (`probe_parity_sync_async`), as its docstring
+  claims. The three drift classes are detected again; the regression lock in
+  `verification/test_main_iol_raw_wire_drift.py` is well-constructed (fixtures
+  *derived* from the committed baseline rather than transcribed, plus a canary
+  that asserts the projection's blindness so the rationale cannot silently rot).
+- **CR-02 (prior)** — the two shape guards in
+  `parse_get_instruments_by_type_response` are correct, the message carries the
+  type name only, `{}` and `{"titulos": []}` still yield `[]`, and the async test
+  proves the guard reaches `aio` through the shared `_core` parser rather than a
+  duplicated copy. 251 tests pass, ruff and format are clean.
 
-The headline finding is CR-01. The `_as_wire()` adapter added to `main_iol.py`
-normalizes models back to dicts so `schema_of` keeps working — but it normalizes
-them through the model's *declared* shape, which is a constant. The result is
-that the DRIFT-01 snapshot probe, whose entire job is detecting divergence
-between the client and the live API, now detects **zero of the four drift classes
-it detected before this phase**. Verified empirically, not inferred (proof in the
-finding). CLAUDE.md's stated Core Value is "cada divergencia entre el cliente y
-el servicio en vivo debe ser detectada"; after Phase 30 the driver cannot detect
-type drift, added keys, or removed keys on 3 of its 4 endpoints.
+**The re-review found one new BLOCKER in the replacement code.** The fix
+distinguishes "captured" from "not captured" by testing `is None`, but a captured
+JSON `null` body *is* `None` — the exact confusion `_capture_raw_wire`'s own
+docstring says it exists to prevent ("ausente, no `None`, para que aguas abajo no
+se pueda confundir 'no capturado' con 'capturado como null'"). Reproduced: an
+upstream returning `200` + `null` on all four endpoints makes probe 12 emit
+`PASS — 3 endpoints checked (get_quote, get_historical_quotes,
+get_instruments_by_type), no drift` while inspecting none of them, probe 13 emit
+`PASS`, and the run produce **zero findings**. That is the same false-clean
+signal CR-01 existed to remove, narrowed to the null-body case, and the PASS
+detail is now actively false — which is precisely what T-30-06-05 forbids.
 
-CR-02 is a shape-validation gap the phase walked past while explicitly reasoning
-about shape validation two functions above it: `parse_get_instruments_by_type_response`
-iterates an unvalidated `titulos` value and manufactures N all-default `Titulo`
-rows from a string or a dict, and crashes with a bare `AttributeError` on a
-top-level list body.
+Beyond that: probe 13 has no anti-vacuity seeding at all (PASS with zero
+snapshots verified); `_capture_raw_wire` writes an unredacted upstream error body
+into the committed findings artifact while its docstring asserts the opposite;
+the entire CR-01 regression lock is never executed by CI; and `_capture_raw_wire`
+itself — the load-bearing new function — has no direct test.
 
-Beyond that: a proven mypy hole in `_parse_list_or_raise` that undercuts TYP-01's
-static guarantee at exactly one call boundary, several now-dead assertions in the
-driver, silent zeroing of `int`-declared quantity fields, and README changelog
-statements that do not match the code.
+Prior WR-01/WR-03/WR-04/WR-05/WR-07/WR-08 and IN-01/IN-03/IN-04 were re-checked
+and are unchanged; per the re-review scope they are not re-reported. Prior IN-02
+**is** re-reported (WR-10) because this closure escalated it: the stale text now
+describes behavior the same commit removed.
 
 ---
 
 ## Critical Issues
 
-### CR-01: `_as_wire()` renders the DRIFT-01 schema-drift probes structurally blind
+### CR-01: a captured JSON `null` body is indistinguishable from a failed capture — both drift probes report a false PASS
 
-**File:** `main_iol.py:194-223` (definition); `main_iol.py:1132`, `main_iol.py:1169`, `main_iol.py:1333` (call sites)
 **Severity:** BLOCKER
+**File:** `main_iol.py:307-339` (`_capture_raw_wire` contract), `main_iol.py:1169-1173`, `main_iol.py:1225`, `main_iol.py:1280`, `main_iol.py:1356-1360` (probe 12), `main_iol.py:1463-1468` (probe 13)
 
 **Issue:**
-`_as_wire()` projects a model back to a dict via `SafeModel.to_dict()`
-(`dataclasses.asdict`). But by the time a model exists, `_decode.walk_field` has
-already forced every non-optional field to its declared type (`POLICY` has
-`scalar_passthrough=False`) and discarded every undeclared wire key. `schema_of`
-applied to that projection is therefore a **constant function of the model
-declaration**, not a function of the wire.
-
-`probe_schema_snapshot` (`main_iol.py:1333`) compares that constant against the
-committed 2026-06-06 baselines for `get_quote`, `get_historical_quotes` and
-`get_instruments` — 3 of the 4 snapshots. `probe_field_type_map`
-(`main_iol.py:1132`, `1169`) does the same for its assumed-field checks.
-
-Verified against the real committed baseline
-(`.planning/verification/schemas/iol-client/get-quote.json`) with a valid payload
-mutated one field at a time:
-
-```
-                              raw wire detects   model projection detects
-ultimoPrecio  float -> str          True                  False
-laminaMinima  int   -> float        True                  False
-new key "simbolo" added             True                  False
-key "montoOperado" removed          True                  False
-```
-
-Every drift class the probe caught before this phase is now invisible to it. The
-`D-25 no-overwrite-on-drift` machinery in `_write_or_check_schema` is intact but
-can never fire for those three endpoints.
-
-The compensating channel does exist — `_decode._emit` logs a WARNING record per
-divergence — but **`main_iol.py` never consumes it**: the driver imports no
-`logging`, installs no handler, and converts no divergence record into an
-`append_finding` entry. A live run silently reports `schema_snapshot: PASS` while
-the drift records evaporate into `logging.getLogger("iol_client")`'s NullHandler.
-
-**Fix:** feed the snapshot/field-map probes the **raw wire**, and keep the model
-only for the typed-access probes. The raw body is already reachable through the
-same `Client._request` path `probe_field_type_map` uses for the by_type envelope
-(`main_iol.py:1051`):
+`_capture_raw_wire` stores `raw_by_endpoint[func_name] = resp.json()`. When the
+endpoint answers `200` with a JSON `null` body, that stores the Python value
+`None` — the same value every downstream consumer uses as its "capture failed"
+sentinel:
 
 ```python
-def probe_schema_snapshot(client, today, quote, historical, instruments, by_type_envelope):
+# main_iol.py:1169-1173, 1225, 1280 — probe 12
+quote_raw = raw_wire.get("get_quote")
+...
+if quote_raw is not None:          # null body -> branch skipped, no finding
+envelope: Any = raw_wire.get("get_instruments_by_type")
+...
+elif envelope is not None:         # null body -> no finding
+
+# main_iol.py:1463-1468 — probe 13
+payload = raw_wire.get(func_name)
+if payload is None:
+    skipped.append(func_name)      # null body -> silently "skipped"
+    continue
+```
+
+This directly contradicts the contract `_capture_raw_wire` states for itself
+(`main_iol.py:240-243`): *"Un endpoint cuya captura levantó queda **ausente** del
+dict — ausente, no `None`, para que aguas abajo no se pueda confundir 'no
+capturado' con 'capturado como null'."* The producer honors the contract; all
+three consumers throw it away by testing `is None` instead of membership.
+
+Worse, probe 12's anti-vacuity detail line uses a *different* predicate than its
+own checks:
+
+```python
+# main_iol.py:1356-1360
+checked = [name for name in (...) if name in raw_wire]
+```
+
+`in raw_wire` is true for a null-bodied endpoint, so the PASS message names
+endpoints the probe skipped. Reproduced against the real driver:
+
+```
+$ raw = {"get_quote": None, "get_historical_quotes": None,
+         "get_instruments": None, "get_instruments_by_type": None}
+probe 12 -> PASS  '3 endpoints checked (get_quote, get_historical_quotes,
+                   get_instruments_by_type), no drift'
+probe 13 -> PASS  "written=[] matched=[] skipped=['get_quote', ...]"
+findings emitted: 0
+```
+
+`schema_of(None) == "NoneType"`, which differs from every committed baseline, so
+probe 13 *should* have raised four SHAPE drift findings. It raised none. A `200`
++ `null` body is not exotic for this API family (the same value flows into
+`Cotizacion.from_api(None)`, which `_decode.walk_model`'s `non_dict` branch
+handles explicitly), and it is exactly the kind of degenerate upstream response a
+drift harness exists to catch. The plan's stated rule — *"Un probe cuyo insumo
+nunca llegó no atestigua nada"* — is inverted here: the input **did** arrive, and
+the probe attests falsely that it checked it.
+
+**Fix:** make the sentinel unambiguous and use membership everywhere, so `None`
+is a value like any other:
+
+```python
+# main_iol.py — probe 12
+if "get_quote" in raw_wire:
+    quote_raw = raw_wire["get_quote"]
+    if not isinstance(quote_raw, dict):
+        ...  # existing non-dict SHAPE finding now also fires for a null body
+
+if "get_instruments_by_type" in raw_wire:
+    envelope = raw_wire["get_instruments_by_type"]
+    if isinstance(envelope, dict):
+        ...
+    else:
+        ...  # existing "tipo top-level no-dict" finding (drop the `is not None` gate)
+
+checked = [name for name in (...) if name in raw_wire]   # now truthful
+
+# main_iol.py — probe 13
+for func_name, sample_params in targets:
+    if func_name not in raw_wire:
+        skipped.append(func_name)
+        continue
+    payload = raw_wire[func_name]
     ...
-    # Capture the RAW body once per endpoint for snapshotting; the models
-    # returned by the wrappers are for the typed-access probes only.
-    raw = client._request(_core.build_get_quote_request(client._state, _SAMPLE_SYMBOL))
-    if raw.is_error:
-        _raise_for_response(raw)
-    status, detail = _write_or_check_schema(
-        "get_quote", _ENDPOINT_TEMPLATES["get_quote"], sample_params, raw.json(), base_url
-    )
 ```
 
-At minimum — if the extra HTTP calls are unacceptable — the driver MUST attach a
-handler to the `iol_client` logger and convert every `decode divergence` record
-into a `SHAPE` finding, so the detection that moved out of `schema_of` lands
-somewhere observable:
-
-```python
-import logging
-
-class _DivergenceToFinding(logging.Handler):
-    def emit(self, record: logging.LogRecord) -> None:
-        if record.getMessage() != "decode divergence":
-            return
-        append_finding(_PKG, fid=_next_fid(), class_="SHAPE", surface="both",
-                       status="OPEN", title=f"decode divergence en {record.model}",
-                       expected=record.declared_type, actual=record.observed_type,
-                       diff=record.field_path, base_url=_BASE_URL)
-
-logging.getLogger("iol_client").addHandler(_DivergenceToFinding())
-logging.getLogger("iol_client").setLevel(logging.INFO)
-```
-
-Note this is *not* an equivalent replacement for the raw-wire snapshot: a
-**removed** key and a `null` on a non-optional field both surface as `missing`,
-losing the distinction the snapshot preserved. The raw-wire fix is the correct
-one.
-
----
-
-### CR-02: `parse_get_instruments_by_type_response` fabricates rows from an unvalidated `titulos` and leaks `AttributeError`
-
-**File:** `packages/iol-client/src/iol_client/_core.py:427-431`
-**Severity:** BLOCKER
-
-**Issue:**
-Phase 30 changed this parser from `return titulos` (a typed lie, but inert) to
-`return [Titulo.from_api(fila) for fila in titulos]` — it now **iterates** a value
-it never validates. Two distinct failures, both reproduced:
-
-```
-titulos = "GGAL"          -> 4 rows, all fields defaulted:  ['', '', '', '']
-titulos = {"a":1,"b":2}   -> 2 rows (iterates the dict keys)
-body is a top-level list  -> AttributeError: 'list' object has no attribute 'get'
-```
-
-The first two manufacture plausible-looking but entirely synthetic financial rows
-from a corrupted upstream — exactly the "silent degradation masks a changed or
-compromised upstream" failure that `_parse_list_or_raise`'s own docstring
-(`_core.py:355-357`) declares this milestone exists to remove, and that the two
-sibling parsers were hardened against in the same commit.
-
-The third escapes the `IOLClientError` hierarchy entirely. Every caller
-documented to catch `IOLClientError` (`README.md`, the driver's `except
-IOLAPIError` ladders) will miss it. `data: dict[str, Any] = resp.json()` at
-`_core.py:429` is an unchecked annotation, not a check.
-
-There is no test for either case — `test_core.py` covers only the
-missing-key-yields-`[]` path.
-
-**Fix:**
-
-```python
-    resp.read()
-    raise_for_response(resp)
-    raw = resp.json()
-    if not isinstance(raw, dict):
-        raise IOLAPIError(0, f"shape mismatch: expected dict envelope, got {type(raw).__name__}")
-    titulos = raw.get("titulos", [])
-    if not isinstance(titulos, list):
-        raise IOLAPIError(0, f"shape mismatch: 'titulos' expected list, got {type(titulos).__name__}")
-    return [Titulo.from_api(fila) for fila in titulos]
-```
-
-The missing-key-yields-`[]` behavior D-06 deliberately preserves is untouched by
-this: `raw.get("titulos", [])` still returns a list.
+Add the null-body case to `verification/test_main_iol_raw_wire_drift.py` as a
+fourth drift label — `{"get_quote": None}` must produce a SHAPE finding from both
+probes, and probe 12's PASS detail must never name an endpoint it skipped.
 
 ---
 
 ## Warnings
 
-### WR-01: `_parse_list_or_raise` erases the TYP-01 static guarantee at its own boundary
+### WR-01: `probe_schema_snapshot` reports PASS when zero snapshots were verified
 
-**File:** `packages/iol-client/src/iol_client/_core.py:345` (signature), `383`, `408` (call sites)
+**File:** `main_iol.py:1417-1421` (signature), `main_iol.py:1490-1500`
 
-**Issue:** The helper is typed `(resp, model_cls: type[Any]) -> list[Any]`. The
-callers "narrow" it with an annotated local, but `list[Any]` is assignable to
-*any* `list[T]`, so mypy validates nothing. Confirmed against the repo's own
-strict config:
+**Issue:** T-30-06-05's anti-vacuity seeding was applied to probe 12
+(`finding_fids: list[str] = list(capture_fids)`, `main_iol.py:1168`) but not to
+probe 13, which never receives `capture_fids`. With every capture failed
+(`raw_wire == {}`) the probe returns:
 
-```python
-result: list[Titulo] = _core._parse_list_or_raise(resp, dict)   # mypy --strict: Success
+```
+ProbeResult(name='schema_snapshot', status='PASS',
+            detail="written=[] matched=[] skipped=['get_quote', 'get_historical_quotes',
+                    'get_instruments', 'get_instruments_by_type']")
 ```
 
-The phase's deliverable is mypy-verified attribute access; here the model class
-and the declared return type are decoupled with no checking, and the two
-docstrings calling the annotated local "load-bearing" (`_core.py:381`, `406`)
-describe a guarantee that does not exist. A future parser wired to the wrong model
-class ships green.
+Verified by direct invocation. The same reasoning the plan applied to probe 12
+applies verbatim here: a snapshot probe that compared nothing must not report
+PASS. In combination with CR-01 the two probes produce a completely clean run
+against a completely uninformative capture.
 
-**Fix:** PEP 695 generics (already used in this codebase — `_decode._response_parser`
-is declared `[**P, R]`):
+**Fix:** thread `capture_fids` into probe 13 and seed `finding_fids` with it, or
+at minimum return `SKIPPED` when `written` and `matched` are both empty:
 
 ```python
-@_decode._response_parser
-def _parse_list_or_raise[T: SafeModel](resp: httpx.Response, model_cls: type[T]) -> list[T]:
+def probe_schema_snapshot(client, today, raw_wire, capture_fids) -> ProbeResult:
     ...
-    return [model_cls.from_api(item) for item in raw]
+    finding_fids: list[str] = list(capture_fids)
+    ...
+    if not written and not matched:
+        return ProbeResult("schema_snapshot", "SKIPPED", f"sin captura: {skipped!r}")
 ```
 
-Then drop the annotated locals — `return _parse_list_or_raise(resp, Cotizacion)`
-typechecks directly, and the wrong-class call above becomes an error.
+### WR-02: `_capture_raw_wire` writes the unredacted upstream error body into the committed findings artifact
 
----
+**File:** `main_iol.py:324-337`
 
-### WR-02: the `get_quote` / `get_historical_quotes` field-type assertions are now unreachable, and one guarantees a permanent false finding
-
-**File:** `main_iol.py:119-126` (assumptions), `main_iol.py:1129-1201` (checks)
-
-**Issue:** Same root cause as CR-01, but a distinct symptom worth its own fix.
-Because `observed` is derived from `quote.to_dict()`:
-
-- The `observed[key] != expected_type` branch (`main_iol.py:1150`, `1187`) can
-  never be true. `ultimoPrecio` is declared `float`; the walker guarantees a
-  `float` reaches the attribute. Dead code.
-- The `key not in observed` branch can never be true for a *declared* field.
-- `_ASSUMED_QUOTE_FIELDS` (`main_iol.py:119-122`) contains `"simbolo": "str"`,
-  but `Cotizacion` declares no `simbolo` field and the committed
-  `get-quote.json` baseline has no such key. This branch now fires on **every
-  live run, forever**, emitting a permanent `SHAPE` OPEN finding that no upstream
-  change can ever clear.
-
-**Fix:** run these checks against the raw wire (see CR-01), and delete the
-`"simbolo"` entry — it was never in the corpus:
+**Issue:** The failure handler emits `actual=repr(exc)`. `_raise_for_response`
+constructs `IOLAPIError(resp.status_code, resp.text)`, so the repr embeds the
+**entire** error response body:
 
 ```python
-_ASSUMED_QUOTE_FIELDS: dict[str, str] = {
-    "ultimoPrecio": "float",  # IOL-04: numeric, JSON number
-}
+>>> repr(IOLAPIError(500, '{"cuenta":"123456","detalle":"saldo 1.000.000"}'))
+'IOLAPIError(\'[500] {"cuenta":"123456","detalle":"saldo 1.000.000"}\')'
 ```
 
----
+`verification.findings.append_finding` performs no redaction (only `safe_print`
+does, and only for stdout), so that string lands verbatim in
+`.planning/verification/iol-client-findings.md`, a committed artifact. This
+contradicts three things at once: the function's own docstring
+(`main_iol.py:264-265`, *"el body crudo alimenta `schema_of` y nada más. Ningún
+argumento de `append_finding` recibe un body"*), the project's type-not-value
+rule for reports (`exceptions.py:40-42`, T-29-36: *"tipos y rutas, **jamás** un
+valor del wire — los payloads de IOL llevan identificadores de cuenta"*), and
+CLAUDE.md (*"nunca … exponer credenciales en logs, reportes o tests"*).
 
-### WR-03: `int`-declared quantity fields are silently zeroed by a JSON float
+The rest of the driver uses the same `repr(exc)` pattern, so this is not novel —
+but this is the one call site whose docstring explicitly promises otherwise, and
+it is new code.
 
-**File:** `packages/iol-client/src/iol_client/models.py:145-146` (`Cotizacion.laminaMinima`, `.lote`), `:225-226` (`Titulo.laminaMinima`, `.lote`)
-
-**Issue:** The strict `int` branch of the walker substitutes `policy.missing_int`
-(`0`) when the wire sends a decimal. Reproduced:
+**Fix:** report the type and status only, never the message:
 
 ```python
-Titulo.from_api({"laminaMinima": 100.0, "lote": 50.0})   # -> laminaMinima=0, lote=0
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            append_finding(
+                _PKG, fid=fid, class_="ERROR-MAP", surface="sync", status="OPEN",
+                title=f"captura de wire crudo falló en {func_name}",
+                expected=f"200 OK con el body crudo de {func_name} para schema_of",
+                actual=f"{type(exc).__name__} status_code={status!r}",
+                diff=f"type={type(exc).__name__}",
+                base_url=base_url,
+            )
 ```
 
-`laminaMinima` is a minimum tradeable lot and `lote` a lot size. A consumer
-computing `qty * titulo.laminaMinima` gets `0` — a silent wrong answer in a
-financial path, not a missing one. Many JSON producers emit `100.0` for a whole
-number, so this is not an exotic input.
+### WR-03: dead `is_error` guard in `_capture_raw_wire`, with a factually wrong comment
 
-The models docstring reasons carefully about this asymmetry for
-`cantidadOperaciones` (D-04, `models.py:130-135`, `210-213`) and declares the
-substitution deliberate there. `laminaMinima` and `lote` were not part of that
-analysis and inherited the behaviour by default.
+**File:** `main_iol.py:317-321`
 
-The divergence *is* reported to the `iol_client` logger, so library consumers who
-configure logging can see it — which is why this is a WARNING rather than a
-BLOCKER. It is invisible to the driver (CR-01).
+**Issue:**
 
-**Fix:** either declare these `float` (the same widening `Titulo.cantidadOperaciones`
-already uses, which accepts `100.0` and `100` alike), or record an explicit
-decision in the docstring the way D-04 did for `cantidadOperaciones`, so the
-choice is reviewable rather than inherited.
+```python
+resp = client._request(spec)
+# ``Client._request`` (D-03) devuelve el response crudo sin levantar;
+# replicamos el raise-on-error del shim module-level legacy.
+if resp.is_error:
+    _raise_for_response(resp)
+```
 
----
+`Client._request` (`client.py:485-509`) calls `_raise_for_response(resp)` on
+every response and only catches `IOLAuthError` (to re-auth once, then re-raise).
+Every error status therefore raises *inside* `_request`; a returned response can
+never satisfy `resp.is_error`. The guard is unreachable and the comment asserting
+`_request` "devuelve el response crudo sin levantar" is false. A future reader
+maintaining the capture path will trust the comment over the code.
 
-### WR-04: `parse_get_quote_response` has no shape guard, asymmetric with its two siblings
+**Fix:** delete both the comment and the guard, and note that `_request` already
+raises the typed exception the `except Exception` block below catches. (The
+identical dead guard in the legacy shims `client.py:733-734` / `aio.py:747-748`
+is pre-existing and out of this scope, but shares the root cause.)
 
-**File:** `packages/iol-client/src/iol_client/_core.py:339-341`
+### WR-04: the entire CR-01 regression lock is never executed by CI
 
-**Issue:** `Cotizacion.from_api(resp.json())` accepts any JSON body. A `[]`, a
-`null`, or an error string produces an all-zeros `Cotizacion` with
-`ultimoPrecio == 0.0`, no exception, and (in default mode) nothing the caller can
-branch on — `if quote:` is always true for a dataclass, as the README changelog
-itself warns.
+**File:** `verification/test_main_iol_raw_wire_drift.py:26-30`
 
-In the same commit, `_parse_list_or_raise` gained an explicit `isinstance` guard
-with an ASVS V5 rationale for exactly this failure mode. Applying it to the two
-list parsers but not the single-object one leaves the security argument
-half-implemented. The `non_dict` divergence record fires, but only strict mode
-turns it into an error.
+**Issue:** The CI `test` job runs `pytest packages/${{ matrix.package }}`
+(`.github/workflows/ci.yml:119-123`), so `verification/` is never collected —
+only the root `testpaths` used in a local full-suite run collects it. The seven
+tests that are the *only* automated protection for the BLOCKER just fixed
+therefore cannot go red in CI. Compounding it, `main_iol.py` is outside mypy's
+`files` list (`pyproject.toml:97`, `packages/*/src` only), so the 427 changed
+driver lines are neither typechecked nor CI-tested.
+
+The file's docstring acknowledges the gap and declares it out of plan scope —
+correct as process, but it leaves a fixed BLOCKER guarded by nothing a merge gate
+can observe. That deserves to be recorded as a risk rather than absorbed as a
+note.
+
+**Fix:** add a cross-package CI step alongside the existing cross-package
+lint-logging job (`ci.yml:42-52`, already documented as *"Cross-package por
+naturaleza: NO va al job `test`"*):
+
+```yaml
+      - name: harness tests (verification/, cross-package)
+        run: uv run pytest verification -q
+```
+
+### WR-05: `_capture_raw_wire` — the function the whole fix rests on — has no direct test
+
+**File:** `main_iol.py:237-339`; `verification/test_main_iol_raw_wire_drift.py`
+
+**Issue:** All seven new tests drive `probe_field_type_map` /
+`probe_schema_snapshot` with a **synthetic** `raw_wire` dict. Nothing exercises
+`_capture_raw_wire` itself, so none of its behaviors are locked:
+
+- that it builds specs via `_core.build_*` (the docstring's stated reason the
+  capture cannot mask a builder drift) rather than hardcoded paths;
+- that a failing endpoint leaves the key **absent** rather than `None` — the very
+  contract CR-01 above shows the consumers break;
+- that one endpoint failing does not abort the other three;
+- that an `ERROR-MAP` finding is emitted and its fid returned in `capture_fids`;
+- that the `get_historical_quotes` window matches probe 13's `sample_params`.
+
+A regression that reintroduced `_as_wire` *inside* `_capture_raw_wire` would be
+caught only by test 1 (`..._passes_raw_wire_through_unmodified`), which spies on
+`_write_or_check_schema` and never touches the capture path.
+
+**Fix:** add an `httpx_mock`-driven test on `_capture_raw_wire` covering the
+4-endpoint happy path (asserting the four request URLs match
+`_core.build_*_request(...)` output) and a per-endpoint failure that asserts
+`func_name not in raw_by_endpoint` plus one `ERROR-MAP` fid returned.
+
+### WR-06: `_ASSUMED_INSTRUMENTS_BY_TYPE_ENVELOPE` is dead, and the WR-02 backing invariant covers only one of the two live dicts
+
+**File:** `main_iol.py:136-138`; `verification/test_main_iol_raw_wire_drift.py:296-313`
+
+**Issue:** Two defects in the same block:
+
+1. `_ASSUMED_INSTRUMENTS_BY_TYPE_ENVELOPE = {"titulos": "list"}` is never read
+   (confirmed by grep: the only occurrence is its own definition). Probe 12
+   hardcodes `if "titulos" not in envelope` and the list check instead. A future
+   editor changing the constant will change nothing.
+2. The comment introducing the block (`main_iol.py:120-128`) says *"**toda**
+   entrada de **estos dicts** debe estar sostenida por el baseline committeado"*
+   and points at the offline enforcement test — but
+   `test_assumed_quote_fields_are_all_present_in_committed_baseline` only walks
+   `_ASSUMED_QUOTE_FIELDS`. `_ASSUMED_HISTORICAL_FIELDS` (`fechaHora`,
+   `ultimoPrecio`) is unenforced. It happens to be correct against
+   `get-historical-quotes.json` today, so this is a coverage gap, not a live
+   defect — but it is precisely the gap that let the deleted `"simbolo"` entry
+   survive into production the first time.
+
+**Fix:** delete `_ASSUMED_INSTRUMENTS_BY_TYPE_ENVELOPE` (or read it in probe 12),
+and parametrize the invariant test over both dicts:
+
+```python
+@pytest.mark.parametrize(
+    ("assumed", "baseline_name", "unwrap"),
+    [
+        (main_iol._ASSUMED_QUOTE_FIELDS, "get-quote.json", lambda s: s),
+        (main_iol._ASSUMED_HISTORICAL_FIELDS, "get-historical-quotes.json", lambda s: s[0]),
+    ],
+)
+def test_assumed_fields_are_all_present_in_committed_baseline(assumed, baseline_name, unwrap):
+    ...
+```
+
+### WR-07: `{"titulos": null}` raises while `{}` returns `[]` — undocumented, untested asymmetry in the new guard
+
+**File:** `packages/iol-client/src/iol_client/_core.py:455-459`
+
+**Issue:** `raw.get("titulos", [])` only supplies the default when the key is
+**absent**; an explicit JSON `null` yields `None`, which the new value guard
+rejects. Reproduced:
+
+```
+{"titulos": null}  -> IOLAPIError: [0] shape mismatch: 'titulos' expected list, got NoneType
+{}                 -> []
+{"titulos": []}    -> []
+```
+
+The docstring introduces its enumeration with *"The two behaviors this function
+now distinguishes"* and lists exactly two — missing-key-yields-`[]` and
+wrong-typed-value-raises. There are three, and the third is the one a reader is
+most likely to get wrong, because everywhere else in this package `null` and
+`missing` are deliberately collapsed (`_decode._kind_of(None) == "missing"`). It
+is also the plausible wire encoding of "no instruments of this type", which makes
+it a cardinality signal being treated as a shape defect — the distinction this
+same docstring closes on. No test covers it in either direction.
+
+This is not a regression (the pre-guard code raised a bare `TypeError` on the
+same input), so WARNING rather than BLOCKER — but the behavior must be chosen
+deliberately, stated, and pinned.
+
+**Fix:** decide and encode. If `null` should behave like a missing key:
+
+```python
+    titulos = raw.get("titulos") or []
+```
+(then a `0`/`""`/`False` value degrades too — probably not wanted), or explicitly:
+
+```python
+    titulos = raw.get("titulos", [])
+    if titulos is None:          # explicit null == absent: no rows, same as missing key
+        titulos = []
+    if not isinstance(titulos, list):
+        raise IOLAPIError(0, f"shape mismatch: 'titulos' expected list, got {type(titulos).__name__}")
+```
+
+Either way add the third bullet to the docstring and a test for
+`{"titulos": null}` next to the existing string/dict cases in `test_core.py`.
+
+### WR-08: the reworked snapshot probe reports cardinality as drift
+
+**File:** `main_iol.py:1381` (`_write_or_check_schema`), via `verification/schema.py:38-39`
+
+**Issue:** `schema_of([]) == []` while the committed
+`get-historical-quotes.json` baseline is `[{...20 keys...}]`. Any live run whose
+`get_historical_quotes` window comes back empty — a suspended or delisted symbol,
+an extended holiday, an upstream hiccup — emits `Schema drift en
+get_historical_quotes` with `expected` = the 20-key schema and `actual` = `[]`,
+an OPEN SHAPE finding no upstream change can ever clear. Same for
+`get_instruments` if it ever answers `[]`.
+
+This is the exact noise class the same gap-closure commit retired elsewhere
+(a5ab7d4, WR-02/WR-06: *"ruido que entrena al operador a ignorar el archivo de
+findings"*), and it contradicts the shape-not-cardinality doctrine that
+`_core.py:403` and `main_iol.py:947-952` both state. It is behaviorally
+pre-existing, but the probe was rewritten in this closure without addressing it.
+
+**Fix:** treat an empty top-level list as "no sample" rather than as a schema, in
+`_write_or_check_schema`:
+
+```python
+    actual_schema = schema_of(raw_payload)
+    if actual_schema == [] and committed_schema_is_a_populated_list:
+        return ("PASS", f"{file_path.name} sin muestra (lista vacía) — no comparable")
+```
+
+or record the decision explicitly in the probe docstring so the finding is read
+as expected noise.
+
+### WR-09: README changelog version does not match the shipped version, and omits the CR-02 behavior change
+
+**File:** `packages/iol-client/README.md` (Changelog); `packages/iol-client/src/iol_client/__init__.py:87`; `packages/iol-client/pyproject.toml:3`
+
+**Issue:** Two documentation defects in the artifact consumers read:
+
+1. The changelog heading is `### v0.3.0` and describes the dict→model break as
+   shipped, while both `__version__` and `pyproject.toml` say `"0.2.0"`. The
+   release workflow validates the git tag against `pyproject.toml`, so the
+   version a consumer can actually install is `0.2.0` — the changelog names a
+   release that does not exist. (The prior review recorded `__version__` staying
+   at `0.2.0` as *correct*; whichever side is right, the two must agree.)
+2. The "Cambio de forma en el listado de instrumentos" section documents only
+   `get_instruments` raising. The CR-02 closure added two more raising paths on a
+   **different** public function — `get_instruments_by_type` now raises
+   `IOLAPIError` for a non-dict envelope and for a non-list `titulos`. That is a
+   public behavior change landed in this same release with no changelog entry. A
+   consumer with an `except (KeyError, TypeError)` around that call migrates
+   incorrectly.
+
+**Fix:** reconcile the heading with `pyproject.toml`/`__version__` (bump both to
+`0.3.0`, or retitle the section `### Unreleased`), and add:
+
+> - `get_instruments_by_type` también **levanta** `IOLAPIError` si el cuerpo no
+>   es un dict envelope o si `titulos` no es una lista. Un envelope sin la clave
+>   `titulos`, y `{"titulos": []}`, siguen devolviendo `[]`.
+
+### WR-10: probe 12's envelope finding ships a stale source reference that now describes removed behavior
+
+**File:** `main_iol.py:1187`
+
+**Issue:**
+
+```python
+diff="client.py:254 hace data.get('titulos', []) y devuelve [] silenciosamente",
+```
+
+Two things are wrong, and this string is committed verbatim into every finding
+the branch emits:
+
+- The cited location is wrong — that code lives at `_core.py:455`;
+  `client.py:254` is inside `_ensure_http_client`.
+- Post-CR-02 the described behavior no longer exists for the case that matters.
+  The parser now **raises** on a non-dict envelope and on a non-list `titulos`;
+  only the genuinely-missing-key path still returns `[]`.
+
+This was IN-02 in the prior review and was scoped out, but the same closure that
+was scoped to fix CR-02 made the text describe behavior it removed — an operator
+reading a live finding is pointed at a silent-degradation bug that has been
+fixed. That escalation is why it is re-reported at WARNING.
 
 **Fix:**
 
 ```python
-    resp.read()
-    raise_for_response(resp)
-    raw = resp.json()
-    if not isinstance(raw, dict):
-        raise IOLAPIError(0, f"shape mismatch: expected dict, got {type(raw).__name__}")
-    return Cotizacion.from_api(raw)
+diff="_core.py:455 hace raw.get('titulos', []) y devuelve [] cuando la clave falta",
 ```
 
 ---
 
-### WR-05: README changelog states the `to_dict()` round-trip loss backwards
-
-**File:** `packages/iol-client/README.md` (Changelog v0.3.0, "Escape hatch: `to_dict()`")
-
-**Issue:** The changelog says *"Un valor nulo del wire decodificado a un campo
-opcional […] no sobrevive la ida y vuelta"*. It does survive, exactly: a wire
-`null` on an `Optional` field decodes to `None` and `asdict` keeps the key with
-value `None` — which `models.py:85-86` correctly documents as *"``None`` keys are
-**kept**"*. The two documents contradict each other.
-
-The genuinely lossy case is the opposite one: a `null` (or a wrong-typed value)
-on a **non-optional** field, which becomes `""` / `0` / `0.0` and is
-indistinguishable from a real zero after the round-trip. A consumer migrating via
-`to_dict()` will guard the case that is safe and miss the case that is not.
-
-Two further omissions in the same section:
-- `get_historical_quotes` also gained the raise-on-non-list behaviour, but only
-  `get_instruments` is listed under "Cambio de forma".
-- `IOLDecodeError` becomes reachable from these four functions for the first time
-  under `strict_decode=True` (Phase 29 shipped it with no models to decode). Not
-  mentioned.
-
-**Fix:** rewrite the lossy-case sentence to name non-optional fields, add
-`get_historical_quotes` to the shape-change list, and add a line on
-`IOLDecodeError` under `strict_decode`.
-
----
-
-### WR-06: an empty instrument-type listing is reported as a shape defect
-
-**File:** `main_iol.py:829-830` (predicate), `main_iol.py:840-842` (finding text)
-
-**Issue:** `if not (isinstance(titulos, list) and titulos and isinstance(titulos[0], Titulo))`
-treats an **empty** list as a bad shape. `cauciones` or `letras` returning `[]`
-outside market hours — a legitimate response the sibling parser's own docstring
-calls valid ("the guard discriminates shape, not cardinality",
-`_core.py:402-403`) — emits a spurious `SHAPE` OPEN finding.
-
-The finding text was not migrated with the predicate: `expected="cada
-InstrumentType retorna list[dict] no vacía"` and `diff="shape !=list[dict] …"`
-still describe the pre-Phase-30 dict world.
-
-**Fix:**
-
-```python
-        if not isinstance(titulos, list) or (titulos and not isinstance(titulos[0], Titulo)):
-            bad_types.append(f"{itype}: shape={type(titulos).__name__}")
-```
-
-and update `expected=` / `diff=` to `list[Titulo]`.
-
----
-
-### WR-07: `probe_parity_sync_async` retains only a fraction of its discriminating power
-
-**File:** `main_iol.py:980-981`
-
-**Issue:** The `_as_wire` docstring is right that comparing two model instances
-directly would collapse to `"Cotizacion" == "Cotizacion"` — but the projection it
-substitutes only partially recovers the check. Both sides are `to_dict()` of the
-*same* class, so the key set is identical by construction and the leaf type names
-are identical for every non-optional field. The comparison can now only differ on
-(a) `Optional` fields where one surface saw `null` and the other did not, and (b)
-list cardinality (`[]` vs populated). A sync/async divergence in field presence or
-scalar type — the drift classes IOL-06 targets — is undetectable.
-
-**Fix:** compare the raw wire on both surfaces (same remedy as CR-01), or
-document explicitly in the probe docstring which drift classes it can and cannot
-still detect, so a future `PASS` is not read as stronger evidence than it is.
-
----
-
-### WR-08: `Client._request` binds a `DecodeScope` that is never retired when no parser runs
-
-**File:** `packages/iol-client/src/iol_client/client.py:460-461`; `packages/iol-client/src/iol_client/aio.py:462-463`
-
-**Issue:** `open_request_scope()` binds a scope on every `_request`, but only a
-`@_response_parser`-decorated frame retires it (`_decode._response_scope`
-`finally`). Raw `_request` callers — the legacy module-level shims
-(`client.py:732`, `aio.py:746`) and `main_iol.py:1051` — leave a live,
-non-retired scope bound to the context.
-
-Any subsequent standalone `Model.from_api()` on that thread then adopts that
-stale scope through `current_sink()` and inherits its dedupe set, which is the
-exact "second identical decode reads silently clean" failure lock 6 was written to
-prevent. Public standalone `from_api` is a supported entry point (DT-05).
-
-Not reachable in the current driver ordering (the next `_request` re-binds before
-any decode), which is why this is a WARNING and not a BLOCKER — but it is
-reachable from library code that mixes a raw `_request` with a standalone
-`from_api`.
-
-**Fix:** have the raw-`_request` shims retire the scope they bound, e.g. wrap the
-shim body in `_decode._response_scope()`, or retire in `Client._request` when it
-returns a response no decorated parser will consume.
-
----
-
-## Info
-
-### IN-01: `SafeModel.from_api` / `to_dict` raise a bare `TypeError` on the exported base class
-
-**File:** `packages/iol-client/src/iol_client/models.py:72-78`, `80-94`
-
-`SafeModel` is in `__init__.__all__` and in the surface snapshot, but it is not a
-dataclass. `SafeModel.from_api({})` raises `TypeError: fields() should be called
-on dataclass instances` from deep inside `_decode`, and `to_dict()` on a
-hypothetical base instance raises similarly from `dataclasses.asdict`. Consider
-`raise NotImplementedError` guards, or drop `SafeModel` from `__all__` if it is
-only meant as an isinstance target.
-
-### IN-02: stale source reference in a live finding's `diff` text
-
-**File:** `main_iol.py:1091`
-
-`diff="client.py:254 hace data.get('titulos', []) y devuelve [] silenciosamente"`
-— that code now lives at `_core.py:430`, and `client.py:254` is inside
-`_ensure_http_client`. The reference is committed into every finding this branch
-emits. Update to `_core.py:430`.
-
-### IN-03: `to_dict()` is new public API but is invisible to the surface-snapshot guard
-
-**File:** `verification/snapshots/iol-client-surface.txt:11,18-21`
-
-The snapshot records constructor signatures only (`SafeModel : class : ()`), so
-`to_dict()` — a documented migration path in the README changelog — can be
-renamed or have its signature changed without the snapshot going red. Worth
-extending `regen_snapshots.py` to record public methods on exported model classes,
-or at least documenting the gap.
-
-### IN-04: the frozen `_decode.py` copy still carries higyrus provenance comments
-
-**File:** `packages/iol-client/src/iol_client/_decode.py:138-140`, `243-244`
-
-`POLICY`'s comment reads *"higyrus-client row of 29-SEMANTICS-MATRIX.md"* and the
-`SILENT_SINK` comment reads *"higyrus has no ``empty()`` today"*, in the iol copy.
-Correct per the byte-identical intactness gate, and out of scope to change this
-phase — but `models.py:32-53` re-ratifies this exact constant for iol without
-noting that the constant's own inline comment names a different paquete. A reader
-verifying the ratification lands on a contradiction. Worth a forward note in the
-intactness-gate documentation.
-
----
-
-_Reviewed: 2026-08-20T03:50:27Z_
+_Reviewed: 2026-08-20T19:45:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
