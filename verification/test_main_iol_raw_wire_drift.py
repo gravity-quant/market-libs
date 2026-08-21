@@ -28,6 +28,16 @@ raíz), así que ``uv run pytest verification -q`` colecta este archivo
 localmente, pero el job ``test`` del CI corre **por paquete** y no lo colecta.
 Es una propiedad pre-existente de todos los ``verification/test_main_*.py`` y no
 es de este plan cambiarla: el gate es local / suite completa, no CI.
+
+Sección 8 — CR-01 (mitad post-cierre): un cuerpo capturado como ``null`` es un
+insumo que **sí llegó**, no una captura que falló. ``_capture_raw_wire`` declara
+y honra el contrato de dejar **ausente** del dict al endpoint cuya captura
+levantó; los consumidores descartaban esa distinción preguntando por el valor en
+vez de preguntarle al dict si tiene la clave. Estos casos la fijan en ambas
+direcciones: la pertenencia de la clave es a la vez lo que gatea cada chequeo y
+lo que construye el detalle del PASS, de modo que un endpoint nombrado como
+chequeado es siempre uno cuyo cuerpo se inspeccionó de verdad, y una captura
+genuinamente ausente sigue ruteando a skip en vez de a finding.
 """
 
 from __future__ import annotations
@@ -49,8 +59,27 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = (
     _REPO_ROOT / ".planning" / "verification" / "schemas" / "iol-client" / "get-quote.json"
 )
+_BASELINE_DIR = _BASELINE_PATH.parent
 _BASE_URL = "https://api.test"
 _TODAY = dt.date(2026, 6, 8)
+
+# Los cuatro baselines committeados, por nombre de función del driver. Sembrar
+# los cuatro es load-bearing para la sección 8 (ver ``tmp_schema_all``).
+_SCHEMA_BASELINE_NAMES: dict[str, str] = {
+    "get_quote": "get-quote.json",
+    "get_historical_quotes": "get-historical-quotes.json",
+    "get_instruments": "get-instruments.json",
+    "get_instruments_by_type": "get-instruments-by-type.json",
+}
+
+# Los tres endpoints que ``probe_field_type_map`` field-mapea. ``get_instruments``
+# no está: el probe 12 no lo examina en ninguna línea (no tiene ``_ASSUMED_*``);
+# su cobertura de drift la aporta el baseline del probe 13.
+_FIELD_MAPPED_ENDPOINTS = (
+    "get_quote",
+    "get_historical_quotes",
+    "get_instruments_by_type",
+)
 
 # Valor representativo por nombre de tipo declarado en el baseline. Deliberadamente
 # NO tiene default: un nombre de tipo desconocido levanta ``KeyError`` en vez de
@@ -112,6 +141,19 @@ def _mutated(label: str) -> dict[str, Any]:
     return body
 
 
+def _null_wire() -> dict[str, Any]:
+    """Los cuatro endpoints capturados, cada uno con cuerpo JSON nulo.
+
+    Deliberadamente NO es una etiqueta más de ``_DRIFT_LABELS`` ni una rama de
+    ``_mutated``: aquél helper aplica una mutación **sobre un dict** y está
+    anotado como tal. Un cuerpo nulo no es la mutación de un dict, es el
+    reemplazo del cuerpo entero, y plegarlo ahí arrastraría el caso al canario de
+    la sección 7, cuyo sujeto son las tres mutaciones ciegas a la proyección.
+    """
+    wire: dict[str, Any] = {name: None for name in _SCHEMA_BASELINE_NAMES}
+    return wire
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -167,6 +209,32 @@ def tmp_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(main_iol, "_SCHEMA_DIR", dest_dir)
     monkeypatch.setattr(main_iol, "_SCHEMA_FILES", {"get_quote": target})
     return target
+
+
+@pytest.fixture
+def tmp_schema_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
+    """Copia los CUATRO baselines committeados a ``tmp_path`` y apunta el driver ahí.
+
+    Sembrar los cuatro es load-bearing, no prolijidad. ``_write_or_check_schema``
+    toma su rama de **escritura** cuando el archivo de baseline no existe:
+    registra la forma observada como nueva verdad de referencia y devuelve PASS.
+    Con un baseline faltante, un caso de cuerpo nulo pasaría por la razón
+    equivocada y además dejaría escrito en tmp un baseline envenenado
+    (``"schema": "NoneType"``) — el riesgo T-30-07-03, contenido acá.
+
+    Devuelve el mapeo ``func_name -> copia`` para que los tests puedan asertar
+    que las copias quedaron byte-idénticas (D-25: el drift jamás sobreescribe).
+    """
+    dest_dir = tmp_path / "schemas-all"
+    dest_dir.mkdir()
+    mapping: dict[str, Path] = {}
+    for func_name, file_name in _SCHEMA_BASELINE_NAMES.items():
+        target = dest_dir / file_name
+        target.write_bytes((_BASELINE_DIR / file_name).read_bytes())
+        mapping[func_name] = target
+    monkeypatch.setattr(main_iol, "_SCHEMA_DIR", dest_dir)
+    monkeypatch.setattr(main_iol, "_SCHEMA_FILES", mapping)
+    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -335,3 +403,147 @@ def test_model_projection_is_blind_to_all_three_drift_classes() -> None:
             f"{label}: la proyección del modelo YA distingue esta mutación — "
             "revisar el fundamento de CR-01"
         )
+
+
+# ---------------------------------------------------------------------------
+# 8. Cuerpo nulo capturado: un insumo que llegó, no una captura que falló
+# ---------------------------------------------------------------------------
+
+
+def test_probe_field_type_map_treats_captured_null_body_as_shape_defect(
+    client: Client,
+    recorded: list[dict[str, Any]],
+) -> None:
+    """Los cuatro endpoints con cuerpo nulo producen FINDING, jamás PASS.
+
+    ``capture_fids`` va vacío a propósito: la siembra anti-vacuidad garantizaría
+    FINDING por sí sola y enmascararía qué es lo que este caso prueba.
+
+    Son **tres** findings, no cuatro: el probe 12 field-mapea exactamente
+    ``get_quote``, ``get_historical_quotes`` y ``get_instruments_by_type``.
+    ``get_instruments`` no aparece en ninguna de sus líneas — su cobertura de
+    drift la aporta la comparación contra baseline del probe 13.
+    """
+    result = main_iol.probe_field_type_map(client, _null_wire(), [])
+
+    assert result.status == "FINDING", repr(result)
+    shape = [call for call in recorded if call["class_"] == "SHAPE"]
+    assert len(shape) == 3, f"esperados 3 findings SHAPE; recorded={recorded!r}"
+    for name in _FIELD_MAPPED_ENDPOINTS:
+        assert any(name in call["title"] for call in shape), (
+            f"ningún finding SHAPE nombra {name}; recorded={recorded!r}"
+        )
+    assert any("NoneType" in call["actual"] for call in shape), (
+        f"ningún finding reporta el tipo observado NoneType — el cuerpo nulo se "
+        f"salteó en vez de inspeccionarse; recorded={recorded!r}"
+    )
+
+
+def test_probe_schema_snapshot_treats_captured_null_body_as_shape_defect(
+    client: Client,
+    tmp_schema_all: dict[str, Path],
+    recorded: list[dict[str, Any]],
+) -> None:
+    """``schema_of`` de un cuerpo nulo difiere de los cuatro baselines committeados."""
+    before = {name: path.read_bytes() for name, path in tmp_schema_all.items()}
+
+    result = main_iol.probe_schema_snapshot(client, _TODAY, _null_wire())
+
+    assert result.status == "FINDING", repr(result)
+    shape = [call for call in recorded if call["class_"] == "SHAPE"]
+    assert len(shape) == 4, f"esperados 4 findings SHAPE; recorded={recorded!r}"
+    # Igualdad exacta de títulos, nunca substring: ``Schema drift en
+    # get_instruments`` es prefijo de ``Schema drift en get_instruments_by_type``
+    # y un chequeo por pertenencia daría verde con tres findings.
+    assert {call["title"] for call in shape} == {
+        f"Schema drift en {name}" for name in tmp_schema_all
+    }, f"títulos={sorted(call['title'] for call in shape)!r}"
+    for name, path in tmp_schema_all.items():
+        assert path.read_bytes() == before[name], f"D-25 violado — baseline {name} sobreescrito"
+
+
+def test_a_single_null_bodied_endpoint_is_enough_for_both_probes(
+    client: Client,
+    tmp_schema: Path,
+    recorded: list[dict[str, Any]],
+) -> None:
+    """La reproducción mínima de 30-REVIEW.md: un solo endpoint con cuerpo nulo."""
+    single: dict[str, Any] = {"get_quote": None}
+
+    field_map = main_iol.probe_field_type_map(client, single, [])
+    assert field_map.status == "FINDING", repr(field_map)
+    assert [call for call in recorded if call["class_"] == "SHAPE"], (
+        f"probe 12 no emitió SHAPE sobre un cuerpo nulo; recorded={recorded!r}"
+    )
+
+    recorded.clear()
+    snapshot = main_iol.probe_schema_snapshot(client, _TODAY, single)
+    assert snapshot.status == "FINDING", repr(snapshot)
+    assert [call for call in recorded if call["class_"] == "SHAPE"], (
+        f"probe 13 no emitió SHAPE sobre un cuerpo nulo; recorded={recorded!r}"
+    )
+    assert tmp_schema.read_bytes(), "el baseline copiado debe seguir existiendo"
+
+
+def test_absent_capture_is_still_distinguishable_from_a_null_body(
+    client: Client,
+    tmp_schema_all: dict[str, Path],
+    recorded: list[dict[str, Any]],
+) -> None:
+    """La otra dirección: una captura genuinamente ausente sigue ruteando a skip.
+
+    Invariante permanente, no un caso RED: pasa tanto antes como después del fix.
+    Existe para que el fix no pueda satisfacerse convirtiendo todo skip en
+    finding — ausencia y cuerpo nulo deben quedar distinguibles en ambos
+    sentidos.
+    """
+    field_map = main_iol.probe_field_type_map(client, {}, [])
+    assert field_map.status == "PASS", repr(field_map)
+    assert field_map.detail == "0 endpoints checked (ninguno), no drift"
+
+    snapshot = main_iol.probe_schema_snapshot(client, _TODAY, {})
+    assert snapshot.status == "PASS", repr(snapshot)
+    for name in tmp_schema_all:
+        assert name in snapshot.detail, f"{name} no figura como skipped: {snapshot.detail}"
+
+    assert recorded == [], f"la ausencia no debe emitir findings; recorded={recorded!r}"
+
+
+@pytest.mark.parametrize(
+    "raw_wire",
+    [
+        pytest.param({}, id="vacio"),
+        pytest.param({"get_quote": _clean_body()}, id="solo_get_quote"),
+        # Una serie histórica vacía SÍ se nombra como chequeada, y está bien: su
+        # forma top-level se validó y no tiene filas que field-mapear, lo que el
+        # comentario del propio probe clasifica como cardinalidad, no como forma.
+        pytest.param(
+            {"get_quote": _clean_body(), "get_historical_quotes": []},
+            id="quote_mas_serie_vacia",
+        ),
+        # ``get_instruments`` llega capturado pero el probe 12 no lo field-mapea:
+        # no debe aparecer nombrado en el detalle.
+        pytest.param({"get_instruments": _clean_body()}, id="endpoint_no_field_mapeado"),
+    ],
+)
+def test_probe_field_type_map_pass_detail_never_names_an_uncaptured_endpoint(
+    raw_wire: dict[str, Any],
+    client: Client,
+    recorded: list[dict[str, Any]],
+) -> None:
+    """Todo endpoint nombrado en un detalle de PASS es una clave de ``raw_wire``.
+
+    Post-fix esto es verdadero por construcción: la pertenencia de la clave es
+    simultáneamente el gate de cada chequeo y el predicado que arma la lista
+    ``checked``. El caso patológico que este invariante prohíbe es el medido
+    contra el código pre-fix — un PASS nombrando tres endpoints sin haber
+    inspeccionado ninguno.
+    """
+    result = main_iol.probe_field_type_map(client, raw_wire, [])
+
+    assert result.status == "PASS", f"{result!r}; recorded={recorded!r}"
+    named = [name for name in _FIELD_MAPPED_ENDPOINTS if name in result.detail]
+    assert all(name in raw_wire for name in named), (
+        f"el detalle nombra endpoints ausentes de raw_wire: "
+        f"named={named!r} keys={sorted(raw_wire)!r} detail={result.detail!r}"
+    )
