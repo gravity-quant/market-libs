@@ -1168,8 +1168,15 @@ def probe_field_type_map(
     finding_fids: list[str] = list(capture_fids)
     quote_raw = raw_wire.get("get_quote")
     historical_raw = raw_wire.get("get_historical_quotes")
-    # Ausente = la captura falló y ``_capture_raw_wire`` ya emitió su ERROR-MAP,
-    # cuyo fid ya está en ``finding_fids``: no se re-reporta acá.
+    # CR-01 (mitad post-cierre): lo que decide cada chequeo de acá abajo es la
+    # **pertenencia de la clave**, nunca el valor. Una clave ausente significa que
+    # la captura levantó y que ``_capture_raw_wire`` ya emitió su ERROR-MAP, cuyo
+    # fid ya está en ``finding_fids``: no se re-reporta acá. Una clave presente
+    # significa que el endpoint contestó, y entonces su cuerpo —cualquiera sea, un
+    # nulo JSON incluido— es un insumo que llegó: si su forma cae fuera del
+    # contrato, es un defecto que se reporta, jamás un skip silencioso. Es también
+    # el mismo predicado que arma la lista ``checked`` del detalle del PASS, de
+    # modo que ese detalle es veraz por construcción y no por coincidencia.
     envelope: Any = raw_wire.get("get_instruments_by_type")
 
     if isinstance(envelope, dict):
@@ -1205,7 +1212,7 @@ def probe_field_type_map(
                     base_url=base_url,
                 )
                 finding_fids.append(fid)
-    elif envelope is not None:
+    elif "get_instruments_by_type" in raw_wire:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1222,7 +1229,7 @@ def probe_field_type_map(
         finding_fids.append(fid)
 
     # --- get_quote field→type map (D-IOL-14/15) ---
-    if quote_raw is not None:
+    if "get_quote" in raw_wire:
         if not isinstance(quote_raw, dict):
             # Un tipo top-level inesperado ES un defecto de forma, no un skip.
             fid = _next_fid()
@@ -1277,7 +1284,7 @@ def probe_field_type_map(
                     finding_fids.append(fid)
 
     # --- get_historical_quotes field→type map (sobre el primer row) ---
-    if historical_raw is not None:
+    if "get_historical_quotes" in raw_wire:
         if not isinstance(historical_raw, list):
             fid = _next_fid()
             append_finding(
@@ -1460,12 +1467,17 @@ def probe_schema_snapshot(
     matched: list[str] = []
     skipped: list[str] = []
     for func_name, sample_params in targets:
-        payload = raw_wire.get(func_name)
-        if payload is None:
-            # Ausente del dict = la captura falló; ``_capture_raw_wire`` ya
-            # emitió su ERROR-MAP y el probe 12 lo convierte en FINDING.
+        if func_name not in raw_wire:
+            # CR-01 (mitad post-cierre): decide la pertenencia de la clave, nunca
+            # el valor. Ausente del dict = la captura levantó; ``_capture_raw_wire``
+            # ya emitió su ERROR-MAP y el probe 12 lo convierte en FINDING.
             skipped.append(func_name)
             continue
+        # Clave presente = el endpoint contestó y su cuerpo llegó. Se compara
+        # contra el baseline tal cual, incluso si es un nulo JSON: la forma de un
+        # nulo difiere de la de todo baseline committeado, y reportar esa
+        # diferencia es exactamente para lo que este probe existe.
+        payload = raw_wire[func_name]
         status, detail = _write_or_check_schema(
             func_name,
             _ENDPOINT_TEMPLATES[func_name],
