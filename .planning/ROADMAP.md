@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 7 plans — 6 ejecutados, 30-07 pendiente (30-05/30-06/30-07 son cierre de gaps de verificación: CR-02 y las dos mitades de CR-01)
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -108,7 +108,7 @@ Plans:
 
 **Wave 6 — segundo cierre de CR-01** *(30-VERIFICATION.md re-verificación: 6/7; CR-02 cerrado, CR-01 sustancialmente cerrado pero con un BLOCKER nuevo en el código de reemplazo)*
 
-- [ ] 30-07-PLAN.md — CR-01 (post-cierre): un body capturado como JSON `null` deja de ser indistinguible de una captura fallida — los probes 12/13 gatean por membresía en `raw_wire` en vez de por el centinela nulo, más el caso de regresión que el lock de 30-06 no cubría
+- [x] 30-07-PLAN.md — CR-01 (post-cierre): un body capturado como JSON `null` deja de ser indistinguible de una captura fallida — los probes 12/13 gatean por membresía en `raw_wire` en vez de por el centinela nulo, más el caso de regresión que el lock de 30-06 no cubría
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
@@ -201,7 +201,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 4/4 | In Progress|  |
+| 30. `iol-client` tipado                                     | v1.6      | 7/7 | Complete   | 2026-08-21 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |

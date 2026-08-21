@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.6
-milestone_name: Tipado homogéneo de la superficie pública (Phases 29-34) — IN PROGRESS
+milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
 stopped_at: "Phase 30 executed 4/4 plans; verifier gaps_found (2 gaps: DRIFT-01 probe blindness, envelope guard)"
-last_updated: "2026-08-20T21:34:44.836Z"
-last_activity: 2026-08-20
-last_activity_desc: Phase 30 execution started
+last_updated: "2026-08-21T14:13:49.125Z"
+last_activity: 2026-08-21
+last_activity_desc: Phase 30 execution resumed (wave continue)
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 16
-  completed_plans: 14
+  total_plans: 17
+  completed_plans: 16
   percent: 17
 ---
 
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 Phase: 30 (iol-client-tipado) — EXECUTING
 Plan: 1 of 6
 Status: Executing Phase 30
-Last activity: 2026-08-20 — Phase 30 execution started
+Last activity: 2026-08-21 — Phase 30 execution resumed (wave continue)
 
 ## Performance Metrics
 
