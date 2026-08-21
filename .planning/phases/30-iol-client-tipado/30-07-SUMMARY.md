@@ -257,6 +257,28 @@ None — no external service configuration required. Every test in this plan is 
 - One carry-forward with a named destination: T-30-07-03 → Phase 33.
 - No blockers introduced. `packages/` and `.planning/verification/schemas/` are byte-unchanged; the iol package suite (242) and mypy (25 source files) are exactly at their pre-plan baselines.
 
+## Self-Check: PASSED
+
+Every claim above re-verified against disk and git after the SUMMARY was written:
+
+- Files exist: `main_iol.py`, `verification/test_main_iol_raw_wire_drift.py`, `.planning/phases/30-iol-client-tipado/30-07-SUMMARY.md` — all FOUND.
+- Commits exist: `2e10561`, `b12c4d4`, `c552e74` — all FOUND on `worktree-agent-ac948c79738af50ad`, and they are the complete set of commits between the worktree base `f33582a` and HEAD.
+- `git status --porcelain` is empty — no uncommitted or untracked residue.
+- `git diff --diff-filter=D --name-only f33582a..HEAD` is empty — no file was deleted by any commit in this plan.
+- No shared orchestrator artifact was modified: `STATE.md` and `ROADMAP.md` are absent from the diff (worktree mode; the orchestrator owns those writes post-merge).
+
+## Known Stubs
+
+None. This plan introduced no placeholder value, no hardcoded empty collection feeding a consumer, and no TODO/FIXME marker. Consistent with `<artifacts_produced>`, it created no new public symbol, module, model, exported function or committed artifact — it changed four predicates and added test cases.
+
+## Threat Flags
+
+None. No file in this diff introduces new network endpoints, auth paths, file-access patterns or schema changes at a trust boundary. The one new code path — a null body flowing into `_write_or_check_schema` and into finding fields — was already enumerated in the plan's threat register as T-30-07-02 and is verified held above (every emitted field carries a type name, never a value).
+
+## TDD Gate Compliance
+
+Both gates present and correctly ordered in git history: `test(30-07)` at `2e10561` (RED, 3 failed / 14 passed against the unmodified driver) precedes `fix(30-07)` at `b12c4d4` (GREEN, 17 passed). No REFACTOR gate was needed — the implementation is four predicate substitutions with nothing to clean up afterward. No test passed unexpectedly during RED.
+
 ---
 *Phase: 30-iol-client-tipado*
 *Completed: 2026-08-21*
