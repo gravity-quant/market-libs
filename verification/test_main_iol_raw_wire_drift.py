@@ -38,16 +38,26 @@ direcciones: la pertenencia de la clave es a la vez lo que gatea cada chequeo y
 lo que construye el detalle del PASS, de modo que un endpoint nombrado como
 chequeado es siempre uno cuyo cuerpo se inspeccionó de verdad, y una captura
 genuinamente ausente sigue ruteando a skip en vez de a finding.
+
+Sección 9 — CR-01 (BLOCKER, 30-VERIFICATION.md 2026-08-21 + 30-REVIEW.md
+CR-01): un finding es un artefacto durable, versionado en git. La excepción que
+llega al handler de captura de ``_capture_raw_wire`` lleva el body de error
+upstream adentro de su propio mensaje, porque ``_core.raise_for_response`` lo
+pone ahí para beneficio del consumidor — no para el reporte. El driver debe
+reportar, por lo tanto, sólo la clase de la excepción y su status code, y
+detenerse ahí.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import json
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import main_iol
 import pytest
 
@@ -99,6 +109,11 @@ _DRIFT_LABELS = (
     "added_key_simbolo",
     "removed_key_montoOperado",
 )
+
+# Sección 9 (CR-01, BLOCKER) — token que no puede aparecer por accidente en
+# ningún texto de finding, así que su presencia es prueba inequívoca de que un
+# body cruzó la frontera hacia el reporte durable.
+_WIRE_BODY_MARKER = "ZZ-MARCADOR-DE-CUERPO-DE-WIRE-ZZ"
 
 
 # ---------------------------------------------------------------------------
@@ -547,3 +562,182 @@ def test_probe_field_type_map_pass_detail_never_names_an_uncaptured_endpoint(
         f"el detalle nombra endpoints ausentes de raw_wire: "
         f"named={named!r} keys={sorted(raw_wire)!r} detail={result.detail!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 9. CR-01 (BLOCKER) — un capture failure jamás filtra el body upstream
+# ---------------------------------------------------------------------------
+#
+# Los cuatro nombres de endpoint field-mapeados por ``_capture_raw_wire``, en
+# el mismo orden spec (D-IOL-5) en que la función emite sus HTTP calls.
+_CAPTURE_ENDPOINT_NAMES = (
+    "get_quote",
+    "get_historical_quotes",
+    "get_instruments",
+    "get_instruments_by_type",
+)
+
+
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> Client:
+    """Construye un ``Client`` sobre un ``httpx.MockTransport``, token pre-sembrado.
+
+    ``token=`` + ``token_expires_at=`` en el futuro hacen que
+    ``_core.token_is_fresh`` devuelva ``True``, así que ``_ensure_token`` NUNCA
+    dispara una request de auth: el test queda offline y determinístico, y
+    además ningún valor de credencial llega jamás al transport.
+    ``username``/``password`` son dummy y nunca se leen porque el token ya
+    está fresco. El ``Client`` es un context manager: al cerrarse cierra
+    también el ``httpx.Client`` inyectado, porque ambos comparten el mismo
+    objeto vía ``self._state.http_client``.
+    """
+    inner = httpx.Client(transport=httpx.MockTransport(handler), base_url=_BASE_URL)
+    return Client(
+        base_url=_BASE_URL,
+        username="u",
+        password="p",
+        token="tok-de-prueba",
+        token_expires_at=time.time() + 3600,
+        http_client=inner,
+    )
+
+
+def _error_body_with_marker() -> str:
+    """Body de error con forma real de IOL, con el marker en posición de cuenta."""
+    return json.dumps({"cuenta": f"{_WIRE_BODY_MARKER}-cuenta-999999", "detalle": "boom"})
+
+
+def _handler_500_with_marker(request: httpx.Request) -> httpx.Response:
+    del request
+    return httpx.Response(500, text=_error_body_with_marker())
+
+
+def _handler_connect_error(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError(_WIRE_BODY_MARKER, request=request)
+
+
+def _handler_partial_failure(request: httpx.Request) -> httpx.Response:
+    """``get_quote`` responde 200 limpio; los otros tres, 500 con el marker.
+
+    El discriminador es ``endswith("/Cotizacion")`` exacto, no una substring:
+    el path de ``get_quote`` (``.../Titulos/GGAL/Cotizacion``) es un prefijo
+    estricto del path de ``get_historical_quotes``
+    (``.../Cotizacion/seriehistorica/...``), así que una substring test
+    clasificaría mal ese segundo endpoint como éxito.
+    """
+    if request.url.path.endswith("/Cotizacion"):
+        return httpx.Response(200, json=_clean_body())
+    return httpx.Response(500, text=_error_body_with_marker())
+
+
+def _offending_kwargs(recorded: list[dict[str, Any]]) -> list[tuple[int, str]]:
+    """(índice de llamada, nombre de kwarg) para todo par cuyo valor lleve el marker.
+
+    Coerciona cada valor con ``str()`` antes de buscar el marker, para que un
+    kwarg no-string no pueda esconderlo. Compartido por los tests de esta
+    sección para que el mensaje de falla sea uniforme y diagnosticable desde
+    la salida de pytest sola.
+    """
+    return [
+        (i, key)
+        for i, call in enumerate(recorded)
+        for key, value in call.items()
+        if _WIRE_BODY_MARKER in str(value)
+    ]
+
+
+def test_capture_failure_finding_never_carries_the_upstream_response_body(
+    recorded: list[dict[str, Any]],
+) -> None:
+    """Un marker plantado en el body de un 500 no aparece en NINGÚN kwarg registrado.
+
+    Maneja los cuatro endpoints spec y falla si el marker aparece en
+    cualquier lugar de cualquier finding — no sólo en ``actual`` — porque el
+    invariante que CR-01 cierra es sobre el registro completo, no sobre un
+    campo puntual.
+    """
+    with _mock_client(_handler_500_with_marker) as client:
+        raw_by_endpoint, capture_fids = main_iol._capture_raw_wire(client, _TODAY)
+
+    assert raw_by_endpoint == {}
+    assert len(capture_fids) == 4
+    assert len(recorded) == 4
+    assert all(call["class_"] == "ERROR-MAP" for call in recorded), repr(recorded)
+
+    offenders = _offending_kwargs(recorded)
+    assert offenders == [], f"marker filtrado en (índice de llamada, kwarg): {offenders}"
+
+
+def test_capture_failure_finding_reports_only_the_exception_type_and_status_code(
+    recorded: list[dict[str, Any]],
+) -> None:
+    """``actual`` reporta exactamente ``IOLAPIError status_code=500`` — igualdad exacta.
+
+    Una comparación por substring pasaría con un string que además llevara el
+    body; la exactitud es el punto.
+    """
+    with _mock_client(_handler_500_with_marker) as client:
+        main_iol._capture_raw_wire(client, _TODAY)
+
+    assert len(recorded) == 4
+    assert all(call["actual"] == "IOLAPIError status_code=500" for call in recorded), repr(recorded)
+    assert all(call["diff"] == "type=IOLAPIError" for call in recorded), repr(recorded)
+    titles = {call["title"] for call in recorded}
+    assert titles == {
+        f"captura de wire crudo falló en {name}" for name in _CAPTURE_ENDPOINT_NAMES
+    }, f"titles={titles!r}"
+
+
+def test_capture_failure_without_a_status_code_reports_the_type_and_none(
+    recorded: list[dict[str, Any]],
+) -> None:
+    """Una falla de transporte (sin response, sin ``status_code``) reporta ``...=None``.
+
+    Prueba que el fix lee el status code defensivamente en vez de asumir que
+    toda excepción que llega al handler es un ``IOLAPIError``.
+    """
+    with _mock_client(_handler_connect_error) as client:
+        raw_by_endpoint, capture_fids = main_iol._capture_raw_wire(client, _TODAY)
+
+    assert raw_by_endpoint == {}
+    assert len(capture_fids) == 4
+    assert len(recorded) == 4
+    assert all(call["actual"] == "ConnectError status_code=None" for call in recorded), repr(
+        recorded
+    )
+
+    offenders = _offending_kwargs(recorded)
+    assert offenders == [], f"marker filtrado en (índice de llamada, kwarg): {offenders}"
+
+
+def test_capture_failure_leaves_the_endpoint_absent_and_still_returns_its_fid(
+    recorded: list[dict[str, Any]],
+) -> None:
+    """Invariante permanente (verde antes y después del fix).
+
+    Un endpoint fallido queda AUSENTE del dict devuelto, nunca
+    presente-con-null, y el fid list tiene longitud 4 y coincide en orden con
+    los ``fid`` registrados — la siembra anti-vacuidad del probe 12 depende de
+    esto y la redacción no debe perturbarlo.
+    """
+    with _mock_client(_handler_500_with_marker) as client:
+        raw_by_endpoint, capture_fids = main_iol._capture_raw_wire(client, _TODAY)
+
+    assert raw_by_endpoint == {}
+    assert len(capture_fids) == 4
+    assert capture_fids == [call["fid"] for call in recorded]
+
+
+def test_a_partial_capture_failure_redacts_only_the_failed_endpoints(
+    recorded: list[dict[str, Any]],
+) -> None:
+    """Un endpoint exitoso se guarda verbatim; los otros tres se redactan sin excepción."""
+    with _mock_client(_handler_partial_failure) as client:
+        raw_by_endpoint, capture_fids = main_iol._capture_raw_wire(client, _TODAY)
+
+    assert set(raw_by_endpoint) == {"get_quote"}
+    assert raw_by_endpoint["get_quote"] == _clean_body()
+    assert len(capture_fids) == 3
+    assert len(recorded) == 3
+
+    offenders = _offending_kwargs(recorded)
+    assert offenders == [], f"marker filtrado en (índice de llamada, kwarg): {offenders}"
