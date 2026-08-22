@@ -250,3 +250,10 @@ Unchanged, as required — the probe-13 anti-vacuity fix (`capture_fids` threadi
 ---
 *Phase: 30-iol-client-tipado*
 *Completed: 2026-08-22*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/30-iol-client-tipado/30-08-SUMMARY.md`
+- FOUND: `d37ab79` (Task 1 RED commit)
+- FOUND: `5a85822` (Task 2 GREEN commit)
+- FOUND: `fe44747` (Task 3 WR-01/WR-02 + sweep commit)
