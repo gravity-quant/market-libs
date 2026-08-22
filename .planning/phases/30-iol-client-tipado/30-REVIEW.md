@@ -1,6 +1,6 @@
 ---
 phase: 30-iol-client-tipado
-reviewed: 2026-08-21T00:00:00Z
+reviewed: 2026-08-22T00:00:00Z
 depth: standard
 files_reviewed: 2
 files_reviewed_list:
@@ -8,555 +8,384 @@ files_reviewed_list:
   - verification/test_main_iol_raw_wire_drift.py
 findings:
   critical: 1
-  warning: 10
-  info: 0
+  warning: 7
+  info: 3
   total: 11
 status: issues_found
 ---
 
-# Phase 30: Code Review Report (re-review after gap-closure 30-07)
+# Phase 30: Code Review Report (re-review after gap-closure 30-08)
 
-**Reviewed:** 2026-08-21T00:00:00Z
+**Reviewed:** 2026-08-22T00:00:00Z
 **Depth:** standard
 **Files Reviewed:** 2
 **Status:** issues_found
 
 ## Summary
 
-Scope: the current state of `main_iol.py` and
-`verification/test_main_iol_raw_wire_drift.py`, with emphasis on the 30-07 change
-that replaced the `is None` / `payload is None` sentinels in `probe_field_type_map`
-and `probe_schema_snapshot` with `key in raw_wire` / `key not in raw_wire`
-membership tests.
+Scope: `main_iol.py` and `verification/test_main_iol_raw_wire_drift.py` at HEAD
+(`912f651`), with the 30-08 diff (`8ccbb94..912f651`) as the focus. That diff is
+tiny in the driver (one `except` branch) and large in the test file (a new
+section 9 plus rewrites of two tests).
 
-**The BLOCKER is genuinely fixed, and the fix is correct and complete on the
-consumer side.** I traced every branch of both probes:
+### Verdict on the three items 30-08 was written to close
 
-| input | probe 12 | probe 13 |
+| item | claim | verdict |
 |---|---|---|
-| key absent | no branch taken, `checked` omits it | `skipped`, no write |
-| `None` body | `not isinstance(None, dict/list)` → SHAPE finding | `schema_of(None) == "NoneType"` ≠ baseline → SHAPE finding, no overwrite |
-| `[]` / `{}` / scalar | routed to the non-dict / non-list SHAPE branch | compared against baseline |
-| dict/list | field-mapped as before | compared as before |
+| CR-01 (BLOCKER) | `_capture_raw_wire`'s except branch no longer leaks the upstream body | **Closed at that site, but the vulnerability class is still live at 30 other sites in the same file** — see CR-01 below |
+| WR-01 (tautological test) | PASS-detail test now genuinely falsifiable | **Closed.** `expected_checked` is a per-case literal, no longer re-derived from `raw_wire`; `_names_in_pass_detail` hard-fails on a format change instead of degrading to `set()`. One residual gap (WR-04). |
+| WR-02 (over-pinning) | `snapshot.status == "PASS"` relaxed to `!= "FINDING"` | **Closed as a test change**, and the skipped-set assertion actually got *stronger* (exact set equality replaced a substring check that had a real `get_instruments` / `get_instruments_by_type` prefix collision). But the defect the relaxation was written to accommodate was never filed — see WR-01 below. |
 
-The `elif "get_instruments_by_type" in raw_wire` correctly attaches to
-`if isinstance(envelope, dict)`, so "present and non-dict" (including `None`)
-reports and "absent" stays silent — no off-by-one, no branch left unreachable.
-`checked` and the per-endpoint gates are now the same predicate, so the PASS
-detail is truthful by construction.
+I verified the except-branch redaction by tracing every `append_finding` kwarg in
+that branch: `title`/`expected` interpolate only `func_name` (a literal from a
+hardcoded `specs` list), `diff` and `actual` interpolate only
+`type(exc).__name__` and `getattr(exc, "status_code", None)`, and `base_url` is
+client configuration, not wire. No `repr()`/`str()` of the exception survives.
+The five new section-9 tests are genuinely RED against the pre-fix code (the
+exact-equality assertion on `actual` cannot pass against
+`IOLAPIError('[500] …')`), and the fixtures are offline (`MockTransport`, token
+pre-seeded so `_ensure_token` never fires, injected `http_client` so no
+`RetryTransport` wrapping and therefore exactly one call per endpoint).
 
-**Falsification performed, not assumed.** I created a detached worktree at the
-diff base, dropped the new test file in, and ran it against the pre-fix driver:
-3 of the 5 new tests fail RED there
-(`..._treats_captured_null_body_as_shape_defect` ×2 and
-`test_a_single_null_bodied_endpoint_is_enough_for_both_probes`), with exactly the
-false `PASS` the fix removes. Those three are real regression locks. `ruff check`
-and `ruff format --check` are clean on both files; 17/17 tests pass on HEAD.
+`ruff check`, `ruff format --check`, and `mypy --strict` are clean on both files;
+all 22 tests in the drift file pass.
 
-**What the re-review found:**
+### What the fix missed
 
-- One **BLOCKER** carried over unfixed: `_capture_raw_wire` writes the entire
-  unredacted upstream error body into a **git-tracked** findings artifact, while
-  its own docstring promises the opposite (`git ls-files` confirms
-  `.planning/verification/iol-client-findings.md` is tracked).
-- The 5th new test (`..._pass_detail_never_names_an_uncaptured_endpoint`) is
-  **tautological** — I proved its assertion holds on the exact pathological
-  pre-fix output it claims to prohibit. It cannot go red.
-- The 4th new test **codifies a known defect as a desired invariant**: it asserts
-  probe 13 returns `PASS` when every capture failed, which is prior WR-01
-  (probe 13 has no anti-vacuity seeding). A future fix of WR-01 now breaks a test.
-- One **residual null-vs-absent conflation on the producer side**: a `200` with a
-  non-JSON/empty body makes `resp.json()` raise inside the capture `try`, so the
-  key goes absent and probe 13 *skips* it — the same "endpoint answered but the
-  body is degenerate" case the fix addressed, one layer up.
-- Prior WR-03/WR-06/WR-08/WR-10 remain open in `main_iol.py` and are re-reported
-  because the file is in scope; WR-08 is extended with new evidence
-  (`cantidadOperaciones` is `"int"` in one committed baseline and `"float"` in
-  another — the drift corpus is value-dependent, so live findings are noise).
+The reasoning 30-08 wrote down is correct and general: *`_core.raise_for_response`
+puts `resp.text` verbatim into the exception message, and a finding is a durable
+git-tracked artifact.* The fix applied that reasoning to exactly one of the 31
+places in `main_iol.py` where an exception is stringified into a finding. I
+confirmed the leak empirically against the current HEAD (mock 500 with a planted
+account-shaped marker, driving three untouched probes):
 
----
+```
+F-01 get_quote_sync recibió APIError inesperado -> LEAKED KWARGS: ['actual']
+    actual = IOLAPIError('[500] {"cuenta": "ZZ-CUENTA-9999-ZZ", "detalle": "boom"}')
+F-02 get_instruments_sync recibió APIError inesperado -> LEAKED KWARGS: ['actual']
+F-03 refresh path causó APIError inesperado -> LEAKED KWARGS: ['actual']
+```
 
-## Narrative Findings (AI reviewer)
+`.planning/verification/iol-client-findings.md` is git-tracked (`git ls-files`
+confirms), and `append_finding` applies **no** redaction — `safe_print`'s
+`secrets` list guards stdout only and never touches the findings file. So the
+BLOCKER as a *class* is not closed; it was closed at one address.
 
-### Critical Issues
+## Critical Issues
 
-#### CR-01: `_capture_raw_wire` writes the unredacted upstream error body into a git-tracked artifact
+### CR-01: CR-01's redaction is site-local — 30 other `append_finding` call sites still write the full upstream HTTP error body to a git-tracked file
 
-**Severity:** BLOCKER
-**File:** `main_iol.py:324-337` (emitter), `main_iol.py:264-265` (the contradicted docstring)
+**File:** `main_iol.py:381, 416, 453, 468, 483, 540, 555, 570, 610, 628, 646, 689, 707, 725, 759, 774, 789, 822, 837, 852, 899, 917, 935, 1024, 1042, 1060, 1572, 1587, 1742`
 
-**Issue:**
-The capture failure handler reports `actual=repr(exc)`:
+**Issue:** Every one of those lines is `actual=repr(exc)` inside a probe's
+exception handler, and every one of them calls `append_finding`, which writes
+`- **Actual:** <value>` verbatim into `.planning/verification/iol-client-findings.md`
+(`verification/findings.py:556-566`), a git-tracked file.
+
+`_core.raise_for_response` (`packages/iol-client/src/iol_client/_core.py:114-127`)
+constructs `IOLAuthError(resp.status_code, resp.text)` /
+`IOLRateLimitError(...)` / `IOLAPIError(...)`, and `IOLAPIError.__init__`
+(`exceptions.py:12-16`) does `super().__init__(f"[{status_code}] {message}")`.
+So `repr(exc)` **is** the upstream response body, prefixed by the status. This is
+the identical mechanism 30-08's own docstring describes, and 30-08's own test
+fixture models the risk correctly by planting its marker *"en posición de
+cuenta"* — i.e. the plan already knows IOL error bodies carry account
+identifiers.
+
+Empirically confirmed at HEAD (script above): `probe_get_quote_sync`,
+`probe_get_instruments_sync` and `probe_refresh_token` all emit findings whose
+`actual` contains the entire 500 body. `probe_refresh_token` (line 1587) is the
+worst instance: it fires after a deliberately forced token expiry on a real
+authenticated call. `probe_auth_401` (line 1742) is the second worst: its
+handler runs immediately after a login attempt made with
+`IOL_PASSWORD + "_INVALID"`, so whatever the token endpoint echoes back lands in
+git unredacted — and unlike the stdout path, no `secrets` list is consulted.
+
+None of these are hypothetical branches: they are the ordinary failure path of a
+live verification run against a third-party API whose availability the project
+charter explicitly calls unreliable.
+
+**Fix:** Extract the redaction that 30-08 wrote inline and apply it at every
+site, so the invariant is one function rather than 31 independent decisions:
 
 ```python
-        except Exception as exc:
-            fid = _next_fid()
-            append_finding(
-                _PKG, fid=fid, class_="ERROR-MAP", surface="sync", status="OPEN",
-                title=f"captura de wire crudo falló en {func_name}",
-                ...
-                actual=repr(exc),
+def _redacted_exc(exc: BaseException) -> str:
+    """Clase + status code, jamás el mensaje (que carga el body upstream).
+
+    T-30-08-01 / T-29-36. Único renderizador de excepciones permitido en un
+    argumento de ``append_finding``.
+    """
+    return f"{type(exc).__name__} status_code={getattr(exc, 'status_code', None)!r}"
 ```
 
-The exception reaching that handler is built by
-`_core.raise_for_response` (`_core.py:122-127`), which passes `resp.text` — the
-**entire** error response body — into `IOLAPIError.__init__`, which stores it in
-`Exception.args` (`exceptions.py:13-16`). `repr()` therefore embeds the body
-verbatim:
+then replace `actual=repr(exc)` with `actual=_redacted_exc(exc)` at all 29 sites,
+and `_auth_failure_reason = f"sync login: {exc}"` (lines 371, 406) with
+`_redacted_exc(exc)` (see WR-02). Add a lint-level lock so the pattern cannot
+come back — a test that greps the driver source is enough and is cheap:
 
 ```python
->>> repr(IOLAPIError(500, '{"cuenta":"123456","detalle":"..."}'))
-'IOLAPIError(\'[500] {"cuenta":"123456","detalle":"..."}\')'
+def test_no_probe_stringifies_an_exception_into_a_finding() -> None:
+    src = Path(main_iol.__file__).read_text(encoding="utf-8")
+    offenders = [
+        i for i, line in enumerate(src.splitlines(), 1)
+        if re.search(r"(repr\(exc\)|str\(exc\)|\{exc\})", line)
+    ]
+    assert offenders == [], f"exception stringified into a finding at lines {offenders}"
 ```
 
-`verification.findings.append_finding` (`findings.py:583-598`) performs no
-redaction — only `safe_print` redacts, and only for stdout. The string lands
-verbatim in `.planning/verification/iol-client-findings.md`, which
-`git ls-files .planning/verification/` confirms is **tracked in the repository**.
+Alternatively (defence in depth, and the more robust option): make
+`verification.findings.append_finding` reject any argument value that is not
+already redacted — e.g. refuse values matching the exception-repr shape — so the
+guarantee holds for the other four `main_*.py` drivers too rather than only for
+this one.
 
-This contradicts three statements at once:
+## Warnings
 
-1. The function's own docstring, `main_iol.py:264-265`: *"el body crudo alimenta
-   `schema_of` y nada más. Ningún argumento de `append_finding` recibe un body."*
-   The docstring is false about the code directly beneath it.
-2. `exceptions.py:40-42` (T-29-36): *"tipos y rutas, **jamás** un valor del wire
-   — los payloads de IOL llevan identificadores de cuenta y de instrumento."*
-3. CLAUDE.md: *"nunca commitear `.env` ni exponer credenciales en logs, reportes
-   o tests."*
+### WR-01: `probe_schema_snapshot` reports PASS when every wire capture failed — the test file documents the defect but nobody filed it
 
-This was reported as WR-02 in the prior review and was not addressed by 30-07.
-It is classified BLOCKER here rather than WARNING because the sink is a
-version-controlled file (exfiltration is permanent and distributed on push, not
-transient like stdout), the emitting code path is authenticated against a real
-brokerage API, and the failure is silent — nothing in the run signals that a body
-was written.
+**File:** `main_iol.py:1477-1524` (probe), `main_iol.py:1901-1907` (call site),
+`verification/test_main_iol_raw_wire_drift.py:528-537` (the acknowledgement)
 
-**Fix:** report type and status only, never the message:
+**Issue:** Probe 13 receives `raw_wire` but **not** `capture_fids`, unlike probe
+12 (`main_iol.py:1180`, "Anti-vacuidad (T-30-06-05)"). When all four captures
+raise, `raw_wire == {}`, every target takes the `skipped` branch, `finding_fids`
+stays empty, and the probe returns
+`ProbeResult("schema_snapshot", "PASS", "written=[] matched=[] skipped=[…]")`.
+`main()` then counts that toward `n_pass` in the SUMMARY line. A probe that
+inspected nothing reports success — the exact failure mode T-30-06-05 was
+written to eliminate, present in the sibling probe.
+
+The rewritten WR-02 test comment names this precisely ("un defecto separado y
+todavía abierto") and deliberately weakens its assertion to avoid cementing it.
+Weakening the test was the right call; leaving the defect unrecorded outside a
+test comment was not — a comment in a test file is not a tracked defect.
+
+**Fix:** Thread the seed the same way probe 12 does:
 
 ```python
-        except Exception as exc:
-            fid = _next_fid()
-            status_code = getattr(exc, "status_code", None)
-            append_finding(
-                _PKG,
-                fid=fid,
-                class_="ERROR-MAP",
-                surface="sync",
-                status="OPEN",
-                title=f"captura de wire crudo falló en {func_name}",
-                expected=f"200 OK con el body crudo de {func_name} para schema_of",
-                actual=f"{type(exc).__name__} status_code={status_code!r}",
-                diff=f"type={type(exc).__name__}",
-                base_url=base_url,
-            )
-```
-
-and add an offline test asserting no `append_finding` argument from this path
-contains the response body (feed a mocked `500` with a marker string in the body
-and assert the marker appears in no recorded kwarg).
-
----
-
-### Warnings
-
-#### WR-01: `test_probe_field_type_map_pass_detail_never_names_an_uncaptured_endpoint` is tautological — it cannot fail
-
-**File:** `verification/test_main_iol_raw_wire_drift.py:512-549`; predicate under test at `main_iol.py:1363-1367`
-
-**Issue:** The test asserts
-
-```python
-named = [name for name in _FIELD_MAPPED_ENDPOINTS if name in result.detail]
-assert all(name in raw_wire for name in named)
-```
-
-against a detail string built from
-
-```python
-checked = [name for name in ("get_quote", "get_historical_quotes",
-                             "get_instruments_by_type") if name in raw_wire]
-```
-
-`checked` **is** the membership predicate the test then re-asserts, and no name in
-`_FIELD_MAPPED_ENDPOINTS` is a substring of another, so `named == checked ⊆
-raw_wire.keys()` holds for every possible input. The only assertion that can fail
-is `result.status == "PASS"`.
-
-Its docstring claims otherwise: *"El caso patológico que este invariante prohíbe
-es el medido contra el código pre-fix — un PASS nombrando tres endpoints sin haber
-inspeccionado ninguno."* I ran that exact case against the pre-fix driver in a
-detached worktree:
-
-```
-PRE-FIX result: ProbeResult(name='field_type_map', status='PASS',
-    detail='3 endpoints checked (get_quote, get_historical_quotes,
-             get_instruments_by_type), no drift')
-named: ['get_quote', 'get_historical_quotes', 'get_instruments_by_type']
-invariant all(name in raw_wire): True
-```
-
-The pathological output **satisfies** the invariant. The test does not lock the
-regression it names, and none of its four params includes a null body — the input
-class the whole fix is about.
-
-**Fix:** assert the stronger property the docstring intends — that a named
-endpoint was actually *inspected*, not merely present — by having the probe return
-the inspected set, or by asserting equality against the expected set instead of a
-subset relation, plus a null-body param:
-
-```python
-@pytest.mark.parametrize(
-    ("raw_wire", "expected_checked"),
-    [
-        ({}, set()),
-        ({"get_quote": _clean_body()}, {"get_quote"}),
-        ({"get_quote": _clean_body(), "get_historical_quotes": []},
-         {"get_quote", "get_historical_quotes"}),
-        ({"get_instruments": _clean_body()}, set()),   # captured but not field-mapped
-    ],
-)
-def test_pass_detail_names_exactly_the_inspected_endpoints(raw_wire, expected_checked, client):
-    result = main_iol.probe_field_type_map(client, raw_wire, [])
-    named = {n for n in ("get_quote", "get_historical_quotes",
-                         "get_instruments_by_type", "get_instruments")
-             if n in result.detail}
-    assert named == expected_checked, result.detail
-```
-
-Note the added `get_instruments` member: the current `named` comprehension cannot
-observe the `id="endpoint_no_field_mapeado"` param's stated intent ("no debe
-aparecer nombrado en el detalle") because `get_instruments` is not in
-`_FIELD_MAPPED_ENDPOINTS` at all — that param asserts nothing today.
-
-#### WR-02: the new invariant test cements probe 13's false `PASS` on a total capture failure
-
-**File:** `verification/test_main_iol_raw_wire_drift.py:488-509`; defect at `main_iol.py:1424-1428`, `main_iol.py:1508-1512`
-
-**Issue:** `test_absent_capture_is_still_distinguishable_from_a_null_body`
-asserts:
-
-```python
-snapshot = main_iol.probe_schema_snapshot(client, _TODAY, {})
-assert snapshot.status == "PASS", repr(snapshot)
-```
-
-`raw_wire == {}` in a live run means **all four captures failed**. Probe 13 has no
-`capture_fids` parameter and no anti-vacuity seeding (unlike probe 12,
-`main_iol.py:1168`), so it reports `PASS written=[] matched=[] skipped=[...]`
-having verified zero snapshots. That was prior WR-01, still open — and 30-07 has
-now written it down as a desired invariant, so the recommended fix (thread
-`capture_fids` into probe 13, or return `SKIPPED` when `written` and `matched` are
-both empty) will make this test fail. A regression lock that pins a known defect
-raises the cost of fixing it.
-
-Secondary defect in the same test:
-
-```python
-for name in tmp_schema_all:
-    assert name in snapshot.detail
-```
-
-This is substring matching on a repr, and `"get_instruments"` is a prefix of
-`"get_instruments_by_type"` — the exact hazard the sibling test at line 455-460
-calls out and defends against with exact set equality. If probe 13 ever skipped
-only `get_instruments_by_type`, this loop would still pass for `get_instruments`.
-
-**Fix:** decide the desired probe-13 behavior first. If total capture failure must
-not be `PASS`, change the probe and re-point the test at `SKIPPED`:
-
-```python
-def probe_schema_snapshot(client, today, raw_wire, capture_fids) -> ProbeResult:
-    finding_fids: list[str] = list(capture_fids)
+def probe_schema_snapshot(
+    client: Client, today: dt.date, raw_wire: dict[str, Any], capture_fids: list[str]
+) -> ProbeResult:
     ...
-    if not written and not matched:
-        return ProbeResult("schema_snapshot", "SKIPPED", f"sin captura: {skipped!r}")
+    finding_fids: list[str] = list(capture_fids)   # anti-vacuidad, espejo del probe 12
 ```
 
-and replace the substring loop with `assert set(...) == set(tmp_schema_all)` over
-a parsed skipped list.
+and at the call site `probe_schema_snapshot(client, today, raw_wire, capture_fids)`.
+Then tighten the test back to `== "FINDING"` for the total-capture-failure case
+and keep `!= "FINDING"` only for the genuinely-empty-input case.
 
-#### WR-03: residual null-vs-absent conflation — a non-JSON `200` body is filed as "capture failed"
+### WR-02: the login cascade reason embeds the upstream 401 body and is printed for every downstream probe
 
-**File:** `main_iol.py:309-339`
+**File:** `main_iol.py:371, 406` (assignment); `437, 524, 590, 669, 743, 806, 882, 1003, 1100, 1177, 1449, 1535, 1679` (consumers); `1934` (sink)
 
-**Issue:** The fix corrected the three consumers, but the producer still collapses
-two distinct outcomes into "absent":
+**Issue:** `_auth_failure_reason = f"sync login: {exc}"` renders
+`str(IOLAuthError)` = `[401] <full token-endpoint response body>`. That string is
+interpolated into `ProbeResult.detail` for **every** downstream SKIPPED probe and
+printed by `safe_print` at line 1934. `safe_print`
+(`verification/redaction.py:43-61`) replaces only the enumerated `secrets`
+(`IOL_USER`, `IOL_PASSWORD`, the cached refresh token) and masks
+`Bearer <token>`; an arbitrary error body containing account identifiers or an
+`error_description` echoing submitted data passes through untouched, once per
+skipped probe, into terminal output and CI logs.
 
-```python
-        try:
-            resp = client._request(spec)
-            if resp.is_error:
-                _raise_for_response(resp)
-            raw_by_endpoint[func_name] = resp.json()      # <-- inside the try
-        except Exception as exc:
-            ...  # ERROR-MAP finding, key left absent
-```
-
-`resp.json()` raises `json.JSONDecodeError` on a `200` with an empty body, an HTML
-error page, or a truncated payload. That is *the endpoint answering with a body
-outside contract* — a SHAPE defect of exactly the class this harness exists to
-catch — but it is filed as `class_="ERROR-MAP"` and the key goes **absent**, so
-probe 13 routes it to `skipped` and probe 12 never inspects it. The documented
-contract ("ausente = la captura levantó") is honored literally while the semantic
-distinction the 30-07 fix restored is lost one layer up.
-
-**Fix:** separate transport failure from decode failure:
-
-```python
-        try:
-            resp = client._request(spec)
-            if resp.is_error:
-                _raise_for_response(resp)
-        except Exception as exc:
-            ...  # ERROR-MAP, key stays absent (transport/status failure)
-            continue
-        try:
-            raw_by_endpoint[func_name] = resp.json()
-        except ValueError:
-            fid = _next_fid()
-            append_finding(
-                _PKG, fid=fid, class_="SHAPE", surface="sync", status="OPEN",
-                title=f"{func_name} devolvió un cuerpo no-JSON",
-                expected="body JSON decodificable",
-                actual=f"content_type={resp.headers.get('content-type')!r} len={len(resp.content)}",
-                diff="el endpoint contestó, pero el cuerpo no es JSON",
-                base_url=base_url,
-            )
-            capture_fids.append(fid)
-```
-
-(Note the `actual=` deliberately carries no body — see CR-01.)
-
-#### WR-04: a degenerate payload silently becomes the new baseline when the file is missing
-
-**File:** `main_iol.py:1397-1404`
-
-**Issue:** `_write_or_check_schema` takes its **write** branch whenever the
-baseline file does not exist, records the observed shape as the new reference
-truth, and returns `PASS`:
-
-```python
-    if not file_path.exists():
-        file_path.write_text(json.dumps(envelope, ...) + "\n", encoding="utf-8")
-        return ("PASS", f"escrito {file_path.name}")
-```
-
-With a null body that writes `"schema": "NoneType"` and reports `PASS` — the
-precise failure the fix was meant to eliminate, reachable through a different
-door (a new endpoint added to `_SCHEMA_FILES`, a hand-deleted or never-generated
-baseline, a fresh `_SCHEMA_DIR`). The test suite is *aware* of this: the
-`tmp_schema_all` fixture docstring (lines 218-224) names it as risk T-30-07-03 and
-contains it — but only inside the fixture. Production has no equivalent guard.
-
-**Fix:** refuse to seed a baseline from a degenerate observation:
-
-```python
-    if not file_path.exists():
-        if actual_schema in (None, "NoneType", [], {}):
-            fid = _next_fid()
-            append_finding(_PKG, fid=fid, class_="SHAPE", surface="both", status="OPEN",
-                           title=f"baseline ausente y forma degenerada en {func_name}",
-                           expected="una forma poblada para sembrar el baseline",
-                           actual=json.dumps(actual_schema, ensure_ascii=False),
-                           diff="no se siembra baseline desde un cuerpo nulo/vacío",
-                           base_url=base_url)
-            return ("FINDING", f"{fid}|{file_path.name}")
-        file_path.write_text(...)
-```
-
-#### WR-05: `schema_of` types are value-dependent, so live drift findings are unclosable noise
-
-**File:** `main_iol.py:1388` (`_write_or_check_schema`), `main_iol.py:129-135` (`_ASSUMED_*`), via `verification/schema.py:38-39`
-
-**Issue:** `schema_of` returns `type(payload).__name__`, so a JSON number's
-declared type depends on whether that particular response happened to carry a
-fractional part, and a list's schema depends on whether it happened to be
-populated. The committed corpus proves this empirically — the **same field** is
-typed differently across two baselines captured from the same API:
-
-```
-get-quote.json               : "cantidadOperaciones": "int",  "descripcionTitulo": "str",      "puntas": []
-get-instruments-by-type.json : "cantidadOperaciones": "float"
-get-historical-quotes.json   : "descripcionTitulo": "NoneType", "puntas": "NoneType"
-```
-
-Consequences on every live run:
-
-- Probe 13 emits `Schema drift en <endpoint>` whenever any `float`-recorded field
-  arrives as a whole number, whenever an optional field arrives null, and whenever
-  a list arrives empty — OPEN findings no upstream change can ever close.
-- Probe 12 emits `type drift on ultimoPrecio` for the same reason, because
-  `_ASSUMED_QUOTE_FIELDS["ultimoPrecio"] == "float"` while `1234` decodes to
-  `int`.
-
-This is the noise class `main_iol.py:120-128` itself argues against (*"ruido que
-entrena al operador a ignorar el archivo de findings"*). Prior WR-08 covered only
-the empty-list case; the int/float and Optional-null cases are additional and, per
-the corpus above, more frequent.
-
-**Fix:** normalize numeric leaves and treat "no sample" as not-comparable before
-comparing, e.g. in `_write_or_check_schema`:
-
-```python
-def _normalize(schema: Any) -> Any:
-    if schema in ("int", "float"):
-        return "number"
-    if isinstance(schema, dict):
-        return {k: _normalize(v) for k, v in schema.items()}
-    if isinstance(schema, list):
-        return [_normalize(schema[0])] if schema else []
-    return schema
-
-if _normalize(committed.get("schema")) == _normalize(actual_schema):
-    return ("PASS", f"{file_path.name} sin drift")
-```
-
-plus an explicit "empty list / null optional = cardinality, not shape" rule
-mirroring `_core.py:403`. If instead the noise is accepted deliberately, say so in
-the probe docstring so an operator reads the finding as expected.
-
-#### WR-06: unreachable `is_error` guard in `_capture_raw_wire`, with a comment that states the opposite of the truth
-
-**File:** `main_iol.py:317-321` *(repeat of prior WR-03 — still open)*
-
-**Issue:**
-
-```python
-            resp = client._request(spec)
-            # ``Client._request`` (D-03) devuelve el response crudo sin levantar;
-            # replicamos el raise-on-error del shim module-level legacy.
-            if resp.is_error:
-                _raise_for_response(resp)
-```
-
-`Client._request` (`client.py:485-509`) calls `_raise_for_response(resp)` on every
-response and only intercepts `IOLAuthError` for its one re-auth retry, then calls
-`_raise_for_response` again. A response that *returns* from `_request` therefore
-can never satisfy `resp.is_error`. The guard is dead and the comment asserting
-`_request` "devuelve el response crudo sin levantar" is factually wrong — a future
-maintainer will trust the comment over the code.
-
-**Fix:** delete the comment and the two guard lines; add one line noting that
-`_request` already raises the typed exception the `except Exception` below catches.
-
-#### WR-07: `_ASSUMED_INSTRUMENTS_BY_TYPE_ENVELOPE` is dead, and the backing invariant covers one of the two live dicts
-
-**File:** `main_iol.py:136-138`, `main_iol.py:116-128`; `verification/test_main_iol_raw_wire_drift.py:364-381` *(repeat of prior WR-06 — still open)*
-
-**Issue:** Confirmed by grep across the repo: `_ASSUMED_INSTRUMENTS_BY_TYPE_ENVELOPE`
-appears exactly once, at its own definition. Probe 12 hardcodes `"titulos"`
-instead, so editing the constant changes nothing.
-
-The comment at `main_iol.py:120-128` states that **every** entry of **these dicts**
-must be backed by the committed baseline, and names
-`test_assumed_quote_fields_are_all_present_in_committed_baseline` as the offline
-enforcer — but that test walks only `_ASSUMED_QUOTE_FIELDS`.
-`_ASSUMED_HISTORICAL_FIELDS` (`fechaHora`, `ultimoPrecio`), which probe 12 does
-consume at line 1322, is unenforced. It happens to match
-`get-historical-quotes.json` today; the gap is what let the deleted `"simbolo"`
-entry reach production the first time.
-
-**Fix:** delete the dead constant (or read it in the envelope branch), and
-parametrize the invariant over both live dicts:
-
-```python
-@pytest.mark.parametrize(
-    ("assumed", "baseline_name", "unwrap"),
-    [
-        (main_iol._ASSUMED_QUOTE_FIELDS, "get-quote.json", lambda s: s),
-        (main_iol._ASSUMED_HISTORICAL_FIELDS, "get-historical-quotes.json", lambda s: s[0]),
-    ],
-)
-def test_assumed_fields_are_all_present_in_committed_baseline(assumed, baseline_name, unwrap):
-    schema = unwrap(json.loads((_BASELINE_DIR / baseline_name).read_text())["schema"])
-    assert not [k for k in assumed if k not in schema]
-    assert not {k: (v, schema[k]) for k, v in assumed.items() if schema[k] != v}
-```
-
-#### WR-08: in-band string protocol between `_write_or_check_schema` and probe 13
-
-**File:** `main_iol.py:1381-1421` (producer), `main_iol.py:1495-1501` (consumer)
-
-**Issue:** The helper returns `(status, detail)` where `detail` is parsed three
-different ad-hoc ways by the caller:
-
-```python
-        if status == "FINDING":
-            fid, fname = detail.split("|", 1)      # ValueError if the format drifts
-        elif detail.startswith("escrito"):          # magic prefix
-            written.append(func_name)
-        else:                                       # everything else = "matched"
-            matched.append(func_name)
-```
-
-A human-readable string is doing the work of a return type. Any change to the
-`f"escrito {file_path.name}"` wording silently reclassifies writes as matches
-(inflating the `matched` list in the PASS detail — the same class of untruthful
-detail that T-30-06-05 exists to prevent), and a change to the `|` separator
-raises `ValueError` mid-run.
-
-**Fix:** return a small enum/dataclass instead of a parsed string:
-
-```python
-@dataclass(frozen=True, slots=True)
-class SchemaCheck:
-    outcome: str          # "written" | "matched" | "drift"
-    fid: str | None
-    file_name: str
-```
-
-#### WR-09: probe 12's two field-map blocks are copy-paste duplicates inside a ~230-line function
-
-**File:** `main_iol.py:1254-1284` and `main_iol.py:1322-1352`
-
-**Issue:** `probe_field_type_map` spans `main_iol.py:1142-1372`. The `get_quote`
-and `get_historical_quotes[0]` field-map loops are structurally identical —
-same missing-key branch, same type-drift branch, same five `append_finding`
-kwargs — differing only in the observed dict, the assumed dict, and the wording.
-Two copies of a rule that must stay in lockstep is exactly how the assumed-field
-checks drift apart; the `_ASSUMED_HISTORICAL_FIELDS` enforcement gap in WR-07 is
-the same duplication showing up in the test layer.
-
-**Fix:** extract one helper and call it twice:
-
-```python
-def _check_assumed(
-    observed: dict[str, Any], assumed: dict[str, str], where: str, base_url: str
-) -> list[str]:
-    fids: list[str] = []
-    for key, expected_type in assumed.items():
-        if key not in observed:
-            ...  # missing-key finding, title f"missing assumed key `{key}` in {where}"
-        elif observed[key] != expected_type:
-            ...  # type-drift finding, title f"type drift on `{key}` in {where}"
-    return fids
-```
-
-#### WR-10: probe 12's envelope finding ships a stale source reference describing removed behavior
-
-**File:** `main_iol.py:1194` *(repeat of prior WR-10 — still open)*
-
-**Issue:**
-
-```python
-diff="client.py:254 hace data.get('titulos', []) y devuelve [] silenciosamente",
-```
-
-committed verbatim into every finding this branch emits. Both halves are wrong:
-the code lives at `_core.py:455` (`client.py:254` is inside `_ensure_http_client`),
-and post-CR-02 the parser **raises** on a non-dict envelope and on a non-list
-`titulos` — only the genuinely-missing-key path still returns `[]`. An operator
-reading a live finding is pointed at a silent-degradation bug that no longer
-exists, at a line that never contained it.
+Less severe than CR-01 (stdout, not a versioned artifact) but the same root
+cause, in the same file, untouched by 30-08.
 
 **Fix:**
 
 ```python
-diff="_core.py:455 hace raw.get('titulos', []) y devuelve [] cuando la clave falta",
+_auth_failure_reason = f"sync login: {_redacted_exc(exc)}"
 ```
+
+(same helper as CR-01), mirrored at line 406 for the async surface.
+
+### WR-03: the redaction destroys the only actionable content of `IOLDecodeError`, which was already wire-safe by construction
+
+**File:** `main_iol.py:336, 346`
+
+**Issue:** The new `actual` is `f"{type(exc).__name__} status_code={status_code!r}"`.
+For an `IOLDecodeError` — a live possibility here, since `_capture_raw_wire`
+calls `client._request` which binds strict-decode state — that renders exactly
+`IOLDecodeError status_code=None`, and the operator receives a durable OPEN
+finding with no way to reproduce, triage, or close it.
+
+`IOLDecodeError` carries `field_path`, `declared_type`, `observed_type` and
+`model`, and its own docstring
+(`packages/iol-client/src/iol_client/exceptions.py:41-46`) states these are
+"tipos y rutas, **jamás** un valor del wire" — i.e. this is the one exception
+class the T-29-36 rule already declares safe to report in full. The blanket
+redaction over-applies to it. (In practice `_capture_raw_wire` runs no parser, so
+this is a latent rather than an everyday path — but the handler is `except
+Exception` and claims to cover it, and the comment at line 335 names
+`IOLDecodeError` explicitly.)
+
+**Fix:** Special-case the class whose attributes are contractually type-only:
+
+```python
+if isinstance(exc, IOLDecodeError):
+    actual = (
+        f"IOLDecodeError model={exc.model} path={exc.field_path} "
+        f"declared={exc.declared_type} observed={exc.observed_type}"
+    )
+else:
+    actual = f"{type(exc).__name__} status_code={getattr(exc, 'status_code', None)!r}"
+```
+
+### WR-04: the PASS-detail parser never checks the count, which is the number an operator actually reads
+
+**File:** `verification/test_main_iol_raw_wire_drift.py:548-560, 583-613`
+
+**Issue:** `_names_in_pass_detail` captures `(\d+)` in group 1 and then discards
+it, returning only the parsed name set. `probe_field_type_map` renders both
+(`main_iol.py:1383`: `f"{len(checked)} endpoints checked ({...}), no drift"`).
+A regression that decoupled the count from the list — e.g.
+`"3 endpoints checked (get_quote), no drift"` — passes every case in the
+parametrization. Since the stated purpose of the WR-01 rewrite is that the PASS
+detail is *truthful*, leaving the numeral unasserted reintroduces a slice of the
+tautology the rewrite removed.
+
+Secondary: `(.*)` in the pattern is greedy and unanchored within the group, so a
+future endpoint name containing `), no drift` would silently mis-parse. Low risk,
+but `([^)]*)` costs nothing.
+
+**Fix:**
+
+```python
+match = re.fullmatch(r"(\d+) endpoints checked \(([^)]*)\), no drift", detail)
+assert match is not None, f"el detalle no matchea el formato esperado: {detail!r}"
+names = set() if match.group(2) == "ninguno" else set(match.group(2).split(", "))
+assert int(match.group(1)) == len(names), (
+    f"el conteo del detalle no coincide con los nombres: {detail!r}"
+)
+return names
+```
+
+### WR-05: `probe_get_quote_sync` writes a raw wire value into a durable finding, contradicting the discipline the same file asserts
+
+**File:** `main_iol.py:507`
+
+**Issue:** `actual=f"ultimoPrecio={ultimo!r}"` puts a value read straight off the
+wire into the git-tracked findings file. The file's own stated rule
+(`main_iol.py:265-272`, and T-29-36) is "tipos y rutas, jamás un valor del wire".
+A closing price for GGAL is public data, so the exposure is small — but the rule
+this violates is precisely the one 30-08 was written to enforce, and an exception
+carved out by convenience rather than by contract is how the rule erodes. The
+neighbouring `bad_types` finding (line 979) shows the disciplined form: it
+reports type names only.
+
+**Fix:** Report the classification rather than the value; the bound is already in
+`expected`:
+
+```python
+actual=f"ultimoPrecio fuera de bounds (magnitud={'0 o negativo' if ultimo <= _PRICE_MIN else 'excede _PRICE_MAX'})",
+```
+
+or, if the numeral is genuinely needed for triage, state that decision explicitly
+in the docstring as a scoped exception to T-29-36 instead of leaving it silent.
+
+### WR-06: `getattr(exc, "status_code", None)` is duck-typed with no constraint, so `!r` renders whatever it finds
+
+**File:** `main_iol.py:336`
+
+**Issue:** The handler is `except Exception`, so it accepts every exception type
+reachable from `client._request` + `resp.json()` — present and future, from
+`iol_client`, `httpx`, and the stdlib. The redaction's correctness rests on the
+unstated assumption that any object exposing `.status_code` exposes an `int`.
+Nothing enforces it; `{status_code!r}` will happily render a string. The two
+regression tests pin exactly two classes (`IOLAPIError`, `httpx.ConnectError`),
+so the invariant is asserted by example rather than by construction.
+
+Narrow today. It matters because this is the one function in the file that is
+supposed to be provably leak-free, and a leak here is durable.
+
+**Fix:**
+
+```python
+raw_status = getattr(exc, "status_code", None)
+status_code = raw_status if isinstance(raw_status, int) else None
+```
+
+### WR-07: the acknowledged `DecodeScope` leak in `_capture_raw_wire` is still untested and its safety argument is order-dependent
+
+**File:** `main_iol.py:318-323, 324`
+
+**Issue:** Each of the four `client._request(spec)` calls binds a fresh
+`DecodeScope` (`client.py:460-461`) that no decorated parser ever retires,
+because no parser runs inside the capture. The in-code comment states the
+correctness argument honestly — it is unreachable *only* because probes 12 and 13
+perform no `from_api`, and the next `_request` (probe 14) rebinds — and then
+declares it out of scope.
+
+I traced and confirm the argument holds at HEAD: probes 12 and 13 use `schema_of`
+exclusively, and `_decode.current_sink()` treats a stale open scope as usable, so
+a standalone `from_api` inserted between capture and probe 14 would silently
+share one dedupe set across unrelated responses — a false-clean decode, which is
+the exact failure mode Phase 29's lock 6 exists to prevent.
+
+The problem is that a correctness argument resting on "no one reorders the
+driver" has no enforcement. This diff added five tests to the file and none of
+them locks it.
+
+**Fix:** Either retire the scope explicitly in the capture loop:
+
+```python
+finally:
+    _decode.DECODE_SCOPE.set(None)
+```
+
+or add a test that fails if a `from_api` call appears between the
+`_capture_raw_wire` call site and the probe-14 call site in `main()`. Retiring
+the scope is preferable — it removes the ordering constraint rather than
+documenting it.
+
+## Info
+
+### IN-01: `diff` now carries no information not already in `actual`
+
+**File:** `main_iol.py:346-347`
+
+**Issue:** After the fix, `actual=f"{type(exc).__name__} status_code=…"` and
+`diff=f"type={type(exc).__name__}"` — `diff` is a strict subset of `actual`. The
+tests pin both (`test_capture_failure_finding_reports_only_the_exception_type_and_status_code`
+asserts each separately), so the redundancy is now locked in. Two fields that
+always agree is a maintenance trap: the next change has to update both or they
+diverge silently.
+
+**Fix:** Give `diff` its distinct role — the endpoint whose capture failed and
+why it matters downstream, e.g.
+`diff=f"{func_name} sin body crudo; probes 12/13 no pueden atestiguar su forma"`.
+
+### IN-02: the marker tests detect one planted string, not "a body leaked"
+
+**File:** `verification/test_main_iol_raw_wire_drift.py:653-655, 681-694`
+
+**Issue:** `_offending_kwargs` searches for `_WIRE_BODY_MARKER` only. The
+synthetic error body also contains `"detalle": "boom"`; a partial leak that
+emitted only that substring would pass the marker tests. The exact-equality
+assertion in `test_capture_failure_finding_reports_only_the_exception_type_and_status_code`
+does close this hole — but only for `actual`, and only for the 500 case; the
+`ConnectError` test and the partial-failure test rely on the marker alone.
+
+**Fix:** Plant the marker in every field of the synthetic body (`detalle`,
+`mensaje`) rather than in one, so any substring of the body trips the check.
+
+### IN-03: `_clean_body()` runs at import time inside `pytest.param`, so a bad baseline breaks collection rather than one test
+
+**File:** `verification/test_main_iol_raw_wire_drift.py:566-580`
+
+**Issue:** The parametrize list calls `_clean_body()` at module import, which
+reads and `json.loads` the committed baseline and indexes `_TYPE_SAMPLES` with no
+default. A missing, malformed, or newly-typed baseline raises during collection —
+the whole file errors out with a `KeyError`/`FileNotFoundError` traceback instead
+of a single named test failure carrying the diagnostic the fixture helpers were
+written to provide.
+
+**Fix:** Use `pytest.lazy_fixture`-style indirection or build the bodies inside
+the test body from a fixture, so baseline problems surface as a failure in one
+test with a readable message.
 
 ---
 
-_Reviewed: 2026-08-21T00:00:00Z_
+_Reviewed: 2026-08-22T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
