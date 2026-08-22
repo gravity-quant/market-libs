@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 8/8 plans complete
+**Plans:** 8/9 plans complete
 
 Plans:
 **Wave 1**
@@ -113,6 +113,10 @@ Plans:
 **Wave 7 — cierre del BLOCKER de fuga** *(30-VERIFICATION.md 2026-08-21: 6/7, truth 6 cerrado; BLOCKER nuevo — `_capture_raw_wire` escribe el body crudo del error upstream en un artefacto git-trackeado)*
 
 - [x] 30-08-PLAN.md — CR-01 (fuga por representación de la excepción): el handler de captura fallida reporta sólo clase de excepción + `status_code`, jamás el mensaje que `_core.raise_for_response` llenó con `resp.text`; primer test directo de `_capture_raw_wire` (marker-leak vía `httpx.MockTransport`), más los dos WARNING de calidad de test (WR-01 tautológico, WR-02 cementando el gap de vacuidad del probe 13)
+
+**Wave 8 — cierre de la CLASE de fuga** *(30-VERIFICATION.md 2026-08-22, tercer ciclo: 6/7; el sitio de 30-08 quedó cerrado, pero la misma clase sigue viva en los otros 29 sitios de `main_iol.py` — descubierto por 30-REVIEW.md CR-01 después de que 30-08 fuera scopeado)*
+
+- [ ] 30-09-PLAN.md — CR-01 file-wide: `_redacted_exc` como **único** renderizador de excepciones del driver, aplicado a los 29 `actual` + los 2 `_auth_failure_reason` (WR-02), con `IOLDecodeError` exceptuado por T-29-36 (WR-03) y `status_code` no-entero descartado (WR-06); lock de regresión por AST con control positivo y negativo para que el patrón no pueda volver en un sitio 32
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
