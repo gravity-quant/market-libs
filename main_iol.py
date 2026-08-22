@@ -261,8 +261,15 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
     recibido, y un drift en el builder mismo no puede quedar enmascarado por una
     captura que reproduce un path viejo.
 
-    Discipline de datos (T-30-06-01): el body crudo alimenta ``schema_of`` y
-    nada más. Ningún argumento de ``append_finding`` recibe un body.
+    Discipline de datos (T-30-06-01 + T-30-08-01): el body crudo alimenta
+    ``schema_of`` y nada más. Ningún argumento de ``append_finding`` recibe un
+    body — tampoco en la rama de falla. La excepción que llega al ``except``
+    de abajo lleva el body de error upstream adentro de su propio mensaje,
+    porque ``_core.raise_for_response`` lo puso ahí para el consumidor, no
+    para el reporte; por eso el handler reporta sólo la clase de la excepción
+    y su status code, y se detiene ahí. Esto satisface T-29-36
+    (``exceptions.py``: "tipos y rutas, jamás un valor del wire") en la rama
+    de falla tal como ya valía en la de éxito.
     """
     if _auth_failed:
         # D-IOL-3: los probes 12 y 13 conservan sus propias ramas SKIPPED por
@@ -322,6 +329,11 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
             raw_by_endpoint[func_name] = resp.json()
         except Exception as exc:
             # Un endpoint que falla no aborta los otros tres: se registra y sigue.
+            # T-30-08-01: sólo la clase de la excepción y su status code cruzan
+            # hacia el finding — nunca el mensaje, que carga el body upstream.
+            # ``getattr`` con default defensivo: ni ``httpx.ConnectError`` ni
+            # ``IOLDecodeError`` llevan ``status_code``.
+            status_code = getattr(exc, "status_code", None)
             fid = _next_fid()
             append_finding(
                 _PKG,
@@ -331,7 +343,7 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
                 status="OPEN",
                 title=f"captura de wire crudo falló en {func_name}",
                 expected=f"200 OK con el body crudo de {func_name} para schema_of",
-                actual=repr(exc),
+                actual=f"{type(exc).__name__} status_code={status_code!r}",
                 diff=f"type={type(exc).__name__}",
                 base_url=base_url,
             )
