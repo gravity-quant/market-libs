@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 7/7 plans complete
+**Plans:** 7/8 plans complete
 
 Plans:
 **Wave 1**
@@ -109,6 +109,10 @@ Plans:
 **Wave 6 — segundo cierre de CR-01** *(30-VERIFICATION.md re-verificación: 6/7; CR-02 cerrado, CR-01 sustancialmente cerrado pero con un BLOCKER nuevo en el código de reemplazo)*
 
 - [x] 30-07-PLAN.md — CR-01 (post-cierre): un body capturado como JSON `null` deja de ser indistinguible de una captura fallida — los probes 12/13 gatean por membresía en `raw_wire` en vez de por el centinela nulo, más el caso de regresión que el lock de 30-06 no cubría
+
+**Wave 7 — cierre del BLOCKER de fuga** *(30-VERIFICATION.md 2026-08-21: 6/7, truth 6 cerrado; BLOCKER nuevo — `_capture_raw_wire` escribe el body crudo del error upstream en un artefacto git-trackeado)*
+
+- [ ] 30-08-PLAN.md — CR-01 (fuga por representación de la excepción): el handler de captura fallida reporta sólo clase de excepción + `status_code`, jamás el mensaje que `_core.raise_for_response` llenó con `resp.text`; primer test directo de `_capture_raw_wire` (marker-leak vía `httpx.MockTransport`), más los dos WARNING de calidad de test (WR-01 tautológico, WR-02 cementando el gap de vacuidad del probe 13)
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
