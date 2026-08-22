@@ -50,8 +50,10 @@ detenerse ahí.
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import json
+import re
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -507,61 +509,108 @@ def test_absent_capture_is_still_distinguishable_from_a_null_body(
 ) -> None:
     """La otra dirección: una captura genuinamente ausente sigue ruteando a skip.
 
-    Invariante permanente, no un caso RED: pasa tanto antes como después del fix.
-    Existe para que el fix no pueda satisfacerse convirtiendo todo skip en
-    finding — ausencia y cuerpo nulo deben quedar distinguibles en ambos
-    sentidos.
+    Invariante permanente, no un caso RED: pasa tanto antes como después del
+    fix de este plan. Existe para que el fix no pueda satisfacerse
+    convirtiendo todo skip en finding — ausencia y cuerpo nulo deben quedar
+    distinguibles en ambos sentidos.
+
+    La mitad ``probe_field_type_map`` queda exactamente como estaba (su
+    ``PASS`` + aserción exacta de detalle es correcta — el probe 12 SÍ recibe
+    ``capture_fids`` y una lista vacía legítimamente produce PASS). La mitad
+    ``probe_schema_snapshot`` cambió (WR-02, ver el comentario sobre la
+    aserción de status abajo).
     """
     field_map = main_iol.probe_field_type_map(client, {}, [])
     assert field_map.status == "PASS", repr(field_map)
     assert field_map.detail == "0 endpoints checked (ninguno), no drift"
 
     snapshot = main_iol.probe_schema_snapshot(client, _TODAY, {})
-    assert snapshot.status == "PASS", repr(snapshot)
-    for name in tmp_schema_all:
-        assert name in snapshot.detail, f"{name} no figura como skipped: {snapshot.detail}"
+    # WR-02: desigualdad, no igualdad con "PASS". La propiedad que este test
+    # posee de verdad es que la ausencia rutea a SKIP y jamás fabrica un
+    # finding; si el status agregado en una falla de captura TOTAL termina
+    # siendo "PASS" o "SKIPPED" es el tema de un defecto separado y todavía
+    # abierto (probe 13 no recibe capture_fids para su propia siembra
+    # anti-vacuidad, a diferencia del probe 12). Pinear "PASS" cementaría ese
+    # defecto; la desigualdad sobrevive a los dos arreglos futuros propuestos
+    # (threadear capture_fids al probe 13, o devolver "SKIPPED" cuando
+    # written y matched están ambos vacíos).
+    assert snapshot.status != "FINDING", repr(snapshot)
+    skipped_match = re.search(r"skipped=(\[[^\]]*\])", snapshot.detail)
+    assert skipped_match is not None, f"detail no matchea skipped=[...]: {snapshot.detail!r}"
+    skipped_names = ast.literal_eval(skipped_match.group(1))
+    assert set(skipped_names) == set(tmp_schema_all), (
+        f"skipped={skipped_names!r} tmp_schema_all={sorted(tmp_schema_all)!r}"
+    )
 
     assert recorded == [], f"la ausencia no debe emitir findings; recorded={recorded!r}"
 
 
+def _names_in_pass_detail(detail: str) -> set[str]:
+    """Parsea el detalle PASS de ``probe_field_type_map`` en un set exacto de nombres.
+
+    Asertar que el match tuvo éxito, en vez de degradar silenciosamente a un
+    set vacío, es lo que hace que un futuro cambio de formato del detalle
+    falle ruidosamente acá en vez de disfrazarse de un ``vacio`` falso.
+    """
+    match = re.fullmatch(r"(\d+) endpoints checked \((.*)\), no drift", detail)
+    assert match is not None, f"el detalle no matchea el formato esperado: {detail!r}"
+    names = match.group(2)
+    if names == "ninguno":
+        return set()
+    return set(names.split(", "))
+
+
 @pytest.mark.parametrize(
-    "raw_wire",
+    ("raw_wire", "expected_checked"),
     [
-        pytest.param({}, id="vacio"),
-        pytest.param({"get_quote": _clean_body()}, id="solo_get_quote"),
+        pytest.param({}, set(), id="vacio"),
+        pytest.param({"get_quote": _clean_body()}, {"get_quote"}, id="solo_get_quote"),
         # Una serie histórica vacía SÍ se nombra como chequeada, y está bien: su
         # forma top-level se validó y no tiene filas que field-mapear, lo que el
         # comentario del propio probe clasifica como cardinalidad, no como forma.
         pytest.param(
             {"get_quote": _clean_body(), "get_historical_quotes": []},
+            {"get_quote", "get_historical_quotes"},
             id="quote_mas_serie_vacia",
         ),
         # ``get_instruments`` llega capturado pero el probe 12 no lo field-mapea:
-        # no debe aparecer nombrado en el detalle.
-        pytest.param({"get_instruments": _clean_body()}, id="endpoint_no_field_mapeado"),
+        # esta entrada antes no asertaba NADA, porque ``get_instruments`` no es
+        # miembro de ``_FIELD_MAPPED_ENDPOINTS`` y por lo tanto no podía aparecer
+        # en la comprensión vieja de ningún modo.
+        pytest.param({"get_instruments": _clean_body()}, set(), id="endpoint_no_field_mapeado"),
     ],
 )
-def test_probe_field_type_map_pass_detail_never_names_an_uncaptured_endpoint(
+def test_probe_field_type_map_pass_detail_names_exactly_the_inspected_endpoints(
     raw_wire: dict[str, Any],
+    expected_checked: set[str],
     client: Client,
     recorded: list[dict[str, Any]],
 ) -> None:
-    """Todo endpoint nombrado en un detalle de PASS es una clave de ``raw_wire``.
+    """El detalle de PASS nombra exactamente el conjunto que un lector independiente espera.
 
-    Post-fix esto es verdadero por construcción: la pertenencia de la clave es
-    simultáneamente el gate de cada chequeo y el predicado que arma la lista
-    ``checked``. El caso patológico que este invariante prohíbe es el medido
-    contra el código pre-fix — un PASS nombrando tres endpoints sin haber
-    inspeccionado ninguno.
+    WR-01: la versión anterior de este test re-derivaba, con una comprensión
+    sobre ``raw_wire``, la misma pertenencia de clave que el propio probe usa
+    para construir el detalle — así que sostenía para cualquier input,
+    incluido el PASS patológico pre-fix que su docstring decía prohibir. Ese
+    caso patológico (un PASS nombrando tres endpoints sin haber inspeccionado
+    ninguno, sobre un cuerpo capturado null) lo bloquea
+    ``test_probe_field_type_map_treats_captured_null_body_as_shape_defect``
+    (sección 8), no este test: acá ``expected_checked`` es un literal
+    independiente por caso, no derivado de ``raw_wire``, y por eso el test
+    PUEDE fallar.
+
+    Limitación registrada a propósito: este test observa lo que el probe
+    NOMBRA, no lo que INSPECCIONÓ de verdad. Ambos coinciden sólo porque el
+    gate del probe y su predicado de detalle son la misma expresión desde
+    30-07 — y es la sección 8 la que sostiene esa igualdad.
     """
     result = main_iol.probe_field_type_map(client, raw_wire, [])
 
     assert result.status == "PASS", f"{result!r}; recorded={recorded!r}"
-    named = [name for name in _FIELD_MAPPED_ENDPOINTS if name in result.detail]
-    assert all(name in raw_wire for name in named), (
-        f"el detalle nombra endpoints ausentes de raw_wire: "
-        f"named={named!r} keys={sorted(raw_wire)!r} detail={result.detail!r}"
+    assert _names_in_pass_detail(result.detail) == expected_checked, (
+        f"detail={result.detail!r} expected_checked={expected_checked!r}"
     )
+    assert recorded == [], f"un PASS no debería emitir findings; recorded={recorded!r}"
 
 
 # ---------------------------------------------------------------------------
