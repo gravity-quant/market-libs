@@ -13,7 +13,7 @@ Requirements for this milestone. Each maps to roadmap phases (29-34). Decisiones
 
 ### Tipado de superficie
 
-- [x] **TYP-01**: El consumidor de `iol-client` accede a cotizaciones, series históricas e instrumentos por **atributo tipado** (models.py nuevo con shapes derivados de los schemas capturados en vivo, `puntas` polimórfico resuelto); 16 firmas migradas (4 funciones × método/shim × sync/async) + parsers de `_core.py`; `main_iol.py` migrado a acceso por atributo (2 sitios reales). `mercado`/`plazo` quedan `str` en F30; promoción a `Literal` diferida a F33 con censo vivo (DT-07).
+- [ ] **TYP-01**: El consumidor de `iol-client` accede a cotizaciones, series históricas e instrumentos por **atributo tipado** (models.py nuevo con shapes derivados de los schemas capturados en vivo, `puntas` polimórfico resuelto); 16 firmas migradas (4 funciones × método/shim × sync/async) + parsers de `_core.py`; `main_iol.py` migrado a acceso por atributo (2 sitios reales). `mercado`/`plazo` quedan `str` en F30; promoción a `Literal` diferida a F33 con censo vivo (DT-07).
 - [ ] **TYP-02**: Los 5 endpoints de ops devuelven modelos tipados (`higyrus.get_health`; `market-data.get_health`/`get_health_feed`/`add_holidays`/`delete_holiday`) — cambio response-only, con prueba de request byte-idéntico para las 2 mutaciones ya publicadas en v0.4.0 (no perturbar el mutating-gate).
 - [ ] **TYP-03**: Los 6 paquetes presentan estructura uniforme `models.py` + `types.py` (mínimos pero presentes en ambito y wallets).
 
