@@ -622,6 +622,94 @@ def probe():
     ),
 )
 
+# Las cuatro formas que el **quinto ciclo** de ``30-VERIFICATION.md`` encontró
+# caminando past el detector tal como lo dejó 30-11. No son inferencias: el
+# verifier las reprodujo llamando al detector post-30-11 directamente sobre
+# fuentes sintéticos y obteniendo ``[]`` en las tres primeras; la cuarta la
+# agrega este plan porque la lectura estricta de la regla nueva la exige.
+#
+# **Ninguna tiene ocurrencia viva en ``main_iol.py``.** El driver tiene un solo
+# ``getattr`` sobre una excepción —el sancionado de ``_redacted_exc``, que ni
+# siquiera vive adentro de un handler— y ninguna lectura del dict de instancia.
+# Esto es durabilidad del lock, no divulgación: la forma con fuga está a un token
+# de distancia de cualquiera de los 32 sitios de reporte, y hasta ahora leía como
+# *deliberadamente permitida* en vez de meramente no chequeada.
+#
+# Vive separada de :data:`_WR01_ROWS`, que es la provenencia de 30-11, porque
+# esta fase ya arrastra tres esquemas de numeración WR incompatibles entre sus
+# tres pasadas de review: fusionar las tablas volvería imposible saber qué ciclo
+# encontró qué.
+_FIFTH_CYCLE_BYPASS_ROWS: tuple[tuple[str, str], ...] = (
+    (
+        "getattr con atributo con fuga y default",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=getattr(exc, "message", ""))
+""",
+    ),
+    (
+        "getattr con atributo con fuga, sin default, stringificado",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=str(getattr(exc, "args")))
+""",
+    ),
+    (
+        "el dict de instancia",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=str(exc.__dict__))
+""",
+    ),
+    (
+        "getattr con nombre de atributo no constante",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=getattr(exc, attr_name))
+""",
+    ),
+)
+
+# El otro lado del mismo widening. Un lock que marca la forma conforme es un lock
+# que el próximo autor borra (T-30-11-05 / T-30-13-07), así que las dos formas de
+# introspección que la fase autoriza quedan fijadas explícitamente como
+# **no** marcadas — la primera es literalmente la que usa ``_redacted_exc``.
+_FIFTH_CYCLE_ALLOWED_ROWS: tuple[tuple[str, str], ...] = (
+    (
+        'getattr(<n>, "status_code", None) — WR-03 sigue abierto',
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        code = getattr(exc, "status_code", None)
+        return f"code={code!r}"
+""",
+    ),
+    (
+        "type(<n>).__name__ — devuelve una clase, no un valor del wire",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        return f"type={type(exc).__name__}"
+""",
+    ),
+)
+
 
 # Los atributos de la excepción que exponen el body de error upstream verbatim.
 # ``IOLAPIError.__init__`` (``packages/iol-client/src/iol_client/exceptions.py``)
@@ -832,6 +920,45 @@ def test_the_detector_flags_every_shape_of_the_review_table(shape: str, source: 
     """
     offenders = _raw_exception_renders(source)
     assert offenders, f"forma no detectada — {shape}"
+
+
+@pytest.mark.parametrize(
+    ("shape", "source"),
+    _FIFTH_CYCLE_BYPASS_ROWS,
+    ids=[row[0] for row in _FIFTH_CYCLE_BYPASS_ROWS],
+)
+def test_the_detector_flags_every_shape_of_the_fifth_cycle(shape: str, source: str) -> None:
+    """Cobertura fila por fila de los bypasses del quinto ciclo de verificación.
+
+    Las tres primeras filas las reprodujo el verifier contra el detector
+    post-30-11, que devolvía ``[]`` para las tres: el exemption de ``getattr``
+    estaba keyeado en el **nombre del callee** y nunca miraba qué atributo se
+    pedía, y ``__dict__`` no estaba en el conjunto de atributos con fuga. La
+    cuarta es la consecuencia estricta de la regla nueva: un atributo elegido
+    dinámicamente no puede probarse seguro, y un lock que permite justo la
+    escritura que derrota su propio análisis es el mismo gap que este ciclo
+    cierra.
+    """
+    offenders = _raw_exception_renders(source)
+    assert offenders, f"forma no detectada — {shape}"
+
+
+@pytest.mark.parametrize(
+    ("shape", "source"),
+    _FIFTH_CYCLE_ALLOWED_ROWS,
+    ids=[row[0] for row in _FIFTH_CYCLE_ALLOWED_ROWS],
+)
+def test_the_detector_leaves_sanctioned_introspection_unflagged(shape: str, source: str) -> None:
+    """El widening del quinto ciclo fijado en la dirección contraria.
+
+    Ampliar un detector sin fijar sus exenciones es cómo llega el modo de falla
+    por sobre-marcado. Estas dos formas deben seguir devolviendo ``[]``: la
+    primera es la que usa el renderer sancionado y la que WR-03 mantiene
+    permitida, la segunda devuelve una clase y no puede reproducir un valor del
+    wire.
+    """
+    offenders = _raw_exception_renders(source)
+    assert offenders == [], f"el detector marcó una forma sancionada — {shape}: {offenders}"
 
 
 def test_the_detector_accepts_a_synthetic_compliant_source() -> None:
