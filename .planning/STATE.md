@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
-current_phase: 30
-current_phase_name: iol-client-tipado
-status: executing
+current_phase: 31
+current_phase_name: Endpoints de ops + estructura uniforme
+status: completed
 stopped_at: Completed 30-13-PLAN.md
-last_updated: "2026-08-23T21:27:37.986Z"
+last_updated: "2026-08-23T21:44:42.041Z"
 last_activity: 2026-08-23
-last_activity_desc: Phase 30 plan 12 executed — crash-path fail-closed gap closure
+last_activity_desc: Phase 30 complete, transitioned to Phase 31
 progress:
   total_phases: 6
   completed_phases: 2
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 30 (iol-client-tipado) — EXECUTING
-Plan: 13 of 13
+Phase: 31 — Endpoints de ops + estructura uniforme
+Plan: Not started
 Status: Ready to execute (30-12 complete; 30-13 depends on it and runs next)
-Last activity: 2026-08-23 — Phase 30 plan 12 executed — crash-path fail-closed gap closure
+Last activity: 2026-08-23 — Phase 30 complete, transitioned to Phase 31
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 93 (v1.0)
+- Total plans completed: 106 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
