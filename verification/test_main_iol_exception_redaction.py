@@ -587,6 +587,34 @@ def probe():
 )
 
 
+# Los atributos de la excepción que exponen el body de error upstream verbatim.
+# ``IOLAPIError.__init__`` (``packages/iol-client/src/iol_client/exceptions.py``)
+# guarda ``resp.text`` en ``self.message`` **y** lo mete adentro del mensaje que
+# le pasa a ``super().__init__``, de donde sale ``.args``: los dos son el body
+# crudo, que es precisamente lo que este lock existe para mantener afuera.
+# ``.response`` / ``.request`` son las formas equivalentes de ``httpx``.
+#
+# ``status_code`` NO está acá y su ausencia es una decisión, no un olvido:
+# ``30-REVIEW.md`` WR-03 (22 lecturas inline de ``exc.status_code`` en argumentos
+# ``diff=``) es un carry-forward abierto y **no escalado**, así que agregarlo
+# haría fallar el lock del driver sobre 22 sitios pre-existentes. Cerrar WR-03 es
+# lo que debe habilitar esa entrada, nunca al revés.
+_LEAKY_EXC_ATTRS = ("message", "args", "response", "request")
+
+# Las únicas cuatro llamadas que pueden recibir el nombre bindeado sin que eso
+# cuente como fuga. ``_redacted_exc`` es el renderer sancionado de la fase
+# (AD-30-09-01); las otras tres son las formas de introspección que el driver ya
+# usa y que no pueden reproducir un valor del wire: ``type(<n>)`` devuelve una
+# clase, ``isinstance`` un bool, y ``getattr(<n>, "status_code", None)`` un
+# atributo que el propio renderer guardea con ``isinstance(..., int)``.
+_SANCTIONED_DELEGATES = ("_redacted_exc", "type", "isinstance", "getattr")
+
+# Las llamadas que convierten un objeto en texto. ``format`` cubre
+# ``"...".format(<n>)`` porque :func:`_called_name` resuelve el ``func`` de un
+# ``ast.Attribute`` por su ``.attr``.
+_STRINGIFYING_CALLS = ("repr", "str", "format")
+
+
 def _called_name(func: ast.expr) -> str | None:
     """Nombre simple al que resuelve el ``func`` de una llamada, o ``None``."""
     if isinstance(func, ast.Name):
@@ -594,6 +622,30 @@ def _called_name(func: ast.expr) -> str | None:
     if isinstance(func, ast.Attribute):
         return func.attr
     return None
+
+
+def _bound_names(handler: ast.ExceptHandler) -> set[str]:
+    """El nombre bindeado por el handler más sus alias directos de **un** nivel.
+
+    Un alias es un ``ast.Assign`` cuyo valor es exactamente el nombre bindeado
+    (``otro = exc``). Se resuelve en una sola pasada previa, así que un alias
+    declarado después de su uso cuenta igual.
+
+    **Un nivel, y sólo uno.** Una cadena (``a = exc; b = a; str(b)``) queda
+    fuera: el segundo eslabón no se agrega al conjunto. Eso es una frontera
+    declarada, no una omisión — ver el docstring de
+    :func:`_raw_exception_renders`.
+    """
+    if handler.name is None:
+        return set()
+    bound = {handler.name}
+    for node in ast.walk(handler):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not (isinstance(node.value, ast.Name) and node.value.id == handler.name):
+            continue
+        bound.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    return bound
 
 
 def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
@@ -605,48 +657,114 @@ def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
     reescribirlo (el audit de la Phase 33 que el registro de threats de 30-08 ya
     carga).
 
-    Recorre cada ``ast.ExceptHandler`` que bindea un nombre y marca exactamente
-    tres formas dentro de su cuerpo:
+    Recorre **cada** ``ast.ExceptHandler`` — incluidos los que no bindean nombre,
+    que la versión de 30-09 salteaba — y marca ocho formas:
 
-    1. una llamada a ``repr``/``str`` cuyo único argumento posicional es el
-       nombre bindeado;
+    1. una llamada a ``repr`` / ``str`` / ``format`` que recibe el nombre
+       bindeado como argumento posicional; ``format`` cubre ``"...".format(<n>)``
+       porque el ``func`` se resuelve por su ``.attr``;
     2. una interpolación de f-string cuyo valor es el nombre bindeado — cubre las
        tres variantes porque la conversión (``!r`` / ``!s``) vive en un campo
        aparte del nodo y no cambia ``value``;
     3. el nombre bindeado pasado directo como valor de un keyword de
-       ``append_finding``.
+       ``append_finding`` — caso especial de la forma 5, con etiqueta propia
+       porque es el sink durable y conviene que el mensaje de falla lo nombre;
+    4. una lectura de :data:`_LEAKY_EXC_ATTRS` sobre el nombre bindeado
+       (``<n>.message`` es literalmente ``resp.text``);
+    5. **delegación no sancionada**: el nombre bindeado pasado —posicional o por
+       keyword— a cualquier llamada cuyo callee no esté en
+       :data:`_SANCTIONED_DELEGATES`. Esta única regla cierra ``print(<n>)``,
+       ``safe_print(<n>, ...)`` y ``_render(<n>)`` donde ``_render`` stringifica,
+       **sin analizar al callee**: la excepción sólo puede salir del handler por
+       una de estas aristas, así que la decisión se toma donde es decidible;
+    6. formateo por porcentaje (``ast.BinOp`` con ``ast.Mod``) cuyo operando
+       derecho es el nombre bindeado;
+    7. ``sys.exc_info()`` adentro de cualquier handler, **también** de uno que no
+       bindea nombre — que es exactamente la ruta por la que se obtiene la
+       excepción cuando no hay ``as``;
+    8. un alias directo de un nivel (``otro = <n>``) convierte a ``otro`` en un
+       nombre bindeado más para todas las reglas anteriores.
 
-    Lo que **no** marca, a propósito: el nombre pasado a otra función (la forma 3
-    está acotada a ``append_finding``, así que rutear por el renderer sancionado
-    es legal), ``type(<nombre>).__name__``, ``<nombre>.status_code``,
-    ``getattr(<nombre>, ...)``, y cualquier aparición en un docstring o
-    comentario.
+    Lo que **no** marca, a propósito:
+
+    * ``<n>.status_code`` — ``30-REVIEW.md`` WR-03 sigue abierto y no escalado;
+      marcarlo fallaría el lock sobre 22 sitios pre-existentes. Ver
+      :data:`_LEAKY_EXC_ATTRS`.
+    * ``type(<n>).__name__``, ``getattr(<n>, ...)``, ``isinstance(<n>, ...)`` —
+      las tres formas de introspección de :data:`_SANCTIONED_DELEGATES`, ninguna
+      de las cuales puede reproducir un valor del wire.
+    * ``_redacted_exc(<n>)`` — el renderer sancionado (AD-30-09-01) es el destino
+      *deseado*, no una fuga.
+    * cualquier aparición en un docstring o comentario.
+
+    Lo que queda **sin verificar** — que no es lo mismo que permitido, y se dice
+    acá explícitamente porque la redacción anterior sugería cobertura que no
+    existía (WR-01, párrafo de cierre):
+
+    * el aliasing de más de un nivel (``a = <n>``; ``b = a``; ``str(b)``): el
+      segundo eslabón es invisible;
+    * el flujo de datos que **sale** del handler (guardar el nombre bindeado en
+      un atributo, una lista o un global y leerlo en otro lado);
+    * el cuerpo de un callee sancionado — se confía en ``_redacted_exc`` por su
+      propio contrato (sección 1) y por
+      :func:`_declared_exception_renderers`, no por este detector.
     """
     tree = ast.parse(source)
     offenders: set[tuple[int, str]] = set()
     for handler in ast.walk(tree):
-        if not isinstance(handler, ast.ExceptHandler) or handler.name is None:
+        if not isinstance(handler, ast.ExceptHandler):
             continue
-        bound = handler.name
+        bound_names = _bound_names(handler)
         for node in ast.walk(handler):
             if isinstance(node, ast.FormattedValue):
-                if isinstance(node.value, ast.Name) and node.value.id == bound:
-                    offenders.add((node.value.lineno, f"interpolación de {bound}"))
+                if isinstance(node.value, ast.Name) and node.value.id in bound_names:
+                    offenders.add((node.value.lineno, f"interpolación de {node.value.id}"))
+                continue
+            if isinstance(node, ast.Attribute):
+                if (
+                    isinstance(node.value, ast.Name)
+                    and node.value.id in bound_names
+                    and node.attr in _LEAKY_EXC_ATTRS
+                ):
+                    offenders.add((node.lineno, f"lectura de {node.value.id}.{node.attr}"))
+                continue
+            if isinstance(node, ast.BinOp):
+                if (
+                    isinstance(node.op, ast.Mod)
+                    and isinstance(node.right, ast.Name)
+                    and node.right.id in bound_names
+                ):
+                    offenders.add((node.lineno, f"formateo % sobre {node.right.id}"))
                 continue
             if not isinstance(node, ast.Call):
                 continue
             called = _called_name(node.func)
-            if (
-                called in ("repr", "str")
-                and len(node.args) == 1
-                and isinstance(node.args[0], ast.Name)
-                and node.args[0].id == bound
-            ):
-                offenders.add((node.lineno, f"{called}() sobre {bound}"))
+            if called == "exc_info":
+                offenders.add((node.lineno, "sys.exc_info() dentro de un handler"))
+                continue
+            if called in _SANCTIONED_DELEGATES:
+                continue
+            passed = [arg for arg in node.args if isinstance(arg, ast.Name)]
+            passed += [kw.value for kw in node.keywords if isinstance(kw.value, ast.Name)]
+            leaked = [name for name in passed if name.id in bound_names]
+            if not leaked:
+                continue
+            if called in _STRINGIFYING_CALLS:
+                offenders.add((node.lineno, f"{called}() sobre {leaked[0].id}"))
+                continue
             if called == "append_finding":
-                for kw in node.keywords:
-                    if isinstance(kw.value, ast.Name) and kw.value.id == bound:
-                        offenders.add((kw.value.lineno, f"append_finding({kw.arg}={bound})"))
+                keyworded = [
+                    kw
+                    for kw in node.keywords
+                    if isinstance(kw.value, ast.Name) and kw.value.id in bound_names
+                ]
+                for kw in keyworded:
+                    assert isinstance(kw.value, ast.Name)  # acotado por el filtro de arriba
+                    offenders.add((kw.value.lineno, f"append_finding({kw.arg}={kw.value.id})"))
+                if not keyworded:
+                    offenders.add((leaked[0].lineno, f"append_finding({leaked[0].id})"))
+                continue
+            offenders.add((leaked[0].lineno, f"delegación de {leaked[0].id} a {called}()"))
     return sorted(offenders)
 
 
@@ -691,10 +809,14 @@ def test_no_except_handler_in_the_driver_renders_its_exception_raw() -> None:
     source = _DRIVER_PATH.read_text(encoding="utf-8")
     offenders = _raw_exception_renders(source)
     assert not offenders, (
-        f"main_iol.py tiene {len(offenders)} sitio(s) que reportan la excepción cruda: "
-        f"{offenders}. El body de error upstream vive adentro del mensaje de la "
-        f"excepción y un finding es un artefacto durable versionado en git — "
-        f"ruteá cada uno por main_iol._redacted_exc(exc)."
+        f"main_iol.py tiene {len(offenders)} sitio(s) que tripan el conjunto de reglas de "
+        f"_raw_exception_renders (stringificación, interpolación, kwarg de append_finding, "
+        f"lectura de un atributo con fuga, delegación no sancionada, formateo por porcentaje, "
+        f"sys.exc_info() o un alias de un nivel): {offenders}. No es un conteo total de sitios "
+        f"que reporten crudo — el detector cubre ese conjunto y declara su frontera en su "
+        f"docstring. El body de error upstream vive adentro del mensaje de la excepción y un "
+        f"finding es un artefacto durable versionado en git: la ruta sancionada es "
+        f"main_iol._redacted_exc(exc), el único renderer que la fase autoriza (AD-30-09-01)."
     )
 
 
