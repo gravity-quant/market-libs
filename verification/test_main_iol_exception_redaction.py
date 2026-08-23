@@ -230,6 +230,26 @@ class _ExceptionWithNonIntegerStatus(Exception):
         self.status_code = status_code
 
 
+class _DecodeErrorMissingItsAttributes(IOLDecodeError):
+    """``IOLDecodeError`` que nunca corrió el ``__init__`` de su padre.
+
+    Trigger (c) de ``30-VERIFICATION.md`` (quinto ciclo, truth 8):
+    ``main_iol._redacted_exc`` lee ``model``, ``field_path``, ``declared_type`` y
+    ``observed_type`` **sin condición** sobre cualquier objeto que satisfaga
+    ``isinstance(exc, IOLDecodeError)``. Una subclase —o una instancia
+    reconstruida que no pasó por el constructor— hace levantar ``AttributeError``
+    adentro del renderer, y por lo tanto adentro del hook, en el camino de crash
+    que ese mecanismo existe justamente para proteger.
+
+    Su valor probatorio es que **no necesita ``monkeypatch``**: la falla la
+    produce la forma del propio objeto excepción, así que el trigger es
+    alcanzable sin instrumentación de test.
+    """
+
+    def __init__(self, message: str) -> None:
+        Exception.__init__(self, message)
+
+
 def _marker_bearing_exceptions() -> list[BaseException]:
     """Las excepciones cuyo mensaje SÍ carga el marker.
 
@@ -1274,4 +1294,150 @@ def test_the_main_guard_installs_the_hook_before_running_main() -> None:
     ]
     assert called == ["_install_redacted_excepthook", "main"], (
         f"el guard __main__ debe instalar el hook y después llamar a main(); es: {called}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. El camino de crash falla CERRADO — ni el hook mismo puede reabrir la fuga
+# ---------------------------------------------------------------------------
+#
+# 30-VERIFICATION.md quinto ciclo, truth 8 (BLOCKER). La sección 4 fija que el
+# hook redacta correctamente **cuando renderiza sin incidentes**. No fija nada
+# sobre qué pasa cuando el hook mismo falla — y el contrato de CPython para un
+# excepthook que levanta (``PyErr_PrintEx``) es: imprimir un banner de error más
+# el traceback del propio hook, y después renderizar la excepción ORIGINAL con
+# el excepthook **default**. O sea ``str(exc)``, que para ``IOLAPIError`` /
+# ``IOLAuthError`` / ``IOLRateLimitError`` es ``[<status>] <body>``: exactamente
+# el body de error upstream que el hook se escribió para suprimir.
+#
+# Una frontera de seguridad cuyo modo de falla es "emitir justo aquello que
+# existís para suprimir" es estrictamente peor que no tener frontera: el operador
+# cree que está cubierto. Por eso el camino de crash tiene que fallar CERRADO —
+# degradar el texto, nunca la frontera.
+#
+# 30-VERIFICATION.md nombra tres triggers alcanzables sin monkeypatch:
+#   (a) un ``RecursionError`` que llega al hook con el stack casi agotado, donde
+#       el formateo del propio hook o la extracción de frames puede levantar;
+#   (b) un stderr roto o cerrado (``... 2>&1 | head``, un runner de CI con el
+#       pipe cerrado), que convierte la escritura en ``BrokenPipeError`` /
+#       ``ValueError``;
+#   (c) un ``IOLDecodeError`` que nunca asignó sus cuatro atributos type-only,
+#       que hace levantar ``AttributeError`` adentro del renderer sancionado.
+#
+# Esta sección cubre las tres, en tres grupos de comportamiento (falla del
+# renderer, falla del sink, extremo a extremo por subproceso) más un lock
+# estructural que impide que un edit futuro saque un guard en silencio.
+
+
+# El banner que CPython escribe a stderr cuando el excepthook instalado levanta,
+# justo antes de caer al renderer default. Se afirma su AUSENCIA: es la evidencia
+# directa y falsable de que el renderer default nunca se alcanzó, lo que
+# distingue "la fuga está cerrada" de "el marker casualmente no se imprimió".
+_EXCEPTHOOK_FAILURE_BANNER = "Error in sys.excepthook:"
+
+
+def _renderer_that_raises(exc: BaseException) -> str:
+    """Sustituto de ``_redacted_exc`` que falla — triggers (a) y (c) forzados."""
+    del exc
+    raise RuntimeError("el renderer sancionado falló a mitad de camino")
+
+
+def test_the_hook_falls_closed_when_the_renderer_raises(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """T-30-12-01 — una falla del renderer degrada el texto, no la frontera.
+
+    Es la sombra en llamada directa de la fuga por fallback: acá el
+    ``RuntimeError`` que se escapa del hook es lo que, bajo el intérprete real,
+    hace que CPython renderice la excepción original con el hook default.
+    """
+    monkeypatch.setattr(main_iol, "_redacted_exc", _renderer_that_raises)
+    exc = _caught(IOLAPIError(500, _error_body_with_marker()))
+
+    assert main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__) is None, (
+        "el hook debe retornar None; nada puede escaparse de él"
+    )
+
+    captured = capsys.readouterr()
+    assert main_iol._HOOK_RENDER_FAILED in captured.err, (
+        f"el hook no emitió el placeholder estático: {captured.err!r}"
+    )
+    assert _WIRE_BODY_MARKER not in captured.err, f"marker en stderr: {captured.err!r}"
+    assert _WIRE_BODY_MARKER not in captured.out, f"marker en stdout: {captured.out!r}"
+
+
+def test_the_hook_falls_closed_on_a_decode_error_missing_its_attributes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Trigger (c) SIN ``monkeypatch`` — la falla la produce la forma del objeto.
+
+    Es lo que responde la objeción de que esto sería un caso borde sólo
+    alcanzable desde un test: ``_redacted_exc`` lee los cuatro atributos de
+    ``IOLDecodeError`` sin condición, así que cualquier instancia que no haya
+    corrido ese ``__init__`` hace levantar ``AttributeError`` adentro del hook.
+    """
+    exc = _caught(_DecodeErrorMissingItsAttributes(_error_body_with_marker()))
+
+    assert main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__) is None, (
+        "el hook debe retornar None aun cuando el renderer levanta AttributeError"
+    )
+
+    captured = capsys.readouterr()
+    assert main_iol._HOOK_RENDER_FAILED in captured.err, (
+        f"el hook no emitió el placeholder estático: {captured.err!r}"
+    )
+    assert _WIRE_BODY_MARKER not in captured.err, f"marker en stderr: {captured.err!r}"
+    assert _WIRE_BODY_MARKER not in captured.out, f"marker en stdout: {captured.out!r}"
+
+
+def test_the_installed_hook_falls_closed_when_the_renderer_raises(tmp_path: Path) -> None:
+    """La reproducción del propio verifier, convertida en test de regresión.
+
+    Extremo a extremo por CPython real: el hijo instala el hook exactamente como
+    lo hace producción, reemplaza el renderer por uno que levanta y después
+    levanta una ``IOLAPIError`` con el marker adentro del body. Pre-fix, stderr
+    llevaba el ``[500] <marker>-cuenta-999999`` completo.
+
+    El body se construye desde una variable para que la propia línea que levanta
+    no pueda cargar el marker.
+    """
+    child = textwrap.dedent(
+        f"""
+        import main_iol
+        from iol_client import IOLAPIError
+
+        main_iol._install_redacted_excepthook()
+
+        def _boom(exc):
+            raise RuntimeError("el renderer sancionado falló")
+
+        main_iol._redacted_exc = _boom
+        body = {_WIRE_BODY_MARKER!r} + "-cuenta-999999"
+        raise IOLAPIError(500, body)
+        """
+    )
+    env = {
+        **os.environ,
+        "IOL_TOKEN_CACHE_PATH": str(tmp_path / "token-cache.json"),
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", child],
+        cwd=_REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert _WIRE_BODY_MARKER not in proc.stderr, (
+        f"marker en stderr — el renderer default se alcanzó.\n--- stderr ---\n{proc.stderr}"
+    )
+    assert _WIRE_BODY_MARKER not in proc.stdout, f"marker en stdout.\n--- stdout ---\n{proc.stdout}"
+    assert proc.returncode != 0, (
+        f"el crash fue tragado: el intent D-04 exige código != 0.\n--- stderr ---\n{proc.stderr}"
+    )
+    assert _EXCEPTHOOK_FAILURE_BANNER not in proc.stderr, (
+        f"CPython reportó que el excepthook levantó, o sea que cayó al renderer "
+        f"default.\n--- stderr ---\n{proc.stderr}"
     )
