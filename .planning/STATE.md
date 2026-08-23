@@ -5,16 +5,16 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: "Phase 30 plan 11 complete — AST regression lock widened (WR-01: 3 of 11 leak shapes -> 11 of 11) + falsifiable renderer census (WR-02: three bypasses closed)"
-last_updated: "2026-08-23T21:04:24.424Z"
+stopped_at: Completed 30-12-PLAN.md
+last_updated: "2026-08-23T21:17:47.317Z"
 last_activity: 2026-08-23
-last_activity_desc: Phase 30 execution resumed (wave continue)
+last_activity_desc: Phase 30 plan 12 executed — crash-path fail-closed gap closure
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 21
-  completed_plans: 21
-  percent: 33
+  completed_phases: 1
+  total_plans: 23
+  completed_plans: 22
+  percent: 17
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 30 (iol-client-tipado) — EXECUTING
-Plan: 3 of 6
-Status: Ready to execute
-Last activity: 2026-08-23 — Phase 30 execution resumed (wave continue)
+Plan: 13 of 13
+Status: Ready to execute (30-12 complete; 30-13 depends on it and runs next)
+Last activity: 2026-08-23 — Phase 30 plan 12 executed — crash-path fail-closed gap closure
 
 ## Performance Metrics
 
@@ -135,6 +135,7 @@ Last activity: 2026-08-23 — Phase 30 execution resumed (wave continue)
 | Phase 30 P09 | 35min | 3 tasks | 2 files |
 | Phase 30 P10 | 6min | 2 tasks | 3 files |
 | Phase 30 P11 | 8min | 2 tasks | 1 files |
+| Phase 30 P12 | 6min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -241,6 +242,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 30-11: status_code queda FUERA del set de atributos con fuga por decisión documentada en el comentario de la constante — WR-03 (22 lecturas inline en argumentos diff=) sigue abierto y no escalado; incluirlo fallaría el lock del driver sobre 22 sitios pre-existentes
 - [Phase ?]: 30-11: el predicado del censo distingue RENDERIZAR de PASAR — entregar la excepción al renderer sancionado no cuenta, que es la única razón por la que _redacted_excepthook (anotado con tipo de excepción por 30-10) queda correctamente afuera
 - [Phase ?]: 30-11: la aserción del censo es una igualdad contra el nombre sancionado, nunca contra una lista vacía — un censo que deja de detectar al primer renderer es tan roto como uno que no detecta al segundo (gate 14 lo demuestra)
+- [Phase ?]: 30-12: AD-30-12-01: el camino de crash falla cerrado envolviendo el CUERPO DEL HOOK, no endureciendo _redacted_exc — el hook es el último frame antes del fallback de CPython, así que un guard ahí es provablemente suficiente sin importar qué sub-paso falló
+- [Phase ?]: 30-12: _HOOK_RENDER_FAILED es una constante ESTÁTICA: en la rama de fallback la maquinaria que decide qué es seguro mostrar ya falló, así que nada derivado de exc puede asumirse seguro ahí
+- [Phase ?]: 30-12: Los dos sinks del crash van en dos contextlib.suppress(BaseException) SEPARADOS, no en uno compartido — falsificado colapsándolos y observando que sólo el test dedicado falla
 
 ### Pending Todos
 
@@ -320,9 +324,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-23T18:23:36.217Z
-Stopped at: Phase 30 plan 11 complete — AST regression lock widened (WR-01) + falsifiable renderer census (WR-02)
-Resume file: .planning/phases/30-iol-client-tipado/30-11-SUMMARY.md
+Last session: 2026-08-23T21:17:37.157Z
+Stopped at: Completed 30-12-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

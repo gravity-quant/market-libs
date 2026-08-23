@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 11/13 plans complete
+**Plans:** 12/13 plans executed
 
 Plans:
 **Wave 1**
@@ -128,7 +128,7 @@ Plans:
 
 **Wave 11 — el BLOCKER del quinto ciclo: la ruta de crash falla ABIERTA** *(30-VERIFICATION.md 2026-08-23, quinto ciclo: 7/8; truth 7 cerrada, truth 8 sigue abierta — el hook que 30-10 construyó para suprimir el body upstream lo emite verbatim en cuanto algo adentro suyo falla, reproducido por subproceso real)*
 
-- [ ] 30-12-PLAN.md — Truth 8: el hook de crash falla **cerrado**. `_redacted_excepthook` no tenía manejo de errores propio, así que un fallo interno (renderer que levanta, stderr roto/cerrado, `IOLDecodeError` malformado) caía en el fallback de `PyErr_PrintEx` y CPython renderizaba la excepción ORIGINAL con el excepthook **default**: `[<status>] <resp.text>` completo a stderr. Se guarda la llamada al renderer con un placeholder estático y se guardan los dos sinks por separado, más un lock AST que impide que los guards se saquen en silencio
+- [x] 30-12-PLAN.md — Truth 8: el hook de crash falla **cerrado**. `_redacted_excepthook` no tenía manejo de errores propio, así que un fallo interno (renderer que levanta, stderr roto/cerrado, `IOLDecodeError` malformado) caía en el fallback de `PyErr_PrintEx` y CPython renderizaba la excepción ORIGINAL con el excepthook **default**: `[<status>] <resp.text>` completo a stderr. Se guarda la llamada al renderer con un placeholder estático y se guardan los dos sinks por separado, más un lock AST que impide que los guards se saquen en silencio
 
 **Wave 12 — durabilidad del lock, segunda vuelta** *(30-VERIFICATION.md quinto ciclo WARNING: no hay fuga viva hoy, pero el lock ensanchado por 30-11 tiene tres bypasses nuevos, reproducidos llamando a los detectores directo sobre fuentes sintéticos)*
 
@@ -225,7 +225,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 11/11 | Complete   | 2026-08-23 |
+| 30. `iol-client` tipado                                     | v1.6      | 12/13 | In Progress|  |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
