@@ -5,16 +5,16 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: Phase 30 plan 10 complete — fid allocator seeded + crash-path redaction in main_iol.py (truths 7 & 8 closed)
-last_updated: "2026-08-23T18:09:39.104Z"
+stopped_at: Phase 30 plan 11 complete — AST regression lock widened (WR-01: 3 of 11 leak shapes -> 11 of 11) + falsifiable renderer census (WR-02: three bypasses closed)
+last_updated: "2026-08-23T18:23:55.783Z"
 last_activity: 2026-08-23
-last_activity_desc: Phase 30 execution resumed (wave continue)
+last_activity_desc: Phase 30 plan 11 executed — regression-lock durability gap closed (test surface only)
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 21
-  completed_plans: 20
-  percent: 17
+  completed_plans: 21
+  percent: 33
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 30 (iol-client-tipado) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 30 execution resumed (wave continue)
 
@@ -134,6 +134,7 @@ Last activity: 2026-08-23 — Phase 30 execution resumed (wave continue)
 | Phase 30 P04 | 31min | 3 tasks | 7 files |
 | Phase 30 P09 | 35min | 3 tasks | 2 files |
 | Phase 30 P10 | 6min | 2 tasks | 3 files |
+| Phase 30 P11 | 8min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -236,6 +237,10 @@ Recent decisions affecting current work:
 - [Phase 30]: 30-10: el hook usa traceback.print_tb (frames only); los helpers que toman la excepción o el triple de exc_info agregan la línea del mensaje y recorren __cause__/__context__, reintroduciendo la fuga. Costo aceptado: el mensaje de una causa encadenada (triage, no fuga)
 - [Phase 30]: 30-10: el camino de crash es la única salida del driver que NO pasa por safe_print — safe_print escribe sólo a stdout y sin parámetro de archivo, y mezclar el crash en stdout corrompería la línea SUMMARY; registrado como bullet en las Reglas de seguridad del module docstring
 - [Phase 30]: 30-10: _seed_fid_counter espeja main_market_data.py verbatim (global + max_existing_fid(_PKG)) y queda bajo lock AST de orden — write_findings < seed < primer probe; un seed definido pero no llamado falla el test
+- [Phase ?]: 30-11: AD-30-11-01 split-by-role — el bypass del segundo renderer se cierra en el SITIO DE LLAMADA (delegación del nombre bindeado a cualquier callee fuera de {_redacted_exc,type,isinstance,getattr}, sin analizar al callee) y en la DECLARACIÓN (censo con gate de anotación). Un solo análisis whole-file no sirve: el snippet de fix de 30-REVIEW.md WR-02 devuelve [] contra este driver porque _redacted_exc no tiene repr/str ni .message/.args
+- [Phase ?]: 30-11: status_code queda FUERA del set de atributos con fuga por decisión documentada en el comentario de la constante — WR-03 (22 lecturas inline en argumentos diff=) sigue abierto y no escalado; incluirlo fallaría el lock del driver sobre 22 sitios pre-existentes
+- [Phase ?]: 30-11: el predicado del censo distingue RENDERIZAR de PASAR — entregar la excepción al renderer sancionado no cuenta, que es la única razón por la que _redacted_excepthook (anotado con tipo de excepción por 30-10) queda correctamente afuera
+- [Phase ?]: 30-11: la aserción del censo es una igualdad contra el nombre sancionado, nunca contra una lista vacía — un censo que deja de detectar al primer renderer es tan roto como uno que no detecta al segundo (gate 14 lo demuestra)
 
 ### Pending Todos
 
@@ -315,9 +320,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-23T18:09:39.099Z
-Stopped at: Phase 30 plan 10 complete — fid allocator seeded + crash-path redaction in main_iol.py (truths 7 & 8 closed)
-Resume file: .planning/phases/30-iol-client-tipado/30-10-SUMMARY.md
+Last session: 2026-08-23T18:23:36.217Z
+Stopped at: Phase 30 plan 11 complete — AST regression lock widened (WR-01) + falsifiable renderer census (WR-02)
+Resume file: .planning/phases/30-iol-client-tipado/30-11-SUMMARY.md
 
 ## Operator Next Steps
 

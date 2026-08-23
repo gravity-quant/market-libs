@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 10/11 plans executed
+**Plans:** 11/11 plans complete
 
 Plans:
 **Wave 1**
@@ -124,7 +124,7 @@ Plans:
 
 **Wave 10 — durabilidad del lock de regresión** *(30-VERIFICATION.md WARNING / 30-REVIEW.md WR-01 + WR-02: no hay fuga viva hoy, pero el lock no enforcea lo que 30-09-SUMMARY.md afirma que enforcea)*
 
-- [ ] 30-11-PLAN.md — WR-01 + WR-02: `_raw_exception_renders` se ensancha a las 11 formas de fuga de la tabla del review (lectura de atributo `.message`/`.args`, delegación fuera de la allow-list sancionada, `%`-format, `.format()`, `exc_info` en handler sin binding, alias de un nivel) y el conteo de renderers se reemplaza por un censo falsificable sobre string de fuente que matchea `AsyncFunctionDef` a cualquier scope — con la aserción de auto-detección que caza el bug del propio snippet del review
+- [x] 30-11-PLAN.md — WR-01 + WR-02: `_raw_exception_renders` se ensancha a las 11 formas de fuga de la tabla del review (lectura de atributo `.message`/`.args`, delegación fuera de la allow-list sancionada, `%`-format, `.format()`, `exc_info` en handler sin binding, alias de un nivel) y el conteo de renderers se reemplaza por un censo falsificable sobre string de fuente que matchea `AsyncFunctionDef` a cualquier scope — con la aserción de auto-detección que caza el bug del propio snippet del review
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
@@ -217,7 +217,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 10/11 | In Progress|  |
+| 30. `iol-client` tipado                                     | v1.6      | 11/11 | Complete   | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
