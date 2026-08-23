@@ -48,6 +48,7 @@ un grep por línea).
 
 from __future__ import annotations
 
+import ast
 import json
 import time
 from collections.abc import Callable
@@ -375,3 +376,152 @@ def test_probe_refresh_token_finding_never_carries_the_upstream_body(
     assert recorded, "el probe no emitió ningún finding; el caso sería vacuo"
     offenders = _offending_kwargs(recorded)
     assert offenders == [], f"marker filtrado en (índice de llamada, kwarg): {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# 3. Lock de regresión por AST — el patrón no puede volver en silencio
+# ---------------------------------------------------------------------------
+#
+# Los dos fuentes sintéticos de abajo son los controles del detector. Son
+# constantes string, así que las formas prohibidas que contienen son invisibles
+# para ``ast.parse`` del driver — esa inmunidad es precisamente la razón de
+# elegir AST sobre un grep por línea, y es lo que permite que este archivo
+# contenga los patrones que prohíbe en otro lado.
+
+_OFFENDING_SOURCE = """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        report(actual=repr(exc))
+        reason = f"login: {exc}"
+        append_finding("pkg", actual=exc)
+"""
+
+_COMPLIANT_SOURCE = """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        code = getattr(exc, "status_code", None)
+        append_finding(
+            "pkg",
+            actual=_redacted_exc(exc),
+            diff=f"type={type(exc).__name__} status_code={exc.status_code!r}",
+        )
+        note = f"code={code!r}"
+        return note
+"""
+
+# Las tres líneas plantadas en ``_OFFENDING_SOURCE``, una por forma prohibida.
+# El fuente arranca con un newline, así que ``def probe():`` es la línea 2.
+_OFFENDING_LINES = (6, 7, 8)
+
+
+def _called_name(func: ast.expr) -> str | None:
+    """Nombre simple al que resuelve el ``func`` de una llamada, o ``None``."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
+    """``(lineno, etiqueta)`` por cada render crudo de la excepción bindeada.
+
+    Toma un **string de fuente**, no un path. Es deliberado por dos razones: hace
+    posibles los controles positivo y negativo de abajo, y deja que un plan
+    futuro apunte el mismo detector a los otros cinco ``main_*.py`` sin
+    reescribirlo (el audit de la Phase 33 que el registro de threats de 30-08 ya
+    carga).
+
+    Recorre cada ``ast.ExceptHandler`` que bindea un nombre y marca exactamente
+    tres formas dentro de su cuerpo:
+
+    1. una llamada a ``repr``/``str`` cuyo único argumento posicional es el
+       nombre bindeado;
+    2. una interpolación de f-string cuyo valor es el nombre bindeado — cubre las
+       tres variantes porque la conversión (``!r`` / ``!s``) vive en un campo
+       aparte del nodo y no cambia ``value``;
+    3. el nombre bindeado pasado directo como valor de un keyword de
+       ``append_finding``.
+
+    Lo que **no** marca, a propósito: el nombre pasado a otra función (la forma 3
+    está acotada a ``append_finding``, así que rutear por el renderer sancionado
+    es legal), ``type(<nombre>).__name__``, ``<nombre>.status_code``,
+    ``getattr(<nombre>, ...)``, y cualquier aparición en un docstring o
+    comentario.
+    """
+    tree = ast.parse(source)
+    offenders: set[tuple[int, str]] = set()
+    for handler in ast.walk(tree):
+        if not isinstance(handler, ast.ExceptHandler) or handler.name is None:
+            continue
+        bound = handler.name
+        for node in ast.walk(handler):
+            if isinstance(node, ast.FormattedValue):
+                if isinstance(node.value, ast.Name) and node.value.id == bound:
+                    offenders.add((node.value.lineno, f"interpolación de {bound}"))
+                continue
+            if not isinstance(node, ast.Call):
+                continue
+            called = _called_name(node.func)
+            if (
+                called in ("repr", "str")
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id == bound
+            ):
+                offenders.add((node.lineno, f"{called}() sobre {bound}"))
+            if called == "append_finding":
+                for kw in node.keywords:
+                    if isinstance(kw.value, ast.Name) and kw.value.id == bound:
+                        offenders.add((kw.value.lineno, f"append_finding({kw.arg}={bound})"))
+    return sorted(offenders)
+
+
+def test_the_detector_flags_a_synthetic_offending_source() -> None:
+    """Control POSITIVO — la razón por la que este lock no es vacuo (T-30-06-05).
+
+    Un detector que devolviera siempre una lista vacía pasaría el lock de abajo y
+    no probaría nada. Este caso lo hace imposible: el fuente sintético planta una
+    ocurrencia de cada una de las tres formas prohibidas, y las tres deben
+    aparecer, en sus líneas exactas.
+    """
+    offenders = _raw_exception_renders(_OFFENDING_SOURCE)
+    assert len(offenders) == 3, f"el detector encontró {len(offenders)}: {offenders}"
+    assert tuple(lineno for lineno, _ in offenders) == _OFFENDING_LINES, f"{offenders}"
+
+
+def test_the_detector_accepts_a_synthetic_compliant_source() -> None:
+    """Control NEGATIVO — un lock que sobre-marca es un lock que el próximo autor borra."""
+    offenders = _raw_exception_renders(_COMPLIANT_SOURCE)
+    assert offenders == [], f"el detector marcó código conforme: {offenders}"
+
+
+def test_no_except_handler_in_the_driver_renders_its_exception_raw() -> None:
+    """El lock: ningún handler de ``main_iol.py`` vuelca su excepción bindeada."""
+    source = _DRIVER_PATH.read_text(encoding="utf-8")
+    offenders = _raw_exception_renders(source)
+    assert not offenders, (
+        f"main_iol.py tiene {len(offenders)} sitio(s) que reportan la excepción cruda: "
+        f"{offenders}. El body de error upstream vive adentro del mensaje de la "
+        f"excepción y un finding es un artefacto durable versionado en git — "
+        f"ruteá cada uno por main_iol._redacted_exc(exc)."
+    )
+
+
+def test_the_driver_declares_exactly_one_exception_renderer() -> None:
+    """AD-30-09-01 en forma ejecutable: una decisión, no 32.
+
+    Un autor futuro que agregue un segundo renderer debe confrontar este test en
+    vez de rodear al primero.
+    """
+    tree = ast.parse(_DRIVER_PATH.read_text(encoding="utf-8"))
+    renderers = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_redacted_exc"
+    ]
+    assert len(renderers) == 1, f"se esperaba exactamente un _redacted_exc, hay {len(renderers)}"
