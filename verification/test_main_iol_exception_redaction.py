@@ -411,6 +411,16 @@ def probe():
         report(actual=repr(exc))
         reason = f"login: {exc}"
         append_finding("pkg", actual=exc)
+        append_finding("pkg", actual=exc.message)
+        append_finding("pkg", diff=f"{exc.args}")
+        _render(exc)
+        print(exc)
+        append_finding("pkg", actual="%s" % exc)
+        append_finding("pkg", actual="{}".format(exc))
+        alias = exc
+        report(actual=str(alias))
+    except KeyError:
+        report(actual=str(sys.exc_info()[1]))
 """
 
 _COMPLIANT_SOURCE = """
@@ -428,9 +438,153 @@ def probe():
         return note
 """
 
-# Las tres líneas plantadas en ``_OFFENDING_SOURCE``, una por forma prohibida.
+# Las once líneas plantadas en ``_OFFENDING_SOURCE``, **una por forma prohibida**
+# y exactamente una entrada marcada por línea. ``offenders`` es un set de pares
+# ``(lineno, etiqueta)`` y el control positivo asertan tanto la cantidad como la
+# tupla exacta de líneas: una línea que tripe dos reglas produciría dos entradas
+# con el mismo número y volvería ambigua la aserción de la tupla. Si una línea
+# plantada empieza a doble-marcar, se parte en dos.
+#
 # El fuente arranca con un newline, así que ``def probe():`` es la línea 2.
-_OFFENDING_LINES = (6, 7, 8)
+#
+#   6  -> repr() sobre el nombre bindeado                       (regla 1, ya existía)
+#   7  -> interpolación f-string del nombre bindeado            (regla 2, ya existía)
+#   8  -> append_finding(kwarg=<bindeado>)                      (regla 3, ya existía)
+#   9  -> lectura de atributo con fuga: ``.message``            (regla 4, NUEVA)
+#   10 -> lectura de atributo con fuga en f-string: ``.args``   (regla 4, NUEVA)
+#   11 -> delegación a una función común                        (regla 5, NUEVA)
+#   12 -> delegación a una función que imprime                  (regla 5, NUEVA)
+#   13 -> formateo por porcentaje                               (regla 6, NUEVA)
+#   14 -> ``.format()`` sobre el nombre bindeado                (regla 1 ampliada)
+#   16 -> alias de un nivel (línea 15) luego stringificado      (regla 8, NUEVA)
+#   18 -> ``sys.exc_info()`` en un handler que no bindea nombre (regla 7, NUEVA)
+_OFFENDING_LINES = (6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18)
+
+# Las once filas de la tabla de formas no detectadas de ``30-REVIEW.md`` WR-01
+# (10 MISSED + 1 FLAGGED contra el detector tal como se shippeó en 30-09),
+# reproducidas verbatim como fuentes sintéticos completos. Es la matriz de
+# falsificación de la Task 1 de 30-11: cada fila debe producir al menos un
+# offender. Vive separada de ``_OFFENDING_SOURCE`` porque aquélla pinnea líneas
+# exactas (una forma por línea) mientras que esto es cobertura fila por fila,
+# incluidas las variantes que comparten regla con otra fila.
+_WR01_ROWS: tuple[tuple[str, str], ...] = (
+    (
+        "actual=exc.message",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=exc.message)
+""",
+    ),
+    (
+        "actual=f-string de exc.message",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=f"{exc.message}")
+""",
+    ),
+    (
+        "reason=f-string de exc.args",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        reason = f"login: {exc.args}"
+        return reason
+""",
+    ),
+    (
+        "formateo por porcentaje",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual="%s" % exc)
+""",
+    ),
+    (
+        "str.format sobre exc",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual="{}".format(exc))
+""",
+    ),
+    (
+        "print(exc)",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        print(exc)
+""",
+    ),
+    (
+        "safe_print(exc, ...)",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        safe_print(exc, secrets=[])
+""",
+    ),
+    (
+        "segundo renderer bajo otro nombre",
+        """
+def _render(e):
+    return str(e)
+
+
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        append_finding("p", actual=_render(exc))
+""",
+    ),
+    (
+        "alias de un nivel",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        e2 = exc
+        append_finding("p", actual=str(e2))
+""",
+    ),
+    (
+        "sys.exc_info() en handler sin nombre",
+        """
+def probe():
+    try:
+        do()
+    except Exception:
+        append_finding("p", actual=str(sys.exc_info()[1]))
+""",
+    ),
+    (
+        "interpolación con conversión !r (la única que ya marcaba)",
+        """
+def probe():
+    try:
+        do()
+    except ValueError as exc:
+        return ProbeResult("n", "FINDING", f"{exc!r}")
+""",
+    ),
+)
 
 
 def _called_name(func: ast.expr) -> str | None:
@@ -501,12 +655,29 @@ def test_the_detector_flags_a_synthetic_offending_source() -> None:
 
     Un detector que devolviera siempre una lista vacía pasaría el lock de abajo y
     no probaría nada. Este caso lo hace imposible: el fuente sintético planta una
-    ocurrencia de cada una de las tres formas prohibidas, y las tres deben
-    aparecer, en sus líneas exactas.
+    ocurrencia de cada una de las once formas prohibidas, y las once deben
+    aparecer, en sus líneas exactas. La aserción de la tupla es lo que hace que
+    un angostamiento futuro de *cualquier* regla falle acá de inmediato en vez de
+    degradar en silencio la cobertura del lock (T-30-11-04).
     """
     offenders = _raw_exception_renders(_OFFENDING_SOURCE)
-    assert len(offenders) == 3, f"el detector encontró {len(offenders)}: {offenders}"
+    assert len(offenders) == len(_OFFENDING_LINES), (
+        f"el detector encontró {len(offenders)}, se esperaban {len(_OFFENDING_LINES)}: {offenders}"
+    )
     assert tuple(lineno for lineno, _ in offenders) == _OFFENDING_LINES, f"{offenders}"
+
+
+@pytest.mark.parametrize(("shape", "source"), _WR01_ROWS, ids=[row[0] for row in _WR01_ROWS])
+def test_the_detector_flags_every_shape_of_the_review_table(shape: str, source: str) -> None:
+    """Cobertura fila por fila de la tabla de WR-01 (``30-REVIEW.md``).
+
+    El review corrió once formas realistas de fuga por el detector tal como se
+    shippeó en 30-09 y **diez pasaron sin marca**. Ese conteo es la métrica que
+    esta suite existe para dar vuelta: las once filas, incluidas las que
+    comparten regla con otra, deben producir al menos un offender.
+    """
+    offenders = _raw_exception_renders(source)
+    assert offenders, f"forma no detectada — {shape}"
 
 
 def test_the_detector_accepts_a_synthetic_compliant_source() -> None:
