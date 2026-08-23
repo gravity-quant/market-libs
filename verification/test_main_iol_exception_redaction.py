@@ -25,8 +25,14 @@ Este archivo codifica esa falsificación en cuatro secciones:
 2. Extremo a extremo: probes reales manejados por un ``httpx.MockTransport`` que
    responde con un marker plantado en el body; ningún kwarg registrado de
    ``append_finding`` puede llevarlo, ni el detalle de la cascada de auth.
-3. Un lock de regresión por AST sobre el fuente del driver, con control positivo
-   (no-vacuidad, T-30-06-05) y control negativo (no ruido).
+3. **Dos** detectores por AST, ambos sobre un **string de fuente** y no sobre un
+   path, cada uno con control positivo (no-vacuidad, T-30-06-05) y control
+   negativo (no ruido): ``_raw_exception_renders`` marca los sitios de un handler
+   que renderizan crudo la excepción bindeada, y
+   ``_declared_exception_renderers`` censa las funciones que **deciden** cómo se
+   ve una excepción, que debe ser exactamente una (AD-30-09-01). Tomar un string
+   es lo que deja al audit de la Phase 33 apuntar los dos a los otros cinco
+   ``main_*.py`` con una parametrización en vez de una reescritura.
 4. El **camino de crash**: varios probes dejan escapar por diseño todo tipo fuera
    de su ``except`` angosto (``probe_login_sync`` sólo atrapa ``IOLAuthError``,
    así que un 500 del endpoint de token escapa como ``IOLAPIError``). Sin hook,
@@ -874,22 +880,121 @@ def _report(exc: IOLAPIError) -> None:
 """
 
 
-def _declared_exception_renderers(source: str) -> list[str]:
-    """PLACEHOLDER RED — reproduce la semántica del test que matcheaba por nombre.
+def _annotates_an_exception(annotation: ast.expr | None) -> bool:
+    """¿La anotación nombra un tipo de excepción en algún lugar de su expresión?
 
-    Filtra ``tree.body`` por ``ast.FunctionDef`` llamado exactamente
-    ``_redacted_exc``, que es literalmente lo que hacía
-    ``test_the_driver_declares_exactly_one_exception_renderer``. Existe sólo para
-    que los seis casos de abajo corran contra el comportamiento **shippeado** en
-    vez de contra un ``NameError``, y para que la fase RED muestre exactamente
-    cuáles de ellos ese comportamiento no puede falsificar.
+    Se acepta ``BaseException``, ``Exception`` y cualquier nombre terminado en
+    ``Error`` — la convención de nombres que este monorepo sostiene en los seis
+    paquetes (``IOLAPIError``, ``HigyrusAuthorizationError``, ``PrimaryAPIError``).
+    Se recorre la expresión entera, así que ``type[BaseException]``,
+    ``IOLAPIError | None`` y ``tuple[Exception, ...]`` cuentan igual.
+
+    Frontera declarada: una anotación escrita como string literal
+    (``def f(e: "IOLAPIError")``) no se resuelve. El driver no usa esa forma —
+    todo el repo corre con ``from __future__ import annotations``, que deja las
+    anotaciones como expresiones reales en el AST.
+    """
+    if annotation is None:
+        return False
+    return any(
+        isinstance(node, ast.Name)
+        and (node.id in ("BaseException", "Exception") or node.id.endswith("Error"))
+        for node in ast.walk(annotation)
+    )
+
+
+def _reads_the_exception(func: ast.FunctionDef | ast.AsyncFunctionDef, param: str) -> bool:
+    """¿El cuerpo de ``func`` lee, introspecciona o stringifica el parámetro ``param``?
+
+    Cuatro formas, que son las que distinguen *renderizar* de *pasar*:
+    una lectura de atributo, una llamada a ``getattr`` sobre el parámetro, una
+    llamada de :data:`_STRINGIFYING_CALLS` que lo recibe, y su interpolación
+    directa en un f-string.
+
+    Lo que deliberadamente **no** cuenta es entregarlo a otra función: por eso
+    ``_redacted_excepthook`` —que hace exactamente eso con el renderer
+    sancionado— no es un renderer.
+    """
+    for node in ast.walk(func):
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id == param:
+                return True
+            continue
+        if isinstance(node, ast.FormattedValue):
+            if isinstance(node.value, ast.Name) and node.value.id == param:
+                return True
+            continue
+        if not isinstance(node, ast.Call):
+            continue
+        called = _called_name(node.func)
+        takes_param = any(isinstance(arg, ast.Name) and arg.id == param for arg in node.args)
+        if takes_param and called in ("getattr", *_STRINGIFYING_CALLS):
+            return True
+    return False
+
+
+def _declared_exception_renderers(source: str) -> list[str]:
+    """Los nombres de toda función del fuente que **decide** cómo se ve una excepción.
+
+    Toma un **string de fuente**, no un path — la misma decisión que
+    :func:`_raw_exception_renders`, y por la misma razón: los casos de
+    falsificación de abajo corren sobre fuentes sintéticos sin tocar ningún
+    archivo, y el audit de la Phase 33 puede apuntar este censo a los otros cinco
+    ``main_*.py`` con una parametrización sobre nombres de archivo en vez de una
+    reescritura.
+
+    **Qué asierta AD-30-09-01.** El driver toma **una** decisión sobre cómo se
+    renderiza una excepción, no 32. Con 32 sitios de reporte, una expresión
+    inline en cada uno serían 32 decisiones independientes que derivan — que es
+    exactamente cómo nació el gap que la fase 30-09 cerró.
+
+    **Las tres formas de rodear la implementación anterior**, todas documentadas
+    en ``30-REVIEW.md`` WR-02, y por qué cada una era alcanzable:
+
+    1. **Otro nombre.** Filtraba por ``node.name == "_redacted_exc"``, así que un
+       ``_fmt_exc`` no se contaba. Peor: su cuerpo también es invisible para
+       :func:`_raw_exception_renders`, porque ahí la excepción llega como
+       **parámetro** y nunca queda bindeada por un ``ast.ExceptHandler``. Acá se
+       cierra matcheando por **forma**, no por nombre.
+    2. **``async def``.** Sólo se matcheaba ``ast.FunctionDef``. Acá se matchean
+       las dos, ``ast.AsyncFunctionDef`` incluida.
+    3. **Anidada o condicional.** Sólo se escaneaba ``tree.body``, el nivel de
+       módulo. Acá se recorre el árbol entero, así que un renderer adentro de otra
+       función o de un ``if`` cuenta igual.
+
+    **Por qué el gate de anotación.** Un predicado de "cualquier función que lee
+    un atributo de un parámetro" marcaría prácticamente todo probe de
+    ``main_iol.py``, que leen atributos de su parámetro ``client``: el censo se
+    volvería ruido y el próximo autor lo borraría (T-30-11-05). Exigir que el
+    parámetro esté **anotado con un tipo de excepción** acota el conjunto
+    candidato a funciones que manejan excepciones.
+
+    **Pasar no es renderizar.** Una función que entrega su excepción al renderer
+    sancionado es un **consumidor**, no una segunda decisión. El ejemplo vivo es
+    ``main_iol._redacted_excepthook``, que está anotado con un tipo de excepción y
+    aun así no aparece acá: su cuerpo llama a ``_redacted_exc(exc)`` y nunca lee,
+    introspecciona ni stringifica el parámetro. Ése es el caso discriminante.
+
+    Devuelve los nombres en orden de aparición en el fuente, con repetición: dos
+    definiciones del mismo nombre son dos renderers.
     """
     tree = ast.parse(source)
-    return [
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_redacted_exc"
-    ]
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        args = node.args
+        params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+        if args.vararg is not None:
+            params.append(args.vararg)
+        if args.kwarg is not None:
+            params.append(args.kwarg)
+        if any(
+            _annotates_an_exception(arg.annotation) and _reads_the_exception(node, arg.arg)
+            for arg in params
+        ):
+            found.append((node.lineno, node.name))
+    return [name for _, name in sorted(found)]
 
 
 def test_the_census_detects_the_sanctioned_renderer_in_the_real_driver() -> None:
@@ -968,15 +1073,20 @@ def test_the_driver_declares_exactly_one_exception_renderer() -> None:
     """AD-30-09-01 en forma ejecutable: una decisión, no 32.
 
     Un autor futuro que agregue un segundo renderer debe confrontar este test en
-    vez de rodear al primero.
+    vez de rodear al primero. El nombre del test se conserva desde 30-09 para que
+    la historia de la fase siga siendo grepeable; lo que cambió es que ahora la
+    aserción **puede** fallar por las tres vías que ``30-REVIEW.md`` WR-02
+    enumeró (otro nombre, ``async def``, definición anidada o condicional) y
+    también por la cuarta, la que ningún conteo detecta: que el predicado deje de
+    detectar al primer renderer.
     """
-    tree = ast.parse(_DRIVER_PATH.read_text(encoding="utf-8"))
-    renderers = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_redacted_exc"
-    ]
-    assert len(renderers) == 1, f"se esperaba exactamente un _redacted_exc, hay {len(renderers)}"
+    names = _declared_exception_renderers(_DRIVER_PATH.read_text(encoding="utf-8"))
+    assert names == ["_redacted_exc"], (
+        f"main_iol.py debe declarar exactamente un renderer de excepciones y debe ser "
+        f"_redacted_exc; el censo encontró {names}. Una lista más larga es un segundo "
+        f"renderer rodeando al sancionado (AD-30-09-01); una lista vacía es el censo "
+        f"mismo que dejó de funcionar."
+    )
 
 
 # ---------------------------------------------------------------------------
