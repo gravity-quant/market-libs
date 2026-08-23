@@ -1091,6 +1091,53 @@ def _report(exc: IOLAPIError) -> None:
     append_finding("pkg", actual=_redacted_exc(exc))
 """
 
+# Los cuatro fuentes que agrega 30-13. Los tres primeros son segundos renderers
+# que el censo post-30-11 no veía —el predicado de lectura no tenía ni la regla
+# de formateo por porcentaje que su detector hermano ya implementaba, ni noción
+# alguna de delegación genérica—; el cuarto es el gemelo sintético del caso vivo
+# del hook de crash, y existe para que la exención quede fijada contra un fuente
+# controlado además de contra el driver real.
+_CENSUS_PERCENT_DUPLICATE = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+def _fmt_abort(e: BaseException) -> str:
+    return "ABORT: %s" % e
+"""
+
+_CENSUS_PRINTING_DUPLICATE = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+def _shout_exc(e: BaseException) -> None:
+    print(e)
+"""
+
+_CENSUS_KEYWORD_DUPLICATE = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+def _emit_exc(e: IOLAPIError) -> None:
+    append_finding("pkg", actual=e)
+"""
+
+_CENSUS_SYNTHETIC_CONSUMER = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+def _crash_hook(exc_type: type[BaseException], exc: BaseException, tb: object) -> None:
+    detail = _redacted_exc(exc)
+    _emit_crash_report(detail, tb)
+"""
+
 
 def _annotates_an_exception(annotation: ast.expr | None) -> bool:
     """¿La anotación nombra un tipo de excepción en algún lugar de su expresión?
@@ -1279,6 +1326,53 @@ def test_the_census_ignores_ordinary_driver_shaped_functions() -> None:
     """
     names = _declared_exception_renderers(_CENSUS_NEGATIVE_CONTROL)
     assert names == [], f"el censo marcó funciones ordinarias del driver: {names}"
+
+
+def test_the_census_catches_a_percent_formatting_renderer() -> None:
+    """Quinto ciclo, bypass 1 — el predicado del censo no tenía la regla de ``%``.
+
+    ``_raw_exception_renders`` marca el formateo por porcentaje desde 30-11
+    (su regla 6) y el censo no: dos detectores con una política partida al medio
+    para la misma forma. El riesgo es concreto y el verifier lo nombró — es en lo
+    que se convierte la línea de ABORT del hook de crash si alguien la reescribe
+    de f-string a ``%``.
+    """
+    names = _declared_exception_renderers(_CENSUS_PERCENT_DUPLICATE)
+    assert names == ["_redacted_exc", "_fmt_abort"], f"censo: {names}"
+
+
+def test_the_census_catches_a_printing_renderer() -> None:
+    """Quinto ciclo, bypass 2 — entregar la excepción a un printer es decidir cómo se ve."""
+    names = _declared_exception_renderers(_CENSUS_PRINTING_DUPLICATE)
+    assert names == ["_redacted_exc", "_shout_exc"], f"censo: {names}"
+
+
+def test_the_census_catches_a_renderer_that_delegates_by_keyword() -> None:
+    """La misma regla, con el parámetro llegando por keyword y no posicionalmente.
+
+    El detector de sitios de handler ya mira los keywords desde 30-09; un censo
+    que sólo mirara los argumentos posicionales dejaría un agujero trivialmente
+    alcanzable abierto en el mismísimo plan que cierra otros dos.
+    """
+    names = _declared_exception_renderers(_CENSUS_KEYWORD_DUPLICATE)
+    assert names == ["_redacted_exc", "_emit_exc"], f"censo: {names}"
+
+
+def test_the_census_treats_a_synthetic_delegating_consumer_as_a_consumer() -> None:
+    """La exención de la regla de delegación, fijada contra un fuente controlado.
+
+    Es el gemelo sintético de
+    :func:`test_the_census_treats_the_excepthook_as_a_consumer_not_a_renderer`.
+    Tener los dos significa que la exención está verificada contra un fuente que
+    este archivo controla **y** contra el driver vivo: si mañana el hook de crash
+    cambia de forma, el caso vivo puede volverse vacuo sin que nadie lo note,
+    y éste no.
+    """
+    names = _declared_exception_renderers(_CENSUS_SYNTHETIC_CONSUMER)
+    assert names == ["_redacted_exc"], (
+        f"un consumidor que entrega su excepción al renderer sancionado y a nada más fue "
+        f"contado como segundo renderer; censo: {names}"
+    )
 
 
 def test_the_driver_declares_exactly_one_exception_renderer() -> None:
