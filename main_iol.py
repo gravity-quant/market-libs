@@ -48,6 +48,15 @@ Reglas de seguridad:
 - **Redacción (D-IOL-7/22):** todos los prints pasan por ``safe_print(text,
   secrets=[IOL_USER, IOL_PASSWORD, _refresh_token])``; el regex ``_BEARER``
   cubre tokens reflejados aun sin enumerar.
+- **Camino de crash (CR-02, única excepción a la regla anterior):**
+  ``_redacted_excepthook`` escribe a **stderr** y por eso NO pasa por
+  ``safe_print`` — ``safe_print`` escribe sólo a stdout y no toma parámetro de
+  archivo, y volcar la salida del crash a stdout corrompería la línea
+  ``SUMMARY`` que el operador y CI parsean. El texto que el hook emite es
+  libre de credenciales **por construcción**: es exactamente la salida de
+  ``_redacted_exc`` (un nombre de clase más un status code entero) seguida de
+  frames de traceback, que son archivo/línea/función y fuente estática del
+  repo, jamás valores del wire ni variables locales.
 
 Artefactos generados (NO commiteados en este plan; se commitean en 03-03 tras
 checkpoint humano):
@@ -66,9 +75,12 @@ import contextlib
 import datetime as dt
 import json
 import os
+import sys
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 from verification import require_env, safe_print, schema_of, write_findings
@@ -2024,5 +2036,62 @@ def main() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Camino de crash — hook de excepciones no atrapadas (CR-02 / T-30-10-01)
+# ---------------------------------------------------------------------------
+
+
+def _redacted_excepthook(
+    exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
+) -> None:
+    """Renderiza una excepción NO atrapada sin filtrar el body de error upstream.
+
+    **Qué filtraba el default.** Varios probes dejan escapar por diseño todo tipo
+    que caiga fuera de su ``except`` angosto — ``probe_login_sync`` sólo atrapa
+    ``IOLAuthError``, así que un 500 del endpoint de token escapa como
+    ``IOLAPIError``; ``probe_refresh_token`` no atrapa errores de transporte. Ese
+    escape llegaba al ``sys.excepthook`` default de CPython, que imprime el
+    **mensaje** de la excepción a stderr. Para ``IOLAPIError`` /
+    ``IOLAuthError`` / ``IOLRateLimitError`` ese mensaje es ``[<status>]
+    <body>``: el body de error upstream completo de una sesión de brokerage
+    autenticada. stderr lo captura CI, un sink que el threat model de esta fase
+    declara en scope (WR-02). Es la misma clase de vulnerabilidad que 30-08 y
+    30-09 cerraron en 32 sitios atrapados, dejada abierta en el camino no
+    atrapado.
+
+    **El crash se conserva (D-04).** Este hook imprime y retorna; CPython sigue
+    terminando el proceso con código distinto de cero. Un tipo inesperado debe
+    abortar el run, no degradarse a finding — lo único que cambia es el texto.
+
+    **Delega, no reimplementa (AD-30-09-01).** El único renderer sancionado del
+    driver es :func:`_redacted_exc`; un segundo renderer acá sería exactamente la
+    deriva que esa decisión existe para prevenir, y heredaría gratis el guard de
+    ``status_code`` no entero y la exención de ``IOLDecodeError``.
+
+    **La cadena de excepciones NO se renderiza, a propósito.** Se usa el helper
+    de la stdlib que toma el objeto traceback y por lo tanto imprime **sólo
+    frames** (archivo, línea, función y la línea de fuente, todo contenido
+    estático del repo). Los helpers que toman la excepción o el triple de
+    ``exc_info`` agregan la línea del mensaje y recorren ``__cause__`` /
+    ``__context__``, reintroduciendo la fuga que esta función existe para
+    eliminar. El costo es el mensaje de una causa encadenada: un costo de
+    triage, no una fuga.
+    """
+    del exc_type  # El nombre de la clase ya viaja dentro de ``_redacted_exc``.
+    print(f"ABORT: {_redacted_exc(exc)}", file=sys.stderr)
+    traceback.print_tb(tb)
+
+
+def _install_redacted_excepthook() -> None:
+    """Arma :func:`_redacted_excepthook` como el hook de excepciones del proceso.
+
+    Existe como función nombrada —en vez de una asignación suelta en el guard—
+    para que el test de subproceso instale el hook *exactamente* como lo hace
+    producción en vez de duplicar el wiring.
+    """
+    sys.excepthook = _redacted_excepthook
+
+
 if __name__ == "__main__":
+    _install_redacted_excepthook()
     main()
