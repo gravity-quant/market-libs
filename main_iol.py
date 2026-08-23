@@ -57,6 +57,13 @@ Reglas de seguridad:
   ``_redacted_exc`` (un nombre de clase más un status code entero) seguida de
   frames de traceback, que son archivo/línea/función y fuente estática del
   repo, jamás valores del wire ni variables locales.
+- **El camino de crash falla CERRADO (T-30-12-01/04):** si la maquinaria de
+  redacción falla a mitad de camino, el hook degrada el **texto** a un
+  placeholder estático, nunca la frontera. CPython, ante un excepthook que
+  levanta, cae al renderer default —que imprime ``[<status>] <body>``—, así que
+  un hook sin guard sería peor que no tener hook. La llamada al renderer va
+  adentro de un ``try``, y cada uno de los dos sinks de stderr va adentro de su
+  propio ``contextlib.suppress``.
 
 Artefactos generados (NO commiteados en este plan; se commitean en 03-03 tras
 checkpoint humano):
@@ -2041,6 +2048,14 @@ def main() -> None:
 # ---------------------------------------------------------------------------
 
 
+# Texto de fallback cuando el propio renderer sancionado falla. Es una constante
+# ESTÁTICA a propósito, y la staticidad es el punto: en el camino de fallback la
+# maquinaria que normalmente decide qué es seguro mostrar ya falló, así que
+# cualquier valor derivado de ``exc`` acá —su clase, su status, su repr— sería
+# una fuga a través de la mismísima rama que existe para prevenir una.
+_HOOK_RENDER_FAILED = "el render de la excepción falló; detalle suprimido a propósito"
+
+
 def _redacted_excepthook(
     exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
 ) -> None:
@@ -2076,9 +2091,35 @@ def _redacted_excepthook(
     ``__context__``, reintroduciendo la fuga que esta función existe para
     eliminar. El costo es el mensaje de una causa encadenada: un costo de
     triage, no una fuga.
+
+    **Falla CERRADO (T-30-12-01).** El contrato de CPython para un excepthook que
+    levanta (``PyErr_PrintEx``) es: imprimir un banner de error más el traceback
+    del propio hook, y después renderizar la excepción ORIGINAL con el excepthook
+    **default** — o sea ``str(exc)``, que para ``IOLAPIError`` / ``IOLAuthError``
+    / ``IOLRateLimitError`` es ``[<status>] <body>``. Un hook sin guard es por eso
+    estrictamente **peor** que no tener hook para esta amenaza: emite justo lo que
+    fue escrito para suprimir, y encima el operador cree que está cubierto. Tres
+    triggers alcanzables lo disparan (30-VERIFICATION.md, quinto ciclo): (a) un
+    ``RecursionError`` que llega con el stack casi agotado, donde el formateo o la
+    extracción de frames puede levantar; (b) un stderr roto o cerrado, que
+    convierte la escritura en ``BrokenPipeError``/``ValueError``; (c) un
+    ``IOLDecodeError`` que nunca asignó sus cuatro atributos type-only, que hace
+    levantar ``AttributeError`` adentro del renderer.
+
+    **Por qué ``BaseException`` y no ``Exception``.** Un ``MemoryError`` o un
+    ``KeyboardInterrupt`` que llegue a mitad del render tiene que quedar contenido
+    igual: el contrato no es "casi nada se escapa", es que **nada** se escapa.
+
+    **Por qué el texto de fallback es estático.** Ver :data:`_HOOK_RENDER_FAILED`:
+    en esa rama la maquinaria que filtra ya falló, así que nada derivado de la
+    excepción puede considerarse seguro ahí.
     """
     del exc_type  # El nombre de la clase ya viaja dentro de ``_redacted_exc``.
-    print(f"ABORT: {_redacted_exc(exc)}", file=sys.stderr)
+    try:
+        detail = _redacted_exc(exc)
+    except BaseException:
+        detail = _HOOK_RENDER_FAILED
+    print(f"ABORT: {detail}", file=sys.stderr)
     traceback.print_tb(tb)
 
 
