@@ -5,10 +5,10 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: Phase 30 plan 11 complete — AST regression lock widened (WR-01: 3 of 11 leak shapes -> 11 of 11) + falsifiable renderer census (WR-02: three bypasses closed)
-last_updated: "2026-08-23T18:23:55.783Z"
+stopped_at: "Phase 30 plan 11 complete — AST regression lock widened (WR-01: 3 of 11 leak shapes -> 11 of 11) + falsifiable renderer census (WR-02: three bypasses closed)"
+last_updated: "2026-08-23T21:04:24.424Z"
 last_activity: 2026-08-23
-last_activity_desc: Phase 30 plan 11 executed — regression-lock durability gap closed (test surface only)
+last_activity_desc: Phase 30 execution resumed (wave continue)
 progress:
   total_phases: 6
   completed_phases: 2
