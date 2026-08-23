@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 9/9 plans complete
+**Plans:** 9/11 plans complete
 
 Plans:
 **Wave 1**
@@ -117,6 +117,14 @@ Plans:
 **Wave 8 — cierre de la CLASE de fuga** *(30-VERIFICATION.md 2026-08-22, tercer ciclo: 6/7; el sitio de 30-08 quedó cerrado, pero la misma clase sigue viva en los otros 29 sitios de `main_iol.py` — descubierto por 30-REVIEW.md CR-01 después de que 30-08 fuera scopeado)*
 
 - [x] 30-09-PLAN.md — CR-01 file-wide: `_redacted_exc` como **único** renderizador de excepciones del driver, aplicado a los 29 `actual` + los 2 `_auth_failure_reason` (WR-02), con `IOLDecodeError` exceptuado por T-29-36 (WR-03) y `status_code` no-entero descartado (WR-06); lock de regresión por AST con control positivo y negativo para que el patrón no pueda volver en un sitio 32
+
+**Wave 9 — los dos BLOCKERs del cuarto ciclo** *(30-VERIFICATION.md 2026-08-23: 6/8; SC1-SC5 re-confirmados intactos y fuera de scope — los dos gaps abiertos son de integridad y de fuga en `main_iol.py`, hallados por 30-REVIEW.md CR-01/CR-02 y re-derivados por el verificador)*
+
+- [ ] 30-10-PLAN.md — CR-01 (integridad del harness) + CR-02 (fuga por la ruta de crash): `_seed_fid_counter()` sube el allocator por encima de los fids ya committeados (F-01 OPEN / F-02 FIXED) para que ninguna corrida sobrescriba un finding triageado ni pierda uno en silencio; y un `sys.excepthook` redactado rutea la excepción no capturada por `_redacted_exc` + traceback sin la línea de mensaje, preservando el crash no-cero de D-04
+
+**Wave 10 — durabilidad del lock de regresión** *(30-VERIFICATION.md WARNING / 30-REVIEW.md WR-01 + WR-02: no hay fuga viva hoy, pero el lock no enforcea lo que 30-09-SUMMARY.md afirma que enforcea)*
+
+- [ ] 30-11-PLAN.md — WR-01 + WR-02: `_raw_exception_renders` se ensancha a las 11 formas de fuga de la tabla del review (lectura de atributo `.message`/`.args`, delegación fuera de la allow-list sancionada, `%`-format, `.format()`, `exc_info` en handler sin binding, alias de un nivel) y el conteo de renderers se reemplaza por un censo falsificable sobre string de fuente que matchea `AsyncFunctionDef` a cualquier scope — con la aserción de auto-detección que caza el bug del propio snippet del review
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
