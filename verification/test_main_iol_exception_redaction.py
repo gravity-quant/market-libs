@@ -17,7 +17,7 @@ certificados por el docstring de ``exceptions.py`` como "tipos y rutas, **jamás
 un valor del wire" (T-29-36): redactarlos no compraría nada y le costaría al
 operador cualquier forma de triagear el finding.
 
-Este archivo codifica esa falsificación en cuatro secciones:
+Este archivo codifica esa falsificación en cinco secciones:
 
 1. El contrato de ``main_iol._redacted_exc`` — el ÚNICO renderer sancionado del
    driver — incluyendo el caso ``IOLDecodeError`` y el caso de un ``status_code``
@@ -43,10 +43,19 @@ Este archivo codifica esa falsificación en cuatro secciones:
    ``main_iol._redacted_excepthook`` (delegación al renderer sancionado, frames
    sin cadena de causas), su instalación, y —vía subproceso— que el proceso siga
    muriendo con exit code distinto de cero.
+5. El camino de crash falla **CERRADO**. La sección 4 sólo fija qué hace el hook
+   cuando renderiza sin incidentes; el contrato de CPython para un excepthook que
+   levanta es caer al renderer **default**, o sea emitir justo el body que el hook
+   existe para suprimir. Tres grupos de comportamiento —falla del renderer, falla
+   del sink, extremo a extremo por subproceso— cubren los tres triggers
+   alcanzables que ``30-VERIFICATION.md`` nombra, y un tercer detector por AST,
+   ``_unguarded_crash_path_calls``, fija los guards en su lugar con control
+   positivo de tres offenders, control negativo, no-vacuidad de la región y un
+   contra-caso de rama ``except``.
 
-Provenencia: ``30-VERIFICATION.md`` tercer y cuarto ciclo (BLOCKER + WARNING +
-INFO), ``30-REVIEW.md`` CR-01 / CR-02 / WR-02 / WR-03 / WR-06, threats
-T-30-09-01 a T-30-09-08 y T-30-10-01 a T-30-10-07.
+Provenencia: ``30-VERIFICATION.md`` tercer, cuarto y quinto ciclo (BLOCKER +
+WARNING + INFO), ``30-REVIEW.md`` CR-01 / CR-02 / WR-02 / WR-03 / WR-06, threats
+T-30-09-01 a T-30-09-08, T-30-10-01 a T-30-10-07 y T-30-12-01 a T-30-12-08.
 
 Los tests son **offline**: sin red, sin credenciales, sin ``.env``, sin
 ``httpx_mock``. Todo ``Client`` se construye con un token ya fresco, así que la
@@ -1662,18 +1671,111 @@ def _redacted_excepthook(exc_type, exc, tb):
 """
 
 
-def _unguarded_crash_path_calls(source: str) -> list[tuple[int, str]]:
-    """RED — todavía sin implementar; los controles de abajo se escriben primero.
+def _is_suppress_with(node: ast.With) -> bool:
+    """¿Alguno de los items de este ``with`` es una llamada a ``suppress``?"""
+    return any(
+        isinstance(item.context_expr, ast.Call)
+        and _called_name(item.context_expr.func) == "suppress"
+        for item in node.items
+    )
 
-    Existe como stub y no como ausencia porque ``ruff`` (regla ``F821``, gate de
-    CI) rechaza un fuente que referencie un nombre indefinido, así que un commit
-    RED sin ninguna definición no sería committeable. El punto de la disciplina se
-    conserva igual: los cuatro controles ya están escritos y fijados cuando se
-    escribe el cuerpo, así que el detector no puede moldearse para calzar con lo
-    que le salga producir.
+
+def _has_an_enclosing_guard(
+    call: ast.Call, func: ast.FunctionDef | ast.AsyncFunctionDef, parents: dict[ast.AST, ast.AST]
+) -> bool:
+    """¿La llamada tiene un guard entre ella y su propia función contenedora?
+
+    Sube por el mapa de padres hasta ``func`` —y no más allá, así que un guard de
+    un caller no cuenta— y acepta dos formas: un ``ast.Try`` en cuyo **body**
+    vive el nodo, o un ``ast.With`` de ``suppress`` en cuyo body vive el nodo.
     """
-    del source
-    raise NotImplementedError
+    child: ast.AST = call
+    while child is not func:
+        parent = parents.get(child)
+        if parent is None:
+            return False
+        if isinstance(parent, ast.Try) and any(stmt is child for stmt in parent.body):
+            return True
+        if (
+            isinstance(parent, ast.With)
+            and any(stmt is child for stmt in parent.body)
+            and _is_suppress_with(parent)
+        ):
+            return True
+        child = parent
+    return False
+
+
+def _unguarded_crash_path_calls(source: str) -> list[tuple[int, str]]:
+    """``(lineno, etiqueta)`` por cada llamada del camino de crash que corre sin guard.
+
+    Toma un **string de fuente**, no un path — la misma decisión que
+    :func:`_raw_exception_renders` y :func:`_declared_exception_renderers`, y por
+    la misma razón: hace posibles los controles de abajo sin tocar ningún
+    archivo, y deja que el audit de la Phase 33 apunte el detector a los otros
+    cinco ``main_*.py`` con una parametrización en vez de una reescritura.
+
+    **Qué asiertan AD-30-10-01 y este plan juntos.** El excepthook es el último
+    frame antes del fallback de CPython: si algo se escapa de él, CPython imprime
+    un banner y renderiza la excepción original con el excepthook **default**, que
+    para ``IOLAPIError`` / ``IOLAuthError`` / ``IOLRateLimitError`` emite
+    ``[<status>] <body>``. Por lo tanto toda llamada que pueda levantar adentro de
+    la región del camino de crash tiene que estar guardada. La región es
+    :data:`_CRASH_PATH_FUNCTIONS` y las llamadas son
+    :data:`_MUST_BE_GUARDED_CALLS`; restringirse a esa región es deliberado —
+    marcar cada ``print`` del driver convertiría el lock en ruido y el próximo
+    autor lo borraría (T-30-11-05).
+
+    **Las dos formas de guard aceptadas.** Un ``ast.Try`` que contenga la llamada
+    en su ``body``, y un ``ast.With`` de ``contextlib.suppress`` que la contenga en
+    el suyo. Los dos sinks usan la forma ``suppress`` porque el rule set ``SIM``
+    del ruff de la raíz rechaza ``try``/``except``/``pass`` (SIM105), incluso con
+    un comentario en el cuerpo del ``except``.
+
+    **El ``body``, nunca un handler.** Una llamada que vive en la rama ``except``
+    de un ``try`` **no** está protegida por ese mismo ``try``: si levanta ahí, se
+    escapa igual. Aceptar cualquier ancestro ``ast.Try`` dejaría pasar el edit
+    realista de mover el renderer a la rama de fallback, que reabre la fuga
+    entera. Lo mismo vale para ``orelse`` y ``finalbody``.
+
+    Lo que queda **sin verificar**, y se dice acá explícitamente porque un lock
+    que insinúa cobertura que no tiene es su propio modo de falla:
+
+    * que el guard **atrape lo correcto**. Un ``except ValueError:`` alrededor de
+      la llamada al renderer pasaría este chequeo y fallaría los tests de
+      comportamiento de las Tasks 1 y 2. Que existan los dos es exactamente la
+      razón: el chequeo estático fija la **forma**, los tests fijan el
+      **comportamiento**, y ninguno de los dos subsume al otro.
+    * que el cuerpo del guard no reintroduzca la fuga por otra vía — de eso se
+      ocupa :func:`_raw_exception_renders`.
+    * un guard instalado por un caller: la búsqueda se corta en la propia función
+      contenedora, a propósito, porque el hook puede ser invocado por CPython y
+      ahí no hay caller que garantice nada.
+    * el aliasing del callee (``p = print``; ``p(...)``), invisible como en los
+      otros dos detectores de este archivo.
+    """
+    tree = ast.parse(source)
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    offenders: set[tuple[int, str]] = set()
+    for func in ast.walk(tree):
+        if not isinstance(func, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if func.name not in _CRASH_PATH_FUNCTIONS:
+            continue
+        for node in ast.walk(func):
+            if not isinstance(node, ast.Call):
+                continue
+            called = _called_name(node.func)
+            if called not in _MUST_BE_GUARDED_CALLS:
+                continue
+            if _has_an_enclosing_guard(node, func, parents):
+                continue
+            offenders.add((node.lineno, f"{called}() sin guard en {func.name}"))
+    return sorted(offenders)
 
 
 def test_the_crash_path_lock_flags_the_pre_fix_hook() -> None:
