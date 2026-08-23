@@ -74,6 +74,7 @@ import textwrap
 import time
 from collections.abc import Callable
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 import httpx
@@ -1440,4 +1441,168 @@ def test_the_installed_hook_falls_closed_when_the_renderer_raises(tmp_path: Path
     assert _EXCEPTHOOK_FAILURE_BANNER not in proc.stderr, (
         f"CPython reportó que el excepthook levantó, o sea que cayó al renderer "
         f"default.\n--- stderr ---\n{proc.stderr}"
+    )
+
+
+class _StderrThatFailsOnWrite:
+    """stderr mínimo cuya escritura levanta — trigger (b) de 30-VERIFICATION.md.
+
+    Un stderr roto o cerrado (``... 2>&1 | head``, un runner de CI con el pipe
+    cerrado) convierte la escritura del hook en ``BrokenPipeError`` /
+    ``ValueError``. Esta clase reproduce esa condición sin depender del sistema
+    de archivos ni de un pipe real.
+
+    ``fail_on`` es el substring que dispara la falla; el sentinel ``None``
+    significa "fallar en **toda** escritura". El modo **selectivo** es lo que
+    hace observable la independencia de los dos guards: el escritor de frames
+    jamás emite el prefijo del ABORT, así que con ``fail_on`` apuntado a ese
+    prefijo, una implementación correcta pierde la línea de ABORT y conserva los
+    frames en :attr:`writes`. Una que envolviera ambas escrituras en un solo
+    guard —o que retornara temprano tras la primera falla— dejaría ``writes``
+    vacío, y eso es exactamente lo que el test que la usa falsifica.
+    """
+
+    def __init__(self, fail_on: str | None = None) -> None:
+        self.fail_on = fail_on
+        self.writes: list[str] = []
+
+    def write(self, text: str) -> int:
+        if self.fail_on is None or self.fail_on in text:
+            raise BrokenPipeError("stderr roto")
+        self.writes.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        if self.fail_on is None:
+            raise BrokenPipeError("stderr roto")
+
+    @property
+    def recorded(self) -> str:
+        return "".join(self.writes)
+
+
+def test_the_hook_survives_a_broken_stderr(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """T-30-12-02 — ninguna falla del sink puede escaparse del hook.
+
+    Se usa ``monkeypatch.setattr`` sobre ``sys.stderr`` y nunca una asignación
+    directa, para que pytest lo restaure aun si una aserción falla.
+    """
+    fake = _StderrThatFailsOnWrite()
+    monkeypatch.setattr(sys, "stderr", fake)
+    exc = _caught(IOLAPIError(500, _error_body_with_marker()))
+
+    assert main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__) is None, (
+        "un stderr roto no puede propagar fuera del hook: ahí afuera está el fallback de CPython"
+    )
+
+    assert fake.writes == [], f"la escritura debía fallar, se registró: {fake.writes!r}"
+    assert _WIRE_BODY_MARKER not in capsys.readouterr().out, "marker desviado a stdout"
+
+
+def test_the_hook_still_prints_frames_when_the_abort_line_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T-30-12-03 — los dos guards son INDEPENDIENTES, y esto es lo que lo prueba.
+
+    ``30-VERIFICATION.md`` exige que las dos llamadas de emisión estén guardadas
+    **por separado**. Con el stream fallando sólo ante el prefijo del ABORT, una
+    implementación de un solo guard (o con return temprano) pierde también los
+    frames y falla acá; una de dos guards conserva los frames, que son contenido
+    estático del repo y el único material de triage que le queda al operador
+    cuando la línea de ABORT se perdió.
+    """
+    fake = _StderrThatFailsOnWrite(fail_on="ABORT")
+    monkeypatch.setattr(sys, "stderr", fake)
+    exc = _caught(IOLAPIError(500, _error_body_with_marker()))
+
+    assert main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__) is None
+
+    assert 'File "' in fake.recorded, (
+        f"la falla de la línea de ABORT se llevó puestos los frames — los dos guards "
+        f"no son independientes. Registrado: {fake.recorded!r}"
+    )
+    assert "line " in fake.recorded, f"registrado: {fake.recorded!r}"
+    assert not any("ABORT" in write for write in fake.writes), (
+        f"la línea de ABORT no debía haberse registrado: {fake.writes!r}"
+    )
+    assert _WIRE_BODY_MARKER not in fake.recorded, f"marker en stderr: {fake.recorded!r}"
+
+
+def test_the_hook_survives_a_failing_frame_printer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """La dirección espejo — una falla del segundo sink no suprime al primero.
+
+    Trigger (a): con el stack casi agotado, la extracción de frames es
+    exactamente lo que puede levantar. La línea de ABORT ya se emitió y debe
+    sobrevivir.
+    """
+
+    def _boom(tb: TracebackType | None, *args: Any, **kwargs: Any) -> None:
+        del tb, args, kwargs
+        raise RuntimeError("la extracción de frames falló")
+
+    monkeypatch.setattr(main_iol.traceback, "print_tb", _boom)
+    exc = _caught(IOLAPIError(500, _error_body_with_marker()))
+
+    assert main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__) is None, (
+        "una falla del escritor de frames no puede propagar fuera del hook"
+    )
+
+    captured = capsys.readouterr()
+    assert "ABORT: IOLAPIError status_code=500" in captured.err, (
+        f"la falla de los frames se llevó puesta la línea de ABORT: {captured.err!r}"
+    )
+    assert _WIRE_BODY_MARKER not in captured.err, f"marker en stderr: {captured.err!r}"
+
+
+def test_the_installed_hook_survives_a_closed_stderr(tmp_path: Path) -> None:
+    """Extremo a extremo con stderr CERRADO, por CPython real.
+
+    Pre-fix esto no era vacuo ni de lejos: al fallar también la escritura del
+    fallback, CPython cae a su ruta ``lost sys.stderr``, que vuelca el **repr**
+    del objeto excepción directo al fd 2 — o sea el body upstream completo,
+    marker incluido, por un sink que ni siquiera es ``sys.stderr``.
+
+    Se afirma ``!= 0`` y no un código puntual: con stderr cerrado el shutdown del
+    intérprete puede sumar su propia falla de flush y cambiar el status. El
+    contrato de D-04 es "el run aborta", no "el status es 1".
+    """
+    child = textwrap.dedent(
+        f"""
+        import sys
+        import main_iol
+        from iol_client import IOLAPIError
+
+        main_iol._install_redacted_excepthook()
+        body = {_WIRE_BODY_MARKER!r} + "-cuenta-999999"
+        sys.stderr.close()
+        raise IOLAPIError(500, body)
+        """
+    )
+    env = {
+        **os.environ,
+        "IOL_TOKEN_CACHE_PATH": str(tmp_path / "token-cache.json"),
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", child],
+        cwd=_REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert _WIRE_BODY_MARKER not in proc.stderr, (
+        f"marker en stderr — se alcanzó la ruta de fallback.\n--- stderr ---\n{proc.stderr}"
+    )
+    assert _WIRE_BODY_MARKER not in proc.stdout, f"marker en stdout.\n--- stdout ---\n{proc.stdout}"
+    assert proc.returncode != 0, (
+        f"el crash fue tragado: el intent D-04 exige código != 0.\n--- stderr ---\n{proc.stderr}"
+    )
+    assert _EXCEPTHOOK_FAILURE_BANNER not in proc.stderr, (
+        f"CPython reportó que el excepthook levantó.\n--- stderr ---\n{proc.stderr}"
     )
