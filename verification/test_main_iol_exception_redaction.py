@@ -1606,3 +1606,142 @@ def test_the_installed_hook_survives_a_closed_stderr(tmp_path: Path) -> None:
     assert _EXCEPTHOOK_FAILURE_BANNER not in proc.stderr, (
         f"CPython reportó que el excepthook levantó.\n--- stderr ---\n{proc.stderr}"
     )
+
+
+# Las funciones que forman la región del camino de crash. Fuera de ellas el
+# detector no opina: un ``print`` sin guard en un probe es correcto y marcarlo
+# convertiría el lock en ruido que el próximo autor borra (T-30-11-05).
+_CRASH_PATH_FUNCTIONS = ("_redacted_excepthook", "_emit_crash_report")
+
+# Las llamadas que adentro de esa región JAMÁS pueden correr sin guard: el
+# renderer sancionado y los dos sinks. El escritor de frames se matchea por su
+# nombre de atributo, que es lo que :func:`_called_name` devuelve para una
+# llamada sobre un ``ast.Attribute``.
+_MUST_BE_GUARDED_CALLS = ("_redacted_exc", "print", "print_tb")
+
+# Control POSITIVO — el hook exactamente como estaba antes de 30-12. Los tres
+# offenders son la llamada al renderer, el print de la línea de ABORT y la
+# llamada al escritor de frames.
+_UNGUARDED_CRASH_PATH_SOURCE = """
+def _redacted_excepthook(exc_type, exc, tb):
+    del exc_type
+    print(f"ABORT: {_redacted_exc(exc)}", file=sys.stderr)
+    traceback.print_tb(tb)
+"""
+_UNGUARDED_CRASH_PATH_LINES = (4, 4, 5)
+
+# Control NEGATIVO — la forma guardada que 30-12 establece.
+_GUARDED_CRASH_PATH_SOURCE = """
+def _redacted_excepthook(exc_type, exc, tb):
+    del exc_type
+    try:
+        detail = _redacted_exc(exc)
+    except BaseException:
+        detail = _HOOK_RENDER_FAILED
+    _emit_crash_report(detail, tb)
+
+
+def _emit_crash_report(detail, tb):
+    with contextlib.suppress(BaseException):
+        print(f"ABORT: {detail}", file=sys.stderr)
+    with contextlib.suppress(BaseException):
+        traceback.print_tb(tb)
+"""
+
+# CONTRA-CASO — el renderer movido a la rama de fallback. Ese ``try`` no lo
+# protege: si levanta ahí, se escapa igual. Un detector que aceptara cualquier
+# ancestro ``ast.Try`` dejaría pasar exactamente este edit.
+_RENDERER_IN_THE_EXCEPT_BRANCH_SOURCE = """
+def _redacted_excepthook(exc_type, exc, tb):
+    del exc_type
+    try:
+        detail = "sin detalle"
+    except BaseException:
+        detail = _redacted_exc(exc)
+    _emit_crash_report(detail, tb)
+"""
+
+
+def _unguarded_crash_path_calls(source: str) -> list[tuple[int, str]]:
+    """RED — todavía sin implementar; los controles de abajo se escriben primero.
+
+    Existe como stub y no como ausencia porque ``ruff`` (regla ``F821``, gate de
+    CI) rechaza un fuente que referencie un nombre indefinido, así que un commit
+    RED sin ninguna definición no sería committeable. El punto de la disciplina se
+    conserva igual: los cuatro controles ya están escritos y fijados cuando se
+    escribe el cuerpo, así que el detector no puede moldearse para calzar con lo
+    que le salga producir.
+    """
+    del source
+    raise NotImplementedError
+
+
+def test_the_crash_path_lock_flags_the_pre_fix_hook() -> None:
+    """Control POSITIVO — la razón por la que este lock no es vacuo (T-30-11-04).
+
+    Se corre contra el fuente sintético pre-fix y no revirtiendo el driver: las
+    Tasks 1 y 2 ya aterrizaron cuando esto corre, y un lock que sólo supiera
+    decir "hoy está bien" no probaría que sabe decir "hoy está mal".
+
+    Se afirma la tupla exacta de líneas, no un conteo: un angostamiento futuro de
+    cualquiera de las tres reglas falla acá de inmediato en vez de degradar la
+    cobertura en silencio.
+    """
+    offenders = _unguarded_crash_path_calls(_UNGUARDED_CRASH_PATH_SOURCE)
+    assert len(offenders) == 3, f"se esperaban 3 offenders, hubo {len(offenders)}: {offenders}"
+    assert tuple(lineno for lineno, _ in offenders) == _UNGUARDED_CRASH_PATH_LINES, f"{offenders}"
+
+
+def test_the_crash_path_lock_accepts_the_guarded_shape() -> None:
+    """Control NEGATIVO — un lock que sobre-marca es un lock que el próximo autor borra."""
+    offenders = _unguarded_crash_path_calls(_GUARDED_CRASH_PATH_SOURCE)
+    assert offenders == [], f"el detector marcó código guardado: {offenders}"
+
+
+def test_the_crash_path_lock_does_not_accept_an_except_branch_as_a_guard() -> None:
+    """Un ``try`` no protege a lo que vive en su propio handler.
+
+    Es el edit realista que un detector ingenuo dejaría pasar: mover la llamada
+    al renderer a la rama de fallback conserva el ``ast.Try`` como ancestro y aun
+    así reabre la fuga entera.
+    """
+    offenders = _unguarded_crash_path_calls(_RENDERER_IN_THE_EXCEPT_BRANCH_SOURCE)
+    assert [label for _, label in offenders] == [
+        "_redacted_exc() sin guard en _redacted_excepthook"
+    ], f"la llamada en la rama except debía marcarse: {offenders}"
+
+
+def test_the_crash_path_region_is_not_empty_in_the_real_driver() -> None:
+    """NO-VACUIDAD DE LA REGIÓN — renombrar una función no puede vaciar el lock.
+
+    El filtro por nombre es la puerta de entrada del detector: si ninguna de las
+    dos funciones existiera, el lock de abajo pasaría verde por no encontrar nada
+    que chequear. Es la misma clase de vacuidad que T-30-11-04 existe para
+    prevenir, un nivel más arriba.
+    """
+    tree = ast.parse(_DRIVER_PATH.read_text(encoding="utf-8"))
+    defined = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    missing = [name for name in _CRASH_PATH_FUNCTIONS if name not in defined]
+    assert not missing, (
+        f"la región del camino de crash quedó vacía: {missing} no está/n en main_iol.py. "
+        f"Renombrar una de esas funciones sin actualizar _CRASH_PATH_FUNCTIONS deja el lock "
+        f"chequeando nada."
+    )
+
+
+def test_no_crash_path_call_in_the_driver_runs_unguarded() -> None:
+    """El lock: en ``main_iol.py`` ninguna llamada del camino de crash corre sin guard."""
+    source = _DRIVER_PATH.read_text(encoding="utf-8")
+    offenders = _unguarded_crash_path_calls(source)
+    assert not offenders, (
+        f"main_iol.py tiene {len(offenders)} llamada(s) sin guard en el camino de crash: "
+        f"{offenders}. El hook es el último frame antes del fallback de CPython, que ante un "
+        f"excepthook que levanta renderiza la excepción original con el renderer DEFAULT — o "
+        f"sea ``[<status>] <body>``, el body de error upstream completo. Toda llamada que pueda "
+        f"levantar ahí adentro va en un ``try`` (por su ``body``, nunca por un handler) o en un "
+        f"``contextlib.suppress``."
+    )
