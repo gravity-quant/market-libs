@@ -17,7 +17,7 @@ certificados por el docstring de ``exceptions.py`` como "tipos y rutas, **jamás
 un valor del wire" (T-29-36): redactarlos no compraría nada y le costaría al
 operador cualquier forma de triagear el finding.
 
-Este archivo codifica esa falsificación en tres secciones:
+Este archivo codifica esa falsificación en cuatro secciones:
 
 1. El contrato de ``main_iol._redacted_exc`` — el ÚNICO renderer sancionado del
    driver — incluyendo el caso ``IOLDecodeError`` y el caso de un ``status_code``
@@ -27,9 +27,20 @@ Este archivo codifica esa falsificación en tres secciones:
    ``append_finding`` puede llevarlo, ni el detalle de la cascada de auth.
 3. Un lock de regresión por AST sobre el fuente del driver, con control positivo
    (no-vacuidad, T-30-06-05) y control negativo (no ruido).
+4. El **camino de crash**: varios probes dejan escapar por diseño todo tipo fuera
+   de su ``except`` angosto (``probe_login_sync`` sólo atrapa ``IOLAuthError``,
+   así que un 500 del endpoint de token escapa como ``IOLAPIError``). Sin hook,
+   ese escape llega al ``sys.excepthook`` default de CPython, que renderiza el
+   mensaje de la excepción a stderr — y stderr lo captura CI. Es la misma clase
+   de vulnerabilidad que las secciones 1-3 cierran en los 32 sitios atrapados,
+   dejada abierta en el camino no atrapado. Esta sección fija el contrato de
+   ``main_iol._redacted_excepthook`` (delegación al renderer sancionado, frames
+   sin cadena de causas), su instalación, y —vía subproceso— que el proceso siga
+   muriendo con exit code distinto de cero.
 
-Provenencia: ``30-VERIFICATION.md`` tercer ciclo (BLOCKER + WARNING + INFO),
-``30-REVIEW.md`` CR-01 / WR-02 / WR-03 / WR-06, threats T-30-09-01 a T-30-09-08.
+Provenencia: ``30-VERIFICATION.md`` tercer y cuarto ciclo (BLOCKER + WARNING +
+INFO), ``30-REVIEW.md`` CR-01 / CR-02 / WR-02 / WR-03 / WR-06, threats
+T-30-09-01 a T-30-09-08 y T-30-10-01 a T-30-10-07.
 
 Los tests son **offline**: sin red, sin credenciales, sin ``.env``, sin
 ``httpx_mock``. Todo ``Client`` se construye con un token ya fresco, así que la
@@ -50,6 +61,10 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import subprocess
+import sys
+import textwrap
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -525,3 +540,191 @@ def test_the_driver_declares_exactly_one_exception_renderer() -> None:
         if isinstance(node, ast.FunctionDef) and node.name == "_redacted_exc"
     ]
     assert len(renderers) == 1, f"se esperaba exactamente un _redacted_exc, hay {len(renderers)}"
+
+
+# ---------------------------------------------------------------------------
+# 4. Camino de crash — una excepción no atrapada tampoco filtra el body
+# ---------------------------------------------------------------------------
+#
+# CR-02 / 30-VERIFICATION.md cuarto ciclo, truth 8. Las secciones 1-3 cubren los
+# 32 sitios donde el driver ATRAPA y reporta. Varios probes, en cambio, dejan
+# escapar por diseño todo lo que cae fuera de su ``except`` angosto — es el
+# intent D-04 (un tipo inesperado debe abortar el run, no degradarse a finding).
+# Ese escape llegaba al ``sys.excepthook`` default, que renderiza el mensaje de
+# la excepción; para ``IOLAPIError`` ese mensaje es ``[<status>] <body>``, o sea
+# el body de error upstream completo de una sesión de brokerage autenticada,
+# escrito a stderr y capturado por los logs de CI.
+#
+# El hook redactado no cambia el intent: imprime y retorna, y CPython sigue
+# saliendo con código distinto de cero. Lo único que cambia es el texto.
+
+
+def _caught(exc: BaseException) -> BaseException:
+    """Levanta y atrapa ``exc`` para que cargue un ``__traceback__`` real.
+
+    El hook recibe el triple ``(tipo, excepción, traceback)`` que CPython le
+    pasaría; construir la excepción sin levantarla dejaría ``tb=None`` y volvería
+    vacua la mitad del contrato que exige frames.
+    """
+    try:
+        raise exc
+    except BaseException as caught:
+        return caught
+
+
+def _hook_stderr(exc: BaseException, capsys: pytest.CaptureFixture[str]) -> str:
+    """Corre el hook sobre ``exc`` y devuelve lo que escribió a stderr."""
+    main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__)
+    return capsys.readouterr().err
+
+
+def test_the_excepthook_renders_only_the_sanctioned_facts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """T-30-10-01 — el hook emite exactamente los dos hechos que ``_redacted_exc`` autoriza."""
+    exc = _caught(IOLAPIError(500, _error_body_with_marker()))
+
+    err = _hook_stderr(exc, capsys)
+
+    assert "IOLAPIError status_code=500" in err, err
+    assert _WIRE_BODY_MARKER not in err, f"marker filtrado a stderr: {err!r}"
+
+
+def test_the_excepthook_still_renders_the_traceback_frames(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No-vacuidad del caso anterior: un hook que no imprimiera nada lo pasaría vacuo.
+
+    Los frames son contenido estático del repo (archivo, línea, función y la
+    línea de fuente), nunca datos del wire ni variables locales — T-30-10-03.
+    """
+    exc = _caught(IOLAPIError(500, _error_body_with_marker()))
+
+    err = _hook_stderr(exc, capsys)
+
+    assert 'File "' in err, f"el hook no renderizó ningún frame: {err!r}"
+    assert "line " in err, f"el hook no renderizó ningún frame: {err!r}"
+
+
+def test_the_excepthook_does_not_render_a_chained_cause(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Falsifica toda la familia de implementaciones que renderizan la cadena.
+
+    El helper de la stdlib que toma la excepción (o el triple de ``exc_info``)
+    agrega la línea del mensaje y recorre ``__cause__``/``__context__``; el que
+    toma el objeto traceback imprime frames y nada más. Un ``raise X from Y``
+    donde ``Y`` carga el marker distingue ambos.
+    """
+    try:
+        raise IOLAPIError(500, "sin marker acá") from ValueError(_error_body_with_marker())
+    except IOLAPIError as exc:
+        err = _hook_stderr(exc, capsys)
+
+    assert "IOLAPIError status_code=500" in err, err
+    assert _WIRE_BODY_MARKER not in err, f"la cadena de causas filtró el marker: {err!r}"
+
+
+def test_the_excepthook_inherits_the_non_integer_status_guard(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """WR-06 se hereda por delegación: el hook no reimplementa la redacción (T-30-10-02)."""
+    exc = _caught(_ExceptionWithNonIntegerStatus(f"{_WIRE_BODY_MARKER}-status"))
+
+    err = _hook_stderr(exc, capsys)
+
+    assert "_ExceptionWithNonIntegerStatus status_code=None" in err, err
+    assert _WIRE_BODY_MARKER not in err, f"marker filtrado a stderr: {err!r}"
+
+
+def test_the_installed_hook_survives_the_real_crash_machinery(tmp_path: Path) -> None:
+    """Extremo a extremo por CPython real: sin marker en ningún sink, y exit code != 0.
+
+    Los casos de arriba llaman al hook directamente. Éste lo instala como
+    producción lo instala y deja que el intérprete lo invoque, así que también
+    prueba que el crash sobrevive (D-04 / T-30-10-06): un hook que se tragara la
+    excepción daría exit code 0 y convertiría un abort en un falso éxito.
+
+    El body se construye desde una variable para que la propia línea que levanta
+    no pueda cargar el marker.
+    """
+    child = textwrap.dedent(
+        f"""
+        import main_iol
+        from iol_client import IOLAPIError
+
+        main_iol._install_redacted_excepthook()
+        body = {_WIRE_BODY_MARKER!r} + "-cuenta-999999"
+        raise IOLAPIError(500, body)
+        """
+    )
+    env = {
+        **os.environ,
+        "IOL_TOKEN_CACHE_PATH": str(tmp_path / "token-cache.json"),
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", child],
+        cwd=_REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert proc.returncode != 0, (
+        "el crash fue tragado: el intent D-04 exige que el proceso muera con código != 0"
+    )
+    assert "ABORT: IOLAPIError status_code=500" in proc.stderr, (
+        f"el hook no corrió.\n--- stderr ---\n{proc.stderr}"
+    )
+    assert _WIRE_BODY_MARKER not in proc.stderr, f"marker en stderr: {proc.stderr!r}"
+    assert _WIRE_BODY_MARKER not in proc.stdout, f"marker en stdout: {proc.stdout!r}"
+
+
+def test_the_installer_assigns_the_redacted_hook(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El instalador existe como función nombrada y realmente asigna ``sys.excepthook``.
+
+    Se verifica por comportamiento, no leyendo el fuente: ``monkeypatch`` restaura
+    el hook original al terminar, así que ningún otro test hereda la instalación.
+    """
+    monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
+
+    main_iol._install_redacted_excepthook()
+
+    assert sys.excepthook is main_iol._redacted_excepthook
+
+
+def _main_guard_body() -> list[ast.stmt]:
+    """Cuerpo del bloque ``if __name__ == "__main__":`` module-level del driver."""
+    tree = ast.parse(_DRIVER_PATH.read_text(encoding="utf-8"))
+    guards = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "__name__"
+    ]
+    assert len(guards) == 1, f"se esperaba exactamente un guard __main__, hay {len(guards)}"
+    return guards[0].body
+
+
+def test_the_main_guard_installs_the_hook_before_running_main() -> None:
+    """El lock: el hook queda armado ANTES de que corra cualquier código del driver.
+
+    Un hook definido pero nunca instalado —o instalado después de ``main()``, que
+    es decir nunca— falla acá. Es el análogo exacto del lock de wiring del seed
+    de fids en ``verification/test_main_iol_fid_seed.py``.
+    """
+    body = _main_guard_body()
+    called = [
+        node.value.func.id
+        for node in body
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+    ]
+    assert called == ["_install_redacted_excepthook", "main"], (
+        f"el guard __main__ debe instalar el hook y después llamar a main(); es: {called}"
+    )
