@@ -755,6 +755,25 @@ _SANCTIONED_DELEGATES = ("_redacted_exc", "type", "isinstance", "getattr")
 # ``ast.Attribute`` por su ``.attr``.
 _STRINGIFYING_CALLS = ("repr", "str", "format")
 
+# Los callees que una función anotada con un tipo de excepción puede recibir su
+# parámetro sin que eso la convierta en un **segundo renderer** bajo el censo de
+# :func:`_declared_exception_renderers`. ``_redacted_exc`` es la única decisión
+# autorizada de la fase (AD-30-09-01), y entregarle la excepción es lo que
+# define a un *consumidor*: es lo que hace ``main_iol._redacted_excepthook`` y
+# por lo que no aparece en el censo. ``type`` e ``isinstance`` son introspección
+# que devuelve una clase o un bool.
+#
+# **Por qué no es :data:`_SANCTIONED_DELEGATES`, y por qué no se fusionan.** Las
+# dos constantes contestan preguntas distintas. Aquélla decide si un sitio de
+# handler filtra, y sanciona ``getattr`` como callee para después adjudicarlo
+# sobre su argumento de atributo (reglas 9 y 10). Ésta decide si una **función**
+# está tomando una decisión de render, y ahí cualquier ``getattr`` sobre el
+# parámetro cuenta como lectura: una función que introspecciona su excepción
+# está decidiendo cómo se ve, sin importar qué atributo mire. Fusionarlas
+# rompería el censo del renderer sancionado, cuyo cuerpo es exactamente un
+# ``getattr`` más un ``type(...)``.
+_CENSUS_SANCTIONED_DELEGATES = ("_redacted_exc", "type", "isinstance")
+
 
 def _called_name(func: ast.expr) -> str | None:
     """Nombre simple al que resuelve el ``func`` de una llamada, o ``None``."""
@@ -1166,13 +1185,29 @@ def _reads_the_exception(func: ast.FunctionDef | ast.AsyncFunctionDef, param: st
     """¿El cuerpo de ``func`` lee, introspecciona o stringifica el parámetro ``param``?
 
     Cuatro formas, que son las que distinguen *renderizar* de *pasar*:
-    una lectura de atributo, una llamada a ``getattr`` sobre el parámetro, una
-    llamada de :data:`_STRINGIFYING_CALLS` que lo recibe, y su interpolación
-    directa en un f-string.
 
-    Lo que deliberadamente **no** cuenta es entregarlo a otra función: por eso
-    ``_redacted_excepthook`` —que hace exactamente eso con el renderer
-    sancionado— no es un renderer.
+    1. una lectura de atributo sobre el parámetro;
+    2. su interpolación directa en un f-string;
+    3. su formateo por porcentaje (``ast.BinOp`` con ``ast.Mod`` y el parámetro
+       como operando derecho) — la **misma** regla que
+       :func:`_raw_exception_renders` implementa desde 30-11 en su regla 6,
+       espejada y no reinventada. Que viviera en un solo detector era la
+       inconsistencia que nombró el quinto ciclo de ``30-VERIFICATION.md``, y es
+       precisamente en lo que se convierte la línea de ABORT del hook de crash si
+       alguien la reescribe de f-string a ``%``;
+    4. **delegación no sancionada**: el parámetro entregado —posicional o por
+       keyword— a cualquier llamada cuyo callee no esté en
+       :data:`_CENSUS_SANCTIONED_DELEGATES`. Esta regla única subsume el caso
+       especial anterior de ``getattr`` / :data:`_STRINGIFYING_CALLS`, que ya no
+       existe por separado: ``getattr`` y ``str`` no están en el conjunto
+       sancionado, así que siguen contando como lectura por la vía genérica.
+
+    Lo que deliberadamente **no** cuenta es entregarlo al **renderer sancionado**
+    (:data:`_CENSUS_SANCTIONED_DELEGATES`): eso es lo que define a un consumidor
+    y es lo que mantiene a ``main_iol._redacted_excepthook`` fuera del censo pese
+    a estar anotado con un tipo de excepción. Entregarlo a cualquier otra cosa sí
+    cuenta — antes de 30-13 no contaba ninguna delegación, y por ahí pasaba
+    ``print(<param>)`` sin marca.
     """
     for node in ast.walk(func):
         if isinstance(node, ast.Attribute):
@@ -1183,11 +1218,22 @@ def _reads_the_exception(func: ast.FunctionDef | ast.AsyncFunctionDef, param: st
             if isinstance(node.value, ast.Name) and node.value.id == param:
                 return True
             continue
+        if isinstance(node, ast.BinOp):
+            if (
+                isinstance(node.op, ast.Mod)
+                and isinstance(node.right, ast.Name)
+                and node.right.id == param
+            ):
+                return True
+            continue
         if not isinstance(node, ast.Call):
             continue
         called = _called_name(node.func)
-        takes_param = any(isinstance(arg, ast.Name) and arg.id == param for arg in node.args)
-        if takes_param and called in ("getattr", *_STRINGIFYING_CALLS):
+        if called in _CENSUS_SANCTIONED_DELEGATES:
+            continue
+        passed = [arg for arg in node.args if isinstance(arg, ast.Name)]
+        passed += [kw.value for kw in node.keywords if isinstance(kw.value, ast.Name)]
+        if any(name.id == param for name in passed):
             return True
     return False
 
@@ -1220,6 +1266,22 @@ def _declared_exception_renderers(source: str) -> list[str]:
     3. **Anidada o condicional.** Sólo se escaneaba ``tree.body``, el nivel de
        módulo. Acá se recorre el árbol entero, así que un renderer adentro de otra
        función o de un ``if`` cuenta igual.
+
+    **Las dos formas que rodeaban a la implementación de 30-11**, reproducidas
+    por el quinto ciclo de ``30-VERIFICATION.md`` llamando a este censo
+    directamente y obteniendo sólo el nombre sancionado:
+
+    4. **Formateo por porcentaje.** ``return "ABORT: %s" % exc`` no era ninguna de
+       las cuatro formas que reconocía :func:`_reads_the_exception`, aunque
+       :func:`_raw_exception_renders` marca esa misma forma desde 30-11. La
+       política vivía en un solo detector de los dos; desde 30-13 es una sola
+       política espejada en ambos.
+    5. **Delegación genérica.** ``def _fmt(exc): print(exc)`` tampoco contaba: el
+       predicado tenía un caso especial para ``getattr`` y para las llamadas
+       stringificadoras, y nada para el resto. Desde 30-13 la regla es al revés —
+       toda delegación cuenta salvo la del renderer sancionado
+       (:data:`_CENSUS_SANCTIONED_DELEGATES`), que es lo que define a un
+       consumidor.
 
     **Por qué el gate de anotación.** Un predicado de "cualquier función que lee
     un atributo de un parámetro" marcaría prácticamente todo probe de
