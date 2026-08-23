@@ -820,6 +820,150 @@ def test_no_except_handler_in_the_driver_renders_its_exception_raw() -> None:
     )
 
 
+# Los cuatro fuentes sintéticos del censo de renderers. Los tres primeros son
+# las tres formas que ``30-REVIEW.md`` WR-02 documenta como capaces de caminar
+# past la versión que matcheaba por nombre; el cuarto es el control negativo que
+# impide que el censo degenere en "toda función que lee un atributo".
+_CENSUS_RENAMED_DUPLICATE = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+def _fmt_exc(e: Exception) -> str:
+    return str(e)
+"""
+
+_CENSUS_ASYNC_DUPLICATE = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+async def _redacted_exc(exc: BaseException) -> str:
+    return repr(exc)
+"""
+
+_CENSUS_NESTED_DUPLICATE = """
+def _redacted_exc(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__} status_code={status!r}"
+
+
+def outer() -> None:
+    def _inner_exc(e: IOLAPIError) -> str:
+        return e.message
+
+    use(_inner_exc)
+
+
+if DEBUG:
+
+    def _debug_exc(e: Exception) -> str:
+        return f"{e}"
+"""
+
+_CENSUS_NEGATIVE_CONTROL = """
+def probe_get_quote_sync(client: Client) -> ProbeResult:
+    quote = client.get_quote("GGAL")
+    return ProbeResult(quote.simbolo, "PASS", f"{quote.ultimoPrecio}")
+
+
+def _report(exc: IOLAPIError) -> None:
+    append_finding("pkg", actual=_redacted_exc(exc))
+"""
+
+
+def _declared_exception_renderers(source: str) -> list[str]:
+    """PLACEHOLDER RED — reproduce la semántica del test que matcheaba por nombre.
+
+    Filtra ``tree.body`` por ``ast.FunctionDef`` llamado exactamente
+    ``_redacted_exc``, que es literalmente lo que hacía
+    ``test_the_driver_declares_exactly_one_exception_renderer``. Existe sólo para
+    que los seis casos de abajo corran contra el comportamiento **shippeado** en
+    vez de contra un ``NameError``, y para que la fase RED muestre exactamente
+    cuáles de ellos ese comportamiento no puede falsificar.
+    """
+    tree = ast.parse(source)
+    return [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_redacted_exc"
+    ]
+
+
+def test_the_census_detects_the_sanctioned_renderer_in_the_real_driver() -> None:
+    """AUTO-DETECCIÓN — el caso que atrapa al bug del propio review.
+
+    El snippet de fix que propone ``30-REVIEW.md`` WR-02 devuelve ``[]`` contra
+    este driver: su predicado busca una llamada a ``repr``/``str`` o una lectura
+    de la superficie de mensaje, y el cuerpo de ``_redacted_exc`` no tiene
+    ninguna de las dos —usa ``getattr``, ``type(exc).__name__`` y cuatro lecturas
+    de atributos de ``IOLDecodeError``—. Su aserción por igualdad contra
+    ``["_redacted_exc"]`` fallaría, pero una escrita contra ``[]`` habría pasado
+    verde para siempre, censando nada.
+
+    Por eso este caso asierta la **igualdad contra el nombre sancionado**, nunca
+    contra una lista vacía ni contra un largo: un censo que deja de detectar al
+    primer renderer es tan roto como uno que no detecta al segundo (T-30-11-04).
+    """
+    names = _declared_exception_renderers(_DRIVER_PATH.read_text(encoding="utf-8"))
+    assert names == ["_redacted_exc"], f"censo de renderers de main_iol.py: {names}"
+
+
+def test_the_census_treats_the_excepthook_as_a_consumer_not_a_renderer() -> None:
+    """``_redacted_excepthook`` **pasa** su excepción al renderer; no la renderiza.
+
+    Es el caso discriminante del predicado, y el que 30-10 introdujo: una función
+    anotada con un tipo de excepción que delega en ``_redacted_exc`` es un
+    consumidor, no una segunda decisión. Contarla habría hecho fallar el lock
+    sobre el fix de 30-10 sin que existiera ninguna fuga.
+    """
+    names = _declared_exception_renderers(_DRIVER_PATH.read_text(encoding="utf-8"))
+    assert "_redacted_excepthook" not in names, (
+        f"_redacted_excepthook fue contado como renderer; delega en _redacted_exc "
+        f"y por lo tanto es un consumidor. Censo: {names}"
+    )
+    assert "_install_redacted_excepthook" not in names, f"censo: {names}"
+
+
+def test_the_census_catches_a_renderer_under_another_name() -> None:
+    """WR-02 bypass 1 — el nombre no es el contrato; la decisión lo es.
+
+    ``def _fmt(e): return str(e)`` más ``actual=_fmt(exc)`` en los 32 sitios
+    pasaba la suite entera en verde: el cuerpo del segundo renderer era invisible
+    para :func:`_raw_exception_renders` porque la excepción le llega como
+    **parámetro** y nunca queda bindeada por un ``ast.ExceptHandler``.
+    """
+    names = _declared_exception_renderers(_CENSUS_RENAMED_DUPLICATE)
+    assert names == ["_redacted_exc", "_fmt_exc"], f"censo: {names}"
+
+
+def test_the_census_catches_an_async_renderer() -> None:
+    """WR-02 bypass 2 — ``ast.AsyncFunctionDef`` no se matcheaba."""
+    names = _declared_exception_renderers(_CENSUS_ASYNC_DUPLICATE)
+    assert names == ["_redacted_exc", "_redacted_exc"], f"censo: {names}"
+
+
+def test_the_census_catches_a_nested_or_conditional_renderer() -> None:
+    """WR-02 bypass 3 — sólo se escaneaba ``tree.body`` (nivel de módulo)."""
+    names = _declared_exception_renderers(_CENSUS_NESTED_DUPLICATE)
+    assert names == ["_redacted_exc", "_inner_exc", "_debug_exc"], f"censo: {names}"
+
+
+def test_the_census_ignores_ordinary_driver_shaped_functions() -> None:
+    """Control NEGATIVO del censo — sin el gate de anotación esto sería puro ruido.
+
+    Prácticamente todo probe de ``main_iol.py`` lee atributos de su parámetro
+    ``client``; un predicado de "cualquier función que lee un atributo de un
+    parámetro" los contaría a todos. El gate de anotación por tipo de excepción
+    es lo que acota el conjunto candidato, y una función que sólo **pasa** su
+    excepción al renderer sancionado no cuenta.
+    """
+    names = _declared_exception_renderers(_CENSUS_NEGATIVE_CONTROL)
+    assert names == [], f"el censo marcó funciones ordinarias del driver: {names}"
+
+
 def test_the_driver_declares_exactly_one_exception_renderer() -> None:
     """AD-30-09-01 en forma ejecutable: una decisión, no 32.
 
