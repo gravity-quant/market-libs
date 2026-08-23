@@ -2056,6 +2056,50 @@ def main() -> None:
 _HOOK_RENDER_FAILED = "el render de la excepción falló; detalle suprimido a propósito"
 
 
+def _emit_crash_report(detail: str, tb: TracebackType | None) -> None:
+    """Escribe el reporte de crash a stderr sin que ninguna falla del sink escape.
+
+    **Por qué existe (T-30-12-02/03).** El hook es el último frame antes del
+    fallback de CPython: si algo se escapa de él, CPython imprime un banner y
+    después renderiza la excepción original con el excepthook **default**, que
+    para ``IOLAPIError`` / ``IOLAuthError`` / ``IOLRateLimitError`` emite
+    ``[<status>] <body>``. Un stderr roto o cerrado —``... 2>&1 | head``, un
+    runner de CI con el pipe cerrado— convierte cualquiera de estas dos
+    escrituras en ``BrokenPipeError`` / ``ValueError``, y con stderr cerrado la
+    escritura del propio fallback también falla, así que CPython cae a su ruta
+    ``lost sys.stderr`` y vuelca el **repr** del objeto excepción directo al fd 2.
+    Ahí no queda nada que redactar: la única defensa es que nada se escape.
+
+    **Los dos guards son separados a propósito.** Un único ``with`` alrededor de
+    las dos escrituras —o un return temprano tras la primera falla— haría que
+    perder la línea de ABORT se llevara puestos también los frames, que son
+    contenido estático del repo y el único material de triage que le queda al
+    operador en ese escenario. Lo fija
+    ``test_the_hook_still_prints_frames_when_the_abort_line_fails``, con un stream
+    que falla sólo ante el prefijo del ABORT, más su espejo
+    ``test_the_hook_survives_a_failing_frame_printer``.
+
+    **Por qué ``contextlib.suppress`` y no ``try``/``except``/``pass``:** el rule
+    set ``SIM`` del ruff de la raíz rechaza la segunda forma (SIM105), incluso con
+    un comentario en el cuerpo del ``except``, y ``ruff check`` es un gate de CI.
+
+    **Por qué recibe texto ya renderizado y no la excepción.** Un helper que
+    tomara la excepción se volvería un **segundo** renderer bajo el censo de
+    AD-30-09-01, y haría que :func:`_redacted_excepthook` pasara a leerse como un
+    renderer que delega. Con ``str`` y ``TracebackType | None`` ambas funciones
+    quedan clasificadas como corresponde: el único renderer sigue siendo
+    :func:`_redacted_exc` y el hook sigue siendo un consumidor.
+
+    **Suprimir acá no se traga el crash (D-04).** El hook imprime y retorna;
+    CPython termina el proceso con código distinto de cero igual. Lo único que se
+    pierde ante un sink roto es el texto, que ya era ilegible por definición.
+    """
+    with contextlib.suppress(BaseException):
+        print(f"ABORT: {detail}", file=sys.stderr)
+    with contextlib.suppress(BaseException):
+        traceback.print_tb(tb)
+
+
 def _redacted_excepthook(
     exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
 ) -> None:
@@ -2119,8 +2163,7 @@ def _redacted_excepthook(
         detail = _redacted_exc(exc)
     except BaseException:
         detail = _HOOK_RENDER_FAILED
-    print(f"ABORT: {detail}", file=sys.stderr)
-    traceback.print_tb(tb)
+    _emit_crash_report(detail, tb)
 
 
 def _install_redacted_excepthook() -> None:
