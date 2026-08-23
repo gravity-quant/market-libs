@@ -1,368 +1,345 @@
 ---
 phase: 30-iol-client-tipado
-reviewed: 2026-08-23T18:55:00Z
+reviewed: 2026-08-23T19:40:00Z
 depth: standard
-files_reviewed: 3
+files_reviewed: 2
 files_reviewed_list:
   - main_iol.py
   - verification/test_main_iol_exception_redaction.py
-  - verification/test_main_iol_fid_seed.py
 findings:
-  critical: 1
-  warning: 5
-  info: 3
-  total: 9
+  critical: 0
+  warning: 4
+  info: 4
+  total: 8
 status: issues_found
 ---
 
-# Phase 30: Code Review Report (re-review after 30-10 / 30-11)
+# Phase 30: Code Review Report (re-review after 30-12 / 30-13)
 
-**Reviewed:** 2026-08-23T18:55:00Z
+**Reviewed:** 2026-08-23T19:40:00Z
 **Depth:** standard
-**Files Reviewed:** 3
+**Files Reviewed:** 2
 **Status:** issues_found
 
 ## Summary
 
-Re-review of `main_iol.py` and its two verification suites after plans 30-10 (close CR-01
-`_fid_counter` unseeded, CR-02 uncaught-exception leak) and 30-11 (widen the AST regression
-lock for WR-01 / WR-02) landed. `uv run pytest` on the two suites: 47 passed. `ruff check`
-and `mypy --strict` on all three files: clean.
+Re-review of `main_iol.py` and `verification/test_main_iol_exception_redaction.py` after plans
+30-12 (fail-closed crash path: `_HOOK_RENDER_FAILED`, `_emit_crash_report`, two independent
+`contextlib.suppress(BaseException)` blocks, plus a new AST lock on the crash-path region) and
+30-13 (widen the regression lock: `getattr` adjudicated on its attribute-name argument,
+`__dict__` added to `_LEAKY_EXC_ATTRS`, `%`-format and generic delegation added to the renderer
+census via `_CENSUS_SANCTIONED_DELEGATES`).
+
+Gates: `uv run pytest verification/test_main_iol_exception_redaction.py` → **64 passed**.
+`ruff check` on both files → clean. `mypy` as CI runs it (`uv run mypy`) → clean, **but see
+WR-04**: neither reviewed file is inside mypy's configured `files`, and `mypy --strict` on the
+test file reports 6 errors, 6 of them on lines 30-12 added.
 
 **Verdict on the named gaps:**
 
 | Prior finding | Status | Evidence |
 |---|---|---|
-| CR-01 (`_fid_counter` unseeded) | **Closed** | `_seed_fid_counter` (main_iol.py:183-206) assigns `max_existing_fid(_PKG)`; `_next_fid` pre-increments, so the first emitted fid is `max+1` — no off-by-one. It is an assignment, not an accumulation, so a double call is idempotent and monotonic. Placement in `main()` (line 1934) is after `write_findings` and before the first probe, mirroring `main_market_data.py:3217/3221`. Verified against the real committed file (F-01 OPEN, F-02 FIXED → seed = 2 → next = F-03). |
-| CR-02 (uncaught exception leaks body) | **Partially closed — see CR-01 below** | The happy path is genuinely fixed: `traceback.print_tb(tb)` emits frames only, the chained-cause test falsifies the whole family of message-rendering helpers, and `_redacted_excepthook` correctly *delegates* to `_redacted_exc` rather than reimplementing redaction (so it inherits the non-int `status_code` guard and the `IOLDecodeError` exemption for free — this is right, and the census correctly classifies it as a consumer). But the hook **fails open**: any exception raised inside it hands the original exception back to CPython's default renderer, which prints the full upstream body. Reproduced below. |
-| WR-01 (AST lock ignored `ast.Attribute`) | **Mostly closed, one hole** | Rule 4 works for direct `exc.message` / `exc.args` / `exc.response` / `exc.request`. It is fully bypassable via `getattr` — see WR-01 below. |
-| WR-02 (renderer census name/scope-bound) | **Mostly closed, shape-bound holes remain** | The census now matches `AsyncFunctionDef` and any scope, and correctly self-detects `_redacted_exc` (the review's own proposed snippet would have returned `[]` — good catch by the implementer). Its read-predicate still misses `%`-formatting and delegation, which matters precisely on the parameter-passed code path 30-10 introduced. See WR-02. |
+| CR-01 (hook fails open → default renderer prints `[500] <body>`) | **Closed** | Verified independently, not by re-reading the suite: a real subprocess with the renderer replaced by one that raises **and** `sys.stderr.close()` called before the raise — the worst combination of triggers (a)+(b)+(c) at once — produced no marker on either fd and `rc=1`. The structure is right: the renderer call sits in a `try` whose `except BaseException` assigns a *static* placeholder (`main_iol.py:2162-2165`), and each of the two stderr sinks sits in its own `contextlib.suppress(BaseException)` (`main_iol.py:2097-2100`). Splitting the guards is load-bearing and is falsified by a stream that fails only on the `ABORT` prefix. |
+| WR-01 (`getattr` whitelisted by callee name) | **Closed** | Rules 9/10 adjudicate on `node.args[1]` **before** the `_SANCTIONED_DELEGATES` short-circuit, a non-constant attribute name is flagged conservatively, and one constant (`_LEAKY_EXC_ATTRS`) governs both the direct and indirect spellings so they cannot drift. `exc.__dict__` and `vars(exc)` both flag. One residual spelling walks past — WR-02 below. |
+| WR-02 (census blind to `%`-format and delegation) | **Closed for the shapes named** | `_reads_the_exception` now mirrors rule 6 and inverts the delegation rule (everything counts except `_CENSUS_SANCTIONED_DELEGATES`). This is the strongest single change in the two plans: I confirmed that rewriting the hook to `traceback.print_exception(exc)` or to delegate to an `object`-annotated second renderer now **fails** `test_the_driver_declares_exactly_one_exception_renderer`, because the *caller* gets censused even when the callee escapes the annotation gate. Keeping the two delegate sets separate is correct and the docstring's reasoning for it holds. |
+| WR-03 (only one of four interpreter sinks installed) | **Still open** | Unchanged and not deferred anywhere I can find. See WR-03 below. |
+| IN-01 (container-wrapped names) | **Still open** | See IN-01. |
+| IN-03 (subprocess tests inherit real credentials) | **Still open, now 3×** | 30-12 added two more copies of the `{**os.environ, ...}` pattern. See IN-03. |
 
-No live credential or wire-body leak exists in `main_iol.py` today: I grepped every handler and
-every reporting site, and all 32 route through `_redacted_exc`. The findings below are (a) one
-fail-open security control and (b) holes in the regression locks that are supposed to keep it
-that way.
-
-## Critical Issues
-
-### CR-01: `_redacted_excepthook` fails open — a failure inside the hook leaks the full upstream body
-
-**File:** `main_iol.py:2044-2082`
-
-**Issue:** The hook has no error handling. CPython's `PyErr_PrintEx` reacts to an exception
-raised inside `sys.excepthook` by printing `Error in sys.excepthook:` followed by
-`Original exception was:` and rendering the original exception **with the default renderer** —
-i.e. `IOLAPIError: [500] <full upstream body>`. This is exactly the leak CR-02 exists to close,
-reachable through the very function that closes it.
-
-Reproduced (writable stderr, hook body raising):
-
-```
-Error in sys.excepthook:
-  File "/Users/admin/development/market-libs/main_iol.py", line 2081, in _redacted_excepthook
-    print(f"ABORT: {_redacted_exc(exc)}", file=sys.stderr)
-RuntimeError: hook internals failed
-
-Original exception was:
-iol_client.exceptions.IOLAPIError: [500] ZZ-SECRET-BODY-ZZ-cuenta-999999   <-- LEAKED
-```
-
-Realistic triggers, none of which the suite covers:
-
-- **`RecursionError` as the uncaught exception.** The hook runs with a nearly exhausted stack;
-  the f-string in line 2081 and `traceback.print_tb`'s `StackSummary.extract` can both re-raise.
-- **Broken or closed stderr** (`... 2>&1 | head`, or a CI runner that closed the pipe):
-  `print(..., file=sys.stderr)` raises `BrokenPipeError` / `ValueError: I/O operation on closed file`.
-  Confirmed: with stderr closed the interpreter emits `Error in sys.excepthook:` and falls back.
-- **Any exception object whose attribute access misbehaves** — `_redacted_exc` unconditionally
-  reads `exc.model` / `exc.field_path` / `exc.declared_type` / `exc.observed_type` on anything
-  passing `isinstance(exc, IOLDecodeError)`. A subclass or an unpickled instance that never ran
-  `IOLDecodeError.__init__` raises `AttributeError` there.
-
-A security boundary whose failure mode is "emit the thing you were built to suppress" must fail
-closed. The whole file-wide redaction argument (module docstring lines 51-59) rests on this hook.
-
-**Fix:**
-
-```python
-def _redacted_excepthook(
-    exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
-) -> None:
-    del exc_type
-    # Fail CLOSED: nothing raised in here may reach CPython's fallback renderer,
-    # which prints the exception message — i.e. the full upstream error body.
-    try:
-        rendered = _redacted_exc(exc)
-    except BaseException:  # noqa: BLE001 — the fallback IS the contract
-        rendered = "<renderer failed; exception withheld>"
-    try:
-        print(f"ABORT: {rendered}", file=sys.stderr)
-        traceback.print_tb(tb)
-    except BaseException:  # noqa: BLE001
-        pass
-```
-
-Add the matching falsification to section 4 of
-`verification/test_main_iol_exception_redaction.py`: monkeypatch `main_iol._redacted_exc` to
-raise, run the crash through a real subprocess with `_install_redacted_excepthook()`, and assert
-the marker appears in neither stdout nor stderr while the exit code stays non-zero.
+There is no live leak in `main_iol.py` today. Every finding below is either a hole in a
+regression lock that is supposed to keep it that way, or a control that was never installed.
 
 ## Warnings
 
-### WR-01: `getattr` in `_SANCTIONED_DELEGATES` fully defeats the new leaky-attribute rule
+### WR-01: three realistic edits walk straight past the new crash-path lock
 
-**File:** `verification/test_main_iol_exception_redaction.py:616` (`_SANCTIONED_DELEGATES`),
-rule 4 at lines 729-736
+**File:** `verification/test_main_iol_exception_redaction.py:1961-1967` (`_CRASH_PATH_FUNCTIONS`,
+`_MUST_BE_GUARDED_CALLS`), `2021-2044` (`_has_an_enclosing_guard`)
 
-**Issue:** The whitelist is keyed on the **callee name**, not on the attribute argument. The
-docstring justifies sanctioning `getattr` by naming one specific call shape
-(`getattr(<n>, "status_code", None)`), but the implementation exempts every `getattr` call on a
-bound name. Rule 4 (the rule 30-11 added to close WR-01) is therefore trivially bypassed by
-spelling the attribute as a string. Measured against the shipped detector:
+**Issue:** `_unguarded_crash_path_calls` decides coverage from two **name allowlists** and a
+guard-shape check that never asks whether the guard catches anything. All three are bypassable
+by edits a maintainer would make without malice. Measured against the shipped detector:
 
-| Source inside a handler | `_raw_exception_renders` | `_declared_exception_renderers` |
-|---|---|---|
-| `append_finding("p", actual=getattr(exc, "message", ""))` | `[]` | `[]` |
-| `append_finding("p", actual=str(getattr(exc, "args")))` | `[]` | `[]` |
-| `append_finding("p", actual=str(exc.__dict__))` | `[]` | `[]` |
+| Edit to the crash path | `_unguarded_crash_path_calls` |
+|---|---|
+| sinks rewritten as `sys.stderr.write(...)` + `sys.stderr.flush()` + `traceback.print_exception(...)`, all unguarded | `[]` |
+| both sinks extracted to `_write_abort` / `_write_frames`, called unguarded from `_emit_crash_report` | `[]` |
+| `try: print(...) finally: pass` around each sink (no handler at all) | `[]` |
 
-`exc.message` is literally `resp.text` (see `packages/iol-client/src/iol_client/exceptions.py:17`),
-so all three write the full brokerage error body into a git-versioned artifact while the lock
-reports green. `__dict__` is a third spelling of the same leak and is absent from
-`_LEAKY_EXC_ATTRS`.
+Each of the three restores exactly the CR-01 failure mode. Row 1 is the most likely of them:
+`print(..., file=sys.stderr)` → `sys.stderr.write(...)` is a routine refactor, `write` is not in
+`_MUST_BE_GUARDED_CALLS`, and a `BrokenPipeError` from it escapes the hook into CPython's
+fallback renderer — the full upstream body. Row 3 is worse than the counter-case the suite
+already defends (`test_..._does_not_accept_an_except_branch_as_a_guard`): a bare `try`/`finally`
+suppresses nothing, yet is accepted as a guard.
 
-**Fix:** Narrow the `getattr` exemption to the argument, and extend the attribute deny-list:
+The docstring declares "that the guard catches the right thing" as unverified and points at the
+behavioural tests, which is fair for `except ValueError:`. It does not cover a guard with **zero**
+handlers, and it says nothing about the region and call allowlists — which is where the real
+fragility is. Restricting the *region* to two functions is well argued (avoiding noise); once
+inside a two-function region, restricting further to three call names buys nothing and costs the
+whole lock.
+
+**Fix:** invert the call rule inside the region — every call must be guarded, with the region
+made transitive so the current shape still passes and so an extraction cannot escape it:
 
 ```python
-_LEAKY_EXC_ATTRS = ("message", "args", "response", "request", "__dict__")
-_SANCTIONED_DELEGATES = ("_redacted_exc", "type", "isinstance")  # getattr handled below
+def _region_functions(tree: ast.AST) -> set[str]:
+    """The seed names plus every function they call — an extraction cannot leave the region."""
+    defs = {n.name: n for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+    region, queue = set(), list(_CRASH_PATH_FUNCTIONS)
+    while queue:
+        name = queue.pop()
+        if name in region or name not in defs:
+            continue
+        region.add(name)
+        queue += [c for c in (_called_name(n.func) for n in ast.walk(defs[name])
+                              if isinstance(n, ast.Call)) if c]
+    return region
 
-# inside the ast.Call branch, before the _SANCTIONED_DELEGATES short-circuit:
-if called == "getattr":
-    attr = node.args[1] if len(node.args) > 1 else None
-    named = attr.value if isinstance(attr, ast.Constant) else None
-    if not isinstance(named, str) or named in _LEAKY_EXC_ATTRS:
-        # unknown or leaky attribute name -> not sanctioned
-        leaked = [a for a in node.args if isinstance(a, ast.Name) and a.id in bound_names]
-        if leaked:
-            offenders.add((node.lineno, f"getattr({leaked[0].id}, {named!r})"))
+# ...and in the per-call loop, replace the `_MUST_BE_GUARDED_CALLS` filter with:
+if called in region:          # a call into the region carries its own guards
     continue
+if _has_an_enclosing_guard(node, func, parents):
+    continue
+offenders.add((node.lineno, f"{called}() sin guard en {func.name}"))
 ```
 
-Add the three rows above to `_WR01_ROWS` so the fix cannot regress.
-
-### WR-02: neither detector guards a renderer that receives its exception as a parameter
-
-**File:** `verification/test_main_iol_exception_redaction.py:718-723` (`_raw_exception_renders`
-only walks `ast.ExceptHandler`), `906-933` (`_reads_the_exception`)
-
-**Issue:** The two detectors are presented as complementary belts, but they leave a joint hole
-sitting exactly on the code path 30-10 introduced. `_raw_exception_renders` inspects **only**
-statements inside an `ast.ExceptHandler`; `_redacted_excepthook` receives its exception from
-CPython as a parameter and lives outside any handler, so that detector never looks at it. The
-census is the only remaining guard, and its read-predicate recognises just four shapes
-(attribute read, `getattr`, a `_STRINGIFYING_CALLS` call taking the param positionally, direct
-f-string interpolation). It misses `%`-formatting, delegation-to-a-printer, and any param not
-annotated with an exception type. Measured:
-
-| Renderer body | `_declared_exception_renderers` | `_raw_exception_renders` |
-|---|---|---|
-| `def _fmt(exc: BaseException) -> str: return "ABORT: %s" % exc` | `[]` | `[]` |
-| `def _fmt(exc: BaseException) -> None: print(exc)` | `[]` | `[]` |
-| `def _fmt(exc: object) -> str: return str(exc)` | `[]` | `[]` |
-
-Concretely: rewriting line 2081 to `print("ABORT: %s" % exc, file=sys.stderr)` reintroduces the
-CR-02 leak in full and **the entire 47-test suite still passes**. Note `_raw_exception_renders`
-already implements the `%`-formatting rule (rule 6) — the census simply does not share it.
-
-**Fix:** Give `_reads_the_exception` the same rule set as `_raw_exception_renders` by extracting
-the shared predicate, minimally adding the `ast.BinOp`/`ast.Mod` case and treating a call to a
-non-sanctioned callee that receives the param as a read:
+and tighten the guard-shape check so a handler-less `try` does not qualify:
 
 ```python
-def _reads_the_exception(func, param: str) -> bool:
-    for node in ast.walk(func):
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
-            if isinstance(node.right, ast.Name) and node.right.id == param:
-                return True
-        ...
-        if isinstance(node, ast.Call):
-            called = _called_name(node.func)
-            takes = any(isinstance(a, ast.Name) and a.id == param
-                        for a in [*node.args, *(kw.value for kw in node.keywords)])
-            if takes and called not in _SANCTIONED_DELEGATES:
-                return True
-    return False
+if isinstance(parent, ast.Try) and any(stmt is child for stmt in parent.body):
+    if parent.handlers:      # try/finally suppresses nothing
+        return True
 ```
 
-Then add a case asserting `_declared_exception_renderers` flags a `%`-formatting renderer, and
-re-confirm `_redacted_excepthook` still censuses as a consumer (it will: `_redacted_exc` is a
-sanctioned delegate).
+Add the three rows above as parametrised positive cases so they cannot regress, and keep
+`_GUARDED_CRASH_PATH_SOURCE` as the negative control.
 
-### WR-03: only one of the interpreter's exception sinks is installed
+### WR-02: `exc.__getattribute__("message")` walks past the widened rule 9
 
-**File:** `main_iol.py:2085-2092`, module docstring lines 51-59
+**File:** `verification/test_main_iol_exception_redaction.py:921-942` (rules 9/10),
+`736` (`_LEAKY_EXC_ATTRS`)
 
-**Issue:** `_install_redacted_excepthook` assigns `sys.excepthook` only. CPython has three other
-sinks that render the exception **message**, none of which consult `sys.excepthook`. Both are
-demonstrably leaky against a live `IOLAPIError`:
+**Issue:** 30-13 correctly moved the `getattr` decision onto the attribute-name argument, but the
+dunder spelling of the same read is invisible. Measured:
 
+| Source inside a handler | `_raw_exception_renders` |
+|---|---|
+| `append_finding("p", actual=exc.__getattribute__("message"))` | `[]` |
+| `append_finding("p", actual=object.__getattribute__(exc, "message"))` | `[(5, 'delegación de exc a __getattribute__()')]` — flagged |
+
+The first form is not caught by rule 4 (`node.attr` is `__getattribute__`, not in
+`_LEAKY_EXC_ATTRS`), not by rule 9 (`called` is `__getattribute__`, not `getattr`), and not by
+rule 5 (the only `ast.Name` argument is the constant `"message"`, so `passed` is empty and
+`leaked` is empty). `exc.message` is literally `resp.text`
+(`packages/iol-client/src/iol_client/exceptions.py:17`), so this writes the full brokerage error
+body into a git-versioned artifact while the lock reports green.
+
+That the bound-method form escapes while the unbound form flags is an inconsistency, not a
+policy — the same sentence `_LEAKY_EXC_ATTRS`' own comment uses to justify adding `__dict__`.
+
+**Fix:** treat `<n>.__getattribute__(...)` / `<n>.__getattr__(...)` as an indirect attribute read
+by routing it through the same adjudication as rule 9. Inside the `ast.Call` branch, before the
+`getattr` case:
+
+```python
+if called in ("__getattribute__", "__getattr__") and isinstance(node.func, ast.Attribute):
+    target = node.func.value
+    if isinstance(target, ast.Name) and target.id in bound_names:
+        attr_arg = node.args[0] if node.args else None
+        if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
+            if attr_arg.value in _LEAKY_EXC_ATTRS:
+                offenders.add((node.lineno, f'{target.id}.__getattribute__("{attr_arg.value}")'))
+            continue
+        offenders.add((node.lineno, f"{target.id}.__getattribute__(<dinámico>)"))
+        continue
 ```
-# sys.unraisablehook (exception escaping __del__ during GC)
-Exception ignored in: <function Boom.__del__ ...>
-iol_client.exceptions.IOLAPIError: [500] ZZ-UNRAISABLE-BODY-ZZ     <-- LEAKED, rc=0
 
-# threading.excepthook (exception escaping a worker thread)
-iol_client.exceptions.IOLAPIError: [500] ZZ-THREAD-BODY-ZZ         <-- LEAKED, rc=0
-```
+Add both rows above to `_FIFTH_CYCLE_BYPASS_ROWS` (the unbound form as a non-regression case).
 
-A fourth, `asyncio`'s default loop exception handler, formats `exception` via
-`traceback.format_exception` into `logging.lastResort` (stderr) for any task holding an
-unretrieved exception at `asyncio.run` shutdown — and `main()` does run `asyncio.run(_async_main(today))`.
+### WR-03: three of the interpreter's four exception sinks are still uninstalled
 
-Not currently reachable with an IOL-carrying payload (`iol_client` spawns no threads — grep for
-`threading` in `packages/iol-client/src/` is empty — and the driver creates no bare tasks), so
-this is a WARNING, not a blocker. But the module docstring asserts the crash path is closed
-without qualification, and any future `asyncio.TaskGroup`, `to_thread`, or streaming use silently
-reopens it.
+**File:** `main_iol.py:2169-2176` (`_install_redacted_excepthook`), module docstring lines 51-66
 
-**Fix:** Install all four in `_install_redacted_excepthook`, and state the residual boundary in
-the docstring:
+**Issue:** Carried forward from the previous review, unclosed and, as far as I can find, not
+deferred in writing anywhere. `_install_redacted_excepthook` assigns `sys.excepthook` and nothing
+else. Confirmed against the current file: zero occurrences of `unraisablehook`, zero of
+`threading`, zero of `set_exception_handler`. CPython's other three sinks all render the
+exception **message** and none of them consult `sys.excepthook`:
+
+- `sys.unraisablehook` — an exception escaping `__del__` during GC; prints the message, `rc=0`.
+- `threading.excepthook` — an exception escaping a worker thread; prints the message, `rc=0`.
+- the asyncio default loop handler — formats via `traceback.format_exception` into
+  `logging.lastResort` (stderr) for a task holding an unretrieved exception at `asyncio.run`
+  shutdown, and `main()` does run `asyncio.run(_async_main(today))` (`main_iol.py:1960`).
+
+Still not reachable today with an IOL-carrying payload (`iol_client` spawns no threads; the
+driver creates no bare tasks), which keeps it a WARNING. What escalates it relative to the last
+review is that 30-12 rewrote the module docstring around the crash path and **strengthened** the
+unconditional claim — lines 60-66 now assert the crash path "falla CERRADO" without naming the
+residual boundary. A future `asyncio.TaskGroup`, `to_thread`, or streaming probe reopens the leak
+silently against a docstring that says it cannot happen.
+
+**Fix:** install all four, and state the boundary that remains:
 
 ```python
 def _install_redacted_excepthook() -> None:
     sys.excepthook = _redacted_excepthook
     sys.unraisablehook = lambda u: _redacted_excepthook(
-        type(u.exc_value) if u.exc_value else RuntimeError, u.exc_value or RuntimeError(""), u.exc_traceback
+        type(u.exc_value), u.exc_value or RuntimeError(""), u.exc_traceback
     )
-    threading.excepthook = lambda a: _redacted_excepthook(a.exc_type, a.exc_value or RuntimeError(""), a.exc_traceback)
+    threading.excepthook = lambda a: _redacted_excepthook(
+        a.exc_type, a.exc_value or RuntimeError(""), a.exc_traceback
+    )
 ```
 
-and set an `asyncio` exception handler inside `_async_main` that routes through `_redacted_exc`.
+plus `loop.set_exception_handler(...)` inside `_async_main` routing through `_redacted_exc`. If
+this is deliberately deferred instead, say so in the docstring — the current text asserts more
+than the code delivers. Note the three new lambdas land inside `_CRASH_PATH_FUNCTIONS`' blast
+radius, so WR-01's transitive-region fix should go in first.
 
-### WR-04: the fid-seed fixture corrupts F-01's detail block, so the seed tests pass for the wrong reason
+### WR-04: 30-12 introduced 6 `mypy --strict` errors that no gate can see
 
-**File:** `verification/test_main_iol_fid_seed.py:112-117`
+**File:** `verification/test_main_iol_exception_redaction.py:1705, 1729, 1843, 1867, 1894, 1897`
 
-**Issue:** `_add_finding`'s promotion path does an unanchored `str.replace` with no `count`:
+**Issue:** All six are on lines 30-12 added:
+
+```
+1705,1729,1843,1867,1897: "_redacted_excepthook" does not return a value
+                          (it only ever returns None)  [func-returns-value]
+1894: Module "main_iol" does not explicitly export attribute "traceback"  [attr-defined]
+```
+
+They are invisible to every gate: root `pyproject.toml:97` scopes `files` to
+`packages/*/src`, and `.pre-commit-config.yaml` scopes the hook to `^packages/.*/src/`, so
+neither `main_iol.py` nor `verification/` is ever type-checked. 30-12-SUMMARY.md step 14 records
+`mypy packages/iol-client/src packages/iol-client/tests` → Success, i.e. the plan verified a
+different file set than the one it edited. CLAUDE.md names `mypy strict` a stack constraint, and
+the previous review recorded `mypy --strict` clean on these files as the baseline — so this is a
+real regression, just not a CI-visible one.
+
+The `func-returns-value` errors also flag a genuine readability defect. The assertion
 
 ```python
-text = text.replace(
-    "**Class:** `SHAPE` . **Surface:** `both` . **Status:** `OPEN`",
-    "**Class:** `SHAPE` . **Surface:** `both` . **Status:** `FIXED`",
+assert main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__) is None, (
+    "el hook debe retornar None; nada puede escaparse de él"
 )
 ```
 
-`_seed_committed_findings_shape()` writes F-01 and F-02 with identical class/surface, so
-promoting F-02 rewrites **both** detail meta lines. The produced fixture is self-inconsistent —
-its index says `| F-01 | SHAPE | both | OPEN |` while F-01's detail block says
-`**Status:** `FIXED``. Reproduced:
+reads as if the return value carries the contract. It does not — `is None` is unconditionally
+true for a `-> None` function that returns at all. The only thing being asserted is
+*non-propagation*, which the bare call already gives you. That is the right contract; the
+expression just misstates it.
 
-```
-| F-01 | SHAPE | both | OPEN |     <-- index
-### F-01 -- operator title
-**Class:** `SHAPE` . **Surface:** `both` . **Status:** `FIXED`   <-- detail, wrong
-```
-
-The docstring claims it "reproduce el estado committeado real". It does not. All four tests in
-sections 1-2 pass only because `_parse_findings` happens to resolve status from the index row
-rather than the detail meta — an undeclared precedence the suite never asserts. If that
-precedence ever flips, `test_seeded_run_files_new_findings_above_the_committed_ones` starts
-passing vacuously (F-01 would short-circuit as non-OPEN and its title would survive for the
-wrong reason), which is the exact class of silent-vacuity the plan set out to eliminate.
-
-**Fix:** Anchor the replacement to the finding's own detail block, e.g. split on the
-`### {fid} --` header and rewrite only that slice, or make the fixture findings distinguishable:
+**Fix:** make the intent the code:
 
 ```python
-def _add_finding(fid: str, *, title: str, promote_to_fixed: bool) -> None:
-    ...
-    head, sep, tail = text.partition(f"### {fid} -- ")
-    tail = tail.replace("**Status:** `OPEN`", "**Status:** `FIXED`", 1)
-    path.write_text(head + sep + tail, encoding="utf-8")
+# El contrato es que NADA se escape: si el hook levantara, este test falla acá.
+main_iol._redacted_excepthook(type(exc), exc, exc.__traceback__)
 ```
 
-and add an assertion that the fixture round-trips to `{"F-01": "OPEN", "F-02": "FIXED"}` through
-`_parse_findings`, so a fixture that lies fails at the fixture rather than downstream.
-
-### WR-05: the seed wiring lock verifies textual line order, not execution order
-
-**File:** `verification/test_main_iol_fid_seed.py:273-297`
-
-**Issue:** `_call_linenos` collects `ast.Call` line numbers anywhere inside the `main`
-`FunctionDef`, including inside `if`/`try`/`with` bodies, and the lock compares raw line numbers.
-A `_seed_fid_counter()` placed inside a branch that never executes — or inside a `try:` whose
-`except` swallows — still satisfies `bootstrap_lines[0] < seed_lines[0] < min(probe_lines)`
-while the counter stays at 0 at runtime, which is precisely the CR-01 failure the lock exists to
-prevent. The test docstring claims it catches "un seed definido pero nunca llamado"; it catches
-"never *written*", not "never *reached*".
-
-**Fix:** Additionally assert the call is an unconditional top-level statement of `main`:
-
-```python
-top_level = [
-    n for n in main_def.body
-    if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
-    and isinstance(n.value.func, ast.Name) and n.value.func.id == "_seed_fid_counter"
-]
-assert len(top_level) == 1, "el seed debe ser una sentencia incondicional de main()"
-```
-
-Or (stronger, and cheap here) drop the AST proxy for a behavioural check: monkeypatch
-`_seed_fid_counter` with a spy, run `main()` against a mocked client, and assert it was called
-exactly once before any `append_finding`.
+and for line 1894, monkeypatch the module directly instead of reaching through the driver's
+namespace: `monkeypatch.setattr(traceback, "print_tb", _boom)` with a top-level
+`import traceback`. Then either widen mypy's `files` to include `main_iol.py` and `verification/`,
+or add a `verification/` step to the CI typecheck job — otherwise the next such regression is
+equally invisible.
 
 ## Info
 
-### IN-01: two undocumented bypasses in `_raw_exception_renders`' argument scan
+### IN-01: container-wrapped names still defeat every call-based rule
 
-**File:** `verification/test_main_iol_exception_redaction.py:753-755`
+**File:** `verification/test_main_iol_exception_redaction.py:945-947`
 
-**Issue:** `passed` collects only direct `ast.Name` arguments, so wrapping the bound name in any
-container defeats every call-based rule: `append_finding("p", actual=str([exc]))` returns `[]`.
-The docstring's "Lo que queda **sin verificar**" section lists two-level aliasing and
-cross-handler data flow (both confirmed accurate) but not this one.
+**Issue:** Carried forward, unchanged. `passed` collects only direct `ast.Name` arguments, so
+wrapping the bound name in any container clears all of rules 1/3/5. Confirmed, with a second
+spelling the previous review did not list:
 
-**Fix:** Either recurse into `ast.List`/`ast.Tuple`/`ast.Set`/`ast.Dict` when collecting `passed`,
-or add the container shape to the declared-boundary list in the docstring so a future reader is
-not misled about coverage.
+| Source inside a handler | `_raw_exception_renders` |
+|---|---|
+| `append_finding("p", actual=str([exc]))` | `[]` |
+| `append_finding("p", actual=f"{[exc]}")` | `[]` |
 
-### IN-02: `max_existing_fid` seeds from detail headers only
+The docstring's "Lo que queda **sin verificar**" list (lines 873-886) is otherwise accurate and
+was extended thoughtfully in 30-13 — this shape is the one omission.
 
-**File:** `main_iol.py:206` → `verification/findings.py` `_DETAIL_HEADER_FID_NUM_RE`
+**Fix:** recurse into `ast.List` / `ast.Tuple` / `ast.Set` / `ast.Dict` when collecting `passed`
+and into `ast.FormattedValue.value`, or add the container shape to the declared-boundary list so
+a future reader is not misled about coverage.
 
-**Issue:** The seed reads `^###\s+F-(\d+)\b` only. A fid that exists in the `## Index` table but
-has no detail block — reachable via a hand-edited findings file, which the operator-owned
-prefix/suffix zones explicitly invite — is invisible to the seed, and the run re-emits it,
-reproducing CR-01's collision on that fid. Not currently the case for `iol-client-findings.md`
-(both F-01 and F-02 have detail blocks).
+### IN-02: the census annotation gate is a real boundary and is not declared as one
 
-**Fix:** Have `max_existing_fid` take the max over both the index rows and the detail headers.
-(Out of this phase's file scope; file as a carry-forward against `verification/findings.py`.)
+**File:** `verification/test_main_iol_exception_redaction.py:1161-1181`, `1286-1291`
 
-### IN-03: the crash-path subprocess test inherits the operator's real credentials
+**Issue:** `_annotates_an_exception` gates the whole census, so a second renderer whose parameter
+is annotated `object` / `Any` / not at all is never censused. Measured — all three return
+`["_redacted_exc"]` only, i.e. the duplicate is invisible:
 
-**File:** `verification/test_main_iol_exception_redaction.py:1208-1220`
+```
+def _fmt(e: object) -> str: return str(e)    -> []
+def _fmt(e) -> str: return str(e)            -> []
+def _fmt(e: Any) -> str: return str(e)       -> []
+```
 
-**Issue:** `env = {**os.environ, ...}` hands the child the full parent environment, and the child
-imports `main_iol` → `iol_client` → `load_dotenv()`, so real `IOL_USER` / `IOL_PASSWORD` are
-resolved inside a process whose stdout and stderr are captured and interpolated into assertion
-failure messages. The file header advertises the suite as "sin credenciales, sin `.env`". No
-network call occurs, so nothing is exercised with them — but a failure message could print them.
+This is **not** an open leak, and 30-13 is why: the new generic-delegation rule catches the
+*caller* instead. I confirmed that a hook rewritten to `_emit_crash_report(_fmt(exc), tb)` with
+`_fmt(e: object)` now censuses `_redacted_excepthook` itself and fails
+`test_the_driver_declares_exactly_one_exception_renderer`. The gate's noise argument
+(lines 1286-1291) is also correct — dropping it would flag every probe. The gap is documentary:
+the docstring explains why the gate exists but never says what it costs, and this closure
+depends on a second detector rather than on this one.
 
-**Fix:** Pass a minimal environment and neutralise the credential vars:
+**Fix:** add one bullet to `_declared_exception_renderers`' docstring naming the boundary and the
+backstop, along the lines of: "un renderer anotado `object` / `Any` / sin anotar no se censa; lo
+cubre la regla 4 sobre su **llamador**, no este gate."
+
+### IN-03: the three subprocess tests hand the child the operator's real credentials
+
+**File:** `verification/test_main_iol_exception_redaction.py:1576-1579`, `1767-1770`, `1932-1935`
+
+**Issue:** Carried forward and now replicated: 30-12 added two more copies of
 
 ```python
-env = {
-    "PATH": os.environ.get("PATH", ""),
-    "IOL_TOKEN_CACHE_PATH": str(tmp_path / "token-cache.json"),
-    "IOL_USER": "u",
-    "IOL_PASSWORD": "p",
-}
+env = {**os.environ, "IOL_TOKEN_CACHE_PATH": str(tmp_path / "token-cache.json")}
 ```
+
+Each child imports `main_iol` → `iol_client` → `load_dotenv()`, so real `IOL_USER` /
+`IOL_PASSWORD` resolve inside a process whose stdout and stderr are captured and interpolated
+verbatim into assertion-failure messages. The file header advertises the suite as "sin
+credenciales, sin `.env`". No network call occurs and nothing currently prints them, so exposure
+is latent rather than actual — but the pattern is now the file's default for new subprocess tests,
+which is how it stops being latent.
+
+**Fix:** one shared helper so the next copy inherits the right shape:
+
+```python
+def _sealed_env(tmp_path: Path) -> dict[str, str]:
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "IOL_TOKEN_CACHE_PATH": str(tmp_path / "token-cache.json"),
+        "IOL_USER": "u",
+        "IOL_PASSWORD": "p",
+    }
+```
+
+### IN-04: `test_the_hook_still_prints_frames_when_the_abort_line_fails` couples to repo source text
+
+**File:** `verification/test_main_iol_exception_redaction.py:1863`, `1874-1876`
+
+**Issue:** `_StderrThatFailsOnWrite(fail_on="ABORT")` raises on any write whose text contains
+`ABORT`. `traceback.print_tb` writes each frame's **source line** from the repo, so if any line in
+a frame of `_caught` ever contains the substring `ABORT`, the frame write starts raising too and
+the test fails with a message pointing at guard independence — the wrong diagnosis. Today the only
+frame is `raise exc`, so it holds.
+
+**Fix:** use a marker that cannot appear in repo source, e.g. `fail_on="\x00ABORT-SENTINEL"` is
+not viable since the hook writes a literal prefix — instead assert on `writes` shape by making the
+stream fail only on its *first* write, which is the ABORT line by construction, and keep the
+substring assertion as the secondary check.
 
 ---
 
-_Reviewed: 2026-08-23T18:55:00Z_
+_Reviewed: 2026-08-23T19:40:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
