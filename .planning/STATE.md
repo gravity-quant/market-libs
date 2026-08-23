@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.6
-milestone_name: Tipado homogéneo de la superficie pública
+milestone_name: Tipado homogéneo de la superficie pública (Phases 29-34) — IN PROGRESS
 current_phase: 31
 current_phase_name: Endpoints de ops + estructura uniforme
 status: completed
-stopped_at: Completed 30-13-PLAN.md
-last_updated: "2026-08-23T21:44:42.041Z"
+stopped_at: Phase 31 context gathered (assumptions mode)
+last_updated: "2026-08-23T23:55:13.989Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 30 complete, transitioned to Phase 31
 progress:
@@ -327,9 +327,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-23T21:27:37.981Z
-Stopped at: Completed 30-13-PLAN.md
-Resume file: None
+Last session: 2026-08-23T23:55:13.975Z
+Stopped at: Phase 31 context gathered (assumptions mode)
+Resume file: .planning/phases/31-endpoints-de-ops-estructura-uniforme/31-CONTEXT.md
 
 ## Operator Next Steps
 
