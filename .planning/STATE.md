@@ -5,16 +5,16 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: "Phase 30 executed 4/4 plans; verifier gaps_found (2 gaps: DRIFT-01 probe blindness, envelope guard)"
-last_updated: "2026-08-22T17:24:03.874Z"
+stopped_at: Phase 30 plan 09 complete — file-wide exception redaction in main_iol.py (CR-01 BLOCKER closed)
+last_updated: "2026-08-23T02:46:41.991Z"
 last_activity: 2026-08-22
 last_activity_desc: Phase 30 execution resumed (wave continue)
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 18
-  completed_plans: 17
-  percent: 17
+  completed_phases: 2
+  total_plans: 19
+  completed_plans: 19
+  percent: 33
 ---
 
 # Project State
@@ -132,6 +132,7 @@ Last activity: 2026-08-22 — Phase 30 execution resumed (wave continue)
 | Phase 30 P02 | 8min | 3 tasks | 10 files |
 | Phase 30 P03 | 6min | 3 tasks | 13 files |
 | Phase 30 P04 | 31min | 3 tasks | 7 files |
+| Phase 30 P09 | 35min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -228,6 +229,8 @@ Recent decisions affecting current work:
 - [Phase 30]: Verificar no-vacuidad de los probes por aserción positiva, nunca por ausencia de findings — tres de los cuatro sitios de frontera reportan PASS precisamente cuando están rotos (30-04)
 - [Phase 30]: El guard de tipo del precio se elimina, no se relaja — ultimoPrecio está declarado float y el walker lo garantiza; conservarlo implicaría no creerle al tipo que la fase entrega (30-04)
 - [Phase 30]: Para los endpoints modelados de iol la señal autoritativa de drift pasa a ser el censo de divergencias, no el diff del snapshot de schema — to_dict() proyecta el drift afuera por construcción; carry-forward FA-09 a Phase 33 (30-04)
+- [Phase 30]: 30-09: AD-30-09-01 en codigo — main_iol.py tiene UN solo renderer de excepciones (_redacted_exc) y los 32 sitios de reporte rutean por el; IOLDecodeError exento porque sus 4 atributos son type-only por T-29-36, y un status_code no-int se descarta por isinstance (WR-06)
+- [Phase 30]: 30-09: el lock de regresion es un detector AST que toma un STRING de fuente, no un path — asi el audit de Phase 33 lo apunta a los otros cinco main_*.py sin reescribirlo; no-vacuidad probada con control positivo (3 lineas plantadas) y no-ruido con control negativo
 
 ### Pending Todos
 
@@ -307,9 +310,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-20T04:05:08.464Z
-Stopped at: Phase 30 executed 4/4 plans; verifier gaps_found (2 gaps: DRIFT-01 probe blindness, envelope guard)
-Resume file: .planning/phases/30-iol-client-tipado/30-VERIFICATION.md
+Last session: 2026-08-23T02:46:41.986Z
+Stopped at: Phase 30 plan 09 complete — file-wide exception redaction in main_iol.py (CR-01 BLOCKER closed)
+Resume file: .planning/phases/30-iol-client-tipado/30-09-SUMMARY.md
 
 ## Operator Next Steps
 
