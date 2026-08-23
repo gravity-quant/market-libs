@@ -82,6 +82,7 @@ from iol_client import (
     Instrumento,
     IOLAPIError,
     IOLAuthError,
+    IOLDecodeError,
     Titulo,
     _core,
 )
@@ -234,6 +235,53 @@ def _as_wire(value: Any) -> Any:
     return value.to_dict() if hasattr(value, "to_dict") else value
 
 
+def _redacted_exc(exc: BaseException) -> str:
+    """Única función del driver autorizada a convertir una excepción en texto de reporte.
+
+    **Por qué existe (T-30-09-01, extiende T-30-08-01 a todo el archivo).**
+    ``_core.raise_for_response`` construye ``IOLAuthError`` / ``IOLRateLimitError``
+    / ``IOLAPIError`` con ``resp.text`` como mensaje: el body de error upstream
+    completo queda adentro de la excepción, puesto ahí para beneficio del
+    **consumidor** que debe debuggearlo, no para el reporte. Un finding, en
+    cambio, es un artefacto durable versionado en git
+    (``.planning/verification/iol-client-findings.md``), y contra una API de
+    brokerage autenticada ese body lleva plausiblemente identificadores de cuenta
+    y de instrumento. Este helper es la frontera donde esa diferencia se hace
+    valer, y es **uno solo** (AD-30-09-01): con 32 sitios de reporte, una
+    expresión inline sería 32 decisiones independientes que derivan — que es
+    exactamente cómo nació este gap.
+
+    **Qué se conserva y por qué.** El status code sobrevive porque es el único
+    hecho que discrimina falla de auth, de rate limit, de error de servidor y de
+    transporte sin ser un valor del wire: sin él, un finding OPEN durable no es
+    triageable.
+
+    **Por qué está type-guardeado.** 11 de los 32 handlers del driver son
+    ``except Exception``, así que acá llegan tipos de ``iol_client``, de ``httpx``
+    y de la stdlib, presentes y futuros. Nada obliga a que un objeto que expone
+    ``status_code`` exponga un ``int``, y formatear un valor arbitrario sería una
+    fuga a través de la mismísima expresión escrita para evitar fugas
+    (30-REVIEW.md WR-06). Cualquier valor que no sea ``int`` se descarta.
+
+    **Por qué ``IOLDecodeError`` está exento** (30-REVIEW.md WR-03): sus cuatro
+    atributos ya están certificados por ``exceptions.py`` como "tipos y rutas,
+    **jamás** un valor del wire" (T-29-36). Redactarlos no compraría nada y le
+    costaría al operador cualquier forma de reproducir o cerrar el finding —
+    sobre-redactar es su propio modo de falla (T-30-09-03).
+
+    Nunca lee ``Exception.args`` ni ``.message``, y nunca vuelca el objeto
+    excepción.
+    """
+    if isinstance(exc, IOLDecodeError):
+        return (
+            f"IOLDecodeError model={exc.model} path={exc.field_path} "
+            f"declared={exc.declared_type} observed={exc.observed_type}"
+        )
+    raw_status = getattr(exc, "status_code", None)
+    status_code = raw_status if isinstance(raw_status, int) else None
+    return f"{type(exc).__name__} status_code={status_code!r}"
+
+
 def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], list[str]]:
     """Captura el body CRUDO de los 4 endpoints, una vez cada uno (CR-01).
 
@@ -329,11 +377,6 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
             raw_by_endpoint[func_name] = resp.json()
         except Exception as exc:
             # Un endpoint que falla no aborta los otros tres: se registra y sigue.
-            # T-30-08-01: sólo la clase de la excepción y su status code cruzan
-            # hacia el finding — nunca el mensaje, que carga el body upstream.
-            # ``getattr`` con default defensivo: ni ``httpx.ConnectError`` ni
-            # ``IOLDecodeError`` llevan ``status_code``.
-            status_code = getattr(exc, "status_code", None)
             fid = _next_fid()
             append_finding(
                 _PKG,
@@ -343,7 +386,7 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
                 status="OPEN",
                 title=f"captura de wire crudo falló en {func_name}",
                 expected=f"200 OK con el body crudo de {func_name} para schema_of",
-                actual=f"{type(exc).__name__} status_code={status_code!r}",
+                actual=_redacted_exc(exc),
                 diff=f"type={type(exc).__name__}",
                 base_url=base_url,
             )
@@ -368,7 +411,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
         client.login()
     except IOLAuthError as exc:
         _auth_failed = True
-        _auth_failure_reason = f"sync login: {exc}"
+        _auth_failure_reason = f"sync login: {_redacted_exc(exc)}"
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -378,7 +421,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
             status="OPEN",
             title="login() sync falló",
             expected="login succeeds + cached token",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -403,7 +446,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
         await aclient.login()
     except IOLAuthError as exc:
         _auth_failed = True
-        _auth_failure_reason = f"async login: {exc}"
+        _auth_failure_reason = f"async login: {_redacted_exc(exc)}"
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -413,7 +456,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
             status="OPEN",
             title="login() async falló",
             expected="login succeeds + cached token",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -450,7 +493,7 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
             status="OPEN",
             title="get_quote_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -465,7 +508,7 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
             status="OPEN",
             title="get_quote_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -480,7 +523,7 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
             status="OPEN",
             title=f"get_quote_sync unexpected {type(exc).__name__}",
             expected="200 OK + Cotizacion",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -537,7 +580,7 @@ async def probe_get_quote_async(
             status="OPEN",
             title="get_quote_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -552,7 +595,7 @@ async def probe_get_quote_async(
             status="OPEN",
             title="get_quote_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -567,7 +610,7 @@ async def probe_get_quote_async(
             status="OPEN",
             title=f"get_quote_async unexpected {type(exc).__name__}",
             expected="200 OK + Cotizacion",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -607,7 +650,7 @@ def probe_get_historical_quotes_sync(
             status="OPEN",
             title="get_historical_quotes_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -625,7 +668,7 @@ def probe_get_historical_quotes_sync(
             status="OPEN",
             title="get_historical_quotes_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -643,7 +686,7 @@ def probe_get_historical_quotes_sync(
             status="OPEN",
             title=f"get_historical_quotes_sync unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -686,7 +729,7 @@ async def probe_get_historical_quotes_async(
             status="OPEN",
             title="get_historical_quotes_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -704,7 +747,7 @@ async def probe_get_historical_quotes_async(
             status="OPEN",
             title="get_historical_quotes_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -722,7 +765,7 @@ async def probe_get_historical_quotes_async(
             status="OPEN",
             title=f"get_historical_quotes_async unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -756,7 +799,7 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instru
             status="OPEN",
             title="get_instruments_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -771,7 +814,7 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instru
             status="OPEN",
             title="get_instruments_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -786,7 +829,7 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instru
             status="OPEN",
             title=f"get_instruments_sync unexpected {type(exc).__name__}",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -819,7 +862,7 @@ async def probe_get_instruments_async(
             status="OPEN",
             title="get_instruments_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -834,7 +877,7 @@ async def probe_get_instruments_async(
             status="OPEN",
             title="get_instruments_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -849,7 +892,7 @@ async def probe_get_instruments_async(
             status="OPEN",
             title=f"get_instruments_async unexpected {type(exc).__name__}",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -896,7 +939,7 @@ def probe_get_instruments_by_type_sync(
             status="OPEN",
             title="get_instruments_by_type_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -914,7 +957,7 @@ def probe_get_instruments_by_type_sync(
             status="OPEN",
             title="get_instruments_by_type_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -932,7 +975,7 @@ def probe_get_instruments_by_type_sync(
             status="OPEN",
             title=f"get_instruments_by_type_sync unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -1021,7 +1064,7 @@ async def probe_get_instruments_by_type_async(
             status="OPEN",
             title="get_instruments_by_type_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -1039,7 +1082,7 @@ async def probe_get_instruments_by_type_async(
             status="OPEN",
             title="get_instruments_by_type_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -1057,7 +1100,7 @@ async def probe_get_instruments_by_type_async(
             status="OPEN",
             title=f"get_instruments_by_type_async unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -1569,7 +1612,7 @@ def probe_refresh_token(client: Client) -> ProbeResult:
             status="OPEN",
             title="refresh path no funciona en vivo: levantó AuthError",
             expected="renovación silenciosa vía refresh_token o fallback a password",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -1584,7 +1627,7 @@ def probe_refresh_token(client: Client) -> ProbeResult:
             status="OPEN",
             title="refresh path causó APIError inesperado",
             expected="200 OK tras refresh transparente",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -1739,7 +1782,7 @@ def probe_auth_401(client: Client) -> ProbeResult:
                 status="OPEN",
                 title="credenciales inválidas produjeron error inesperado",
                 expected="401 (IOLAuthError)",
-                actual=repr(exc),
+                actual=_redacted_exc(exc),
                 diff=f"type={type(exc).__name__}",
                 base_url=base_url,
             )
