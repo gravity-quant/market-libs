@@ -5,16 +5,16 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: Phase 30 plan 09 complete — file-wide exception redaction in main_iol.py (CR-01 BLOCKER closed)
-last_updated: "2026-08-23T02:46:41.991Z"
-last_activity: 2026-08-22
+stopped_at: Phase 30 plan 10 complete — fid allocator seeded + crash-path redaction in main_iol.py (truths 7 & 8 closed)
+last_updated: "2026-08-23T18:09:39.104Z"
+last_activity: 2026-08-23
 last_activity_desc: Phase 30 execution resumed (wave continue)
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 19
-  completed_plans: 19
-  percent: 33
+  completed_phases: 1
+  total_plans: 21
+  completed_plans: 20
+  percent: 17
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 30 (iol-client-tipado) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 30
-Last activity: 2026-08-22 — Phase 30 execution resumed (wave continue)
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-08-23 — Phase 30 execution resumed (wave continue)
 
 ## Performance Metrics
 
@@ -133,6 +133,7 @@ Last activity: 2026-08-22 — Phase 30 execution resumed (wave continue)
 | Phase 30 P03 | 6min | 3 tasks | 13 files |
 | Phase 30 P04 | 31min | 3 tasks | 7 files |
 | Phase 30 P09 | 35min | 3 tasks | 2 files |
+| Phase 30 P10 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -231,6 +232,10 @@ Recent decisions affecting current work:
 - [Phase 30]: Para los endpoints modelados de iol la señal autoritativa de drift pasa a ser el censo de divergencias, no el diff del snapshot de schema — to_dict() proyecta el drift afuera por construcción; carry-forward FA-09 a Phase 33 (30-04)
 - [Phase 30]: 30-09: AD-30-09-01 en codigo — main_iol.py tiene UN solo renderer de excepciones (_redacted_exc) y los 32 sitios de reporte rutean por el; IOLDecodeError exento porque sus 4 atributos son type-only por T-29-36, y un status_code no-int se descarta por isinstance (WR-06)
 - [Phase 30]: 30-09: el lock de regresion es un detector AST que toma un STRING de fuente, no un path — asi el audit de Phase 33 lo apunta a los otros cinco main_*.py sin reescribirlo; no-vacuidad probada con control positivo (3 lineas plantadas) y no-ruido con control negativo
+- [Phase 30]: 30-10: AD-30-10-01 en código — el camino de crash de main_iol.py se cierra con un sys.excepthook nombrado instalado desde el guard __main__, NO con un try/except en main(): un try/except bindearía la excepción dentro de un ast.ExceptHandler (la forma que _raw_exception_renders recorre) y no cubriría nada levantado en tiempo de import
+- [Phase 30]: 30-10: el hook usa traceback.print_tb (frames only); los helpers que toman la excepción o el triple de exc_info agregan la línea del mensaje y recorren __cause__/__context__, reintroduciendo la fuga. Costo aceptado: el mensaje de una causa encadenada (triage, no fuga)
+- [Phase 30]: 30-10: el camino de crash es la única salida del driver que NO pasa por safe_print — safe_print escribe sólo a stdout y sin parámetro de archivo, y mezclar el crash en stdout corrompería la línea SUMMARY; registrado como bullet en las Reglas de seguridad del module docstring
+- [Phase 30]: 30-10: _seed_fid_counter espeja main_market_data.py verbatim (global + max_existing_fid(_PKG)) y queda bajo lock AST de orden — write_findings < seed < primer probe; un seed definido pero no llamado falla el test
 
 ### Pending Todos
 
@@ -310,9 +315,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-23T02:46:41.986Z
-Stopped at: Phase 30 plan 09 complete — file-wide exception redaction in main_iol.py (CR-01 BLOCKER closed)
-Resume file: .planning/phases/30-iol-client-tipado/30-09-SUMMARY.md
+Last session: 2026-08-23T18:09:39.099Z
+Stopped at: Phase 30 plan 10 complete — fid allocator seeded + crash-path redaction in main_iol.py (truths 7 & 8 closed)
+Resume file: .planning/phases/30-iol-client-tipado/30-10-SUMMARY.md
 
 ## Operator Next Steps
 

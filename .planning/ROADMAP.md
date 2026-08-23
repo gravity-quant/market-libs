@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 9/11 plans complete
+**Plans:** 10/11 plans executed
 
 Plans:
 **Wave 1**
@@ -120,7 +120,7 @@ Plans:
 
 **Wave 9 — los dos BLOCKERs del cuarto ciclo** *(30-VERIFICATION.md 2026-08-23: 6/8; SC1-SC5 re-confirmados intactos y fuera de scope — los dos gaps abiertos son de integridad y de fuga en `main_iol.py`, hallados por 30-REVIEW.md CR-01/CR-02 y re-derivados por el verificador)*
 
-- [ ] 30-10-PLAN.md — CR-01 (integridad del harness) + CR-02 (fuga por la ruta de crash): `_seed_fid_counter()` sube el allocator por encima de los fids ya committeados (F-01 OPEN / F-02 FIXED) para que ninguna corrida sobrescriba un finding triageado ni pierda uno en silencio; y un `sys.excepthook` redactado rutea la excepción no capturada por `_redacted_exc` + traceback sin la línea de mensaje, preservando el crash no-cero de D-04
+- [x] 30-10-PLAN.md — CR-01 (integridad del harness) + CR-02 (fuga por la ruta de crash): `_seed_fid_counter()` sube el allocator por encima de los fids ya committeados (F-01 OPEN / F-02 FIXED) para que ninguna corrida sobrescriba un finding triageado ni pierda uno en silencio; y un `sys.excepthook` redactado rutea la excepción no capturada por `_redacted_exc` + traceback sin la línea de mensaje, preservando el crash no-cero de D-04
 
 **Wave 10 — durabilidad del lock de regresión** *(30-VERIFICATION.md WARNING / 30-REVIEW.md WR-01 + WR-02: no hay fuga viva hoy, pero el lock no enforcea lo que 30-09-SUMMARY.md afirma que enforcea)*
 
@@ -217,7 +217,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 9/9 | Complete   | 2026-08-21 |
+| 30. `iol-client` tipado                                     | v1.6      | 10/11 | In Progress|  |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
