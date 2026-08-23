@@ -82,7 +82,7 @@ Plans:
   4. `mercado` y `plazo` se envían en `str` en esta fase, con carry-forward documentado: la promoción a `Literal` se decide en la Phase 33 con censo vivo (DT-07). Ningún campo de RESPONSE gana `Literal`.
   5. Cada modelo nuevo expone `to_dict()` como escape hatch de migración **en el mismo release** que la ruptura dict→modelo, y el README de iol registra la ruptura (incluido el flip de truthiness) alimentando el bump 0.2.0 → 0.3.0 de DT-08.
 
-**Plans:** 12/13 plans executed
+**Plans:** 13/13 plans complete
 
 Plans:
 **Wave 1**
@@ -132,7 +132,7 @@ Plans:
 
 **Wave 12 — durabilidad del lock, segunda vuelta** *(30-VERIFICATION.md quinto ciclo WARNING: no hay fuga viva hoy, pero el lock ensanchado por 30-11 tiene tres bypasses nuevos, reproducidos llamando a los detectores directo sobre fuentes sintéticos)*
 
-- [ ] 30-13-PLAN.md — Los tres bypasses del quinto ciclo: la exención de `getattr` se adjudica sobre el **argumento de nombre de atributo** (marca `getattr(exc, "message", …)`, sigue permitiendo `getattr(exc, "status_code", None)`), `__dict__` entra al set de atributos con fuga, y el predicado del censo gana la regla de `%`-format que su detector hermano ya tenía más una regla genérica de delegación a callee no sancionado
+- [x] 30-13-PLAN.md — Los tres bypasses del quinto ciclo: la exención de `getattr` se adjudica sobre el **argumento de nombre de atributo** (marca `getattr(exc, "message", …)`, sigue permitiendo `getattr(exc, "status_code", None)`), `__dict__` entra al set de atributos con fuga, y el predicado del censo gana la regla de `%`-format que su detector hermano ya tenía más una regla genérica de delegación a callee no sancionado
 
 ### Phase 31: Endpoints de ops + estructura uniforme
 
@@ -225,7 +225,7 @@ Plans:
 | 27. Safe live verification + fixes                          | v1.5      | 7/7 | Complete   | 2026-08-01 |
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
-| 30. `iol-client` tipado                                     | v1.6      | 12/13 | In Progress|  |
+| 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete   | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 0/? | Not started | -          |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |

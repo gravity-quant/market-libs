@@ -5,16 +5,16 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 30
 current_phase_name: iol-client-tipado
 status: executing
-stopped_at: Completed 30-12-PLAN.md
-last_updated: "2026-08-23T21:17:47.317Z"
+stopped_at: Completed 30-13-PLAN.md
+last_updated: "2026-08-23T21:27:37.986Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 30 plan 12 executed — crash-path fail-closed gap closure
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 23
-  completed_plans: 22
-  percent: 17
+  completed_plans: 23
+  percent: 33
 ---
 
 # Project State
@@ -136,6 +136,7 @@ Last activity: 2026-08-23 — Phase 30 plan 12 executed — crash-path fail-clos
 | Phase 30 P10 | 6min | 2 tasks | 3 files |
 | Phase 30 P11 | 8min | 2 tasks | 1 files |
 | Phase 30 P12 | 6min | 3 tasks | 2 files |
+| Phase 30 P13 | 6min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -245,6 +246,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 30-12: AD-30-12-01: el camino de crash falla cerrado envolviendo el CUERPO DEL HOOK, no endureciendo _redacted_exc — el hook es el último frame antes del fallback de CPython, así que un guard ahí es provablemente suficiente sin importar qué sub-paso falló
 - [Phase ?]: 30-12: _HOOK_RENDER_FAILED es una constante ESTÁTICA: en la rama de fallback la maquinaria que decide qué es seguro mostrar ya falló, así que nada derivado de exc puede asumirse seguro ahí
 - [Phase ?]: 30-12: Los dos sinks del crash van en dos contextlib.suppress(BaseException) SEPARADOS, no en uno compartido — falsificado colapsándolos y observando que sólo el test dedicado falla
+- [Phase 30]: AD-30-13-01: getattr queda sancionado como callee y se adjudica sobre su argumento de nombre de atributo; sacarlo del allow-list habria marcado la forma conforme del renderer sancionado — Una sola constante (_LEAKY_EXC_ATTRS) gobierna las dos escrituras de una lectura con fuga, asi que no pueden derivar; un nombre de atributo no constante se marca conservadoramente
+- [Phase 30]: Las dos constantes de callees sancionados no se fusionan: _SANCTIONED_DELEGATES incluye getattr, _CENSUS_SANCTIONED_DELEGATES no — Contestan preguntas distintas; fusionarlas romperia el censo del propio renderer sancionado, cuyo cuerpo es un getattr mas un type()
 
 ### Pending Todos
 
@@ -324,8 +327,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-23T21:17:37.157Z
-Stopped at: Completed 30-12-PLAN.md
+Last session: 2026-08-23T21:27:37.981Z
+Stopped at: Completed 30-13-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
