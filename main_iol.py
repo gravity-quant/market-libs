@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Any
 
 from verification import require_env, safe_print, schema_of, write_findings
-from verification.findings import append_finding
+from verification.findings import append_finding, max_existing_fid
 
 import iol_client
 from iol_client import (
@@ -154,12 +154,44 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
 }
 
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
+# NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
+# ya registrado antes del primer probe (D-16/D-24). Sin ese seed, cada finding
+# nuevo re-emitiría un fid ya ocupado — y contra el archivo committeado, que hoy
+# lleva F-01 (OPEN) y F-02 (FIXED), eso significa reescribir el triage del
+# operador en el primer caso y perder el finding en silencio en el segundo,
+# mientras el driver sigue reportando ``FINDING=N``.
 _fid_counter: int = 0
 
 # D-IOL-3: cascade SKIPPED — flag único compartido entre surfaces sync y async.
 # Si CUALQUIER login falla, todos los downstream emiten SKIPPED.
 _auth_failed: bool = False
 _auth_failure_reason: str = ""
+
+
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (D-16/D-24).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+
+    La falla que previene tiene dos caras, y ambas son observables hoy contra
+    ``.planning/verification/iol-client-findings.md``:
+
+    - un fid re-emitido cuyo status registrado ES ``OPEN`` (hoy ``F-01``) NO
+      dispara el short-circuit de :func:`verification.findings.append_finding`:
+      el bloque de detalle se **reescribe en el lugar** con contenido ajeno y el
+      triage que el operador arrastró desde la Phase 17 se pierde;
+    - un fid re-emitido cuyo status registrado NO es ``OPEN`` (hoy ``F-02``,
+      ``FIXED``) sí dispara el short-circuit: el write se vuelve un no-op
+      **silencioso** mientras ``main()`` igual lo cuenta en ``FINDING=N`` y el
+      ``SUMMARY`` reporta éxito. El run pierde su entregable creyendo que
+      funcionó.
+
+    Misma forma que ``main_market_data.py::_seed_fid_counter``.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
 
 
 def _next_fid() -> str:
@@ -1883,6 +1915,11 @@ def main() -> None:
 
     # D-03 mirror: idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
+
+    # D-16/D-24: seedear el allocator DESPUÉS del bootstrap y ANTES del primer
+    # probe, para que cada fid emitido en este run caiga por encima de lo ya
+    # registrado y no pise ni sea tragado por un finding ya triageado.
+    _seed_fid_counter()
 
     results: list[ProbeResult] = []
 
