@@ -718,19 +718,36 @@ def probe():
 # crudo, que es precisamente lo que este lock existe para mantener afuera.
 # ``.response`` / ``.request`` son las formas equivalentes de ``httpx``.
 #
+# ``__dict__`` se agrega en 30-13. El dict de instancia expone de una sola
+# lectura **todo** atributo que el constructor asignó —``message`` entre ellos,
+# que es literalmente ``resp.text``— así que es el mismo body upstream alcanzado
+# por otra ruta. Marcar ``.message`` y no ``.__dict__`` era una inconsistencia,
+# no una política.
+#
 # ``status_code`` NO está acá y su ausencia es una decisión, no un olvido:
 # ``30-REVIEW.md`` WR-03 (22 lecturas inline de ``exc.status_code`` en argumentos
 # ``diff=``) es un carry-forward abierto y **no escalado**, así que agregarlo
 # haría fallar el lock del driver sobre 22 sitios pre-existentes. Cerrar WR-03 es
 # lo que debe habilitar esa entrada, nunca al revés.
-_LEAKY_EXC_ATTRS = ("message", "args", "response", "request")
+#
+# Este conjunto gobierna las **dos** escrituras de una lectura de atributo: la
+# directa (``<n>.message``) y la indirecta (``getattr(<n>, "message", ...)``).
+# Que sea una sola constante es lo que impide que las dos escrituras deriven.
+_LEAKY_EXC_ATTRS = ("message", "args", "response", "request", "__dict__")
 
 # Las únicas cuatro llamadas que pueden recibir el nombre bindeado sin que eso
 # cuente como fuga. ``_redacted_exc`` es el renderer sancionado de la fase
-# (AD-30-09-01); las otras tres son las formas de introspección que el driver ya
-# usa y que no pueden reproducir un valor del wire: ``type(<n>)`` devuelve una
-# clase, ``isinstance`` un bool, y ``getattr(<n>, "status_code", None)`` un
-# atributo que el propio renderer guardea con ``isinstance(..., int)``.
+# (AD-30-09-01); ``type(<n>)`` devuelve una clase e ``isinstance`` un bool,
+# ninguno de los dos capaz de reproducir un valor del wire.
+#
+# ``getattr`` está sancionado **como callee** pero no como llamada: la versión
+# de 30-11 lo dejaba pasar mirando sólo el nombre del callee, con lo cual
+# ``getattr(<n>, "message", "")`` quedaba tan permitido como
+# ``getattr(<n>, "status_code", None)`` aunque el primero devuelve el body
+# upstream verbatim. Desde 30-13 la decisión se toma sobre el **argumento de
+# nombre de atributo**, con :data:`_LEAKY_EXC_ATTRS` como criterio — ver la
+# regla 9 de :func:`_raw_exception_renders`. Un nombre de atributo no constante
+# se marca (regla 10): no puede probarse seguro.
 _SANCTIONED_DELEGATES = ("_redacted_exc", "type", "isinstance", "getattr")
 
 # Las llamadas que convierten un objeto en texto. ``format`` cubre
@@ -794,7 +811,8 @@ def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
        ``append_finding`` — caso especial de la forma 5, con etiqueta propia
        porque es el sink durable y conviene que el mensaje de falla lo nombre;
     4. una lectura de :data:`_LEAKY_EXC_ATTRS` sobre el nombre bindeado
-       (``<n>.message`` es literalmente ``resp.text``);
+       (``<n>.message`` es literalmente ``resp.text``, y ``<n>.__dict__`` los
+       expone todos de una sola vez);
     5. **delegación no sancionada**: el nombre bindeado pasado —posicional o por
        keyword— a cualquier llamada cuyo callee no esté en
        :data:`_SANCTIONED_DELEGATES`. Esta única regla cierra ``print(<n>)``,
@@ -807,16 +825,28 @@ def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
        bindea nombre — que es exactamente la ruta por la que se obtiene la
        excepción cuando no hay ``as``;
     8. un alias directo de un nivel (``otro = <n>``) convierte a ``otro`` en un
-       nombre bindeado más para todas las reglas anteriores.
+       nombre bindeado más para todas las reglas anteriores;
+    9. la **escritura indirecta** de la regla 4:
+       ``getattr(<n>, "<atributo de _LEAKY_EXC_ATTRS>", ...)``. Se adjudica sobre
+       el argumento de nombre de atributo y **antes** del corto-circuito de
+       :data:`_SANCTIONED_DELEGATES`, que es donde la versión de 30-11 la dejaba
+       pasar; una sola constante gobierna las dos escrituras, así que no pueden
+       derivar (30-VERIFICATION.md, quinto ciclo);
+    10. ``getattr(<n>, <expresión no constante>)`` — un atributo elegido en
+        runtime. Se marca conservadoramente: no es analizable, y permitir la
+        única escritura que derrota el propio análisis del lock sería el mismo
+        gap que la regla 9 cierra.
 
     Lo que **no** marca, a propósito:
 
-    * ``<n>.status_code`` — ``30-REVIEW.md`` WR-03 sigue abierto y no escalado;
-      marcarlo fallaría el lock sobre 22 sitios pre-existentes. Ver
-      :data:`_LEAKY_EXC_ATTRS`.
-    * ``type(<n>).__name__``, ``getattr(<n>, ...)``, ``isinstance(<n>, ...)`` —
-      las tres formas de introspección de :data:`_SANCTIONED_DELEGATES`, ninguna
-      de las cuales puede reproducir un valor del wire.
+    * ``<n>.status_code`` y ``getattr(<n>, "status_code", ...)`` —
+      ``30-REVIEW.md`` WR-03 sigue abierto y no escalado; marcarlo fallaría el
+      lock sobre 22 sitios pre-existentes. Ver :data:`_LEAKY_EXC_ATTRS`.
+    * ``getattr(<n>, "<constante fuera de _LEAKY_EXC_ATTRS>", ...)`` en general —
+      la exención es por atributo, no por callee, desde 30-13.
+    * ``type(<n>).__name__``, ``isinstance(<n>, ...)`` — las formas de
+      introspección de :data:`_SANCTIONED_DELEGATES` que devuelven una clase o un
+      bool y no pueden reproducir un valor del wire.
     * ``_redacted_exc(<n>)`` — el renderer sancionado (AD-30-09-01) es el destino
       *deseado*, no una fuga.
     * cualquier aparición en un docstring o comentario.
@@ -827,6 +857,9 @@ def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
 
     * el aliasing de más de un nivel (``a = <n>``; ``b = a``; ``str(b)``): el
       segundo eslabón es invisible;
+    * el **valor** de un nombre de atributo que llega a ``getattr`` por una
+      variable: no se resuelve, se marca (regla 10). Es una decisión estricta a
+      propósito, no un análisis;
     * el flujo de datos que **sale** del handler (guardar el nombre bindeado en
       un atributo, una lista o un global y leerlo en otro lado);
     * el cuerpo de un callee sancionado — se confía en ``_redacted_exc`` por su
@@ -865,6 +898,28 @@ def _raw_exception_renders(source: str) -> list[tuple[int, str]]:
             called = _called_name(node.func)
             if called == "exc_info":
                 offenders.add((node.lineno, "sys.exc_info() dentro de un handler"))
+                continue
+            if called == "getattr":
+                # Reglas 9 y 10 — adjudicadas ANTES del corto-circuito de
+                # ``_SANCTIONED_DELEGATES``, que es exactamente donde 30-11 las
+                # dejaba pasar: sancionar el callee sin mirar qué atributo se
+                # pide trata ``getattr(<n>, "message", "")`` igual que
+                # ``getattr(<n>, "status_code", None)``.
+                target = node.args[0] if node.args else None
+                if not (isinstance(target, ast.Name) and target.id in bound_names):
+                    continue
+                attr_arg = node.args[1] if len(node.args) > 1 else None
+                if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
+                    if attr_arg.value in _LEAKY_EXC_ATTRS:
+                        offenders.add(
+                            (
+                                node.lineno,
+                                f'getattr({target.id}, "{attr_arg.value}") '
+                                f"— atributo con fuga por la vía indirecta",
+                            )
+                        )
+                    continue
+                offenders.add((node.lineno, f"getattr({target.id}, <nombre de atributo dinámico>)"))
                 continue
             if called in _SANCTIONED_DELEGATES:
                 continue
