@@ -28,6 +28,7 @@ from higyrus_client.exceptions import (
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
+    HigyrusDecodeError,
     HigyrusRateLimitError,
 )
 from higyrus_client.models import Cuenta, Health, Movimiento, Posicion, PosicionValuada
@@ -406,10 +407,12 @@ def test_parse_get_posiciones_response_returns_list_of_posiciones() -> None:
     assert result[0].cuenta == "CTA-001"
 
 
-def test_parse_get_health_response_returns_dict() -> None:
+def test_parse_get_health_response_returns_health() -> None:
+    """Phase 31 TYP-02: el parser devuelve ``Health``, no un mapping."""
     resp = httpx.Response(200, json={"status": "ok"})
     result = _core.parse_get_health_response(resp)
-    assert result == {"status": "ok"}
+    assert result == Health(status="ok")
+    assert result.status == "ok"
 
 
 def test_parse_get_health_response_raises_on_non_dict() -> None:
@@ -418,24 +421,100 @@ def test_parse_get_health_response_raises_on_non_dict() -> None:
         _core.parse_get_health_response(resp)
 
 
-def test_parse_get_health_response_handles_204() -> None:
-    """204 No Content → ``{}``. Sin body = healthy, NO levantar shape-mismatch.
+def test_parse_get_health_response_non_dict_guard_strings_are_exact() -> None:
+    """Los dos strings del guard están pinneados: nunca se aflojan por un re-mock.
+
+    T-31-13. El ``detail`` lleva el NOMBRE del tipo únicamente
+    (``type(raw).__name__``), jamás un valor del wire — regla T-29-36 / ASVS V7.
+    """
+    resp = httpx.Response(200, json=["unexpected", "list"])
+    with pytest.raises(HigyrusAPIError) as excinfo:
+        _core.parse_get_health_response(resp)
+    assert excinfo.value.status_code == 0
+    assert excinfo.value.errors == [
+        {"title": "shape mismatch", "detail": "expected dict, got list"}
+    ]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_parse_get_health_response_handles_204(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """204 No Content → ``Health.from_api(None)``. Sin body = healthy, NO shape-mismatch.
 
     Regression test para CR-02 Phase 7 review: el parser levantaba
     HigyrusAPIError(status_code=0, ...) en 204, rompiendo el contrato HTTP
-    (204 es una respuesta válida para health). Ahora colapsa a ``{}`` igual
-    que los list parsers colapsan 204 a ``[]``.
+    (204 es una respuesta válida para health). Sigue sin levantar: colapsa al
+    zero-valued ``Health`` igual que los list parsers colapsan 204 a ``[]``.
+
+    Phase 31 D-04 mide el efecto OBSERVABLE del carve-out bajo el walker: un
+    payload ``None`` es una divergencia ``non_dict``, así que un 204 legítimo
+    emite exactamente UN record en el logger ``higyrus_client``.
     """
-    resp = httpx.Response(204, content=b"")
-    result = _core.parse_get_health_response(resp)
-    assert result == {}
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        result = _core.parse_get_health_response(httpx.Response(204, content=b""))
+    assert result == Health(status="")
+    assert result.status == ""
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+    assert records[0].model == "Health"  # type: ignore[attr-defined]
 
 
-def test_parse_get_health_response_handles_empty_body_200() -> None:
-    """200 OK con body vacío → ``{}``. Mismo principio: sin body = healthy."""
-    resp = httpx.Response(200, content=b"")
-    result = _core.parse_get_health_response(resp)
-    assert result == {}
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_parse_get_health_response_handles_empty_body_200(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """200 OK con body vacío → zero-valued ``Health``. Mismo principio: sin body = healthy."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        result = _core.parse_get_health_response(httpx.Response(200, content=b""))
+    assert result == Health(status="")
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+@pytest.mark.parametrize(
+    "resp_factory",
+    [
+        lambda: httpx.Response(204, content=b""),
+        lambda: httpx.Response(200, content=b""),
+    ],
+    ids=["204", "empty-body-200"],
+)
+def test_parse_get_health_response_empty_body_raises_under_strict_decode(
+    resp_factory: Any,
+) -> None:
+    """MEASURED behaviour delta of the D-04 carve-out under ``strict_decode=True``.
+
+    ``non_dict`` is not an INFO kind, so strict mode raises
+    :class:`HigyrusDecodeError` instead of returning the zero-valued instance.
+    A legitimate 204 — the very case Phase 7 CR-02 introduced this branch to
+    stop raising on — therefore DOES raise in strict mode. Phase 33 runs the
+    drivers in strict mode; this test is what makes that a known contract
+    rather than a discovery.
+    """
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(HigyrusDecodeError) as excinfo:
+        _core.parse_get_health_response(resp_factory())
+    assert excinfo.value.model == "Health"
+    assert excinfo.value.field_path == ""
+    assert excinfo.value.declared_type == "Health"
+    assert excinfo.value.observed_type == "NoneType"
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_parse_get_health_response_full_payload_is_strict_clean() -> None:
+    """The healthy path emits nothing, so strict mode passes it through untouched."""
+    _decode.STRICT_DECODE.set(True)
+    resp = httpx.Response(200, json={"status": "ok"})
+    assert _core.parse_get_health_response(resp) == Health(status="ok")
+
+
+def test_parse_get_health_response_owns_its_decode_scope() -> None:
+    """The parser carries ``@_decode._response_parser`` like every model-building parser."""
+    assert _core.parse_get_health_response.__wrapped__ is not None  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

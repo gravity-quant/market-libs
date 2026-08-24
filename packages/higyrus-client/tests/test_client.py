@@ -106,7 +106,15 @@ def test_get_health(httpx_mock: HTTPXMock) -> None:
         url="https://api.test/api/health",
         json={"status": "ok"},
     )
-    assert higyrus_client.get_health() == {"status": "ok"}
+    result = higyrus_client.get_health()
+    assert isinstance(result, higyrus_client.Health)
+    assert result.status == "ok"
+
+
+def test_health_is_exported_on_the_flat_namespace() -> None:
+    """Phase 31 TYP-02: the new model reaches callers through the package root."""
+    assert "Health" in higyrus_client.__all__
+    assert higyrus_client.Health is higyrus_client.models.Health
 
 
 def test_get_listado_cuentas_devuelve_modelos(httpx_mock: HTTPXMock) -> None:
