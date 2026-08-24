@@ -146,7 +146,19 @@ Plans:
   3. El mutating-gate queda intacto: `_ensure_mutation_allowed()` sigue siendo el **primer statement literal** de los 8 métodos de mutación (guard AST existente verde) y ningún builder cambia su flag `idempotent=`.
   4. Los **6 paquetes** tienen `models.py` + `types.py` presentes (mínimos, con docstring, en ámbito y wallets), verificable por un check de existencia que corre en CI.
 
-**Plans**: TBD
+> **Nota de planning (2026-08-23):** el criterio 3 dice "guard AST existente verde", pero **ese guard no
+> existe** — ningún check AST del repo apunta a `client.py`/`aio.py` de market-data (D-07). Esta fase lo
+> **construye** (plan 31-01), in-package y no-vacuo. Ambos builders de feriados llevan `idempotent=True`
+> hoy (D-20, medido en vivo en la Phase 27); el criterio 3 significa que deben **seguir** en `True`.
+
+**Plans**: 5 plans (3 waves)
+
+Plans:
+- [ ] 31-01-PLAN.md — Red de seguridad primero: guard AST no-vacuo del mutating-gate + aserción directa de `idempotent=True` en ambos builders + pin del request v0.4.0 en bytes crudos (sync + async). Verde contra fuente sin tocar. [wave 1]
+- [ ] 31-02-PLAN.md — TYP-03: `tools/check_uniform_structure.py` (stdlib-only, roster leído del disco) + step nuevo en el job `lint` + los 7 módulos docstring-only que ponen el gate en verde. RED observado antes del GREEN. [wave 1]
+- [ ] 31-03-PLAN.md — **Tracer slice**: `higyrus.get_health` → `Health` de punta a punta (modelo, `to_dict()`, parser decorado con su guard intacto, 4 firmas, re-export, golden de superficie regenerado). Único paquete de la fase con mypy en CI. [wave 1]
+- [ ] 31-04-PLAN.md — market-data health: 6 modelos (3 niveles de nesting), `parse_health_response` dividido en dos parsers decorados y guardados, 8 firmas, exports + roster de superficie, probes del driver capturando wire crudo. **Checkpoint bloqueante** sobre la nulabilidad de 9 campos sub-determinados. [wave 2]
+- [ ] 31-05-PLAN.md — market-data feriados: `AddHolidaysResult` (reusa `CalendarDay`) + `DeleteHolidayResult`, `parse_calendar_write_response` dividido preservando su tolerancia T-26-13, 8 firmas, docstring stale de `idempotent=` corregido (G-6), ~96 líneas re-mockeadas. El pin y el guard de 31-01 se re-corren tras cada task. [wave 3]
 
 ### Phase 32: Gates de homogeneidad + D-16
 
