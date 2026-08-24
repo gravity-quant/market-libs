@@ -154,10 +154,18 @@ Plans:
 **Plans**: 5 plans (3 waves)
 
 Plans:
+**Wave 1**
+
 - [ ] 31-01-PLAN.md — Red de seguridad primero: guard AST no-vacuo del mutating-gate + aserción directa de `idempotent=True` en ambos builders + pin del request v0.4.0 en bytes crudos (sync + async). Verde contra fuente sin tocar. [wave 1]
 - [ ] 31-02-PLAN.md — TYP-03: `tools/check_uniform_structure.py` (stdlib-only, roster leído del disco) + step nuevo en el job `lint` + los 7 módulos docstring-only que ponen el gate en verde. RED observado antes del GREEN. [wave 1]
 - [ ] 31-03-PLAN.md — **Tracer slice**: `higyrus.get_health` → `Health` de punta a punta (modelo, `to_dict()`, parser decorado con su guard intacto, 4 firmas, re-export, golden de superficie regenerado). Único paquete de la fase con mypy en CI. [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 31-04-PLAN.md — market-data health: 6 modelos (3 niveles de nesting), `parse_health_response` dividido en dos parsers decorados y guardados, 8 firmas, exports + roster de superficie, probes del driver capturando wire crudo. **Checkpoint bloqueante** sobre la nulabilidad de 9 campos sub-determinados. [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 31-05-PLAN.md — market-data feriados: `AddHolidaysResult` (reusa `CalendarDay`) + `DeleteHolidayResult`, `parse_calendar_write_response` dividido preservando su tolerancia T-26-13, 8 firmas, docstring stale de `idempotent=` corregido (G-6), ~96 líneas re-mockeadas. El pin y el guard de 31-01 se re-corren tras cada task. [wave 3]
 
 ### Phase 32: Gates de homogeneidad + D-16
