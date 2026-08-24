@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.6
-milestone_name: Tipado homogéneo de la superficie pública (Phases 29-34) — IN PROGRESS
+milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 31
-current_phase_name: Endpoints de ops + estructura uniforme
-status: completed
+current_phase_name: endpoints-de-ops-estructura-uniforme
+status: executing
 stopped_at: Phase 31 context gathered (assumptions mode)
-last_updated: "2026-08-23T23:55:13.989Z"
-last_activity: 2026-08-23
-last_activity_desc: Phase 30 complete, transitioned to Phase 31
+last_updated: "2026-08-24T00:54:34.555Z"
+last_activity: 2026-08-24
+last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 23
-  completed_plans: 23
+  total_plans: 28
+  completed_plans: 24
   percent: 33
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 30 — iol-client-tipado
+**Current focus:** Phase 31 — endpoints-de-ops-estructura-uniforme
 
 ## Current Position
 
-Phase: 31 — Endpoints de ops + estructura uniforme
-Plan: Not started
-Status: Ready to execute (30-12 complete; 30-13 depends on it and runs next)
-Last activity: 2026-08-23 — Phase 30 complete, transitioned to Phase 31
+Phase: 31 (endpoints-de-ops-estructura-uniforme) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-08-24 — Phase 31 execution started
 
 ## Performance Metrics
 
@@ -137,6 +137,7 @@ Last activity: 2026-08-23 — Phase 30 complete, transitioned to Phase 31
 | Phase 30 P11 | 8min | 2 tasks | 1 files |
 | Phase 30 P12 | 6min | 3 tasks | 2 files |
 | Phase 30 P13 | 6min | 2 tasks | 1 files |
+| Phase 31 P01 | 14min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -248,6 +249,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 30-12: Los dos sinks del crash van en dos contextlib.suppress(BaseException) SEPARADOS, no en uno compartido — falsificado colapsándolos y observando que sólo el test dedicado falla
 - [Phase 30]: AD-30-13-01: getattr queda sancionado como callee y se adjudica sobre su argumento de nombre de atributo; sacarlo del allow-list habria marcado la forma conforme del renderer sancionado — Una sola constante (_LEAKY_EXC_ATTRS) gobierna las dos escrituras de una lectura con fuga, asi que no pueden derivar; un nombre de atributo no constante se marca conservadoramente
 - [Phase 30]: Las dos constantes de callees sancionados no se fusionan: _SANCTIONED_DELEGATES incluye getattr, _CENSUS_SANCTIONED_DELEGATES no — Contestan preguntas distintas; fusionarlas romperia el censo del propio renderer sancionado, cuyo cuerpo es un getattr mas un type()
+- [Phase 31]: 31-01: AD-31-01-01 — el guard AST descubre METODOS DE CLASE, no ast.walk del modulo: los dos shells definen shims a nivel modulo con los MISMOS 8 nombres que delegan en el default Client y correctamente no llaman al gate
+- [Phase 31]: 31-01: Hazard 1 resuelto — user-agent queda ADENTRO del set congelado con valor derivado de httpx.__version__; excluirlo cegaria al pin ante un header eliminado y pinear 0.28.1 enrojeceria el criterio 2 ante un bump de uv.lock ajeno a la fase
+- [Phase 31]: 31-01: se congela una tupla de headers POR ENDPOINT, nunca una lista compartida — el DELETE no lleva Content-Length ni Content-Type (D-02)
 
 ### Pending Todos
 
@@ -327,7 +331,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-23T23:55:13.975Z
+Last session: 2026-08-24T00:54:12.522Z
 Stopped at: Phase 31 context gathered (assumptions mode)
 Resume file: .planning/phases/31-endpoints-de-ops-estructura-uniforme/31-CONTEXT.md
 
