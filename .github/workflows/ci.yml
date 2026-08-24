@@ -53,6 +53,11 @@ jobs:
         # Tampoco puede vivir bajo `verification/`: el job `test` pasa un path
         # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
         run: uv run python tools/check_decode_intactness.py
+      - name: uniform-structure (Phase 31 TYP-03 — models.py + types.py en los 6 paquetes)
+        # Cross-package por naturaleza: NO va al job `test`, que corre per-package.
+        # Tampoco puede vivir bajo `verification/`: el job `test` pasa un path
+        # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
+        run: uv run python tools/check_uniform_structure.py
 
   pre-commit:
     name: pre-commit hooks
