@@ -609,10 +609,18 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
 def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 3: ``higyrus_client.get_health()`` (HIGY-02). WR-03 single call.
 
-    Captura el raw payload vía ``_request`` directo (en vez del wrapper, que
-    valida ``isinstance(raw, dict)`` y devuelve el mismo dict pero sin
-    diferencia observable) para reuso por probe 15 (schema_snapshot). D-HIGY-2:
-    el detail emite ``keys=N`` (conteo), nunca contenido.
+    Captura el raw payload vía ``_request`` directo, NO vía el wrapper tipado.
+    Desde Phase 31 (TYP-02) ``get_health()`` devuelve un ``Health``, no un dict:
+    tomar el snapshot desde el wrapper haría que el ``schema_of`` de probe 15
+    fuese función de la DECLARACIÓN del modelo y no del wire — el walker ya
+    coercionó cada campo no-opcional a su tipo declarado y descartó toda clave
+    no declarada, así que un float-vuelto-string, una clave agregada y una clave
+    eliminada quedarían los tres invisibles. Éste es el análogo higyrus del
+    ``_capture_raw_wire`` de ``main_iol.py`` (Phase 30 CR-01). Por eso ``raw``
+    llega acá como dict crudo y los reads ``isinstance(raw, dict)`` / ``len(raw)``
+    de abajo siguen siendo drift-visible sin necesitar ``to_dict()``.
+
+    D-HIGY-2: el detail emite ``keys=N`` (conteo), nunca contenido.
     """
     if _auth_failed:
         return (
