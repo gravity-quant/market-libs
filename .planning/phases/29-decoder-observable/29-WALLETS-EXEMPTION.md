@@ -146,3 +146,14 @@ fix at that point is a three-part edit, not a suppression:
 2. Add its `_decode.py` and its marker-delimited `_logging.py` scan region, so
    Checks A and B hash six copies instead of five.
 3. Supersede this document, recording the phase that closed the exemption.
+
+## Amendment
+
+**2026-08-23 (Phase 31, TYP-03).** Phase 31 gave `wallets-client` and
+`ambito-financiero-client` docstring-only `models.py` and `types.py`, so the module
+table above now reads "yes" for those two rows; **the exemption itself is UNCHANGED** —
+it is scoped to `_decode.py`, which neither package received, and
+`tools/check_decode_intactness.py` is byte-unedited by that phase.
+The table is stale in one further respect independent of Phase 31: `iol-client` gained
+a `models.py` in Phase 30. Formal supersession of this document stays deferred to the
+phase that actually closes the exemption.

@@ -1,19 +1,21 @@
 """Behaviour contract for ``ambito_financiero_client._decode`` — the walker copy.
 
-Phase 29 Plan 07 (DEC-01). ``ambito-financiero-client`` has **no models module
-at all**, and — unlike iol, which receives one in Phase 30 — is expected never
-to grow one: its entire public surface is a single function returning a
-``float``. The walker copy here is therefore **dormant by design**, and this
-suite is the only thing that will ever exercise it.
+Phase 29 Plan 07 (DEC-01). ``ambito-financiero-client`` declares **no response
+models at all**: its entire public surface is a single function returning a
+``float``, parsed through ``_parsing.parse_ar_decimal``. Phase 31 (TYP-03) gave
+it a docstring-only ``models.py`` so the six packages share one file layout, but
+that module declares nothing and imports nothing. The walker copy here is
+therefore **dormant by design**, and this suite is the only thing that will ever
+exercise it.
 
 Dormant is not the same as unverified, and the distinction is the point of
 this file. A copy nobody exercises rots quietly; the Plan 09 intactness gate
 can prove this file is byte-identical to the canonical one, but only a
 behaviour suite can prove the canonical one still *works* when it lands in a
-package with no ``models.py`` beside it. That standalone-import property is in
-turn the strongest available evidence that the walker has no hidden coupling
-to a models module — which is what makes the verbatim-copy contract
-enforceable in the three packages that do have one.
+package whose ``models.py`` declares nothing at all. That standalone-import
+property is in turn the strongest available evidence that the walker has no
+hidden coupling to a models module — which is what makes the verbatim-copy
+contract enforceable in the packages that do declare models.
 
 The model fixtures are declared module-locally as frozen slotted dataclasses
 exposing a ``from_api`` classmethod that delegates to :func:`walk_model`. They
@@ -272,11 +274,13 @@ def test_context_var_declarations_are_reflowed_by_the_formatter() -> None:
 
 
 def test_decode_module_never_imports_models() -> None:
-    """``_decode`` must stand alone: two of the five copies have no ``models.py``.
+    """``_decode`` must stand alone: it may never reach for a models module.
 
-    ámbito is one of those two, so this is not a hypothetical here — the module
-    imports cleanly in a package where ``models`` does not exist at all and is
-    not scheduled to.
+    ámbito is where that stops being a hypothetical — the walker imports cleanly
+    in a package that declares no response models at all. Phase 31 (TYP-03) gave
+    this package a docstring-only ``models.py`` for layout uniformity; the
+    property under test is the absence of the IMPORT, which that file does not
+    create.
     """
     source = pathlib.Path(inspect.getfile(_decode)).read_text(encoding="utf-8")
     imported: set[str] = set()
@@ -290,13 +294,37 @@ def test_decode_module_never_imports_models() -> None:
     assert package_imports == {"ambito_financiero_client.exceptions"}
 
 
-def test_this_package_really_has_no_models_module() -> None:
-    """The precondition that makes the standalone-import evidence meaningful."""
-    package_dir = pathlib.Path(inspect.getfile(client_mod)).parent
+def test_this_package_really_declares_no_response_models() -> None:
+    """The precondition that makes the standalone-import evidence meaningful.
 
-    assert not (package_dir / "models.py").exists()
-    with pytest.raises(ModuleNotFoundError):
-        __import__("ambito_financiero_client.models")
+    Until Phase 31 this asserted that ``models.py`` did not exist. TYP-03 gave
+    every package the file so the six layouts match and the next endpoint has
+    somewhere to declare its shape, so the precondition is now stated as the
+    thing it always meant: ámbito declares **no response models**, and its
+    ``models`` module pulls in nothing. That is what makes ``_decode`` standing
+    alone here real evidence rather than an accident of layout — a weaker
+    property than "the file is absent", and the true one.
+    """
+    package_dir = pathlib.Path(inspect.getfile(client_mod)).parent
+    models_path = package_dir / "models.py"
+
+    assert models_path.is_file(), "Phase 31 TYP-03: every package carries a `models.py`"
+
+    tree = ast.parse(models_path.read_text(encoding="utf-8"))
+    declared = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    assert declared == [], f"ámbito parses via `_parsing.parse_ar_decimal`; got {declared}"
+
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    assert imported == {"__future__"}, imported
+
+    from ambito_financiero_client import models as models_mod
+
+    assert models_mod.__all__ == []
 
 
 # ---------------------------------------------------------------------------
