@@ -58,3 +58,41 @@ so this is a live red step on `milestone/v1.5-mutations` independent of this pha
 **Owner:** whichever plan next touches that suite's `SILENT_SINK` assertion and its
 `dataclasses.fields` comprehension. Fixing it inside 31-02 would have coupled a
 layout-uniformity plan to an unrelated typing repair.
+
+## D-3 — the SAME two `mypy --strict` errors in `packages/higyrus-client/tests/test_decode.py`
+
+**Found during:** plan 31-03, Task 2 (`uv run mypy packages/higyrus-client/tests`).
+
+**Symptom:** identical to D-2, in higyrus's verbatim copy of the same suite:
+
+```
+test_decode.py:624: error: Function does not return a value (it only ever returns None)  [func-returns-value]
+test_decode.py:693: error: Unused "type: ignore" comment  [unused-ignore]
+```
+
+**Same two constructs as D-2:** the `assert _decode.SILENT_SINK(...) is None` assertion
+(whose `__call__` is annotated `-> None`, so mypy rejects using its result) and the
+`dataclasses.fields(cls)` comprehension carrying a now-unneeded `# type: ignore[arg-type]`.
+`_decode.py` and its suite are **byte-frozen verbatim copies across the paquetes**, so this
+defect is expected to exist in all five copies, not just ambito and higyrus.
+
+**Pre-existing:** yes — proven independently of the working tree by adding a throwaway
+`git worktree` at `c9b606f` (the phase-start commit, before any 31-03 work),
+`uv sync --all-packages --all-extras --dev --frozen` inside it, and running
+`uv run mypy packages/higyrus-client/tests` there: the identical two errors at the identical
+lines 624 and 693. The worktree was then removed with `git worktree remove --force`.
+`git status --short` confirms plan 31-03 never modified `test_decode.py`.
+
+**Impact on plan 31-03:** this is the ONE acceptance criterion of the plan that does not
+pass — `uv run mypy packages/higyrus-client/tests` exits 1. Everything the criterion was
+actually guarding is green: `uv run mypy` (the CI `src` gate, which is what makes higyrus
+the phase's strict-typechecked tracer) passes on 62 source files, and
+`uv run pytest packages/higyrus-client/tests/test_decode.py -q` passes 57/57.
+
+**Not fixed here, deliberately:** the `typecheck` job iterates `higyrus-client` FIRST under
+`set -e`, so this failure already masks D-2 on `milestone/v1.5-mutations` today. Repairing it
+would be a five-copy edit to a byte-frozen module's suite — exactly the coupling D-2 declined
+for the same reason. Applying 31-02's ratified precedent: defer.
+
+**Owner:** a dedicated plan that repairs the shared `test_decode.py` construct in **all five**
+verbatim copies at once, keeping them byte-identical.

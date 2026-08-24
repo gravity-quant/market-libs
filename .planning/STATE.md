@@ -6,14 +6,14 @@ current_phase: 31
 current_phase_name: endpoints-de-ops-estructura-uniforme
 status: executing
 stopped_at: Completed 31-02-PLAN.md (estructura uniforme)
-last_updated: "2026-08-24T01:31:50.440Z"
+last_updated: "2026-08-24T02:25:55.896Z"
 last_activity: 2026-08-24
 last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 28
-  completed_plans: 25
+  completed_plans: 26
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 31 (endpoints-de-ops-estructura-uniforme) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-08-24 — Phase 31 execution started
 
@@ -139,6 +139,7 @@ Last activity: 2026-08-24 — Phase 31 execution started
 | Phase 30 P13 | 6min | 2 tasks | 1 files |
 | Phase 31 P01 | 14min | 2 tasks | 2 files |
 | Phase 31 P02 | 95min | 2 tasks | 12 files |
+| Phase 31 P03 | 52min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -256,6 +257,9 @@ Recent decisions affecting current work:
 - [Phase 31]: Uniform-structure gate reads its package roster from disk, never from a hardcoded list — A seventh package is gated automatically; an unresolvable src/ root and an empty packages/ scan are both PROBLEMS, never skips, so the gate cannot report green vacuously (T-31-06). RED was observed with all 7 missing paths before the files existed.
 - [Phase 31]: wallets-client's new models.py and types.py import nothing beyond the __future__ flag — The package has no _decode.py; a cosmetic SafeModel would ImportError at package import and redden all 12 wallets CI matrix legs. The Phase 29 exemption stays load-bearing and check_decode_intactness.py was left byte-unedited (T-31-07, T-31-09).
 - [Phase 31]: Phase 29's 'ambito has no models.py' test was restated, not suppressed — TYP-03 creates that file by design (D-11). The property the test guarded never depended on the file's absence but on ambito declaring no response models, so the assertion now pins zero ClassDefs, __future__-only imports, and an empty __all__ -- strictly more specific than the file-absence proxy it replaces.
+- [Phase ?]: 31-03: higyrus get_health returns Health; the 204/empty-body carve-out resolves to Health.from_api(None), which emits one non_dict divergence and RAISES HigyrusDecodeError under strict_decode=True (measured, pinned by test)
+- [Phase ?]: 31-03: CONTEXT D-03 corrected — main_higyrus.py health probes need no to_dict() site (they read raw wire); plan 31-04 must re-check each market-data driver site individually
+- [Phase ?]: 31-03: SafeModel.to_dict() is copied byte-identically into each package's own base, never imported cross-package (C-2)
 
 ### Pending Todos
 
@@ -278,6 +282,7 @@ Recent decisions affecting current work:
 - [v1.5 / Phase 27 risk]: La **idempotencia real** de los POST de symbols la declara el spec, pero un POST no idempotente reintentado duplicaría estado → se revalida en vivo (DM-03) antes de confiar el retry-behavior. `POST /calendar/holidays` se asume `idempotent=False` (no retry) salvo confirmación live.
 - [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
 - verification/ matriz probes call probe_login_sync() with the pre-15-05 signature (19 failed + 19 errors in the full local suite); ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run. Both pre-existing and out of scope for Phase 31 -- see .planning/phases/31-endpoints-de-ops-estructura-uniforme/deferred-items.md
+- mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.
 
 ### Quick Tasks Completed
 
@@ -336,7 +341,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-24T01:31:44.991Z
+Last session: 2026-08-24T02:25:50.361Z
 Stopped at: Completed 31-02-PLAN.md (estructura uniforme)
 Resume file: .planning/phases/31-endpoints-de-ops-estructura-uniforme/31-CONTEXT.md
 
