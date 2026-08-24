@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 31
 current_phase_name: endpoints-de-ops-estructura-uniforme
 status: executing
-stopped_at: Phase 31 context gathered (assumptions mode)
-last_updated: "2026-08-24T00:54:34.555Z"
+stopped_at: Completed 31-02-PLAN.md (estructura uniforme)
+last_updated: "2026-08-24T01:31:50.440Z"
 last_activity: 2026-08-24
 last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 28
-  completed_plans: 24
+  completed_plans: 25
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 31 (endpoints-de-ops-estructura-uniforme) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-08-24 — Phase 31 execution started
 
@@ -138,6 +138,7 @@ Last activity: 2026-08-24 — Phase 31 execution started
 | Phase 30 P12 | 6min | 3 tasks | 2 files |
 | Phase 30 P13 | 6min | 2 tasks | 1 files |
 | Phase 31 P01 | 14min | 2 tasks | 2 files |
+| Phase 31 P02 | 95min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -252,6 +253,9 @@ Recent decisions affecting current work:
 - [Phase 31]: 31-01: AD-31-01-01 — el guard AST descubre METODOS DE CLASE, no ast.walk del modulo: los dos shells definen shims a nivel modulo con los MISMOS 8 nombres que delegan en el default Client y correctamente no llaman al gate
 - [Phase 31]: 31-01: Hazard 1 resuelto — user-agent queda ADENTRO del set congelado con valor derivado de httpx.__version__; excluirlo cegaria al pin ante un header eliminado y pinear 0.28.1 enrojeceria el criterio 2 ante un bump de uv.lock ajeno a la fase
 - [Phase 31]: 31-01: se congela una tupla de headers POR ENDPOINT, nunca una lista compartida — el DELETE no lleva Content-Length ni Content-Type (D-02)
+- [Phase 31]: Uniform-structure gate reads its package roster from disk, never from a hardcoded list — A seventh package is gated automatically; an unresolvable src/ root and an empty packages/ scan are both PROBLEMS, never skips, so the gate cannot report green vacuously (T-31-06). RED was observed with all 7 missing paths before the files existed.
+- [Phase 31]: wallets-client's new models.py and types.py import nothing beyond the __future__ flag — The package has no _decode.py; a cosmetic SafeModel would ImportError at package import and redden all 12 wallets CI matrix legs. The Phase 29 exemption stays load-bearing and check_decode_intactness.py was left byte-unedited (T-31-07, T-31-09).
+- [Phase 31]: Phase 29's 'ambito has no models.py' test was restated, not suppressed — TYP-03 creates that file by design (D-11). The property the test guarded never depended on the file's absence but on ambito declaring no response models, so the assertion now pins zero ClassDefs, __future__-only imports, and an empty __all__ -- strictly more specific than the file-absence proxy it replaces.
 
 ### Pending Todos
 
@@ -273,6 +277,7 @@ Recent decisions affecting current work:
 - [v1.5 / Phase 27 risk]: La verificación en vivo es **destructiva** (crea/modifica estado en develop) — a diferencia de v1.4 (solo lectura). Requiere identificadores de prueba dedicados + cleanup obligatorio (crear→verificar→revertir, DM-06) y **confirmación del operator sobre qué es seguro tocar en develop** antes de Phase 27. El mutating-gate impide prod. Depende también de creds Auth0 + acceso a develop (mismo standing blocker que v1.4 Phase 23, ya resuelto post-close con creds provistas por el operator).
 - [v1.5 / Phase 27 risk]: La **idempotencia real** de los POST de symbols la declara el spec, pero un POST no idempotente reintentado duplicaría estado → se revalida en vivo (DM-03) antes de confiar el retry-behavior. `POST /calendar/holidays` se asume `idempotent=False` (no retry) salvo confirmación live.
 - [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
+- verification/ matriz probes call probe_login_sync() with the pre-15-05 signature (19 failed + 19 errors in the full local suite); ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run. Both pre-existing and out of scope for Phase 31 -- see .planning/phases/31-endpoints-de-ops-estructura-uniforme/deferred-items.md
 
 ### Quick Tasks Completed
 
@@ -331,8 +336,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-24T00:54:12.522Z
-Stopped at: Phase 31 context gathered (assumptions mode)
+Last session: 2026-08-24T01:31:44.991Z
+Stopped at: Completed 31-02-PLAN.md (estructura uniforme)
 Resume file: .planning/phases/31-endpoints-de-ops-estructura-uniforme/31-CONTEXT.md
 
 ## Operator Next Steps

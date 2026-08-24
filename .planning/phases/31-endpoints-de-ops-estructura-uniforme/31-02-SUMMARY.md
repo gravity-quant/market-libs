@@ -263,6 +263,11 @@ None — no external service configuration required. Zero dependency changes; `u
   the current `main_matriz.py` signature, and ámbito's test suite has 2 live `mypy --strict`
   errors that the `typecheck` CI job does run.
 
+## Self-Check: PASSED
+
+All 10 claimed files verified present on disk; all 3 claimed commits verified in
+`git log`. Both CI gates re-run green at `2bc5dfc`; no file deletions in either task commit.
+
 ---
 *Phase: 31-endpoints-de-ops-estructura-uniforme*
 *Completed: 2026-08-24*
