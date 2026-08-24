@@ -219,7 +219,7 @@ Confirmed after every RED proof and at both commit points. This plan added tests
   to eliminate.
 - **Fix:** Reverted `.planning/REQUIREMENTS.md` to `[ ]`. TYP-02 should be marked complete by the
   final plan of Phase 31 or by phase verification, once all 5 endpoints actually return models.
-- **Commit:** `d0f70a0`
+- **Commit:** `e6d882f`
 
 ### Architectural changes
 
