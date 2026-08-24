@@ -13,13 +13,16 @@ en la quirk URL-encoding ANTES de que llegue a un wire request real.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import logging
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
 
-from higyrus_client import _core
+from higyrus_client import _core, _decode
 from higyrus_client._state import _TOKEN_TTL_SECONDS, _ClientState
 from higyrus_client.exceptions import (
     HigyrusAPIError,
@@ -27,7 +30,7 @@ from higyrus_client.exceptions import (
     HigyrusAuthorizationError,
     HigyrusRateLimitError,
 )
-from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
+from higyrus_client.models import Cuenta, Health, Movimiento, Posicion, PosicionValuada
 
 # ---------------------------------------------------------------------------
 # RequestSpec dataclass shape
@@ -433,3 +436,115 @@ def test_parse_get_health_response_handles_empty_body_200() -> None:
     resp = httpx.Response(200, content=b"")
     result = _core.parse_get_health_response(resp)
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Health model behaviour (Phase 31 TYP-02, D-01/D-02)
+#
+# The tracer model: one ``str`` field, every walker branch exercised once.
+# ---------------------------------------------------------------------------
+
+
+_DIVERGENCE_MESSAGE = "decode divergence"
+
+
+@pytest.fixture
+def _pristine_decode_context() -> Iterator[None]:
+    """Start with an unbound decode mode and scope (mirrors ``test_decode.py``).
+
+    Consequence of the Phase 29 D-03 ``.set()``-without-reset discipline: once
+    any test in the session drives a real ``_request``, the sync test context
+    keeps that request's ``DECODE_SCOPE`` bound, and a later bare
+    ``Model.from_api()`` would join the stale scope and get its divergence
+    deduped away purely on test ORDER.
+    """
+    mode = _decode.STRICT_DECODE.get()
+    scope = _decode.DECODE_SCOPE.get()
+    _decode.STRICT_DECODE.set(False)
+    _decode.DECODE_SCOPE.set(None)
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.set(mode)
+        _decode.DECODE_SCOPE.set(scope)
+
+
+def _health_divergences(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Every divergence record captured so far, in emission order."""
+    return [r for r in caplog.records if r.getMessage() == _DIVERGENCE_MESSAGE]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_full_payload_populates_status() -> None:
+    """The live capture's only key lands on the only declared field."""
+    assert Health.from_api({"status": "ok"}) == Health(status="ok")
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_empty_dict_zeroes_status_and_reports_missing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``{}`` is still a dict, so the per-field ``missing`` record is emitted."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        health = Health.from_api({})
+    assert health.status == ""
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [(".status", "missing")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_drops_undeclared_key_and_reports_extra(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An undeclared wire key is REPORTED and DROPPED — never silently carried."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        health = Health.from_api({"status": "ok", "uptime": 12})
+    assert health == Health(status="ok")
+    assert not hasattr(health, "uptime")
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [(".uptime", "extra")]  # type: ignore[attr-defined]
+    assert records[0].levelno == logging.INFO
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_none_is_a_non_dict_divergence(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``None`` yields the zero-valued instance plus ONE ``non_dict`` record.
+
+    This is the shape the 204 / empty-body carve-out now resolves to (D-04):
+    lock 8 suppresses the per-field ``missing`` records under a non-dict
+    payload, so exactly one record is emitted, at the model root.
+    """
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        health = Health.from_api(None)
+    assert health == Health(status="")
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+    assert records[0].observed_type == "NoneType"  # type: ignore[attr-defined]
+    assert records[0].model == "Health"  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_to_dict_round_trips_the_wire_shape() -> None:
+    """``to_dict()`` (D-03, carried from Phase 30 D-08) re-projects the wire dict."""
+    assert Health.from_api({"status": "ok"}).to_dict() == {"status": "ok"}
+
+
+def test_health_is_frozen_and_slotted() -> None:
+    """Frozen: attribute assignment raises. Slotted: no ``__dict__`` escape hatch."""
+    health = Health(status="ok")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        health.status = "degraded"  # type: ignore[misc]
+
+
+def test_health_does_not_override_from_api() -> None:
+    """Shape carve-outs belong in the parser, never in a model override.
+
+    The walker's nested-model branch builds with ``hint(**walk_model(...))`` and
+    never calls ``from_api``, so an override on a model is silently skipped.
+    """
+    assert "from_api" not in vars(Health)
