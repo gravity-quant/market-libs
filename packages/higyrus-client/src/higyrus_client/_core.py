@@ -61,7 +61,7 @@ from higyrus_client.exceptions import (
     HigyrusAuthorizationError,
     HigyrusRateLimitError,
 )
-from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
+from higyrus_client.models import Cuenta, Health, Movimiento, Posicion, PosicionValuada
 
 __all__ = [
     "RequestSpec",
@@ -423,8 +423,9 @@ def _consume_and_check(resp: httpx.Response) -> bytes:
     return body
 
 
-def parse_get_health_response(resp: httpx.Response) -> dict[str, Any]:
-    """Parser ``GET /api/health`` → dict. 204 / body vacío → ``{}`` (sin body = healthy).
+@_decode._response_parser
+def parse_get_health_response(resp: httpx.Response) -> Health:
+    """Parser ``GET /api/health`` → :class:`Health`. 204 / body vacío → zero-valued.
 
     CR-02 fix Phase 7 review: el comportamiento previo levantaba
     ``HigyrusAPIError(status_code=0, errors=[{shape mismatch, expected dict, got
@@ -435,11 +436,21 @@ def parse_get_health_response(resp: httpx.Response) -> dict[str, Any]:
     silenciosamente.
 
     Consistente con los otros parsers de lista del módulo, que tratan
-    204/empty body como su zero-value (``[]`` para list parsers, ``{}`` acá).
+    204/empty body como su zero-value (``[]`` para list parsers, el zero-valued
+    ``Health`` acá).
+
+    Phase 31 TYP-02 (D-01 / D-04): el retorno pasa de mapping a :class:`Health`,
+    y el carve-out de 204 / body vacío devuelve ``Health.from_api(None)`` — la
+    instancia zero-valued, explícitamente NO un mapping vacío. Efecto observable
+    medido: un payload ``None`` es una divergencia ``non_dict``, así que un 204
+    legítimo emite UN record en el logger ``higyrus_client`` y, bajo
+    ``strict_decode=True``, levanta :class:`HigyrusDecodeError` en vez de
+    devolver la instancia. Es un delta real sobre la rama defensiva que CR-02
+    introdujo justamente para que un 204 NO levantara; queda pinneado por test.
     """
     body = _consume_and_check(resp)
     if resp.status_code == 204 or not body:
-        return {}
+        return Health.from_api(None)
     raw = resp.json()
     if not isinstance(raw, dict):
         raise HigyrusAPIError(
@@ -451,7 +462,7 @@ def parse_get_health_response(resp: httpx.Response) -> dict[str, Any]:
                 }
             ],
         )
-    return raw
+    return Health.from_api(raw)
 
 
 @_decode._response_parser

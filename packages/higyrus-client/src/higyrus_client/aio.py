@@ -51,7 +51,7 @@ from higyrus_client._core import raise_for_response as _raise_for_response  # D-
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
 from higyrus_client.client import _validate_max_retries
 from higyrus_client.exceptions import HigyrusAuthError
-from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
+from higyrus_client.models import Cuenta, Health, Movimiento, Posicion, PosicionValuada
 
 # Re-export for tests / external introspection. B8 enforcement test
 # asserts aio._raise_for_response is client._raise_for_response.
@@ -439,7 +439,7 @@ class AsyncClient:
 
     # ---- Endpoints (Phase 7 3-liner shells) ----
 
-    async def get_health(self) -> dict[str, Any]:
+    async def get_health(self) -> Health:
         """``GET /api/health``."""
         spec = _core.build_get_health_request(self._state)
         return _core.parse_get_health_response(await self._request(spec))
@@ -605,7 +605,7 @@ async def login() -> str:
     return await _get_default().login()
 
 
-async def get_health() -> dict[str, Any]:
+async def get_health() -> Health:
     return await _get_default().get_health()
 
 

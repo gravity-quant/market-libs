@@ -52,7 +52,7 @@ from higyrus_client import _core, _decode, _transport
 from higyrus_client._core import RequestSpec
 from higyrus_client._state import _REQUEST_TIMEOUT, _ClientState
 from higyrus_client.exceptions import HigyrusAuthError
-from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
+from higyrus_client.models import Cuenta, Health, Movimiento, Posicion, PosicionValuada
 
 load_dotenv()
 
@@ -447,7 +447,7 @@ class Client:
 
     # ---- Endpoints (Phase 7 3-liner shells) ----
 
-    def get_health(self) -> dict[str, Any]:
+    def get_health(self) -> Health:
         """``GET /api/health`` (requiere Bearer)."""
         spec = _core.build_get_health_request(self._state)
         return _core.parse_get_health_response(self._request(spec))
@@ -599,7 +599,7 @@ def login() -> str:
     return _get_default().login()
 
 
-def get_health() -> dict[str, Any]:
+def get_health() -> Health:
     return _get_default().get_health()
 
 
