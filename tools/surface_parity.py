@@ -31,10 +31,42 @@ This section exists because the phase's two source decisions state the metric
 the six packages (32-PATTERNS.md Pitfall 4).
 
 A **public name** of a module is a name in ``dir(module)`` that does not start
-with an underscore and whose object's ``__module__`` equals the module's own
-``__name__``. The ``__module__`` filter is what drops re-exported third-party
-objects (``httpx``, ``asyncio``) and imported submodules, which carry a foreign
-``__module__`` or none at all.
+with an underscore and that the **package owns**. Ownership, not authorship of
+the containing file, is the criterion, and it is decided by
+:func:`_is_package_owned` in three tests applied in order:
+
+1. An imported submodule (any ``ModuleType`` value) is never surface.
+2. A value whose ``__module__`` is absent, is the module's own ``__name__``, or
+   lies inside the package's import root is owned. This admits module-level
+   constants (a ``str``/``tuple``/``dict`` has no ``__module__`` at all) and
+   every model, exception and helper the module re-exports from a sibling.
+3. A value with a **foreign** ``__module__`` is owned only if the foreign module
+   does not itself publish that same object under that same name. That single
+   identity test separates ``Any``, ``Self``, ``Literal``, ``Sequence``,
+   ``Path``, ``urlsplit``, ``load_dotenv`` and ``annotations`` -- which *are*
+   ``typing.Any``, ``pathlib.Path``, ``dotenv.main.load_dotenv`` and so on --
+   from ``InstrumentType = Literal[...]``, a ``Literal`` alias that carries
+   ``__module__ == 'typing'`` because ``typing`` built the object, but that
+   ``typing`` has never heard of and that the package alone publishes.
+
+**Why the filter was widened (Phase 32 WR-02).** It used to be
+``member.__module__ != module.__name__``, documented as dropping "re-exported
+third-party objects (``httpx``, ``asyncio``) and imported submodules". It also
+dropped every module-level constant, every ``Literal`` alias the package owns,
+and every re-exported model and exception -- and with them three live
+``client``/``aio`` name-set divergences that the gate reported green, including
+``market_data_client.aio`` publishing ``RequestSpec`` where
+``market_data_client.client`` did not.
+
+**One exclusion is deliberate and is stated here rather than left implicit.**
+A *third-party* name re-exported by one surface and not the other --
+``matriz_client.client`` binds ``load_dotenv`` at module level and
+``matriz_client.aio`` does not -- is **not** reported. Rule 3 drops it. Reporting
+it would mean reporting every asymmetry in twelve modules' import lists
+(``Any``, ``Self``, ``Path``, ``Sequence``, ``urlsplit``, ``annotations``), which
+is noise that would bury the real signal -- the failure mode rule 1 of ``THE
+NORMALIZATION`` was written to avoid. An import list is not a published surface;
+if that judgement is ever revisited, revisit it here.
 
 That set has two variants, and they differ by the ``Client`` / ``AsyncClient``
 class alone:
@@ -158,11 +190,24 @@ The lower bound is the **non-vacuity guard**, in the shape of the analog at
 comparison that silently examined nothing passes every equality it is given, so
 the count of things actually compared is itself asserted.
 
-``wallets_client``'s floor is near-vacuous **by construction** -- its only public
-module-level name is ``configure`` on the sync side and ``configure`` plus
+**Surface size and compared-callable count are two different integers.** They
+used to be one: ``MODULE_LOWER_BOUNDS[package][0]`` was both the floor on the
+module's public-name count *and* the floor on ``compared_hints``. WR-02's widened
+filter admits constants and ``Literal`` aliases, which are name-compared but have
+no signature to diff, so the two numbers parted company (matriz: 31 public names,
+23 compared callables). Conflating them again would mean either a name floor low
+enough to be meaningless or a compared floor no tree can satisfy, so there are
+now two measured tables:
+
+- ``MODULE_LOWER_BOUNDS`` -- floor on the public-name count, class-exclusive.
+- ``MODULE_COMPARED_LOWER_BOUNDS`` -- floor on ``compared_hints``, the count of
+  callables whose hints AND signature were actually diffed.
+
+``wallets_client``'s floors are near-vacuous **by construction** -- its only
+public module-level name is ``configure`` on the sync side and ``configure`` plus
 ``aclose`` on the async side, it is the one pre-Phase-7 package, and it has no
-``Client`` / ``AsyncClient`` pair at all. That bound asserts almost nothing and
-**must not be read as coverage**. Raising it is the job of whatever phase gives
+``Client`` / ``AsyncClient`` pair at all. Those bounds assert almost nothing and
+**must not be read as coverage**. Raising them is the job of whatever phase gives
 wallets a ``Client``.
 """
 
@@ -171,6 +216,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import re
+import sys
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -180,16 +226,36 @@ from types import ModuleType
 # `THE METRIC, STATED ONCE` above -- (client_min, aio_min). The class-inclusive
 # counts are each of these +1 for the five class-bearing packages, and are
 # derived at runtime rather than pinned here.
+#
+# RE-MEASURED for Phase 32 WR-02: the widened ownership filter admits every
+# module-level constant, `Literal` alias and package-owned re-export the old
+# `__module__` test dropped. matriz moves 22 -> 31, iol 6 -> 7. Leaving the old
+# integers in place would have kept a floor that no longer bounds anything.
 MODULE_LOWER_BOUNDS: dict[str, tuple[int, int]] = {
     "ambito_financiero_client": (2, 3),
-    "iol_client": (6, 7),
+    "iol_client": (7, 8),
     "higyrus_client": (7, 8),
-    "matriz_client": (22, 23),
+    "matriz_client": (31, 32),
     "market_data_client": (19, 20),
     # NEAR-VACUOUS BY CONSTRUCTION -- see `THE LOWER BOUNDS` section. Do not read
     # this floor as coverage, and do not collapse the table to one threshold to
     # accommodate it.
     "wallets_client": (1, 2),
+}
+
+# Floor on `compared_hints` at the MODULE axis: how many callables actually had
+# both halves of the comparison run against them. A separate table from
+# MODULE_LOWER_BOUNDS because a constant is name-compared but not diffed -- see
+# `THE LOWER BOUNDS ARE PER-PACKAGE INTEGERS`. Measured, per package, never
+# uniform.
+MODULE_COMPARED_LOWER_BOUNDS: dict[str, int] = {
+    "ambito_financiero_client": 2,
+    "iol_client": 6,
+    "higyrus_client": 7,
+    "matriz_client": 23,
+    "market_data_client": 19,
+    # NEAR-VACUOUS BY CONSTRUCTION -- `configure` is the one compared callable.
+    "wallets_client": 1,
 }
 
 #: Axis label for a report over module-level names (``client`` vs ``aio``).
@@ -217,6 +283,10 @@ _ASYNC_TRANSPORT = re.compile(r"\bhttpx\.AsyncClient\b")
 _SYNC_TRANSPORT = "httpx.Client"
 
 _MISSING = "<MISSING>"
+#: Sentinel for "the foreign module has no such attribute". A dedicated object
+#: rather than ``None``, because ``None`` is a perfectly plausible attribute
+#: value and would make the identity test below silently wrong.
+_UNSET = object()
 #: Rendered stand-in for a parameter with no default, so "no default" and
 #: "default is None" can never compare equal.
 _NO_DEFAULT = "<NO-DEFAULT>"
@@ -270,6 +340,38 @@ class ParityReport:
 # ---------------------------------------------------------------------------
 
 
+def _import_root(module: ModuleType) -> str:
+    """The top-level package name of ``module`` (``matriz_client.aio`` -> ``matriz_client``)."""
+    return module.__name__.split(".", 1)[0]
+
+
+def _is_package_owned(module: ModuleType, name: str, member: object) -> bool:
+    """Whether ``name`` is part of ``module``'s published surface.
+
+    The three ordered tests are stated in full in ``THE METRIC, STATED ONCE``.
+    Summarised: submodules never count; anything owned by this package counts,
+    including annotation-less constants; and a foreign-owned value counts only
+    when the foreign module does not publish that same object under that same
+    name -- which is what tells a package's ``Literal`` alias apart from
+    ``typing.Any`` itself.
+    """
+    if isinstance(member, ModuleType):
+        return False
+    owner = getattr(member, "__module__", None)
+    if owner is None or owner == module.__name__:
+        return True
+    root = _import_root(module)
+    if owner == root or owner.startswith(f"{root}."):
+        return True
+    foreign = sys.modules.get(owner)
+    if foreign is None:
+        # The owning module is not imported, so it cannot be re-exporting this
+        # object under this name. Treat as owned rather than silently dropping
+        # it: an unreadable attribution must not narrow the compared surface.
+        return True
+    return getattr(foreign, name, _UNSET) is not member
+
+
 def public_names(module: ModuleType, *, include_classes: bool) -> frozenset[str]:
     """Return ``module``'s public names under the metric stated in the docstring.
 
@@ -282,7 +384,7 @@ def public_names(module: ModuleType, *, include_classes: bool) -> frozenset[str]
         if name.startswith("_"):
             continue
         member = getattr(module, name)
-        if getattr(member, "__module__", None) != module.__name__:
+        if not _is_package_owned(module, name, member):
             continue
         if not include_classes and inspect.isclass(member):
             continue
@@ -462,7 +564,22 @@ def module_parity_report(package: str) -> ParityReport:
             # The class axis owns classes; here they are name-compared only.
             continue
         async_obj = getattr(async_mod, _MODULE_SYNC_TO_ASYNC.get(name, name))
+        if not (inspect.isroutine(sync_obj) and inspect.isroutine(async_obj)):
+            # A constant or a `Literal` alias has no signature and no hints. It
+            # is still NAME-compared above -- that is what WR-02's widened filter
+            # bought -- but there is nothing here to diff. `isroutine` rather
+            # than `callable`: a `Literal[...]` alias IS callable and would blow
+            # up `inspect.signature`.
+            continue
         compared += 1
+        if sync_obj is async_obj:
+            # Both surfaces re-export the IDENTICAL object from a shared sibling
+            # module (`matriz_client._token_store.build_token_store`). Identity
+            # is the strongest agreement there is, so this counts as compared --
+            # and resolving its hints in the re-exporting module's namespace
+            # would raise on a `TYPE_CHECKING`-only import that is perfectly
+            # resolvable where the function is defined.
+            continue
         mismatches.extend(_diff_callable(name, sync_obj, async_obj))
 
     return ParityReport(
@@ -560,6 +677,17 @@ def _bounds_for(package: str) -> tuple[int, int]:
     return MODULE_LOWER_BOUNDS[package]
 
 
+def _compared_floor_for(package: str) -> int:
+    if package not in MODULE_COMPARED_LOWER_BOUNDS:
+        raise AssertionError(
+            f"{package!r} has no entry in MODULE_COMPARED_LOWER_BOUNDS. A package "
+            f"without a stated per-package floor on the number of callables actually "
+            f"diffed cannot be asserted non-vacuously; add its measured integer rather "
+            f"than reusing another package's."
+        )
+    return MODULE_COMPARED_LOWER_BOUNDS[package]
+
+
 def _fail(report: ParityReport, problems: list[str]) -> None:
     raise AssertionError(
         f"sync/async {report.axis.upper()} parity FAILED for {report.package} "
@@ -587,14 +715,19 @@ def _name_and_hint_problems(report: ParityReport) -> list[str]:
 def assert_module_parity(package: str) -> None:
     """Assert the module axis: name sets agree AND every shared hint agrees.
 
-    Also asserts ``compared_hints >= MODULE_LOWER_BOUNDS[package][0]``. A
+    Also asserts ``compared_hints >= MODULE_COMPARED_LOWER_BOUNDS[package]``. A
     comparison that silently examined nothing agrees with everything, and that
     vacuity is the failure mode this phase exists to prevent -- so the count of
     callables actually examined is asserted alongside the agreement itself.
+
+    That floor is its **own** measured table, not ``MODULE_LOWER_BOUNDS[0]``: a
+    module-level constant is name-compared but has no signature to diff, so the
+    public-name count and the compared-callable count are different integers
+    (WR-02).
     """
     report = module_parity_report(package)
     problems = _name_and_hint_problems(report)
-    floor = _bounds_for(package)[0]
+    floor = _compared_floor_for(package)
     if report.compared_hints < floor:
         problems.append(
             f"  VACUOUS: only {report.compared_hints} callable(s) had their hints compared, "

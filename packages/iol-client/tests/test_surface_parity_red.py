@@ -35,13 +35,14 @@ and puts it on ``sys.path`` for the duration of the test.
 
 from __future__ import annotations
 
+import importlib
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
 import pytest
-from tools.surface_parity import class_parity_report
+from tools.surface_parity import class_parity_report, module_parity_report, public_names
 
 # A module-level `from __future__ import annotations` is what forces the gate to
 # resolve hints rather than string-match them, so every fixture carries it: the
@@ -288,3 +289,133 @@ def test_no_default_never_compares_equal_to_a_none_default(
         "a required parameter compared equal to one defaulting to None -- "
         "the two surfaces do not accept the same calls"
     )
+
+
+def test_module_axis_sees_package_owned_constants_and_aliases(
+    surface_pair: _SurfacePairFactory,
+) -> None:
+    """WR-02: a constant has no ``__module__`` and a ``Literal`` alias has typing's.
+
+    The old filter (``member.__module__ != module.__name__``) was documented as
+    dropping "re-exported third-party objects and imported submodules". It also
+    dropped every module-level constant, every ``Literal`` alias the package
+    owns, and every re-exported model and exception -- and with them three live
+    ``client``/``aio`` name-set divergences in this repository, including
+    ``market_data_client.aio`` publishing ``RequestSpec`` where
+    ``market_data_client.client`` did not.
+    """
+    package = surface_pair(
+        "fake_constant_drift",
+        client_source=(
+            "from typing import Literal\n"
+            "\n"
+            "DEFAULT_MODE = 'strict'\n"
+            "Mode = Literal['strict', 'loose']\n"
+            "\n"
+            "\n"
+            "def configure(*, base_url: str | None = None) -> None:\n"
+            "    return None\n"
+        ),
+        aio_source=(
+            "def configure(*, base_url: str | None = None) -> None:\n"
+            "    return None\n"
+            "\n"
+            "\n"
+            "async def aclose() -> None:\n"
+            "    return None\n"
+        ),
+    )
+
+    report = module_parity_report(package)
+
+    assert "DEFAULT_MODE" in report.sync_only, "a module-level constant went uncompared"
+    assert "Mode" in report.sync_only, "a package-owned `Literal` alias went uncompared"
+
+
+def test_module_axis_still_drops_third_party_reexports(
+    surface_pair: _SurfacePairFactory,
+) -> None:
+    """The complement of WR-02: widening must not readmit ``typing`` and friends.
+
+    ``Any``, ``Self``, ``Literal``, ``Path`` and ``load_dotenv`` all carry a
+    foreign ``__module__`` **and** are that foreign module's own attribute of
+    that same name. The identity test in ``_is_package_owned`` is what separates
+    them from ``Mode = Literal[...]``, which also carries
+    ``__module__ == 'typing'`` but which ``typing`` has never heard of.
+
+    Without this leg the filter could be widened to "keep everything", every
+    package would redden on its import list, and the real signal would be buried
+    -- the failure mode rule 1 of THE NORMALIZATION was written to avoid.
+    """
+    package = surface_pair(
+        "fake_third_party",
+        client_source=(
+            "from pathlib import Path\n"
+            "from typing import Any, Literal, Self\n"
+            "\n"
+            "Mode = Literal['strict']\n"
+            "\n"
+            "\n"
+            "def configure(*, timeout: float | None = None) -> None:\n"
+            "    return None\n"
+        ),
+        aio_source=(
+            "from pathlib import Path\n"
+            "from typing import Any, Literal, Self\n"
+            "\n"
+            "Mode = Literal['strict']\n"
+            "\n"
+            "\n"
+            "def configure(*, timeout: float | None = None) -> None:\n"
+            "    return None\n"
+        ),
+    )
+
+    names = public_names(importlib.import_module(f"{package}.client"), include_classes=True)
+
+    assert names == {"Mode", "configure"}, (
+        f"the ownership filter admitted third-party re-exports: {sorted(names)}"
+    )
+
+
+def test_constants_are_name_compared_but_never_signature_diffed(
+    surface_pair: _SurfacePairFactory,
+) -> None:
+    """A ``Literal`` alias is ``callable()`` and would blow up ``inspect.signature``.
+
+    The hint loop therefore narrows with ``inspect.isroutine``, not ``callable``.
+    This is the leg that would have caught that: both surfaces publish the alias
+    and the constant, so they are name-compared and agree, and the report is
+    produced at all rather than raising.
+    """
+    package = surface_pair(
+        "fake_constant_agree",
+        client_source=(
+            "from typing import Literal\n"
+            "\n"
+            "DEFAULT_MODE = 'strict'\n"
+            "Mode = Literal['strict', 'loose']\n"
+            "\n"
+            "\n"
+            "def configure(*, base_url: str | None = None) -> None:\n"
+            "    return None\n"
+        ),
+        aio_source=(
+            "from typing import Literal\n"
+            "\n"
+            "DEFAULT_MODE = 'strict'\n"
+            "Mode = Literal['strict', 'loose']\n"
+            "\n"
+            "\n"
+            "def configure(*, base_url: str | None = None) -> None:\n"
+            "    return None\n"
+        ),
+    )
+
+    report = module_parity_report(package)
+
+    assert report.sync_only == ()
+    assert report.async_only == ()
+    assert report.hint_mismatches == ()
+    # Only `configure` is a routine; the constant and the alias are name-compared.
+    assert report.compared_hints == 1

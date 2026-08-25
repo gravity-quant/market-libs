@@ -50,6 +50,13 @@ import httpx
 from dotenv import load_dotenv
 
 from market_data_client import _core, _decode, _transport
+
+# Fase 32 WR-02: `aio.py` importaba `RequestSpec` por nombre y `client.py` lo
+# usaba como `_core.RequestSpec`, así que el nombre estaba SÓLO en la superficie
+# de módulo async. El filtro `__module__` del gate de paridad tapaba la deriva.
+# Se alinea el lado sync con el async (y con iol/higyrus/matriz, que lo importan
+# por nombre en ambas superficies).
+from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import (
     MarketDataAuthError,
@@ -317,7 +324,7 @@ class Client:
                 f"Mutación rechazada: host de base_url {actual!r} != expected_host {expected!r}."
             )
 
-    def _send_auth_request(self, spec: _core.RequestSpec) -> httpx.Response:
+    def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
         """Dispatch the Auth0 grant to the ABSOLUTE ``auth0_token_url``.
 
         Pitfall 1 (T-20-02, CRITICAL): the token grant POSTs to
@@ -369,7 +376,7 @@ class Client:
             return
         self._authenticate()
 
-    def _request(self, spec: _core.RequestSpec) -> httpx.Response:
+    def _request(self, spec: RequestSpec) -> httpx.Response:
         """Dispatch a request against ``base_url`` with per-spec auth branching.
 
         Two branches gated on ``spec.authenticated`` (D-08/D-09, Pitfall 4):
