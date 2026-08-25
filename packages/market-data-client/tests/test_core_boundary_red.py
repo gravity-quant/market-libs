@@ -52,11 +52,28 @@ HOW THE LINTER IS INVOKED, AND WHAT IS BANNED
 WHY THE ASSERTIONS NAME THE CONTRACT
     Asserting only ``returncode != 0`` would be satisfied by a typo in the argv, a
     missing executable, an unreadable config, or an unrelated broken contract. Both
-    legs therefore assert on the contract's declared name **plus** its state marker,
-    assert that every *other* declared contract is still reported KEPT, and assert
-    the summary count line accounts for all five. The marker wordings encoded here
-    (``KEPT`` / ``BROKEN`` suffixes, ``Contracts: N kept, M broken.``) were read off
-    real runs during execution, not recalled.
+    legs therefore assert on the contract's declared name **plus** its state marker.
+    The marker wordings encoded here (``KEPT`` / ``BROKEN`` suffixes,
+    ``Contracts: N kept, M broken.``) were read off real runs during execution, not
+    recalled.
+
+    WHAT THE ASSERTIONS DELIBERATELY DO *NOT* CLAIM (Phase 32 WR-06). The first
+    cut also looped over every *other* declared contract asserting it KEPT, and
+    pinned the aggregate as ``Contracts: 5 kept, 0 broken.``. That made a
+    market-data test fail for a developer mid-refactor on ``iol_client._core`` --
+    a package with no relationship to this one -- in a repository whose
+    ``CLAUDE.md`` states "sin codigo compartido entre paquetes (por diseno)" and
+    whose CI ``test`` job is deliberately partitioned per package. Those
+    assertions added cross-package coupling without adding attribution: naming
+    the contract already rules out the typo, the missing executable and the
+    unreadable config.
+
+    What survives is the part that carried real information: the summary line is
+    parsed and its ``kept + broken`` total is required to equal the number of
+    contracts declared in ``pyproject.toml``. That still proves the run analysed
+    every declared contract rather than collapsing to a subset -- which a bare
+    ``returncode`` check cannot -- while saying nothing about any other
+    contract's state.
 
 THE MUTATION, AND THE OQ-3 DECISION
     The RED leg appends one import to a **tracked** source file and restores it in
@@ -78,6 +95,7 @@ ORDER SENSITIVITY (one narrow caveat)
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -92,6 +110,10 @@ _CONTRACT = "market_data_client._core does not depend on transport modules"
 # about. The appended line carries an F401 suppression suffix so that a stray
 # lint pass over the mutated tree would object to nothing.
 _VIOLATION = "\nfrom market_data_client import client  # noqa: F401\n"
+
+# The linter's summary line, read off a real run. Only the TOTAL is asserted --
+# see WHAT THE ASSERTIONS DELIBERATELY DO *NOT* CLAIM.
+_CONTRACT_COUNT = re.compile(r"^Contracts: (?P<kept>\d+) kept, (?P<broken>\d+) broken\.", re.M)
 
 
 def _find_repo_root() -> Path:
@@ -125,9 +147,26 @@ def _declared_contract_names() -> tuple[str, ...]:
     return names
 
 
-def _other_contract_names() -> tuple[str, ...]:
-    """The declared contracts except the one under proof."""
-    return tuple(name for name in _declared_contract_names() if name != _CONTRACT)
+def _assert_run_covered_every_declared_contract(stdout: str) -> None:
+    """Assert the summary line accounts for every contract declared on disk.
+
+    This is what a bare ``returncode`` check cannot give: proof that the run
+    analysed the whole config rather than collapsing to a subset. It reads the
+    ``kept + broken`` **total** and says nothing about which contracts are in
+    which bucket -- asserting other packages' boundary state from a market-data
+    test is the cross-package coupling WR-06 removed.
+    """
+    match = _CONTRACT_COUNT.search(stdout)
+    assert match is not None, (
+        f"the linter printed no `Contracts: N kept, M broken.` summary line, so the "
+        f"run cannot be shown to have analysed anything:\n{stdout}"
+    )
+    analysed = int(match.group("kept")) + int(match.group("broken"))
+    declared = len(_declared_contract_names())
+    assert analysed == declared, (
+        f"the linter analysed {analysed} contract(s) but {declared} are declared in "
+        f"pyproject.toml -- the run covered only part of the config:\n{stdout}"
+    )
 
 
 def _resolve_lint_imports() -> str | None:
@@ -178,15 +217,11 @@ def test_core_boundary_contract_is_kept_on_the_clean_tree() -> None:
     permanently broken contract, or a config the linter cannot read at all, would
     make "it went red under mutation" meaningless.
     """
-    others = _other_contract_names()
-
     result = _run_lint_imports()
 
     assert result.returncode == 0, f"clean tree is not green:\n{result.stdout}\n{result.stderr}"
     assert f"{_CONTRACT} KEPT" in result.stdout, result.stdout
-    for name in others:
-        assert f"{name} KEPT" in result.stdout, result.stdout
-    assert f"Contracts: {len(others) + 1} kept, 0 broken." in result.stdout, result.stdout
+    _assert_run_covered_every_declared_contract(result.stdout)
 
 
 def test_core_boundary_contract_is_red_when_violated() -> None:
@@ -196,11 +231,12 @@ def test_core_boundary_contract_is_red_when_violated() -> None:
 
         market_data_client._core does not depend on transport modules BROKEN
 
-    The other declared contracts must still be reported KEPT: that is what makes
-    the failure attributable to this contract and to the surgical mutation, rather
-    than to a run that collapsed for an unrelated reason.
+    Naming the contract is what makes the failure attributable to this contract
+    and to the surgical mutation, rather than to a run that collapsed for an
+    unrelated reason. The whole-config coverage check adds the other half of that
+    attribution without asserting any other package's boundary state -- see WHAT
+    THE ASSERTIONS DELIBERATELY DO *NOT* CLAIM.
     """
-    others = _other_contract_names()
     original = _CORE_PATH.read_text(encoding="utf-8")
 
     try:
@@ -211,9 +247,7 @@ def test_core_boundary_contract_is_red_when_violated() -> None:
 
     assert result.returncode != 0, f"the violation did not fail the linter:\n{result.stdout}"
     assert f"{_CONTRACT} BROKEN" in result.stdout, result.stdout
-    for name in others:
-        assert f"{name} KEPT" in result.stdout, result.stdout
-    assert f"Contracts: {len(others)} kept, 1 broken." in result.stdout, result.stdout
+    _assert_run_covered_every_declared_contract(result.stdout)
 
     # The restore is not taken on trust: byte-equality, then a green re-run.
     assert _CORE_PATH.read_text(encoding="utf-8") == original, (
