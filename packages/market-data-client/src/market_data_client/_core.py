@@ -62,6 +62,8 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
+    Health,
+    HealthFeed,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
@@ -93,6 +95,7 @@ __all__ = [
     "parse_calendar_config_response",
     "parse_calendar_response",
     "parse_calendar_write_response",
+    "parse_health_feed_response",
     "parse_health_response",
     "parse_instruments_response",
     "parse_latest_response",
@@ -277,12 +280,57 @@ def build_health_feed_request(state: _ClientState) -> RequestSpec:
     )
 
 
-def parse_health_response(resp: httpx.Response) -> dict[str, Any]:
-    """Pure: parse a health response → JSON dict (D-03: no SafeModel here)."""
+@_decode._response_parser
+def parse_health_response(resp: httpx.Response) -> Health:
+    """Pure: parse ``GET /health`` → a single :class:`Health` (Phase 31 TYP-02, D-01/D-05).
+
+    Until Phase 31 ONE function served both health endpoints and returned the raw
+    mapping. Their live shapes are unrelated — ``/health`` is ``{status, auth{}}``
+    and ``/health/feed`` is a three-level ingestor tree — so the sharing ended:
+    this parser is named by ``get_health`` only, and ``parse_health_feed_response``
+    below by ``get_health_feed`` only.
+
+    Shape follows ``parse_calendar_config_response``, the in-package template for
+    a non-collection typed parser. Body-consume-then-raise order is a Phase 7
+    D-06 HTTP/2-safety invariant and is NEVER reordered. An empty body / 204
+    collapses to ``Health.from_api(None)`` — the zero-valued instance, explicitly
+    NOT a raise and explicitly not an empty mapping.
+
+    D-04: this parser GAINS a non-dict shape guard it never had (the shared
+    version annotated ``resp.json()`` as a dict and returned it unchecked, so a
+    list body produced an instance-shaped lie). The message carries
+    ``type(raw).__name__`` — the type NAME only, never the value and never a
+    repr (T-31-19 / T-29-36 / ASVS V7): market-data payloads carry symbol and
+    account identifiers.
+    """
     resp.read()
     raise_for_response(resp)
-    data: dict[str, Any] = resp.json()
-    return data
+    if not resp.content:
+        return Health.from_api(None)
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        raise MarketDataAPIError(0, f"expected dict, got {type(raw).__name__}")
+    return Health.from_api(raw)
+
+
+@_decode._response_parser
+def parse_health_feed_response(resp: httpx.Response) -> HealthFeed:
+    """Pure: parse ``GET /health/feed`` → a single :class:`HealthFeed` (Phase 31, D-01/D-05).
+
+    The half of the Phase 31 split that ``get_health_feed`` now names for itself.
+    Same contract as :func:`parse_health_response` — decorated, body-consume-then-raise,
+    empty/204 → the zero-valued instance, non-dict → ``MarketDataAPIError`` naming
+    the observed TYPE only — over a different model whose tree is three levels
+    deep (``HealthFeed`` → ``FeedIngestor`` → ``FeedMarket`` / ``FeedPipeline``).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return HealthFeed.from_api(None)
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        raise MarketDataAPIError(0, f"expected dict, got {type(raw).__name__}")
+    return HealthFeed.from_api(raw)
 
 
 # ----------------------------------------------------------------------

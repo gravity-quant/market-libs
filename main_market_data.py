@@ -616,57 +616,87 @@ def _emit_shape(
 
 
 def probe_health_sync(client: Client) -> ProbeResult:
-    """Health sync: ``get_health`` + ``get_health_feed`` (anónimos, D-09)."""
+    """Health sync: ``get_health`` + ``get_health_feed`` (anónimos, D-09).
+
+    Phase 31 (TYP-02 / G-3): ambos wrappers devuelven MODELOS desde este phase
+    (``Health`` y ``HealthFeed``). El snapshot de schema NO puede alimentarse de
+    esa proyección: es el hallazgo CR-01 ratificado de la Phase 30, cuyo enunciado
+    canónico vive en el docstring de ``_capture_raw_wire`` de ``main_iol.py`` — el
+    walker de la Phase 29 ya coercionó cada campo no-opcional a su tipo declarado
+    y descartó cada clave que ningún campo declara, así que ``schema_of`` sobre la
+    proyección del modelo es función de la DECLARACIÓN, no del wire: un
+    ``float→str``, una clave agregada y una clave quitada son las tres invisibles.
+
+    Por eso el probe hace las DOS cosas: llama al wrapper tipado (que es lo que
+    prueba que la superficie pública funciona) y RE-DISPARA el mismo spec por
+    ``_raw_via_request_sync`` para quedarse con el wire crudo que alimenta el
+    snapshot. Es exactamente el patrón que ``probe_market_data_sync`` ya usa en
+    este archivo. Ambos re-disparos quedan DENTRO del ``try`` por la regla D-09 de
+    aislamiento per-probe.
+    """
     name = "health_sync"
     base_url = client._state.base_url
     try:
         health = client.get_health()
         feed = client.get_health_feed()
+        raw_health = _raw_via_request_sync(client, _core.build_health_request(client._state))
+        raw_feed = _raw_via_request_sync(client, _core.build_health_feed_request(client._state))
         # D-09: el post-procesado (schema snapshot: file I/O + json.loads +
         # append_finding) va DENTRO del try para que un fallo de I/O/parse degrade
         # a finding/SKIP en vez de crashear el driver a FAILED.
         _write_schema_snapshot(
             endpoint="/health",
             client_function="get_health",
-            raw=health,
+            raw=raw_health,
             base_url=base_url,
             surface="sync",
         )
         _write_schema_snapshot(
             endpoint="/health/feed",
             client_function="get_health_feed",
-            raw=feed,
+            raw=raw_feed,
             base_url=base_url,
             surface="sync",
         )
-        return ProbeResult(name, "PASS", "health+feed ok")
+        return ProbeResult(name, "PASS", f"health+feed ok (status={health.status}/{feed.status})")
     except Exception as exc:  # D-09: aislamiento per-probe (request + post-procesado)
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
 async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
-    """Health async: ``get_health`` + ``get_health_feed`` (anónimos, D-09)."""
+    """Health async: ``get_health`` + ``get_health_feed`` (anónimos, D-09).
+
+    Espejo exacto de :func:`probe_health_sync`, incluido el re-disparo crudo por
+    ``_raw_via_request_async`` que mantiene el snapshot como función del WIRE y no
+    de la declaración del modelo (Phase 30 CR-01 / T-31-18, G-3).
+    """
     name = "health_async"
     base_url = aclient._state.base_url
     try:
         health = await aclient.get_health()
         feed = await aclient.get_health_feed()
+        raw_health = await _raw_via_request_async(
+            aclient, _core.build_health_request(aclient._state)
+        )
+        raw_feed = await _raw_via_request_async(
+            aclient, _core.build_health_feed_request(aclient._state)
+        )
         # D-09: post-procesado dentro del try (espejo sync).
         _write_schema_snapshot(
             endpoint="/health",
             client_function="get_health",
-            raw=health,
+            raw=raw_health,
             base_url=base_url,
             surface="async",
         )
         _write_schema_snapshot(
             endpoint="/health/feed",
             client_function="get_health_feed",
-            raw=feed,
+            raw=raw_feed,
             base_url=base_url,
             surface="async",
         )
-        return ProbeResult(name, "PASS", "health+feed ok")
+        return ProbeResult(name, "PASS", f"health+feed ok (status={health.status}/{feed.status})")
     except Exception as exc:  # D-09: aislamiento per-probe (request + post-procesado)
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
@@ -3004,9 +3034,16 @@ def probe_health_feed_recheck_sync(client: Client) -> ProbeResult:
     if not _gate_open(client._state):
         return _skipped_when_gated(name)
     try:
+        # Phase 31 (TYP-02 / G-3, verdict per-site): ESTE sitio NO necesita el
+        # escape hatch ``to_dict()``. ``get_health_feed`` ahora devuelve un
+        # ``HealthFeed``, y ``ingestor.last_error`` está declarado ``str | None``,
+        # así que el acceso por atributo lee el mismo valor que leía el
+        # ``.get()`` encadenado — sin ``isinstance`` defensivo, porque un
+        # ``ingestor`` ausente ya no es ``None`` sino la instancia zero-valued.
+        # Tampoco es un sitio de ``schema_of``: no escribe snapshot, así que la
+        # ceguera al drift de CR-01 no aplica acá.
         feed = client.get_health_feed()
-        ingestor = feed.get("ingestor")
-        last_error = ingestor.get("last_error") if isinstance(ingestor, dict) else None
+        last_error = feed.ingestor.last_error
         if last_error is None:
             return ProbeResult(name, "PASS", "ingestor.last_error sigue vacío tras las mutaciones")
         fid = _next_fid()

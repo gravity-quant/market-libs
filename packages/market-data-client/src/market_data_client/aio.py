@@ -16,7 +16,7 @@ concurrencia de 3-vías de matriz)::
     from market_data_client import aio
 
     async with aio.AsyncClient() as c:
-        health = await c.get_health()
+        health = await c.get_health()  # -> Health; health.status
 
 Locks (Pitfall 2): ``self._state.token_lock`` y ``self._state.client_lock`` se
 crean LAZY en el primer uso async (NO en ``__init__``) para bindear al event
@@ -48,6 +48,8 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
+    Health,
+    HealthFeed,
     HolidaysIn,
     Instrument,
     LatestRequest,
@@ -431,17 +433,17 @@ class AsyncClient:
     # Public health endpoints (anonymous)
     # ------------------------------------------------------------------
 
-    async def get_health(self) -> dict[str, Any]:
+    async def get_health(self) -> Health:
         """Estado de salud del servicio (anónimo, D-08/D-09)."""
         spec = _core.build_health_request(self._state)
         resp = await self._request(spec)
         return _core.parse_health_response(resp)
 
-    async def get_health_feed(self) -> dict[str, Any]:
+    async def get_health_feed(self) -> HealthFeed:
         """Estado de salud del feed de datos (anónimo, D-08/D-09)."""
         spec = _core.build_health_feed_request(self._state)
         resp = await self._request(spec)
-        return _core.parse_health_response(resp)
+        return _core.parse_health_feed_response(resp)
 
     # ------------------------------------------------------------------
     # Public endpoint methods — market-data reads (authenticated, D-06)
@@ -821,12 +823,12 @@ def configure(
         client._state.strict_decode = strict_decode
 
 
-async def get_health() -> dict[str, Any]:
+async def get_health() -> Health:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_health()
 
 
-async def get_health_feed() -> dict[str, Any]:
+async def get_health_feed() -> HealthFeed:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_health_feed()
 

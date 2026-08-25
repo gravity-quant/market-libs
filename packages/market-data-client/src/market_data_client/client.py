@@ -5,13 +5,13 @@ API basada en clase (Phase 20+)::
     from market_data_client import Client
 
     with Client() as client:
-        health = client.get_health()
+        health = client.get_health()  # -> Health; health.status
 
 API a nivel módulo (delegación al default Client)::
 
     import market_data_client
 
-    health = market_data_client.get_health()
+    health = market_data_client.get_health()  # -> Health; health.status
 
 Este paquete usa Auth0 con el grant ``client_credentials`` (machine-to-machine):
 un ``POST`` al ``auth0_token_url`` ABSOLUTO con
@@ -58,6 +58,8 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     CalendarConfig,
     CalendarDay,
+    Health,
+    HealthFeed,
     HolidaysIn,
     Instrument,
     LatestRequest,
@@ -422,17 +424,17 @@ class Client:
     # Public endpoint methods — health (anonymous, CORE-MD-01)
     # ------------------------------------------------------------------
 
-    def get_health(self) -> dict[str, Any]:
+    def get_health(self) -> Health:
         """Reach ``GET {base_url}/health`` anonymously via the retry transport."""
         spec = _core.build_health_request(self._state)
         resp = self._request(spec)
         return _core.parse_health_response(resp)
 
-    def get_health_feed(self) -> dict[str, Any]:
+    def get_health_feed(self) -> HealthFeed:
         """Reach ``GET {base_url}/health/feed`` anonymously via the retry transport."""
         spec = _core.build_health_feed_request(self._state)
         resp = self._request(spec)
-        return _core.parse_health_response(resp)
+        return _core.parse_health_feed_response(resp)
 
     # ------------------------------------------------------------------
     # Public endpoint methods — market-data reads (authenticated, D-06)
@@ -815,12 +817,12 @@ def configure(
         state.strict_decode = strict_decode
 
 
-def get_health() -> dict[str, Any]:
+def get_health() -> Health:
     """Top-level shim: delega al default Client."""
     return _get_default().get_health()
 
 
-def get_health_feed() -> dict[str, Any]:
+def get_health_feed() -> HealthFeed:
     """Top-level shim: delega al default Client."""
     return _get_default().get_health_feed()
 

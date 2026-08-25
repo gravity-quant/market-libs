@@ -44,6 +44,18 @@ from market_data_client.models import MarketDataSnapshot, SafeModel, Symbol
 _MESSAGE = "decode divergence"
 _BASE = "https://market-data-develop.test/api"
 
+# Phase 31 (TYP-02): ``get_health`` is used below as a THROWAWAY endpoint whose
+# only job is to drive a real ``_request`` and prove the mode is bound from the
+# shared state. Now that it returns a typed ``Health``, the body must be the FULL
+# live shape — a bare ``{"status": "ok"}`` omits ``auth`` and would raise
+# ``MarketDataDecodeError`` under ``strict_decode=True``, failing those tests for
+# a reason unrelated to their subject. Corrected on the TEST side (30-03
+# precedent); the parser's guard is never loosened to accommodate a stale mock.
+_HEALTH_BODY = {
+    "status": "ok",
+    "auth": {"configured": True, "enabled": True, "issuer": "https://auth.test/"},
+}
+
 
 @pytest.fixture(autouse=True)
 def _pristine_decode_context() -> Iterator[None]:
@@ -950,7 +962,7 @@ def test_strict_mode_view_inherits() -> None:
 
 def test_strict_mode_bound_by_sync_request(httpx_mock: HTTPXMock) -> None:
     """``Client._request`` binds the mode from the shared state."""
-    httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json={"status": "ok"})
+    httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json=_HEALTH_BODY)
 
     with Client(base_url=_BASE, strict_decode=True) as client:
         client.get_health()
@@ -960,7 +972,7 @@ def test_strict_mode_bound_by_sync_request(httpx_mock: HTTPXMock) -> None:
 
 async def test_strict_mode_bound_by_async_request(httpx_mock: HTTPXMock) -> None:
     """``AsyncClient._request`` binds the mode too — the dual-surface mirror."""
-    httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json={"status": "ok"})
+    httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json=_HEALTH_BODY)
 
     client = AsyncClient(base_url=_BASE, strict_decode=True)
     try:

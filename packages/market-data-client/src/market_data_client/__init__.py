@@ -8,21 +8,22 @@ Sync (API a nivel módulo — delega al default Client)::
 
     import market_data_client
 
-    health = market_data_client.get_health()
+    health = market_data_client.get_health()   # -> Health
+    print(health.status)                       # atributo, no health["status"]
 
 Sync (API basada en clase)::
 
     from market_data_client import Client
 
     with Client() as client:
-        health = client.get_health()
+        health = client.get_health()           # -> Health; health.status
 
 Async::
 
     from market_data_client import aio
 
     async with aio.AsyncClient() as client:
-        health = await client.get_health()
+        health = await client.get_health()     # -> Health; health.status
 """
 
 # Phase 20 CORE-MD-01 / LOG-01: attach NullHandler + RedactingFilter to the
@@ -71,6 +72,12 @@ from market_data_client.exceptions import (  # noqa: E402
 from market_data_client.models import (  # noqa: E402
     CalendarConfig,
     CalendarDay,
+    FeedIngestor,
+    FeedMarket,
+    FeedPipeline,
+    Health,
+    HealthAuth,
+    HealthFeed,
     HolidayIn,
     HolidaysIn,
     Instrument,
@@ -92,6 +99,12 @@ __all__ = [
     "CalendarConfig",
     "CalendarDay",
     "Client",
+    "FeedIngestor",
+    "FeedMarket",
+    "FeedPipeline",
+    "Health",
+    "HealthAuth",
+    "HealthFeed",
     "HolidayIn",
     "HolidaysIn",
     "Instrument",
