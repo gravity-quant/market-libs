@@ -19,7 +19,7 @@ Requirements for this milestone. Each maps to roadmap phases (29-34). Decisiones
 
 ### Gates de homogeneidad
 
-- [ ] **GATE-TYP-01**: CI falla si la homogeneidad se degrada: (a) gate AST de superficie — cero `Any`/`dict[str, Any]` en retornos de funciones exportadas en `__all__`, con exenciones DT-06 resueltas (`to_dict()` serialize-out + módulos privados) — como **job de CI nuevo** (verification/ nunca corrió en CI); (b) test de paridad sync/async por introspección **no-vacuo** con lower bounds y fixtures RED (los `aio.py` sin `__all__` no pueden saltearse; precedente Phase 15 WR-01/WR-02); (c) cierre de D-16 reconciliando las **4** listas de enrollment (mypy `files`, import-linter `root_packages`, `ci.yml` mypy-tests loop, `test_public_surface._PACKAGES`) + contrato import-linter de `market_data_client._core` + decisión sobre la inclusión de wallets.
+- [x] **GATE-TYP-01**: CI falla si la homogeneidad se degrada: (a) gate AST de superficie — cero `Any`/`dict[str, Any]` en retornos de funciones exportadas en `__all__`, con exenciones DT-06 resueltas (`to_dict()` serialize-out + módulos privados) — como **job de CI nuevo** (verification/ nunca corrió en CI); (b) test de paridad sync/async por introspección **no-vacuo** con lower bounds y fixtures RED (los `aio.py` sin `__all__` no pueden saltearse; precedente Phase 15 WR-01/WR-02); (c) cierre de D-16 reconciliando las **4** listas de enrollment (mypy `files`, import-linter `root_packages`, `ci.yml` mypy-tests loop, `test_public_surface._PACKAGES`) + contrato import-linter de `market_data_client._core` + decisión sobre la inclusión de wallets.
 
 ### Verificación en vivo
 
@@ -67,7 +67,7 @@ Fases definidas en `.planning/ROADMAP.md` § Phase Details (v1.6). Cada requisit
 | TYP-01 | Phase 30 | `iol-client` tipado | Pending |
 | TYP-02 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
 | TYP-03 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
-| GATE-TYP-01 | Phase 32 | Gates de homogeneidad + D-16 | Pending |
+| GATE-TYP-01 | Phase 32 | Gates de homogeneidad + D-16 | Complete |
 | LIVE-TYP-01 | Phase 33 | Verificación en vivo en modo estricto + fixes | Pending |
 | PUB-TYP-01 | Phase 34 | Releases por paquete | Pending |
 

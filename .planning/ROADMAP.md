@@ -22,7 +22,7 @@
 - [x] **Phase 29: Decoder observable** *(load-bearing, PRIMERO)* — decoder único de política observable copiado verbatim 6×, divergencias emitidas estructuradas por el logger del paquete, modo estricto por `ContextVar`, decisión msgspec-vs-stdlib como artefacto, reconciliación de matriz y corrida de sizing — DEC-01 (completed 2026-08-19)
 - [x] **Phase 30: `iol-client` tipado** — `models.py` nuevo + 16 firmas migradas + parsers de `_core.py` + `main_iol.py` a acceso por atributo; `mercado`/`plazo` quedan `str` (promoción a `Literal` diferida a F33) — TYP-01 (completed 2026-08-20)
 - [x] **Phase 31: Endpoints de ops + estructura uniforme** — modelos para los 5 endpoints de ops (higyrus + market-data), request byte-idéntico probado para las 2 mutaciones ya publicadas, `models.py`/`types.py` presentes en los 6 paquetes — TYP-02, TYP-03 (completed 2026-08-25)
-- [ ] **Phase 32: Gates de homogeneidad + D-16** — gate AST de superficie como **job de CI nuevo** + test de paridad sync/async no-vacuo + cierre de D-16 reconciliando las **4** listas de enrollment — GATE-TYP-01
+- [x] **Phase 32: Gates de homogeneidad + D-16** — gate AST de superficie como **job de CI nuevo** + test de paridad sync/async no-vacuo + cierre de D-16 reconciliando las **4** listas de enrollment — GATE-TYP-01 (completed 2026-08-25)
 - [ ] **Phase 33: Verificación en vivo en modo estricto + fixes** — drivers en modo estricto contra APIs reales, `Literal` cerrados con evidencia, divergencias corregidas in-cycle, cycle closure PASS por paquete — LIVE-TYP-01
 - [ ] **Phase 34: Releases por paquete** — bumps sólo de los paquetes cuya superficie cambió, iol 0.2.0 → **0.3.0** source-breaking con callout, `uv.lock` refrescado una sola vez, ops irreversibles detrás de doble gate humano — PUB-TYP-01
 
@@ -181,7 +181,7 @@ Plans:
   4. **D-16 cerrado** reconciliando las **4** listas de enrollment en un commit atómico — mypy `files`, import-linter `root_packages`, el loop mypy-tests de `ci.yml:85` y `verification/test_public_surface._PACKAGES` — con el contrato import-linter de `market_data_client._core` **RED-probado**, la inclusión (o exclusión) de `wallets_client` decidida explícitamente, y la exclusión **deliberada** de market-data en `_PACKAGES` (ya tiene su test in-package desde Phase 25) documentada como intencional, no "arreglada".
   5. La matriz completa de CI (6 paquetes × py3.12 + py3.13) queda verde con los gates nuevos activos.
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 
@@ -201,7 +201,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 32-06-PLAN.md — Fan-out de paridad a los 5 paquetes restantes (wallets con ausencia aserida, nunca skip) + reproducción local completa de la matriz de CI (criterio 5)
+- [x] 32-06-PLAN.md — Fan-out de paridad a los 5 paquetes restantes (wallets con ausencia aserida, nunca skip) + reproducción local completa de la matriz de CI (criterio 5)
 
 ### Phase 33: Verificación en vivo en modo estricto + fixes
 
@@ -267,7 +267,7 @@ Plans:
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
-| 32. Gates de homogeneidad + D-16                            | v1.6      | 5/6 | In Progress|  |
+| 32. Gates de homogeneidad + D-16                            | v1.6      | 6/6 | Complete   | 2026-08-25 |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |
 

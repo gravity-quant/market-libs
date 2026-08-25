@@ -4,17 +4,17 @@ milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
 current_phase_name: gates-de-homogeneidad-d-16
-status: executing
-stopped_at: Completed 32-05-PLAN.md
-last_updated: "2026-08-25T21:40:56.902Z"
+status: verifying
+stopped_at: Completed 32-06-PLAN.md — Phase 32 complete, GATE-TYP-01 closed
+last_updated: "2026-08-25T22:07:46.542Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
+last_activity_desc: Phase 32 plan 06 complete — paridad sync/async en los 6 paquetes (wallets con ausencia aserida), matriz de CI reproducida verde localmente (4 jobs, 12 legs, 1707 passing en py3.12 y py3.13), GATE-TYP-01 cerrado
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 34
-  completed_plans: 33
-  percent: 50
+  completed_plans: 34
+  percent: 67
 ---
 
 # Project State
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
-Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
+Status: Phase complete — ready for verification
+Last activity: 2026-08-25 — Phase 32 plan 06 complete — paridad sync/async en los 6 paquetes (wallets con ausencia aserida), matriz de CI reproducida verde localmente (4 jobs, 12 legs, 1707 passing en py3.12 y py3.13), GATE-TYP-01 cerrado
 
 ## Performance Metrics
 
@@ -147,6 +147,7 @@ Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a opt
 | Phase 32 P03 | 4min | 1 tasks | 0 files |
 | Phase 32 P04 | 7min | 2 tasks | 3 files |
 | Phase 32 P05 | 7min | 2 tasks | 4 files |
+| Phase 32 P06 | 21min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -292,6 +293,13 @@ Recent decisions affecting current work:
 - [Phase ?]: 32-05: wallets stays OUT of import-linter root_packages for a STRUCTURAL reason (no _core.py, so no source_modules against which a forbidden contract could be written); recorded in check_decode_intactness.py resolved_by in the past tense, closing the forward reference that named Phase 32 as its own resolver
 - [Phase ?]: 32-05: verification/test_public_surface._PACKAGES stays at four — verification/ never executes in CI, so a fifth snapshot would be red-invisible after the first surface change; market-data's real net is in-package and does run in the 6x2 matrix
 - [Phase ?]: 32-05: Task 2 landing in its own commit does NOT break criterion 4's atomicity — atomicity is a property of the four enrollment lists moving together, and the RED fixture touches none of them
+- [Phase 32]: 32-06: la ausencia del par Client/AsyncClient de wallets se asevera por DOS caminos independientes — hasattr sobre client y aio (forma del Check D de check_decode_intactness) y class_parity_report(...).axis == CLASS_AXIS_ABSENT (el reporte marcado que 32-04 construyo para este caller); cualquiera solo seria un unico punto de obsolescencia
+- [Phase 32]: 32-06: la no-vacuidad del test de ausencia se probo IN-PROCESS inyectando client.Client = type('Client', (), {}) antes de invocar pytest, nunca mutando un archivo trackeado — a diferencia del fixture RED de import-linter de 32-05, que debe escribir a disco porque lint-imports lee fuente estaticamente
+- [Phase 32]: 32-06: el conteo esperado de iol en el plan (248) es un desliz aritmetico de dos; 250 es correcto (242 baseline + 3 paridad + 5 RED del gate de superficie de 32-02) y coincide con la derivacion del total del propio plan (1682+18+5+2=1707). Reconciliado, nunca forzado
+- [Phase 32]: 32-06: tools/surface_parity.py quedo byte-identico en el fan-out — ninguna regla de normalizacion agregada, ningun bound bajado, ningun paquete excluido; las 18 aserciones de los 6 paquetes pasaron en su primera corrida
+- [Phase 32]: 32-06: criterio 5 se declara PROBADO LOCALMENTE con su unica pata no reproducible nombrada (las 12 legs sobre runners reales de GitHub Actions), nunca como un verde incondicional; las 4 jobs y las 12 legs corrieron verdes localmente a 1707 passing en py3.12 y py3.13
+- [Phase 32]: 32-06: D-05 resuelto y registrado — el 'job de CI nuevo' de ROADMAP.md:25 y REQUIREMENTS queda superseded por el D-12 lockeado de la Phase 31 ('step en lint'); la mitad load-bearing del texto (verification/ nunca corrio en CI) se honra plenamente y agregar un step no renombra el job (cierra A2)
+- [Phase 32]: 32-06: la deuda carry-forward de probe_login_sync se re-chequeo antes del claim de matriz verde — sigue abierta pero localizada en 2 call sites de un solo archivo (2 failed + 2 errors) e invisible a las 12 legs (0 items de verification/ colectados bajo un path per-package); un pytest verification completo NO termina en 10 min porque esos probes tocan servicios en vivo
 
 ### Pending Todos
 
@@ -373,8 +381,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:40:56.897Z
-Stopped at: Completed 32-05-PLAN.md
+Last session: 2026-08-25T22:07:46.537Z
+Stopped at: Completed 32-06-PLAN.md — Phase 32 complete, GATE-TYP-01 closed
 Resume file: None
 
 ## Operator Next Steps
