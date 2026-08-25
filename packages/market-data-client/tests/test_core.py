@@ -19,13 +19,18 @@ directamente — no requiere conftest ni fixtures (imports puros).
 
 from __future__ import annotations
 
+import dataclasses
+import json
+import logging
+import pathlib
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
 
-from market_data_client import _core
+from market_data_client import _core, _decode, models
 from market_data_client._state import (
     _TOKEN_TTL_BUFFER_SECONDS,
     _TOKEN_TTL_FALLBACK_SECONDS,
@@ -36,6 +41,15 @@ from market_data_client.exceptions import (
     MarketDataAuthError,
     MarketDataError,
     MarketDataRateLimitError,
+)
+from market_data_client.models import (
+    FeedIngestor,
+    FeedMarket,
+    FeedPipeline,
+    Health,
+    HealthAuth,
+    HealthFeed,
+    SafeModel,
 )
 
 _DUMMY_REQUEST = httpx.Request("GET", "http://t")
@@ -692,3 +706,273 @@ def test_core_all_exports_calendar_write_surface_in_order() -> None:
     }
     assert expected <= set(_core.__all__)
     assert list(_core.__all__) == sorted(_core.__all__)
+
+
+# ----------------------------------------------------------------------
+# Phase 31 (TYP-02) — the six health models
+# ----------------------------------------------------------------------
+#
+# Field sets come from the two COMMITTED LIVE CAPTURES (D-01), never from a
+# mock and never from the OpenAPI. ``_CAPTURED_HEALTH`` / ``_CAPTURED_HEALTH_FEED``
+# below are payloads whose per-leaf TYPES reproduce those captures exactly, and
+# ``test_captured_payloads_match_the_committed_live_schemas`` proves it by
+# reducing each payload with the same keys+types projection the drivers use.
+# So these tests are evidence about the WIRE, not about the author.
+
+_SCHEMAS_DIR = (
+    pathlib.Path(__file__).resolve().parents[3]
+    / ".planning"
+    / "verification"
+    / "schemas"
+    / "market-data-client"
+)
+
+_MESSAGE = "decode divergence"
+
+_CAPTURED_HEALTH: dict[str, Any] = {
+    "auth": {"configured": True, "enabled": True, "issuer": "https://auth.test/"},
+    "status": "ok",
+}
+
+_CAPTURED_HEALTH_FEED: dict[str, Any] = {
+    "active_symbols": 42,
+    "ingestor": {
+        "connected": True,
+        "frames_total": 1234,
+        "heartbeat_age_seconds": 0.5,
+        "last_error": None,
+        "last_frame_age_seconds": 0.25,
+        "last_frame_at": "2026-07-31T16:00:35+00:00",
+        "market": {
+            "enabled": True,
+            "is_open": True,
+            "last_business_day": "2026-07-30",
+            "local_time": "2026-07-31T13:00:35-03:00",
+            "next_transition": "2026-07-31T17:00:00-03:00",
+            "reason": "session open",
+            "session_close": "17:00",
+            "session_open": "11:00",
+            "state": "open",
+        },
+        "pipeline": {
+            "batch_interval_ms": 500,
+            "conserved": True,
+            "flushes": 88,
+            "frames_accepted": 1200,
+            "frames_coalesced": 30,
+            "frames_unknown_symbol": 4,
+            "last_flush_ms": 12.5,
+            "last_write_at": "2026-07-31T16:00:35+00:00",
+            "last_write_error": None,
+            "pending": 0,
+            "pending_peak": 17,
+            "rows_skipped_stale": 2,
+        },
+        "present": True,
+        "reason": "connected",
+        "reconnects": 1,
+        "rows_written": 1198,
+        "started_at": "2026-07-31T11:00:00+00:00",
+        "state": "running",
+        "symbols_subscribed": 42,
+        "uptime_seconds": 18035,
+    },
+    "newest_received_at": "2026-07-31T16:00:35+00:00",
+    "oldest_received_at": "2026-07-31T15:59:35+00:00",
+    "staleness_seconds": 0.9,
+    "status": "ok",
+    "symbols_with_data": 40,
+}
+
+
+def _schema_of(payload: Any) -> Any:
+    """Keys + type names, never values — the same projection ``verification.schema`` uses."""
+    if isinstance(payload, dict):
+        return {k: _schema_of(v) for k, v in sorted(payload.items())}
+    if isinstance(payload, list):
+        return [_schema_of(payload[0])] if payload else []
+    return type(payload).__name__
+
+
+@pytest.fixture
+def pristine_decode_context() -> Iterator[None]:
+    """Start the test with an unbound decode mode and scope (31-03 deviation 3).
+
+    Opt-in, NOT autouse: it must not perturb this file's existing tests. Without
+    it, once any earlier test in the session drives a real ``_request`` the sync
+    context keeps that request's ``DECODE_SCOPE`` bound, a later bare
+    ``Model.from_api()`` joins the stale scope, and its already-seen
+    ``(model, field_path, kind)`` triple is deduped away — flipping a divergence
+    assertion green-to-empty purely on test ORDER.
+    """
+    mode = _decode.STRICT_DECODE.get()
+    scope = _decode.DECODE_SCOPE.get()
+    _decode.STRICT_DECODE.set(False)
+    _decode.DECODE_SCOPE.set(None)
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.set(mode)
+        _decode.DECODE_SCOPE.set(scope)
+
+
+def _from_api(
+    factory: Any, caplog: pytest.LogCaptureFixture, payload: Any
+) -> tuple[Any, list[logging.LogRecord]]:
+    """Drive a shipped ``from_api`` under a FRESH scope, returning obj + divergence records."""
+    caplog.clear()
+    _decode.open_request_scope()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        obj = factory(payload)
+    return obj, [r for r in caplog.records if r.getMessage() == _MESSAGE]
+
+
+def test_captured_payloads_match_the_committed_live_schemas() -> None:
+    """The two in-test payloads reproduce the committed captures leaf-for-leaf (D-01)."""
+    for filename, payload in (
+        ("get-health.json", _CAPTURED_HEALTH),
+        ("get-health-feed.json", _CAPTURED_HEALTH_FEED),
+    ):
+        committed = json.loads((_SCHEMAS_DIR / filename).read_text(encoding="utf-8"))
+        assert _schema_of(payload) == committed["schema"], filename
+
+
+def test_health_from_api_populates_the_nested_auth_model() -> None:
+    """``Health`` carries ``status`` plus a nested ``HealthAuth`` with all three fields."""
+    health = Health.from_api(_CAPTURED_HEALTH)
+    assert health.status == "ok"
+    assert isinstance(health.auth, HealthAuth)
+    assert health.auth.configured is True
+    assert health.auth.enabled is True
+    assert health.auth.issuer == "https://auth.test/"
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_health_from_api_missing_auth_yields_zero_valued_nested_model(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A declared non-optional nested model is NEVER ``None`` — it is the zero instance."""
+    health, records = _from_api(Health.from_api, caplog, {"status": "ok"})
+    assert health.status == "ok"
+    assert health.auth == HealthAuth(configured=False, enabled=False, issuer="")
+    assert [(r.field_path, r.divergence) for r in records] == [(".auth", "missing")]  # type: ignore[attr-defined]
+
+
+def test_health_feed_from_api_reaches_all_three_nesting_levels() -> None:
+    """The full captured payload is reachable at every level without a raise."""
+    feed = HealthFeed.from_api(_CAPTURED_HEALTH_FEED)
+    assert feed.status == "ok"
+    assert feed.active_symbols == 42
+    assert feed.symbols_with_data == 40
+    assert feed.staleness_seconds == 0.9
+    assert feed.newest_received_at == "2026-07-31T16:00:35+00:00"
+    assert feed.oldest_received_at == "2026-07-31T15:59:35+00:00"
+    # level 2
+    assert isinstance(feed.ingestor, FeedIngestor)
+    assert feed.ingestor.connected is True
+    assert feed.ingestor.state == "running"
+    assert feed.ingestor.uptime_seconds == 18035
+    assert feed.ingestor.last_error is None
+    # level 3 — market
+    assert isinstance(feed.ingestor.market, FeedMarket)
+    assert feed.ingestor.market.state == "open"
+    assert feed.ingestor.market.session_open == "11:00"
+    # level 3 — pipeline
+    assert isinstance(feed.ingestor.pipeline, FeedPipeline)
+    assert feed.ingestor.pipeline.pending == 0
+    assert feed.ingestor.pipeline.last_flush_ms == 12.5
+    assert feed.ingestor.pipeline.last_write_error is None
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_health_feed_from_api_none_is_the_zero_instance_plus_one_non_dict_record(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The 204 / empty-body carve-out shape: zero-valued instance, ONE terminal record."""
+    feed, records = _from_api(HealthFeed.from_api, caplog, None)
+    assert feed.status == ""
+    assert feed.active_symbols == 0
+    assert feed.ingestor.market.state == ""
+    assert feed.ingestor.pipeline.pending == 0
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_health_feed_from_api_drops_an_undeclared_key_and_reports_it_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An undeclared top-level key is dropped and reported ``extra`` — exactly once."""
+    payload = {**_CAPTURED_HEALTH_FEED, "brand_new_wire_key": "surprise"}
+    feed, records = _from_api(HealthFeed.from_api, caplog, payload)
+    assert not hasattr(feed, "brand_new_wire_key")
+    assert [(r.field_path, r.divergence) for r in records] == [  # type: ignore[attr-defined]
+        (".brand_new_wire_key", "extra")
+    ]
+
+
+def test_health_to_dict_round_trips_to_a_plain_nested_dict() -> None:
+    """``to_dict()`` flattens nested models back to the plain wire mapping."""
+    wire = Health.from_api(_CAPTURED_HEALTH).to_dict()
+    assert wire == _CAPTURED_HEALTH
+    assert isinstance(wire["auth"], dict)
+
+
+def test_health_feed_to_dict_round_trips_all_three_levels() -> None:
+    """The deep tree round-trips too, ``None`` holes KEPT (a model reproduces the wire)."""
+    wire = HealthFeed.from_api(_CAPTURED_HEALTH_FEED).to_dict()
+    assert wire == _CAPTURED_HEALTH_FEED
+    assert wire["ingestor"]["last_error"] is None
+    assert wire["ingestor"]["pipeline"]["last_write_error"] is None
+
+
+@pytest.mark.parametrize(
+    "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
+)
+def test_health_models_are_frozen(model_cls: type[SafeModel]) -> None:
+    """Every one of the six is immutable: attribute assignment raises."""
+    obj = model_cls.from_api(None)
+    field_name = dataclasses.fields(obj)[0].name  # type: ignore[arg-type]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(obj, field_name, "mutated")
+
+
+@pytest.mark.parametrize(
+    "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
+)
+def test_health_models_declare_no_from_api_override(model_cls: type[SafeModel]) -> None:
+    """Shape carve-outs live in the PARSER — the walker never calls a nested ``from_api``."""
+    assert model_cls.__dict__.get("from_api") is None
+
+
+@pytest.mark.parametrize(
+    "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
+)
+def test_health_models_declare_no_mapping_field_and_no_received_at(
+    model_cls: type[SafeModel],
+) -> None:
+    """No ``dict[...]`` field (4 of the 6 are nested field types) and no staleness stamp."""
+    hints = _decode.hints_for(model_cls)
+    assert "received_at" not in hints
+    assert not any(models._is_mapping(h) for h in hints.values())
+
+
+def test_health_models_declare_exactly_the_two_locked_optionals() -> None:
+    """Checkpoint verdict option-b: ONLY the two CONTEXT D-01 error fields are nullable.
+
+    ``walk_field``'s union-with-``None`` branch returns ``None`` WITHOUT emitting a
+    divergence record, so an over-declared Optional silently erases exactly the
+    signal this milestone exists to surface (T-31-17). This test pins the verdict:
+    a seventh Optional cannot be added to these six models without failing here.
+    """
+    optionals = {
+        f"{cls.__name__}.{name}"
+        for cls in (Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline)
+        for name, hint in _decode.hints_for(cls).items()
+        if models._strip_optional(hint) is not hint
+    }
+    assert optionals == {"FeedIngestor.last_error", "FeedPipeline.last_write_error"}
+
+
+def test_safe_model_to_dict_exists_on_the_market_data_base() -> None:
+    """``to_dict()`` is on the BASE (D-02), so every shipped model inherits it."""
+    assert callable(SafeModel.__dict__.get("to_dict"))
