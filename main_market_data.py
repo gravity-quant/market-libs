@@ -2389,10 +2389,18 @@ def probe_add_holidays_sync(client: Client) -> ProbeResult:
     es lo que impide que este ciclo derive esa baseline (D-26).
 
     Phase 31 (TYP-02): el resultado público pasó a ser un ``AddHolidaysResult``
-    frozen-slots, así que el conteo de claves del detalle PASS se toma de
-    ``to_dict()`` — la proyección de wire — y no del objeto. El snapshot NO se
-    toca: ya se alimenta del RE-FIRE crudo, así que sigue siendo evidencia del
-    wire y no un eco de la declaración (T-31-18).
+    frozen-slots. El snapshot NO se toca: ya se alimenta del RE-FIRE crudo, así
+    que sigue siendo evidencia del wire y no un eco de la declaración (T-31-18).
+
+    WR-03: el conteo de claves del detalle PASS sale de ese mismo ``raw`` del
+    re-fire, NO de ``created.to_dict()``. ``to_dict()`` reproduce la DECLARACIÓN
+    — el walker ya coercionó cada campo y descartó toda clave no declarada — así
+    que ``len(created.to_dict())`` vale siempre 3 y no puede diferir haga lo que
+    haga el servidor. Un operator de la Phase 33 leyendo ``public_keys=3`` lo
+    leería como una observación del wire: es exactamente el malentendido que
+    ``models.py`` documenta y que el aviso FA-09 de este archivo advierte. Por
+    eso el detalle nombra el lado del que viene (``wire_keys``) y agrega
+    ``saved``, que sí es un valor del wire.
     """
     name = "add_holidays_sync"
     base_url = client._state.base_url
@@ -2422,7 +2430,8 @@ def probe_add_holidays_sync(client: Client) -> ProbeResult:
         return ProbeResult(
             name,
             "PASS",
-            f"{_HOLIDAY_SYNC}; public_keys={len(created.to_dict())} refire_status={refire.status_code}",
+            f"{_HOLIDAY_SYNC}; wire_keys={len(raw) if isinstance(raw, dict) else -1} "
+            f"saved={created.saved} refire_status={refire.status_code}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
@@ -2621,8 +2630,10 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
 async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_add_holidays_sync` (D-07/D-19).
 
-    Phase 31 (TYP-02): igual que el sync, el conteo de claves sale de
-    ``to_dict()`` y el snapshot sigue alimentado por el re-fire crudo.
+    Phase 31 (TYP-02) + WR-03: igual que el sync, el conteo de claves sale del
+    ``raw`` del RE-FIRE — no de ``created.to_dict()``, que es constante en 3 por
+    derivar de la declaración — y el snapshot sigue alimentado por ese mismo
+    re-fire crudo.
     """
     name = "add_holidays_async"
     base_url = aclient._state.base_url
@@ -2650,7 +2661,8 @@ async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
         return ProbeResult(
             name,
             "PASS",
-            f"{_HOLIDAY_ASYNC}; public_keys={len(created.to_dict())} refire_status={refire.status_code}",
+            f"{_HOLIDAY_ASYNC}; wire_keys={len(raw) if isinstance(raw, dict) else -1} "
+            f"saved={created.saved} refire_status={refire.status_code}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
