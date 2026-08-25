@@ -159,3 +159,132 @@ def test_agreeing_constructors_are_not_reported(surface_pair: _SurfacePairFactor
 
     assert report.hint_mismatches == ()
     assert report.compared_hints >= 2, "`__init__` was not counted among the compared members"
+
+
+def test_reordered_and_rekinded_parameters_are_reported(
+    surface_pair: _SurfacePairFactory,
+) -> None:
+    """WR-01: ``get_type_hints`` is an unordered ``name -> type`` map, nothing more.
+
+    It carries no parameter *kind*, no *default*, no ``*args``/``**kwargs`` and
+    no ordering. The review reproduced the consequence against the shipped
+    helper: a function reordered, defaulted, and made keyword-only compared
+    EQUAL to its counterpart. That is precisely the drift the gate claims to
+    freeze.
+    """
+    package = surface_pair(
+        "fake_signature_drift",
+        client_source=(
+            "class Client:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    def get_quote(self, symbol: str, mercado: str = 'bcba') -> str:\n"
+            "        return symbol\n"
+            "\n"
+            "    def close(self) -> None:\n"
+            "        return None\n"
+        ),
+        aio_source=(
+            "class AsyncClient:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    async def get_quote(self, mercado: str, *, symbol: str = 'x') -> str:\n"
+            "        return symbol\n"
+            "\n"
+            "    async def aclose(self) -> None:\n"
+            "        return None\n"
+        ),
+    )
+
+    mismatches = _class_mismatches(package)
+
+    assert "Client.get_quote" in mismatches
+    assert "parameter list differs" in mismatches
+    assert "kind differs" in mismatches
+
+
+def test_default_value_drift_is_reported(surface_pair: _SurfacePairFactory) -> None:
+    """WR-01, the consequential half: same names, same order, different default.
+
+    ``mercado: str = 'bcba'`` on one surface and ``'nyse'`` on the other is
+    invisible to an annotation-only comparison and changes what the two surfaces
+    *do* -- the same blind spot as the reordering above, with real consequences.
+    """
+    package = surface_pair(
+        "fake_default_drift",
+        client_source=(
+            "class Client:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    def get_quote(self, *, mercado: str = 'bcba') -> str:\n"
+            "        return mercado\n"
+            "\n"
+            "    def close(self) -> None:\n"
+            "        return None\n"
+        ),
+        aio_source=(
+            "class AsyncClient:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    async def get_quote(self, *, mercado: str = 'nyse') -> str:\n"
+            "        return mercado\n"
+            "\n"
+            "    async def aclose(self) -> None:\n"
+            "        return None\n"
+        ),
+    )
+
+    mismatches = _class_mismatches(package)
+
+    assert "Client.get_quote" in mismatches
+    assert "default differs" in mismatches
+    assert "bcba" in mismatches
+    assert "nyse" in mismatches
+
+
+def test_no_default_never_compares_equal_to_a_none_default(
+    surface_pair: _SurfacePairFactory,
+) -> None:
+    """A required parameter and one defaulting to ``None`` are not the same surface.
+
+    Both annotate ``str | None``, so the hint halves agree exactly. Only the
+    signature half can tell them apart, and rendering "no default" as a distinct
+    sentinel rather than as ``None`` is what makes that possible.
+    """
+    package = surface_pair(
+        "fake_required_drift",
+        client_source=(
+            "class Client:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    def get_quote(self, *, mercado: str | None) -> str:\n"
+            "        return mercado or ''\n"
+            "\n"
+            "    def close(self) -> None:\n"
+            "        return None\n"
+        ),
+        aio_source=(
+            "class AsyncClient:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    async def get_quote(self, *, mercado: str | None = None) -> str:\n"
+            "        return mercado or ''\n"
+            "\n"
+            "    async def aclose(self) -> None:\n"
+            "        return None\n"
+        ),
+    )
+
+    report = class_parity_report(package)
+    mismatches = "\n".join(report.hint_mismatches)
+
+    assert "default differs" in mismatches, (
+        "a required parameter compared equal to one defaulting to None -- "
+        "the two surfaces do not accept the same calls"
+    )

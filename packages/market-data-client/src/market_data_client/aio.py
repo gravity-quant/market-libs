@@ -785,11 +785,16 @@ def _get_default() -> AsyncClient:
 
 def configure(
     *,
+    # Fase 32 WR-01: `base_url` declarado PRIMERO, espejando `client.configure`.
+    # Estaba quinto acá; todos son keyword-only, así que el reorden no rompe a
+    # ningún caller, pero el orden de declaración ES parte de la superficie que
+    # el constraint dual sync/async congela, y `typing.get_type_hints` (un mapa
+    # desordenado) no podía verlo.
+    base_url: str | None = None,
     client_id: str | None = None,
     client_secret: str | None = None,
     audience: str | None = None,
     auth0_token_url: str | None = None,
-    base_url: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
     http_client: httpx.AsyncClient | None = None,

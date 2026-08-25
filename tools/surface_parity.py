@@ -97,6 +97,32 @@ The rules, each with its measured reason:
 
 Anything beyond these five is drift.
 
+WHAT IS COMPARED: HINTS **AND** SIGNATURE SHAPE
+===============================================
+
+``typing.get_type_hints`` returns an **unordered ``name -> type`` mapping** and
+nothing else. It carries no parameter *kind*, no *default*, no ``*args`` /
+``**kwargs``, and no ordering. Phase 32 WR-01 demonstrated the consequence
+against the shipped helper::
+
+    def sync_f(a: str, b: int = 1) -> str: ...
+    async def async_f(b: int, *, a: str = "x") -> str: ...
+    # reordered, defaulted, and made keyword-only -- reported as AGREEING
+
+So every callable is compared twice, and both halves are load-bearing:
+
+- ``normalized_hints`` supplies the resolved annotation *values*, which
+  ``inspect.signature`` cannot give under ``from __future__ import annotations``
+  (it would hand back unresolved strings and degrade the comparison to string
+  matching).
+- ``signature_shape`` supplies the parameter *list in declaration order*, each
+  one's ``kind`` and its ``default`` -- the shape the annotation mapping cannot
+  see.
+
+Annotations are deliberately **not** read off ``inspect.signature``: that is the
+division of labour, and collapsing it back into one call is how the blind spot
+returns.
+
 WHY THIS HELPER IMPORTS PACKAGE MODULES
 =======================================
 
@@ -146,6 +172,7 @@ import importlib
 import inspect
 import re
 import typing
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import ModuleType
 
@@ -190,12 +217,30 @@ _ASYNC_TRANSPORT = re.compile(r"\bhttpx\.AsyncClient\b")
 _SYNC_TRANSPORT = "httpx.Client"
 
 _MISSING = "<MISSING>"
+#: Rendered stand-in for a parameter with no default, so "no default" and
+#: "default is None" can never compare equal.
+_NO_DEFAULT = "<NO-DEFAULT>"
 
 _RULE_REMINDER = (
     "  Fix this by reverting the drift, or by adding a rule with a stated reason to the\n"
     "  numbered table in tools/surface_parity.py's `THE NORMALIZATION` docstring section.\n"
     "  Never by weakening the comparison, lowering a bound, or excluding a package."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _Parameter:
+    """One parameter's *shape*: what a ``name -> type`` mapping cannot express.
+
+    ``kind`` is ``inspect.Parameter.kind.name`` (``POSITIONAL_OR_KEYWORD``,
+    ``KEYWORD_ONLY``, ``VAR_KEYWORD``, ...) and ``default`` is the ``repr`` of
+    the default value, or ``_NO_DEFAULT``. The annotation is deliberately absent
+    -- see :func:`signature_shape`.
+    """
+
+    name: str
+    kind: str
+    default: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +360,81 @@ def _diff_hints(qualified_name: str, sync: dict[str, str], aio: dict[str, str]) 
     return lines
 
 
+def signature_shape(obj: Callable[..., object]) -> tuple[_Parameter, ...]:
+    """The parameter list of ``obj`` in declaration order, with kind and default.
+
+    Annotations are deliberately excluded -- under ``from __future__ import
+    annotations`` ``inspect.signature`` yields unresolved *strings*, and
+    :func:`normalized_hints` already owns the annotation half of the comparison.
+    What this adds is exactly what a ``name -> type`` mapping cannot express:
+    order, ``kind`` (positional-vs-keyword-only, ``*args``, ``**kwargs``) and
+    default value (WR-01).
+
+    Failures are allowed to **propagate**, for the same reason
+    :func:`normalized_hints` lets resolution failures propagate: an object whose
+    signature cannot be read is a real signal, and swallowing it would empty the
+    comparison.
+    """
+    return tuple(
+        _Parameter(
+            name=parameter.name,
+            kind=parameter.kind.name,
+            default=(
+                _NO_DEFAULT
+                if parameter.default is inspect.Parameter.empty
+                else repr(parameter.default)
+            ),
+        )
+        for parameter in inspect.signature(obj).parameters.values()
+    )
+
+
+def _diff_signatures(
+    qualified_name: str, sync: tuple[_Parameter, ...], aio: tuple[_Parameter, ...]
+) -> list[str]:
+    """Render every signature-shape disagreement as a line that reads as a bug report."""
+    lines: list[str] = []
+    sync_order = tuple(parameter.name for parameter in sync)
+    async_order = tuple(parameter.name for parameter in aio)
+    if sync_order != async_order:
+        lines.append(
+            f"  {qualified_name}(): parameter list differs -- "
+            f"sync declares {list(sync_order)}, async declares {list(async_order)}"
+        )
+    sync_by_name = {parameter.name: parameter for parameter in sync}
+    async_by_name = {parameter.name: parameter for parameter in aio}
+    for name in sorted(set(sync_by_name) & set(async_by_name)):
+        sync_param, async_param = sync_by_name[name], async_by_name[name]
+        if sync_param.kind != async_param.kind:
+            lines.append(
+                f"  {qualified_name}(): parameter {name!r} kind differs -- "
+                f"sync is {sync_param.kind}, async is {async_param.kind}"
+            )
+        if sync_param.default != async_param.default:
+            lines.append(
+                f"  {qualified_name}(): parameter {name!r} default differs -- "
+                f"sync declares {sync_param.default}, async declares {async_param.default}"
+            )
+    return lines
+
+
+def _diff_callable(
+    qualified_name: str, sync_obj: Callable[..., object], async_obj: Callable[..., object]
+) -> list[str]:
+    """Compare one sync callable against its async counterpart, both halves.
+
+    The two halves are complementary and neither alone is a comparison: hints
+    without a signature miss order/kind/default (WR-01); a signature without
+    resolved hints degrades to string matching under ``from __future__ import
+    annotations``.
+    """
+    return _diff_hints(
+        qualified_name,
+        normalized_hints(sync_obj, surface="sync"),
+        normalized_hints(async_obj, surface="async"),
+    ) + _diff_signatures(qualified_name, signature_shape(sync_obj), signature_shape(async_obj))
+
+
 # ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
@@ -343,13 +463,7 @@ def module_parity_report(package: str) -> ParityReport:
             continue
         async_obj = getattr(async_mod, _MODULE_SYNC_TO_ASYNC.get(name, name))
         compared += 1
-        mismatches.extend(
-            _diff_hints(
-                name,
-                normalized_hints(sync_obj, surface="sync"),
-                normalized_hints(async_obj, surface="async"),
-            )
-        )
+        mismatches.extend(_diff_callable(name, sync_obj, async_obj))
 
     return ParityReport(
         package=package,
@@ -401,13 +515,7 @@ def class_parity_report(package: str) -> ParityReport:
         if not (callable(sync_obj) and callable(async_obj)):
             continue
         compared += 1
-        mismatches.extend(
-            _diff_hints(
-                f"{sync_cls.__name__}.{name}",
-                normalized_hints(sync_obj, surface="sync"),
-                normalized_hints(async_obj, surface="async"),
-            )
-        )
+        mismatches.extend(_diff_callable(f"{sync_cls.__name__}.{name}", sync_obj, async_obj))
 
     # Rule 5: `__init__` is hidden from the loop above by the underscore filter,
     # but it is the largest keyword surface on either class and the likeliest
@@ -415,10 +523,8 @@ def class_parity_report(package: str) -> ParityReport:
     # never be the thing the gate quietly stopped looking at.
     compared += 1
     mismatches.extend(
-        _diff_hints(
-            f"{sync_cls.__name__}.{_COMPARED_DUNDER}",
-            normalized_hints(sync_cls.__init__, surface="sync"),
-            normalized_hints(async_cls.__init__, surface="async"),
+        _diff_callable(
+            f"{sync_cls.__name__}.{_COMPARED_DUNDER}", sync_cls.__init__, async_cls.__init__
         )
     )
 
