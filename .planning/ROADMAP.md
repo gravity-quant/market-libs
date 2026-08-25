@@ -181,7 +181,27 @@ Plans:
   4. **D-16 cerrado** reconciliando las **4** listas de enrollment en un commit atómico — mypy `files`, import-linter `root_packages`, el loop mypy-tests de `ci.yml:85` y `verification/test_public_surface._PACKAGES` — con el contrato import-linter de `market_data_client._core` **RED-probado**, la inclusión (o exclusión) de `wallets_client` decidida explícitamente, y la exclusión **deliberada** de market-data en `_PACKAGES` (ya tiene su test in-package desde Phase 25) documentada como intencional, no "arreglada".
   5. La matriz completa de CI (6 paquetes × py3.12 + py3.13) queda verde con los gates nuevos activos.
 
-**Plans**: TBD
+**Plans:** 6 plans
+
+Plans:
+
+**Wave 0**
+
+- [ ] 32-01-PLAN.md — Baseline CI verde: reparar los 33 errores de mypy pre-existentes (matriz 29, higyrus 2, ambito 2) en los tests de la Phase 29 que bloquean el criterio 5
+
+**Wave 1** *(blocked on Wave 0 completion)*
+
+- [ ] 32-02-PLAN.md — TRACER: gate AST de superficie `tools/check_surface_types.py` con raíz inyectable + fixture RED automatizada + step nuevo en el job `lint` (D-04/D-05, criterios 1-2)
+- [ ] 32-03-PLAN.md — Gate de reversibilidad: `checkpoint:decision` sobre D-09 (cambio one-way de la superficie pública de `market_data_client.aio.configure`)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 32-04-PLAN.md — Helper de paridad sync/async compartido (métrica única, tabla de 4 reglas, lower bounds por paquete) + piloto market-data que RED-prueba el drift D-09 + su fix (criterio 3)
+- [ ] 32-05-PLAN.md — Cierre de D-16 en commit atómico (mypy `files` + 2 exclusiones documentadas) + prueba RED automatizada del contrato import-linter de `market_data_client._core` (criterio 4)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 32-06-PLAN.md — Fan-out de paridad a los 5 paquetes restantes (wallets con ausencia aserida, nunca skip) + reproducción local completa de la matriz de CI (criterio 5)
 
 ### Phase 33: Verificación en vivo en modo estricto + fixes
 
