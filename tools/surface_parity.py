@@ -84,8 +84,18 @@ The rules, each with its measured reason:
    so ``-> Cotizacion`` is already correct on both sides; verified that no
    ``Coroutine`` / ``Awaitable`` annotation appears anywhere in the twelve
    modules.
+5. ``__init__`` is compared at the class axis despite the underscore filter, and
+   it is the **only** dunder so compared. Reason: it is the largest keyword
+   surface on either class and the likeliest drift site -- Phase 32 CR-02 found
+   ``market_data_client.AsyncClient.__init__`` accepting ``token``,
+   ``token_expires_at`` and ``http_client`` that ``Client.__init__`` did not,
+   one call away from the ``aio.configure`` divergence this phase was written to
+   close. Every other dunder implements a protocol this repo does not own
+   (``__reduce__``, ``__deepcopy__``, ``__enter__``/``__aenter__``), where a
+   sync/async difference is required correctness rather than drift; ``__init__``
+   is the one whose signature the repo authors line by line.
 
-Anything beyond these four is drift.
+Anything beyond these five is drift.
 
 WHY THIS HELPER IMPORTS PACKAGE MODULES
 =======================================
@@ -235,12 +245,21 @@ def public_names(module: ModuleType, *, include_classes: bool) -> frozenset[str]
     return frozenset(names)
 
 
+#: Rule 5: the one dunder whose signature this repo owns, and therefore the one
+#: the underscore filter must not hide. See ``THE NORMALIZATION`` rule 5.
+_COMPARED_DUNDER = "__init__"
+
+
 def _public_member_names(cls: type) -> frozenset[str]:
     """Return the non-underscore members of ``cls``, callable or not.
 
     Non-callable public attributes are deliberately included: an attribute that
     exists on one surface and not the other is drift regardless of whether it can
     be called. Only the *hint* comparison narrows to callables.
+
+    ``__init__`` is excluded here by the underscore filter and re-added by rule 5
+    in :func:`class_parity_report`; it is a *name* both classes always have, so
+    only its hints are worth comparing.
     """
     return frozenset(name for name in dir(cls) if not name.startswith("_"))
 
@@ -389,6 +408,19 @@ def class_parity_report(package: str) -> ParityReport:
                 normalized_hints(async_obj, surface="async"),
             )
         )
+
+    # Rule 5: `__init__` is hidden from the loop above by the underscore filter,
+    # but it is the largest keyword surface on either class and the likeliest
+    # drift site (Phase 32 CR-02). Compared explicitly, and counted, so it can
+    # never be the thing the gate quietly stopped looking at.
+    compared += 1
+    mismatches.extend(
+        _diff_hints(
+            f"{sync_cls.__name__}.{_COMPARED_DUNDER}",
+            normalized_hints(sync_cls.__init__, surface="sync"),
+            normalized_hints(async_cls.__init__, surface="async"),
+        )
+    )
 
     return ParityReport(
         package=package,

@@ -125,6 +125,15 @@ class AsyncClient:
     ) -> None:
         # WR-06: valida max_retries temprano (antes de mutar estado).
         _validate_max_retries(max_retries)
+        # Fase 32 CR-02: espeja la validación de `Client.__init__`. El único
+        # chequeo de tipo sobre el transport inyectado era un `assert` en
+        # `aclose()` / `_ensure_http_client()`, que desaparece bajo `python -O`;
+        # un `httpx.Client` entregado acá reaparecía mucho más tarde como
+        # `AttributeError: 'Client' object has no attribute 'aclose'`.
+        if http_client is not None and not isinstance(http_client, httpx.AsyncClient):
+            raise TypeError(
+                f"http_client must be an httpx.AsyncClient, got {type(http_client).__name__}"
+            )
         # NO se crea ningún asyncio.Lock acá (Pitfall 2 — se bindearía al loop
         # vivo en construcción). Los locks se crean lazy en el primer uso async.
         self._state = _ClientState()

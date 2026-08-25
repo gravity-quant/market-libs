@@ -135,6 +135,9 @@ class Client:
         client_secret: str | None = None,
         audience: str | None = None,
         auth0_token_url: str | None = None,
+        token: str | None = None,
+        token_expires_at: float | None = None,
+        http_client: httpx.Client | None = None,
         mutating_allowed: bool | None = None,
         expected_host: str | None = None,
         strict_decode: bool | None = None,
@@ -142,6 +145,16 @@ class Client:
     ) -> None:
         # WR-06: validate max_retries early (before any state mutation).
         _validate_max_retries(max_retries)
+        # Fase 32 CR-02: `token`, `token_expires_at` y `http_client` existían
+        # SÓLO en `AsyncClient.__init__` y en el `configure()` de este módulo.
+        # El eje de clase del gate de paridad no comparaba `__init__` (lo tapaba
+        # el filtro de underscore), así que la divergencia pasaba verde y un
+        # consumidor que escribía código sync/async simétrico se comía un
+        # `TypeError: unexpected keyword argument 'http_client'` del lado sync.
+        if http_client is not None and not isinstance(http_client, httpx.Client):
+            raise TypeError(
+                f"http_client must be an httpx.Client, got {type(http_client).__name__}"
+            )
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -165,6 +178,16 @@ class Client:
         # resetea (Pitfall 5, igual que el gate de mutaciones).
         if strict_decode is not None:
             self._state.strict_decode = strict_decode
+        # Espeja verbatim `AsyncClient.__init__`: un `_ClientState` recién
+        # construido tiene token=None / token_expires_at=0.0 / http_client=None,
+        # así que estas tres asignaciones sólo siembran, nunca pisan nada que
+        # haya que cerrar (a diferencia de `configure()`, que sí puede).
+        if token is not None:
+            self._state.token = token
+        if token_expires_at is not None:
+            self._state.token_expires_at = token_expires_at
+        if http_client is not None:
+            self._state.http_client = http_client
         # D-08: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
         # D-08: normally-constructed Clients are NOT views; with_options sets
