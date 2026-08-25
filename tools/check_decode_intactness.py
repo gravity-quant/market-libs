@@ -195,7 +195,12 @@ EXEMPT_PACKAGES: tuple[ExemptPackage, ...] = (
         ),
         resolved_by=(
             "Phase 31 (estructura uniforme -- the six packages gain the same file "
-            "layout), with enrollment settled by Phase 32's D-16 reconciliation"
+            "layout). Enrollment settled by Phase 32's D-16 reconciliation (D-10): "
+            "wallets-client stays OUT of import-linter's `root_packages` in "
+            "pyproject.toml -- structural reason, not preferential: it is the only "
+            "pre-Phase-7 package and has no _core.py, so there is no "
+            "`source_modules` against which a `forbidden` contract of the shape "
+            "the other five use could be written"
         ),
     ),
 )

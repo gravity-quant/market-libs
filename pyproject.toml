@@ -94,7 +94,7 @@ explicit_package_bases = true
 # El mypy global cubre el código fuente de cada paquete. Los tests se chequean
 # por paquete (ej. `uv run mypy packages/iol-client/tests`) para evitar
 # colisiones de módulos `conftest` entre paquetes.
-files = ["packages/higyrus-client/src", "packages/wallets-client/src", "packages/matriz-client/src", "packages/iol-client/src", "packages/ambito-financiero-client/src"]
+files = ["packages/higyrus-client/src", "packages/wallets-client/src", "packages/matriz-client/src", "packages/iol-client/src", "packages/ambito-financiero-client/src", "packages/market-data-client/src"]
 
 # ---------------------------------------------------------------------------
 # Pytest: descubrimiento sobre todos los paquetes del workspace.
