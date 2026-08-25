@@ -43,6 +43,9 @@ from market_data_client.exceptions import (
     MarketDataRateLimitError,
 )
 from market_data_client.models import (
+    AddHolidaysResult,
+    CalendarDay,
+    DeleteHolidayResult,
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
@@ -1072,3 +1075,189 @@ def test_core_all_exports_the_split_health_parsers_in_order() -> None:
     assert "parse_health_feed_response" in _core.__all__
     assert "parse_health_response" in _core.__all__
     assert list(_core.__all__) == sorted(_core.__all__)
+
+
+# ----------------------------------------------------------------------
+# Phase 31 (TYP-02) — the two calendar-WRITE mutation results (plan 31-05)
+# ----------------------------------------------------------------------
+#
+# Field sets come from the FOUR COMMITTED LIVE CAPTURES (D-01) —
+# ``add-holidays-{sync,async}-response.json`` and
+# ``delete-holiday-{sync,async}-response.json`` — never from a mock and never
+# from the OpenAPI (which declares both ``200``s as a bare, schema-less
+# ``object``). The sync and async captures of each endpoint are BYTE-IDENTICAL;
+# ``test_captured_mutation_payloads_match_all_four_committed_schemas`` proves
+# both halves — that the in-test payloads reproduce the wire, AND that the two
+# surfaces agree — with the same keys+types projection the drivers use.
+#
+# These two endpoints are already PUBLISHED as mutations in v0.4.0, so the
+# change they undergo here is RESPONSE-ONLY: no request byte moves (pinned by
+# ``test_v040_request_pin.py``) and the mutating gate is untouched (pinned by
+# ``test_mutation_gate_ast.py``).
+
+_CAPTURED_ADD_HOLIDAYS: dict[str, Any] = {
+    "days": [
+        {
+            "close_time": None,
+            "closed": True,
+            "day": "2099-12-29",
+            "description": "probe",
+            "open_time": None,
+        }
+    ],
+    "note": "upsert ok",
+    "saved": 1,
+}
+
+_CAPTURED_DELETE_HOLIDAY: dict[str, Any] = {"day": "2099-12-29", "deleted": True}
+
+
+def test_captured_mutation_payloads_match_all_four_committed_schemas() -> None:
+    """The two in-test payloads reproduce all FOUR committed captures leaf-for-leaf.
+
+    Four files, two payloads: the sync and async captures of each endpoint are
+    byte-identical, and asserting the SAME payload against both files is that
+    surface-parity evidence stated as a test rather than as prose.
+    """
+    for filename, payload in (
+        ("add-holidays-sync-response.json", _CAPTURED_ADD_HOLIDAYS),
+        ("add-holidays-async-response.json", _CAPTURED_ADD_HOLIDAYS),
+        ("delete-holiday-sync-response.json", _CAPTURED_DELETE_HOLIDAY),
+        ("delete-holiday-async-response.json", _CAPTURED_DELETE_HOLIDAY),
+    ):
+        committed = json.loads((_SCHEMAS_DIR / filename).read_text(encoding="utf-8"))
+        assert _schema_of(payload) == committed["schema"], filename
+
+
+def test_add_holidays_result_reuses_the_shipped_calendar_day() -> None:
+    """``days[]`` decodes into the SHIPPED ``CalendarDay``, both hour fields ``None``."""
+    result = AddHolidaysResult.from_api(_CAPTURED_ADD_HOLIDAYS)
+    assert result.note == "upsert ok"
+    assert result.saved == 1
+    assert len(result.days) == 1
+    day = result.days[0]
+    assert isinstance(day, CalendarDay)
+    assert day.day == "2099-12-29"
+    assert day.closed is True
+    assert day.description == "probe"
+    assert day.open_time is None
+    assert day.close_time is None
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_add_holidays_result_from_api_none_is_zero_valued_plus_one_non_dict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The tolerance shape, seen from the model: zero-valued instance, ONE terminal record."""
+    result, records = _from_api(AddHolidaysResult.from_api, caplog, None)
+    assert result.days == []
+    assert result.note == ""
+    assert result.saved == 0
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_add_holidays_result_non_list_days_degrades_to_empty_and_reports(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The walker's collection guard governs ``days`` — no model-side override."""
+    payload = {**_CAPTURED_ADD_HOLIDAYS, "days": "not-a-list"}
+    result, records = _from_api(AddHolidaysResult.from_api, caplog, payload)
+    assert result.days == []
+    assert result.note == "upsert ok"
+    assert (".days", "type") in [(r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+
+
+def test_delete_holiday_result_decodes_the_captured_boolean() -> None:
+    """The live wire sends a BOOLEAN ``deleted``; the declaration answers to it."""
+    result = DeleteHolidayResult.from_api(_CAPTURED_DELETE_HOLIDAY)
+    assert result.day == "2099-12-29"
+    assert result.deleted is True
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_delete_holiday_result_integer_deleted_is_not_widened_and_is_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """MEASURED, not reasoned: an ``int`` arriving for a ``bool`` field is NOT widened.
+
+    ``{"deleted": 1}`` is the shape the pre-Phase-31 mock in
+    ``test_calendar_write.py`` asserted; the live capture says ``bool``. Running
+    it (rather than assuming) shows ``walk_field``'s ``hint is bool`` branch takes
+    the ``isinstance(value, bool)`` check — which an ``int`` fails — emits a
+    ``type`` divergence ``declared=bool / observed=int``, and substitutes
+    ``policy.missing_bool`` because ``POLICY.scalar_passthrough is False``.
+
+    OBSERVED OUTCOME (2026-08-25, market-data ``POLICY``): ``deleted is False``
+    plus exactly one ``(".deleted", "type")`` record. So the integer is neither
+    silently absorbed nor truthy-coerced — it is RECORDED and zeroed. Contrast
+    Phase 29's matriz finding, where an ``int`` arriving for a ``float``-declared
+    field DOES widen; the two branches differ and this one had to be measured.
+    """
+    result, records = _from_api(
+        DeleteHolidayResult.from_api, caplog, {"day": "2099-12-29", "deleted": 1}
+    )
+    assert result.day == "2099-12-29"
+    assert result.deleted is False
+    assert [(r.field_path, r.divergence) for r in records] == [(".deleted", "type")]  # type: ignore[attr-defined]
+    assert [(r.declared_type, r.observed_type) for r in records] == [("bool", "int")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_delete_holiday_result_from_api_none_is_zero_valued_plus_one_non_dict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The tolerance shape for the delete: zero-valued instance, ONE terminal record."""
+    result, records = _from_api(DeleteHolidayResult.from_api, caplog, None)
+    assert result.day == ""
+    assert result.deleted is False
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+
+
+def test_mutation_results_to_dict_round_trip_to_plain_nested_dicts() -> None:
+    """``to_dict()`` flattens the nested ``CalendarDay`` rows back to the wire mapping."""
+    add_wire = AddHolidaysResult.from_api(_CAPTURED_ADD_HOLIDAYS).to_dict()
+    assert add_wire == _CAPTURED_ADD_HOLIDAYS
+    assert isinstance(add_wire["days"][0], dict)
+    assert DeleteHolidayResult.from_api(_CAPTURED_DELETE_HOLIDAY).to_dict() == (
+        _CAPTURED_DELETE_HOLIDAY
+    )
+
+
+@pytest.mark.parametrize("model_cls", [AddHolidaysResult, DeleteHolidayResult])
+def test_mutation_result_models_are_frozen(model_cls: type[SafeModel]) -> None:
+    """Both mutation results are immutable: attribute assignment raises."""
+    obj = model_cls.from_api(None)
+    field_name = dataclasses.fields(obj)[0].name  # type: ignore[arg-type]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(obj, field_name, "mutated")
+
+
+@pytest.mark.parametrize("model_cls", [AddHolidaysResult, DeleteHolidayResult])
+def test_mutation_result_models_declare_no_from_api_override(
+    model_cls: type[SafeModel],
+) -> None:
+    """A shape carve-out belongs in the PARSER — a nested override is silently skipped."""
+    assert model_cls.__dict__.get("from_api") is None
+
+
+@pytest.mark.parametrize("model_cls", [AddHolidaysResult, DeleteHolidayResult])
+def test_mutation_result_models_declare_no_mapping_field_no_received_at_no_optional(
+    model_cls: type[SafeModel],
+) -> None:
+    """No ``dict[...]`` field, no staleness stamp, and no Optional on either model.
+
+    A mutation acknowledgement is not a snapshot, so ``received_at`` has no
+    meaning here; and every field of both models came back populated and
+    non-nullable in all four captures, so declaring one nullable would hide it
+    from the divergence census for nothing (T-31-17, the 31-04 option-b logic).
+    """
+    hints = _decode.hints_for(cast(Any, model_cls))
+    assert "received_at" not in hints
+    assert not any(models._is_mapping(h) for h in hints.values())
+    assert not any(models._strip_optional(h) is not h for h in hints.values())
+
+
+def test_add_holidays_result_declares_days_as_the_shipped_calendar_day() -> None:
+    """D-01: ``days`` is ``list[CalendarDay]`` — no parallel element model exists."""
+    assert _decode.hints_for(AddHolidaysResult)["days"] == list[CalendarDay]
