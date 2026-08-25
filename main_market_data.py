@@ -2387,6 +2387,12 @@ def probe_add_holidays_sync(client: Client) -> ProbeResult:
     ``closed=True`` con AMBOS horarios en ``None`` es deliberado: reproduce
     exactamente la shape del ``days[0]`` commiteado en ``get-calendar.json``, que
     es lo que impide que este ciclo derive esa baseline (D-26).
+
+    Phase 31 (TYP-02): el resultado público pasó a ser un ``AddHolidaysResult``
+    frozen-slots, así que el conteo de claves del detalle PASS se toma de
+    ``to_dict()`` — la proyección de wire — y no del objeto. El snapshot NO se
+    toca: ya se alimenta del RE-FIRE crudo, así que sigue siendo evidencia del
+    wire y no un eco de la declaración (T-31-18).
     """
     name = "add_holidays_sync"
     base_url = client._state.base_url
@@ -2416,7 +2422,7 @@ def probe_add_holidays_sync(client: Client) -> ProbeResult:
         return ProbeResult(
             name,
             "PASS",
-            f"{_HOLIDAY_SYNC}; public_keys={len(created)} refire_status={refire.status_code}",
+            f"{_HOLIDAY_SYNC}; public_keys={len(created.to_dict())} refire_status={refire.status_code}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
@@ -2509,6 +2515,31 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
     su status es el observable: ``200`` = idempotente de punta a punta, ``404`` =
     idempotente en estado pero no en status (y entonces un retry bajo el
     ``idempotent=True`` actual lo convertiría en ``MarketDataAPIError``).
+
+    .. warning::
+
+       **CARRY-FORWARD FA-09 — el snapshot de schema de ESTE endpoint es CIEGO A
+       LA DERIVA. Un diff limpio acá NO es evidencia de que el wire no cambió.**
+
+       Desde Phase 31 (TYP-02) ``delete_holiday`` devuelve un
+       ``DeleteHolidayResult``, y este probe alimenta ``_write_schema_snapshot``
+       con la PROYECCIÓN de ese modelo (``to_dict()``), no con el wire. El walker
+       ya coercionó cada campo no-opcional a su tipo declarado y descartó cada
+       clave no declarada, así que el snapshot resultante es función de la
+       DECLARACIÓN: un cambio de tipo, una clave agregada y una clave eliminada
+       son los tres invisibles.
+
+       A diferencia del alta, esto NO se puede arreglar con un re-fire crudo: un
+       SEGUNDO ``DELETE`` es legítimamente un ``404`` y capturaría un body de
+       error como baseline — y además ese segundo DELETE ES la medición de
+       idempotencia D-19 que este probe existe para hacer. Se acepta la ceguera,
+       siguiendo la resolución ya ratificada en Phase 30 para el fork equivalente
+       de iol (ver el rationale de ``_capture_raw_wire`` en ``main_iol.py``).
+
+       **Consecuencia operativa para Phase 33:** la señal AUTORITATIVA de deriva
+       de este endpoint es el **CENSO de divergencias** que emite el walker, NO
+       el diff del snapshot de schema. Los dos dejaron de ser señales
+       independientes acá: el snapshot pasó a ser un eco de la declaración.
     """
     name = "delete_holiday_sync"
     base_url = client._state.base_url
@@ -2525,11 +2556,12 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
         # D-09: todo el post-procesado dentro del try. Se snapshotea el body del
         # PRIMER delete (el público): el segundo puede ser legítimamente un 404, y
         # capturar un body de error como baseline sería capturar la shape
-        # equivocada.
+        # equivocada. Phase 31: ``to_dict()`` para que el snapshot siga siendo un
+        # mapping — CIEGO A LA DERIVA, ver el warning del docstring.
         _write_schema_snapshot(
             endpoint="DELETE /calendar/holidays/{day}",
             client_function="delete_holiday_sync_response",
-            raw=deleted,
+            raw=deleted.to_dict(),
             base_url=base_url,
             surface="sync",
         )
@@ -2587,7 +2619,11 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
 
 
 async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
-    """Espejo async de :func:`probe_add_holidays_sync` (D-07/D-19)."""
+    """Espejo async de :func:`probe_add_holidays_sync` (D-07/D-19).
+
+    Phase 31 (TYP-02): igual que el sync, el conteo de claves sale de
+    ``to_dict()`` y el snapshot sigue alimentado por el re-fire crudo.
+    """
     name = "add_holidays_async"
     base_url = aclient._state.base_url
     if not _gate_open(aclient._state):
@@ -2614,7 +2650,7 @@ async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
         return ProbeResult(
             name,
             "PASS",
-            f"{_HOLIDAY_ASYNC}; public_keys={len(created)} refire_status={refire.status_code}",
+            f"{_HOLIDAY_ASYNC}; public_keys={len(created.to_dict())} refire_status={refire.status_code}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
@@ -2687,7 +2723,24 @@ async def probe_calendar_after_holiday_async(aclient: AsyncClient) -> ProbeResul
 
 
 async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
-    """Espejo async de :func:`probe_delete_holiday_sync` (D-07/D-08/D-19)."""
+    """Espejo async de :func:`probe_delete_holiday_sync` (D-07/D-08/D-19).
+
+    .. warning::
+
+       **CARRY-FORWARD FA-09 — el snapshot de schema de ESTE endpoint es CIEGO A
+       LA DERIVA, igual que su espejo sync. Un diff limpio acá NO es evidencia de
+       que el wire no cambió.**
+
+       Desde Phase 31 el snapshot se alimenta de la proyección ``to_dict()`` del
+       ``DeleteHolidayResult``, es decir de la DECLARACIÓN y no del wire; un
+       cambio de tipo, una clave agregada y una clave eliminada son los tres
+       invisibles. Un re-fire crudo es imposible acá (un segundo DELETE es
+       legítimamente un 404 Y ES la medición D-19), así que la ceguera se acepta
+       siguiendo la resolución ratificada en Phase 30 para iol.
+
+       **Para Phase 33: la señal autoritativa de deriva de este endpoint es el
+       CENSO de divergencias, NO el diff del snapshot de schema.**
+    """
     name = "delete_holiday_async"
     base_url = aclient._state.base_url
     if not _gate_open(aclient._state):
@@ -2701,11 +2754,12 @@ async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
             aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
         )
         # D-09: post-procesado dentro del try (espejo sync). Se snapshotea el body
-        # del PRIMER delete: el segundo puede ser legítimamente un 404.
+        # del PRIMER delete: el segundo puede ser legítimamente un 404. Phase 31:
+        # ``to_dict()`` — CIEGO A LA DERIVA, ver el warning del docstring.
         _write_schema_snapshot(
             endpoint="DELETE /calendar/holidays/{day}",
             client_function="delete_holiday_async_response",
-            raw=deleted,
+            raw=deleted.to_dict(),
             base_url=base_url,
             surface="async",
         )
