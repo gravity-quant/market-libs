@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
 current_phase_name: gates-de-homogeneidad-d-16
 status: executing
-stopped_at: Completed 32-02-PLAN.md (surface-type gate TRACER slice)
-last_updated: "2026-08-25T21:16:56.203Z"
+stopped_at: Completed 32-03-PLAN.md (D-09 decision gate — option-a, auto-resolved)
+last_updated: "2026-08-25T21:20:39.077Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 32 plan 02 complete — surface-type gate live in the lint job
+last_activity_desc: Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 34
-  completed_plans: 30
+  completed_plans: 31
   percent: 50
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
-Last activity: 2026-08-25 — Phase 32 plan 02 complete — surface-type gate live in the lint job
+Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
 
 ## Performance Metrics
 
@@ -144,6 +144,7 @@ Last activity: 2026-08-25 — Phase 32 plan 02 complete — surface-type gate li
 | Phase 31 P05 | 27min | 3 tasks | 10 files |
 | Phase 32 P01 | 9min | 3 tasks | 4 files |
 | Phase 32 P02 | 7min | 3 tasks | 3 files |
+| Phase 32 P03 | 4min | 1 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -277,6 +278,10 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-02: ningun nombre de paquete aparece en el codigo del gate, docstring incluido — una mencion en prosa se lee como roster hardcodeado para cualquiera que grepee uno, y el propio criterio de aceptacion del plan grepea (fallo en el primer draft y se reescribio describiendo la forma, no el dueño)
 - [Phase 32]: 32-02: D-05 registrado in situ (docstring del gate + comentario en `ci.yml`) — el "job de CI nuevo" de ROADMAP.md:25 queda superseded por el D-12 lockeado de la Phase 31 ("step en `lint`"); agregar un step ademas no renombra el job, lo que cierra la assumption A2 de RESEARCH sin tocar branch protection
 - [Phase 32]: 32-02: el seam de root inyectable (D-04) queda como precedente para `tools/surface_parity.py` del plan 32-04 — es la unica razon por la que este gate tiene test y los dos preexistentes no
+- [Phase 32]: 32-03: D-09 resuelto a option-a — market_data_client.aio.configure recibe http_client: httpx.AsyncClient | None = None (lo implementa el plan 32-04); option-b (allowlistear configure del chequeo de hints completo) rechazada porque estrenaria la primera excepcion de normalizacion de la fase para acomodar un defecto, no una diferencia legitima
+- [Phase 32]: 32-03: la seleccion de D-09 fue AUTO-RESUELTA al default investigado bajo auto_advance/yolo, NO respondida por el desarrollador — el action del plan lo autoriza explicitamente y exige declararlo para que el registro no sea repudiable (T-32-10)
+- [Phase 32]: 32-03: consecuencia semver declarada antes de que ningun codigo dependa de ella — market-data-client (publicado v0.4.0) gana un parametro publico keyword-only aditivo, entrada de changelog minor-worthy en la Phase 34 y nunca un major; la irreversibilidad esta en retirarlo, no en publicarlo
+- [Phase 32]: 32-03: el roster de tres paquetes de verification/test_async_configure_resource_warning.py:27 (ambito, iol, higyrus) queda INTACTO por D-12 cualquiera fuera la seleccion — que option-a haga emitir un ResourceWarning a market-data NO habilita enrolarlo ahi dentro de la Phase 32 (T-32-11)
 
 ### Pending Todos
 
@@ -358,8 +363,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:16:34.204Z
-Stopped at: Completed 32-01-PLAN.md (Wave 0 CI-green baseline)
+Last session: 2026-08-25T21:20:39.072Z
+Stopped at: Completed 32-03-PLAN.md (D-09 decision gate — option-a, auto-resolved)
 Resume file: None
 
 ## Operator Next Steps

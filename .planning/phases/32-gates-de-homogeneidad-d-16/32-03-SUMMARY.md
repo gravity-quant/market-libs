@@ -208,6 +208,12 @@ None - no external service configuration required.
 - **Deuda diferida sin cambios:** el roster de tres paquetes de
   `verification/test_async_configure_resource_warning.py` sigue excluyendo market-data por D-12.
 
+## Self-Check: PASSED
+
+- `.planning/phases/32-gates-de-homogeneidad-d-16/32-03-SUMMARY.md` — FOUND
+- Commit `fa3406c` — FOUND
+- `git status --porcelain -- packages tools .github pyproject.toml` — empty
+
 ---
 *Phase: 32-gates-de-homogeneidad-d-16*
 *Completed: 2026-08-25*
