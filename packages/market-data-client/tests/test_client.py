@@ -41,10 +41,10 @@ def _token_posts(httpx_mock: HTTPXMock) -> list[object]:
 
 
 def test_get_health_anonymous(httpx_mock: HTTPXMock) -> None:
-    """``get_health()`` devuelve el dict y despacha SIN Authorization ni token grant."""
+    """``get_health()`` devuelve un ``Health`` y despacha SIN Authorization ni token grant."""
     httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json={"status": "ok"})
 
-    assert market_data_client.get_health() == {"status": "ok"}
+    assert market_data_client.get_health().status == "ok"
 
     requests = httpx_mock.get_requests()
     assert len(requests) == 1
@@ -59,7 +59,7 @@ def test_get_health_feed_anonymous(httpx_mock: HTTPXMock) -> None:
     """``get_health_feed()`` es igualmente anónimo sobre ``/health/feed``."""
     httpx_mock.add_response(url=f"{_BASE}/health/feed", method="GET", json={"status": "ok"})
 
-    assert market_data_client.get_health_feed() == {"status": "ok"}
+    assert market_data_client.get_health_feed().status == "ok"
 
     requests = httpx_mock.get_requests()
     assert len(requests) == 1

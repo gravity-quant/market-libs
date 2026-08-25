@@ -46,6 +46,13 @@ _NEW_PUBLIC_NAMES = (
     "delete_holiday",
     "preview_calendar_config",
     "set_calendar_config",
+    # Phase 31 — ops endpoints (TYP-02)
+    "FeedIngestor",
+    "FeedMarket",
+    "FeedPipeline",
+    "Health",
+    "HealthAuth",
+    "HealthFeed",
 )
 
 _MUTATION_METHODS = (

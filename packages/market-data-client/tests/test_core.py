@@ -319,10 +319,12 @@ def test_build_health_feed_request_anonymous() -> None:
     assert spec.endpoint_name == "health_feed"
 
 
-def test_parse_health_response_returns_dict() -> None:
+def test_parse_health_response_returns_health_model() -> None:
+    """Phase 31 TYP-02: the parser returns a typed ``Health``, not a mapping."""
     resp = _resp(200, json_body={"status": "ok"})
-    data = _core.parse_health_response(resp)
-    assert data == {"status": "ok"}
+    health = _core.parse_health_response(resp)
+    assert isinstance(health, Health)
+    assert health.status == "ok"
 
 
 def test_parse_health_response_raises_on_error_status() -> None:
@@ -656,7 +658,7 @@ def test_parse_calendar_write_response_passes_dict_through() -> None:
 
 
 def test_parse_calendar_write_response_tolerates_empty_body() -> None:
-    """An empty 200 body collapses to {} — ``parse_health_response`` would raise here."""
+    """An empty 200 body collapses to {} (the write parser's own T-26-13 tolerance)."""
     resp = _raw_resp(200, b"")
     assert _core.parse_calendar_write_response(resp) == {}
 
@@ -976,3 +978,95 @@ def test_health_models_declare_exactly_the_two_locked_optionals() -> None:
 def test_safe_model_to_dict_exists_on_the_market_data_base() -> None:
     """``to_dict()`` is on the BASE (D-02), so every shipped model inherits it."""
     assert callable(SafeModel.__dict__.get("to_dict"))
+
+
+# ----------------------------------------------------------------------
+# Phase 31 (TYP-02) — the health parser SPLIT (D-05) and its new guard (D-04)
+# ----------------------------------------------------------------------
+#
+# One shared parser served both endpoints until Phase 31. Their live shapes are
+# unrelated, so the sharing ends: ``parse_health_response -> Health`` and
+# ``parse_health_feed_response -> HealthFeed``, each named by exactly one
+# endpoint, both decorated with ``@_decode._response_parser``, and both gaining
+# a non-dict shape guard the shared one never had.
+
+
+def test_parse_health_response_builds_from_the_captured_body() -> None:
+    """The captured ``/health`` body decodes into a fully populated ``Health``."""
+    resp = _resp(200, json_body=_CAPTURED_HEALTH)
+    health = _core.parse_health_response(resp)
+    assert isinstance(health, Health)
+    assert health.status == "ok"
+    assert health.auth.issuer == "https://auth.test/"
+
+
+def test_parse_health_feed_response_builds_from_the_captured_body() -> None:
+    """The captured ``/health/feed`` body decodes into a three-level ``HealthFeed``."""
+    resp = _resp(200, json_body=_CAPTURED_HEALTH_FEED)
+    feed = _core.parse_health_feed_response(resp)
+    assert isinstance(feed, HealthFeed)
+    assert feed.status == "ok"
+    assert feed.ingestor.market.state == "open"
+    assert feed.ingestor.pipeline.pending == 0
+
+
+@pytest.mark.parametrize(
+    ("parser_name", "body", "expected_type_name"),
+    [
+        ("parse_health_response", b"[]", "list"),
+        ("parse_health_feed_response", b"[]", "list"),
+        ("parse_health_response", b'"texto"', "str"),
+        ("parse_health_feed_response", b"3", "int"),
+    ],
+)
+def test_health_parsers_raise_on_a_non_dict_body(
+    parser_name: str, body: bytes, expected_type_name: str
+) -> None:
+    """D-04: a 200 whose body is not a mapping raises, naming the TYPE only.
+
+    T-31-19 / T-29-36 / ASVS V7: market-data payloads carry symbol and account
+    identifiers, so the message carries ``type(raw).__name__`` and NEVER the
+    value or a repr of it.
+    """
+    parser = getattr(_core, parser_name)
+    resp = _raw_resp(200, body)
+    with pytest.raises(MarketDataAPIError) as excinfo:
+        parser(resp)
+    assert excinfo.value.status_code == 0
+    assert excinfo.value.message == f"expected dict, got {expected_type_name}"
+    assert body.decode() not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("parser_name", "model_cls"),
+    [("parse_health_response", Health), ("parse_health_feed_response", HealthFeed)],
+)
+@pytest.mark.parametrize(("status_code", "body"), [(204, b""), (200, b"")])
+def test_health_parsers_collapse_an_empty_body_to_the_zero_instance(
+    parser_name: str, model_cls: type[SafeModel], status_code: int, body: bytes
+) -> None:
+    """The zero-valued carve-out: a 204 / empty body NEVER raises (parse_calendar_config shape)."""
+    parser = getattr(_core, parser_name)
+    out = parser(_raw_resp(status_code, body))
+    assert out == model_cls.from_api(None)
+
+
+def test_parse_health_feed_response_raises_on_error_status() -> None:
+    """Body-consume-then-raise order is preserved: an error status raises before decode."""
+    resp = _resp(500, json_body={"status": "down"})
+    with pytest.raises(MarketDataAPIError):
+        _core.parse_health_feed_response(resp)
+
+
+@pytest.mark.parametrize("parser_name", ["parse_health_response", "parse_health_feed_response"])
+def test_health_parsers_carry_the_response_scope_decorator(parser_name: str) -> None:
+    """D-05: every model-building parser opens its own decode scope."""
+    parser = getattr(_core, parser_name)
+    assert getattr(parser, "__wrapped__", None) is not None
+
+
+def test_core_all_exports_the_split_health_parsers_in_order() -> None:
+    """``__all__`` gains ``parse_health_feed_response`` and stays ASCII-sorted (RUF022)."""
+    assert "parse_health_feed_response" in _core.__all__
+    assert "parse_health_response" in _core.__all__
+    assert list(_core.__all__) == sorted(_core.__all__)
