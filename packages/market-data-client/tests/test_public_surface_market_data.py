@@ -47,6 +47,8 @@ _NEW_PUBLIC_NAMES = (
     "preview_calendar_config",
     "set_calendar_config",
     # Phase 31 — ops endpoints (TYP-02)
+    "AddHolidaysResult",
+    "DeleteHolidayResult",
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",

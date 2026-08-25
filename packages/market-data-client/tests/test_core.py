@@ -646,8 +646,25 @@ def test_build_delete_holiday_request_is_state_independent() -> None:
 
 
 # ----------------------------------------------------------------------
-# parse_calendar_write_response (Plan 26-02, D-06 / D-07 / T-26-13)
+# The calendar-write parser SPLIT (Plan 26-02 → Phase 31 D-05, T-26-13)
 # ----------------------------------------------------------------------
+#
+# ``parse_calendar_write_response`` served BOTH holiday endpoints until Phase 31,
+# because the live OpenAPI declared both ``200``s as a bare schema-less
+# ``object``. Phase 27's capture showed the two live shapes are UNRELATED
+# (``{days, note, saved}`` versus ``{day, deleted}``), so the sharing ends:
+# ``parse_add_holidays_response -> AddHolidaysResult`` and
+# ``parse_delete_holiday_response -> DeleteHolidayResult``.
+#
+# G-4, RESOLVED TOWARD TOLERANCE. The T-26-13 tolerance of the replaced function
+# is PRESERVED in both halves: an absent body, a ``null``, a JSON list and a JSON
+# scalar all collapse to ``Model.from_api(None)`` — the zero-valued instance —
+# and NONE of them raises. This deliberately differs from the disposition the two
+# health parsers took in plan 31-04 (non-dict → raise): those serve READS, while
+# these two serve mutations already PUBLISHED in v0.4.0, and turning tolerance
+# into a raise would be a behaviour change that criterion 2's response-only
+# framing does not authorize. ``parse_calendar_config_response`` is the direct
+# in-package precedent for the empty-body → ``from_api(None)`` shape.
 
 
 def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
@@ -655,61 +672,104 @@ def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
     return httpx.Response(status_code, content=content, request=_DUMMY_REQUEST)
 
 
-def test_parse_calendar_write_response_passes_dict_through() -> None:
-    resp = _raw_resp(200, b'{"deleted": true, "count": 1}')
-    assert _core.parse_calendar_write_response(resp) == {"deleted": True, "count": 1}
+def test_parse_add_holidays_response_builds_from_the_captured_body() -> None:
+    """The captured ``POST /calendar/holidays`` body decodes into a populated model."""
+    resp = _resp(200, json_body=_CAPTURED_ADD_HOLIDAYS)
+    out = _core.parse_add_holidays_response(resp)
+    assert isinstance(out, AddHolidaysResult)
+    assert out.saved == 1
+    assert out.note == "upsert ok"
+    assert out.days[0].day == "2099-12-29"
 
 
-def test_parse_calendar_write_response_tolerates_empty_body() -> None:
-    """An empty 200 body collapses to {} (the write parser's own T-26-13 tolerance)."""
-    resp = _raw_resp(200, b"")
-    assert _core.parse_calendar_write_response(resp) == {}
+def test_parse_delete_holiday_response_builds_from_the_captured_body() -> None:
+    """The captured ``DELETE /calendar/holidays/{day}`` body decodes into a populated model."""
+    resp = _resp(200, json_body=_CAPTURED_DELETE_HOLIDAY)
+    out = _core.parse_delete_holiday_response(resp)
+    assert isinstance(out, DeleteHolidayResult)
+    assert out.day == "2099-12-29"
+    assert out.deleted is True
 
 
-def test_parse_calendar_write_response_tolerates_null_body() -> None:
-    resp = httpx.Response(200, json=None, request=_DUMMY_REQUEST)
-    assert _core.parse_calendar_write_response(resp) == {}
+@pytest.mark.parametrize(
+    ("parser_name", "model_cls"),
+    [
+        ("parse_add_holidays_response", AddHolidaysResult),
+        ("parse_delete_holiday_response", DeleteHolidayResult),
+    ],
+)
+@pytest.mark.parametrize(
+    ("branch", "body"),
+    [
+        ("absent body", b""),
+        ("null body", b"null"),
+        ("list body", b"[]"),
+        ("scalar body", b'"texto"'),
+    ],
+)
+def test_calendar_write_parsers_preserve_the_t2613_tolerance(
+    parser_name: str, model_cls: type[SafeModel], branch: str, body: bytes
+) -> None:
+    """G-4: all four tolerance branches collapse to the zero-valued model, none raises.
+
+    This is the T-26-13 tolerance of the replaced shared parser, carried forward
+    verbatim and merely re-expressed through the type: what used to be ``{}`` is
+    now ``Model.from_api(None)``. Turning any of these four into a raise would be
+    a behaviour change on a mutation already published in v0.4.0.
+    """
+    parser = getattr(_core, parser_name)
+    out = parser(_raw_resp(200, body))
+    assert out == model_cls.from_api(None), branch
 
 
-def test_parse_calendar_write_response_tolerates_list_body() -> None:
-    resp = httpx.Response(200, json=[], request=_DUMMY_REQUEST)
-    assert _core.parse_calendar_write_response(resp) == {}
+@pytest.mark.parametrize(
+    "parser_name", ["parse_add_holidays_response", "parse_delete_holiday_response"]
+)
+@pytest.mark.parametrize(
+    ("status_code", "exc_type"),
+    [
+        (422, MarketDataAPIError),
+        (401, MarketDataAuthError),
+        (429, MarketDataRateLimitError),
+    ],
+)
+def test_calendar_write_parsers_raise_before_decoding(
+    parser_name: str, status_code: int, exc_type: type[Exception]
+) -> None:
+    """Body-consume-then-raise order (Phase 7 D-06) survives the split, on both halves."""
+    parser = getattr(_core, parser_name)
+    resp = _raw_resp(status_code, b'{"detail": "nope"}')
+    with pytest.raises(exc_type):
+        parser(resp)
 
 
-def test_parse_calendar_write_response_tolerates_scalar_body() -> None:
-    resp = _raw_resp(200, b'"texto"')
-    assert _core.parse_calendar_write_response(resp) == {}
+@pytest.mark.parametrize(
+    "parser_name", ["parse_add_holidays_response", "parse_delete_holiday_response"]
+)
+def test_calendar_write_parsers_carry_the_response_scope_decorator(parser_name: str) -> None:
+    """D-05: both halves are model-building parsers, so both open their own decode scope.
 
-
-def test_parse_calendar_write_response_raises_on_422() -> None:
-    resp = _raw_resp(422, b'{"detail": "bad day"}')
-    with pytest.raises(MarketDataAPIError):
-        _core.parse_calendar_write_response(resp)
-
-
-def test_parse_calendar_write_response_raises_on_401() -> None:
-    resp = _raw_resp(401, b'{"detail": "nope"}')
-    with pytest.raises(MarketDataAuthError):
-        _core.parse_calendar_write_response(resp)
-
-
-def test_parse_calendar_write_response_raises_on_429() -> None:
-    resp = _raw_resp(429, b'{"detail": "slow down"}')
-    with pytest.raises(MarketDataRateLimitError):
-        _core.parse_calendar_write_response(resp)
+    The replaced shared parser was UNdecorated — it returned a raw mapping and
+    built no model, so it had no divergences to scope.
+    """
+    parser = getattr(_core, parser_name)
+    assert getattr(parser, "__wrapped__", None) is not None
 
 
 def test_core_all_exports_calendar_write_surface_in_order() -> None:
-    """The six new names are exported and ``__all__`` stays ASCII-sorted (RUF022)."""
+    """One shared parser name was swapped for two; ``__all__`` stays ASCII-sorted (RUF022)."""
     expected = {
         "build_add_holidays_request",
         "build_delete_calendar_config_request",
         "build_delete_holiday_request",
         "build_preview_calendar_config_request",
         "build_set_calendar_config_request",
-        "parse_calendar_write_response",
+        "parse_add_holidays_response",
+        "parse_delete_holiday_response",
     }
     assert expected <= set(_core.__all__)
+    assert "parse_calendar_write_response" not in _core.__all__
+    assert not hasattr(_core, "parse_calendar_write_response")
     assert list(_core.__all__) == sorted(_core.__all__)
 
 

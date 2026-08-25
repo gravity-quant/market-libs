@@ -13,8 +13,10 @@ Cubre el contrato observable de wire de los cinco métodos mutadores gated del
 - El trío de config parsea a ``CalendarConfig`` vía el
   ``parse_calendar_config_response`` existente (D-05), tolerante ante un ``200``
   con body vacío (D-07).
-- El par de feriados retorna ``dict`` passthrough (D-06) y degrada a ``{}`` ante
-  un ``200`` con body vacío (D-07).
+- El par de feriados retorna ``AddHolidaysResult`` / ``DeleteHolidayResult``
+  (Phase 31 TYP-02) vía los dos parsers que reemplazaron al compartido, y degrada
+  a la instancia zero-valued ante un ``200`` con body vacío — la tolerancia
+  T-26-13 preservada, ahora expresada a través del tipo (D-07).
 - ``422`` levanta ``MarketDataAPIError`` vía el ``raise_for_response`` existente
   (sin manejo de status nuevo en los métodos).
 
@@ -42,7 +44,14 @@ from pytest_httpx import HTTPXMock
 
 import market_data_client
 from market_data_client import MarketDataAPIError, MarketDataMutationNotAllowedError
-from market_data_client.models import CalendarConfig, HolidayIn, HolidaysIn, MarketHoursIn
+from market_data_client.models import (
+    AddHolidaysResult,
+    CalendarConfig,
+    DeleteHolidayResult,
+    HolidayIn,
+    HolidaysIn,
+    MarketHoursIn,
+)
 
 _BASE = "https://market-data-develop.test/api"
 _TOKEN_URL = "https://auth.test/oauth/token"
@@ -64,6 +73,28 @@ _CONFIG_200: dict[str, Any] = {
     "warnings": ["mercado abierto fuera de la ventana habitual"],
     "updated_at": None,
 }
+
+# Formas de wire REALES capturadas en
+# .planning/verification/schemas/market-data-client/add-holidays-sync-response.json
+# y delete-holiday-sync-response.json (LIVE-MUT-01, 2026-08-01). Los mocks de
+# Phase 26 asertaban ``{"created": 1}`` y ``{"deleted": 1}`` (entero); ninguna de
+# las dos formas existe en el wire, y la corrección va del lado del TEST — nunca
+# ensanchando la declaración ni aflojando un guard del parser (precedente 30-03).
+_ADD_HOLIDAYS_200: dict[str, Any] = {
+    "days": [
+        {
+            "day": "2026-12-25",
+            "closed": True,
+            "description": "",
+            "open_time": None,
+            "close_time": None,
+        }
+    ],
+    "note": "upsert ok",
+    "saved": 1,
+}
+
+_DELETE_HOLIDAY_200: dict[str, Any] = {"day": "2026-12-25", "deleted": True}
 
 # El body que ROADMAP SC#2 pinea en el wire para los defaults de MarketHoursIn.
 _HOURS_BODY: dict[str, Any] = {
@@ -258,7 +289,7 @@ def test_config_trio_module_shims_dispatch(httpx_mock: HTTPXMock) -> None:
 def test_add_holidays_sends_nested_body_without_null_hours(httpx_mock: HTTPXMock) -> None:
     """``add_holidays`` POSTea ``/calendar/holidays`` sin las horas ``None`` (ROADMAP SC#3)."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={"created": 1})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
 
     market_data_client.client._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
 
@@ -274,7 +305,7 @@ def test_add_holidays_sends_nested_body_without_null_hours(httpx_mock: HTTPXMock
 def test_add_holidays_emits_hours_when_present(httpx_mock: HTTPXMock) -> None:
     """Un ``HolidayIn`` con horas emite ambas claves en su elemento."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
 
     market_data_client.client._get_default().add_holidays(
         HolidaysIn(
@@ -303,21 +334,29 @@ def test_add_holidays_emits_hours_when_present(httpx_mock: HTTPXMock) -> None:
     }
 
 
-def test_add_holidays_returns_body_passthrough(httpx_mock: HTTPXMock) -> None:
-    """``add_holidays`` devuelve el dict del ``200`` tal cual (D-06)."""
+def test_add_holidays_returns_the_typed_result(httpx_mock: HTTPXMock) -> None:
+    """``add_holidays`` devuelve un ``AddHolidaysResult`` poblado (Phase 31 TYP-02)."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={"created": 1, "skipped": 0})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
 
     out = market_data_client.client._get_default().add_holidays(
         HolidaysIn([HolidayIn("2026-12-25")])
     )
 
-    assert isinstance(out, dict)
-    assert out == {"created": 1, "skipped": 0}
+    assert isinstance(out, AddHolidaysResult)
+    assert out.saved == 1
+    assert out.note == "upsert ok"
+    assert out.days[0].day == "2026-12-25"
+    assert out.days[0].closed is True
 
 
-def test_add_holidays_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
-    """Un ``200`` con body vacío degrada a ``{}`` (D-07 visto desde el shell)."""
+def test_add_holidays_empty_body_returns_the_zero_valued_result(httpx_mock: HTTPXMock) -> None:
+    """T-26-13 vista desde el shell: un ``200`` vacío degrada al modelo zero-valued.
+
+    Es la MISMA tolerancia que antes devolvía ``{}``, ahora expresada a través del
+    tipo. No levanta — convertir esta rama en un raise sería un cambio de
+    comportamiento sobre una mutación ya publicada en v0.4.0 (G-4).
+    """
     _open_gate()
     httpx_mock.add_response(method="POST", status_code=200, content=b"")
 
@@ -325,7 +364,9 @@ def test_add_holidays_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> No
         HolidaysIn([HolidayIn("2026-12-25")])
     )
 
-    assert out == {}
+    assert out == AddHolidaysResult.from_api(None)
+    assert out.days == []
+    assert out.saved == 0
 
 
 def test_add_holidays_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
@@ -345,7 +386,7 @@ def test_add_holidays_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
 def test_delete_holiday_interpolates_day_and_sends_no_body(httpx_mock: HTTPXMock) -> None:
     """``delete_holiday`` DELETEa el día interpolado, sin body ni ``Content-Type``."""
     _open_gate()
-    httpx_mock.add_response(method="DELETE", status_code=200, json={"deleted": 1})
+    httpx_mock.add_response(method="DELETE", status_code=200, json=_DELETE_HOLIDAY_200)
 
     out = market_data_client.client._get_default().delete_holiday("2026-12-25")
 
@@ -355,18 +396,23 @@ def test_delete_holiday_interpolates_day_and_sends_no_body(httpx_mock: HTTPXMock
     assert req.headers["Authorization"] == "Bearer test-token"
     assert req.content == b""
     assert "content-type" not in req.headers
-    assert isinstance(out, dict)
-    assert out == {"deleted": 1}
+    assert isinstance(out, DeleteHolidayResult)
+    assert out.day == "2026-12-25"
+    # El wire manda un BOOLEANO. El mock de Phase 26 mandaba el entero ``1`` y
+    # asertaba una igualdad de mapping contra él; la captura en vivo lo desmiente.
+    assert out.deleted is True
 
 
-def test_delete_holiday_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
-    """Un ``200`` con body vacío degrada a ``{}`` también en el borrado."""
+def test_delete_holiday_empty_body_returns_the_zero_valued_result(httpx_mock: HTTPXMock) -> None:
+    """T-26-13 en el borrado: un ``200`` vacío degrada al modelo zero-valued, no levanta."""
     _open_gate()
     httpx_mock.add_response(method="DELETE", status_code=200, content=b"")
 
     out = market_data_client.client._get_default().delete_holiday("2026-12-25")
 
-    assert out == {}
+    assert out == DeleteHolidayResult.from_api(None)
+    assert out.day == ""
+    assert out.deleted is False
 
 
 def test_delete_holiday_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
@@ -386,8 +432,8 @@ def test_delete_holiday_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
 def test_holiday_pair_module_shims_dispatch(httpx_mock: HTTPXMock) -> None:
     """Los dos shims module-level del par de feriados delegan al default Client."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={})
-    httpx_mock.add_response(method="DELETE", status_code=200, json={})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
+    httpx_mock.add_response(method="DELETE", status_code=200, json=_DELETE_HOLIDAY_200)
 
     market_data_client.client.add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
     market_data_client.client.delete_holiday("2026-12-25")
@@ -591,19 +637,27 @@ def test_delete_holiday_path_safety_non_str_day_emits_no_request(httpx_mock: HTT
 
 
 # ----------------------------------------------------------------------
-# No-retry a nivel dispatch (D-15 / T-26-07) + control positivo contrastante
+# Retry a nivel dispatch (D-15 / T-26-07 → D-20) — ambos feriados idempotentes
 #
-# ``build_add_holidays_request`` es el ÚNICO builder ``idempotent=False`` del
-# paquete: el flag viaja como ``request.extensions["idempotent"]`` y
-# ``RetryTransport.handle_request`` corta el loop en su primera línea. El par de
-# tests mide el efecto observable de ese corte contra un hermano idempotente,
-# que con el mismo 503 repetido SÍ agota los 3 intentos.
+# CORRECCIÓN G-6 (Phase 31). Este bloque decía que ``build_add_holidays_request``
+# era el ÚNICO builder ``idempotent=False`` del paquete y que por eso el
+# ``RetryTransport`` cortaba su loop en la primera línea. Eso dejó de ser cierto
+# en Phase 27: la medición en vivo LIVE-MUT-01 (2026-08-01) por CONTEO DE FILAS
+# mostró que dos POST idénticos dejan exactamente 1 fila por fecha — el endpoint
+# hace upsert — así que el flag pasó a ``True`` y hoy NINGÚN builder del paquete
+# lleva ``idempotent=False``. Los tests de abajo ya asertaban la conducta nueva;
+# sólo este comentario había quedado atrás, contradiciendo a los tests que
+# encabeza. ``tests/test_mutation_gate_ast.py`` asserta el flag directamente.
 #
-# El marker ``assert_all_responses_were_requested=False`` es OBLIGATORIO: el
-# test no-retry deja 2 de las 3 respuestas encoladas sin consumir y pytest-httpx
-# fallaría en teardown por una razón que no tiene nada que ver con el retry.
-# El monkeypatch de ``time.sleep`` evita los ~4,4 s reales de jitter del control
-# positivo (patrón in-package de ``tests/test_transport.py``).
+# El flag viaja como ``request.extensions["idempotent"]`` y ambos feriados agotan
+# ``max_attempts=3`` (``max_retries`` default 2 + el intento inicial) ante 503
+# repetidos.
+#
+# El marker ``assert_all_responses_were_requested=False`` es OBLIGATORIO en el
+# tercer test: deja respuestas encoladas sin consumir y pytest-httpx fallaría en
+# teardown por una razón que no tiene nada que ver con el retry. El monkeypatch
+# de ``time.sleep`` evita los ~4,4 s reales de jitter (patrón in-package de
+# ``tests/test_transport.py``).
 # ----------------------------------------------------------------------
 
 
