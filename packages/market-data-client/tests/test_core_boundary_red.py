@@ -27,13 +27,27 @@ WHY IN-PACKAGE AND NOT UNDER ``verification/``
     of the 6x2 matrix.
 
 HOW THE LINTER IS INVOKED, AND WHAT IS BANNED
-    A single fixed-element argv, resolved with ``shutil.which``, ``shell=False``,
-    nothing interpolated from repository content -- the same discipline as
+    A single fixed-element argv, ``shell=False``, nothing interpolated from
+    repository content -- the same discipline as
     ``tools/check_decode_intactness.py``'s ``ruff format`` subprocess. Two forms are
     deliberately rejected: ``python -m importlinter.cli`` (that module has **no**
     ``__main__`` guard, so it exits 0 having executed nothing -- both legs below
     would pass vacuously, in the worst possible way), and ``uv run lint-imports``
     (a resolver round-trip inside a test, less hermetic for no gain).
+
+    RESOLUTION IS INTERPRETER-ADJACENT FIRST (Phase 32 WR-05). The first cut used
+    ``shutil.which("lint-imports")`` alone and claimed "the only input is the
+    resolved absolute path of a locked dev dependency's console script". That was
+    false: ``which`` returns whatever is first on ``PATH``, which need not be this
+    workspace's venv. Two consequences, both measured. A runner that does not
+    export the venv's ``bin`` on ``PATH`` -- an IDE runner, ``.venv/bin/python -m
+    pytest``, a tox-style wrapper -- tripped the assertion with a message blaming
+    a broken environment, misdiagnosing the failure; and on a machine with a
+    globally installed import-linter a *different version* ran silently against
+    tests that assert exact output strings. ``Path(sys.executable).with_name(...)``
+    resolves the console script sitting beside the running interpreter, which IS
+    the locked dev dependency's. ``shutil.which`` remains the fallback for a
+    layout where the two do not sit side by side.
 
 WHY THE ASSERTIONS NAME THE CONTRACT
     Asserting only ``returncode != 0`` would be satisfied by a typo in the argv, a
@@ -66,6 +80,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -115,14 +130,31 @@ def _other_contract_names() -> tuple[str, ...]:
     return tuple(name for name in _declared_contract_names() if name != _CONTRACT)
 
 
+def _resolve_lint_imports() -> str | None:
+    """The ``lint-imports`` console script, preferring the running interpreter's.
+
+    ``shutil.which`` alone returns whatever is first on ``PATH``, which need not
+    be this workspace's venv (WR-05). The script installed beside
+    ``sys.executable`` *is* the locked dev dependency's, so it is tried first;
+    ``which`` stays as the fallback for a layout where the two do not sit side by
+    side.
+    """
+    adjacent = Path(sys.executable).with_name("lint-imports")
+    if adjacent.is_file():
+        return str(adjacent)
+    return shutil.which("lint-imports")
+
+
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:
     """Run the linter from the workspace root with a fixed, shell-free argv."""
-    executable = shutil.which("lint-imports")
+    executable = _resolve_lint_imports()
     # A missing executable is a broken environment, never a reason to report
     # green -- so this is an assertion, and deliberately never a skip.
     assert executable is not None, (
-        "`lint-imports` is not on PATH; import-linter is a locked dev dependency "
-        "(pyproject.toml `[dependency-groups] dev`) and the environment is broken"
+        f"`lint-imports` was found neither beside the running interpreter "
+        f"({Path(sys.executable).parent}) nor on PATH; import-linter is a locked dev "
+        f"dependency (pyproject.toml `[dependency-groups] dev`) and the environment "
+        f"is broken"
     )
     # Fixed argv, no shell, no interpolated repository content: the only input is
     # the resolved absolute path of a locked dev dependency's console script.
