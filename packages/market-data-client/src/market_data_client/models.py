@@ -204,10 +204,16 @@ class SafeModel:
     def to_dict(self) -> dict[str, Any]:
         """Re-project the model as the plain wire dict (D-08).
 
-        Escape hatch for the dict -> model break of Phase 30, and the adapter
-        the verification harness feeds to ``verification.schema.schema_of``.
-        Nested models are flattened to dicts; ``None`` keys are **kept** — a
-        response model must reproduce the wire shape, holes included.
+        Escape hatch for the dict -> model break of Phase 30: use it for
+        ``len()`` / ``isinstance`` call sites ONLY. It is **NOT** a valid input
+        to ``verification.schema.schema_of`` (WR-04). The walker has already
+        coerced every non-optional field to its declared type and dropped every
+        undeclared key, so a type change, an added key and a removed key are all
+        three invisible in this projection (Phase 30 CR-01) — every driver
+        schema-snapshot site must keep feeding RAW WIRE, as the module docstring
+        above spells out. Nested models are flattened to dicts; ``None`` keys are
+        **kept** — a response model must reproduce the declared shape, holes
+        included.
 
         ``cast(Any, self)`` follows ``_decode.py``'s existing mypy-strict
         discipline: :class:`SafeModel` itself is not a dataclass — every
