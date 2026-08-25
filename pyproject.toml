@@ -133,9 +133,15 @@ exclude_lines = [
 # ---------------------------------------------------------------------------
 # import-linter: boundary enforcement Phase 7 REFAC-03.
 # Cada paquete tiene un módulo `_core.py` (pure builders/parsers) que NO debe
-# importar ni `client.py` ni `aio.py` del mismo paquete. Los 4 contracts
+# importar ni `client.py` ni `aio.py` del mismo paquete. Los 5 contracts
 # `forbidden` bloquean el re-coupling declarativamente; `lint-imports` corre
 # como CI gate (.github/workflows/ci.yml).
+#
+# WR-05 de la Phase 31: `market_data_client` faltaba. Su `_core.py` afirma en su
+# propio docstring que el boundary existe ("NO imports desde
+# `market_data_client.client` ni `market_data_client.aio` — `_core` permanece
+# IO-free y desacoplado de los shells (import boundary)"), pero no había
+# contract que lo verificara, así que la afirmación era inaplicada.
 # ---------------------------------------------------------------------------
 [tool.importlinter]
 root_packages = [
@@ -143,6 +149,7 @@ root_packages = [
     "iol_client",
     "higyrus_client",
     "matriz_client",
+    "market_data_client",
 ]
 
 [[tool.importlinter.contracts]]
@@ -171,3 +178,9 @@ name = "matriz_client._core does not depend on transport modules"
 type = "forbidden"
 source_modules = ["matriz_client._core"]
 forbidden_modules = ["matriz_client.client", "matriz_client.aio"]
+
+[[tool.importlinter.contracts]]
+name = "market_data_client._core does not depend on transport modules"
+type = "forbidden"
+source_modules = ["market_data_client._core"]
+forbidden_modules = ["market_data_client.client", "market_data_client.aio"]
