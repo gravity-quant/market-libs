@@ -34,9 +34,12 @@ import queue
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only, never imported at runtime
+    import websocket
 
 import matriz_client
 from matriz_client import _decode
@@ -352,7 +355,12 @@ def test_strict_mode_error_is_logged_when_no_error_callback_is_registered(
 
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
-        _ws._handle_message(object(), _DIVERGENT_FRAME)  # must not raise
+        # ``_handle_message`` never reads its ``ws`` argument, but it is
+        # declared ``websocket.WebSocketApp``. Hand it this module's declared
+        # stand-in — the same object the monkeypatched constructor yields on
+        # the connected paths — rather than a bare ``object()``.
+        app = cast("websocket.WebSocketApp", _FakeWebSocketApp("ws://unused"))
+        _ws._handle_message(app, _DIVERGENT_FRAME)  # must not raise
 
     logged = [r for r in caplog.records if "failed strict decode" in r.getMessage()]
     assert len(logged) == 1

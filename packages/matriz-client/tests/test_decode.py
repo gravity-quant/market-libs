@@ -39,7 +39,7 @@ import logging
 import pathlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast, get_args
 
 import pytest
 from pytest_httpx import HTTPXMock
@@ -155,7 +155,7 @@ def _divergences(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
 
 
 def _pairs(caplog: pytest.LogCaptureFixture) -> list[tuple[str, str]]:
-    return [(r.field_path, r.divergence) for r in _divergences(caplog)]
+    return [(r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -282,10 +282,12 @@ def test_wrong_typed_scalar_passes_through_and_reports(
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         obj = _Bare.from_api({"s": 7, "i": "nope", "f": "nope", "b": "nope"})
 
-    assert obj.s == 7
-    assert obj.i == "nope"
-    assert obj.f == "nope"
-    assert obj.b == "nope"
+    # ``scalar_passthrough`` means the returned value deliberately violates its
+    # own declaration, so each read is widened to ``object`` before comparing.
+    # mypy is right that a ``str``-declared field can never equal ``7`` — that
+    # divergence between declaration and runtime value IS the property tested.
+    passed_through: dict[str, object] = {"s": obj.s, "i": obj.i, "f": obj.f, "b": obj.b}
+    assert passed_through == {"s": 7, "i": "nope", "f": "nope", "b": "nope"}
     assert _pairs(caplog) == [
         (".s", "type"),
         (".i", "type"),
@@ -303,7 +305,7 @@ def test_bool_payload_never_collapses_into_an_int_field(
 
     assert obj.i is True
     assert (".i", "type") in _pairs(caplog)
-    observed = {r.field_path: r.observed_type for r in _divergences(caplog)}
+    observed = {r.field_path: r.observed_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert observed[".i"] == "bool"
 
 
@@ -348,10 +350,10 @@ def test_extra_wire_key_reports_at_info_and_leaves_the_model_untouched(
         obj = _Mapping.from_api({"meta": {}, "label": "x", "brandNewField": 1})
 
     assert not hasattr(obj, "brandNewField")
-    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]
-    assert [r.field_path for r in extras] == [".brandNewField"]
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    assert [r.field_path for r in extras] == [".brandNewField"]  # type: ignore[attr-defined]
     assert extras[0].levelno == logging.INFO
-    assert extras[0].declared_type == "-"
+    assert extras[0].declared_type == "-"  # type: ignore[attr-defined]
 
 
 def test_non_dict_returns_empty(caplog: pytest.LogCaptureFixture) -> None:
@@ -362,10 +364,10 @@ def test_non_dict_returns_empty(caplog: pytest.LogCaptureFixture) -> None:
     assert obj == _Nested.empty()
     records = _divergences(caplog)
     assert len(records) == 1
-    assert (records[0].field_path, records[0].divergence) == ("", "non_dict")
-    assert records[0].observed_type == "str"
+    assert (records[0].field_path, records[0].divergence) == ("", "non_dict")  # type: ignore[attr-defined]
+    assert records[0].observed_type == "str"  # type: ignore[attr-defined]
     # No per-field ``missing`` records leaked out from under the non-dict path.
-    assert [r.divergence for r in records] == ["non_dict"]
+    assert [r.divergence for r in records] == ["non_dict"]  # type: ignore[attr-defined]
 
 
 def test_none_payload_behaves_as_non_dict(caplog: pytest.LogCaptureFixture) -> None:
@@ -376,8 +378,8 @@ def test_none_payload_behaves_as_non_dict(caplog: pytest.LogCaptureFixture) -> N
     assert obj == _Bare.empty()
     records = _divergences(caplog)
     assert len(records) == 1
-    assert records[0].divergence == "non_dict"
-    assert records[0].observed_type == "NoneType"
+    assert records[0].divergence == "non_dict"  # type: ignore[attr-defined]
+    assert records[0].observed_type == "NoneType"  # type: ignore[attr-defined]
 
 
 def test_empty_dict_is_a_dict_and_reports_per_field_missing(
@@ -387,7 +389,7 @@ def test_empty_dict_is_a_dict_and_reports_per_field_missing(
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         _Bare.from_api({})
 
-    kinds = {r.divergence for r in _divergences(caplog)}
+    kinds = {r.divergence for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert kinds == {"missing"}
 
 
@@ -425,8 +427,8 @@ def test_dict_hint_branch(caplog: pytest.LogCaptureFixture) -> None:
 
     assert obj.meta == {}
     assert (".meta", "type") in _pairs(caplog)
-    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}
-    observed = {r.field_path: r.observed_type for r in _divergences(caplog)}
+    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    observed = {r.field_path: r.observed_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert declared[".meta"] == "dict"
     assert observed[".meta"] == "str"
 
@@ -478,13 +480,13 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
     carriers = {
         cls.__name__
         for cls in shipped
-        if any(models._is_mapping(h) for h in _decode.hints_for(cls).values())
+        if any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, cls)).values())
     }
     assert carriers, "expected at least InstrumentDetail / DetailedPosition / AccountReport"
 
     nested_types: set[str] = set()
     for cls in shipped:
-        for hint in _decode.hints_for(cls).values():
+        for hint in _decode.hints_for(cast(Any, cls)).values():
             inner = models._strip_optional(hint)
             for candidate in (inner, *getattr(inner, "__args__", ())):
                 if (
@@ -591,9 +593,13 @@ def test_literal_wrong_runtime_type_reports(caplog: pytest.LogCaptureFixture) ->
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         obj = _Literals.from_api({"side": 7})
 
-    assert obj.side == 7
+    # ``literal_enforced=False`` + ``scalar_passthrough=True``: the ``int``
+    # survives into a ``Literal[str, ...]``-declared field, so the read is
+    # widened to ``object`` before comparing (see the ``_Bare`` case above).
+    side: object = obj.side
+    assert side == 7
     assert (".side", "type") in _pairs(caplog)
-    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}
+    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert declared[".side"] == "Literal"
 
 
@@ -612,7 +618,7 @@ def test_literal_enforcement_is_off_for_all_nine_published_aliases() -> None:
     )
     assert len(aliases) == 9
     for alias in aliases:
-        assert all(isinstance(member, str) for member in alias.__args__)
+        assert all(isinstance(member, str) for member in get_args(alias))
         out_of_set = "definitely-not-a-member"
         assert (
             walk_field(
@@ -689,7 +695,7 @@ def test_record_is_flat_all_str_and_carries_no_wire_value(
             value = getattr(record, key)
             assert isinstance(value, str)
             assert value not in sentinels.values()
-        assert record.package == "matriz_client"
+        assert record.package == "matriz_client"  # type: ignore[attr-defined]
 
 
 def test_contract_keys_avoid_every_reserved_logrecord_attribute() -> None:
@@ -1035,8 +1041,11 @@ def test_divergence_on_a_real_response_reaches_the_package_logger(
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         segments = matriz_client.get_segments()
 
-    assert segments[0].marketSegmentId == 7
-    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}
+    # Passthrough again: the wire ``7`` survives into a ``Literal[str, ...]``
+    # field, so the read is widened to ``object`` before comparing.
+    segment_id: object = segments[0].marketSegmentId
+    assert segment_id == 7
+    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert (".marketSegmentId", "type") in kinds
     assert (".vendorNew", "extra") in kinds
 
