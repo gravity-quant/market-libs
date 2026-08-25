@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
 current_phase_name: gates-de-homogeneidad-d-16
 status: executing
-stopped_at: Completed 32-04-PLAN.md
-last_updated: "2026-08-25T21:31:00.719Z"
+stopped_at: Completed 32-05-PLAN.md
+last_updated: "2026-08-25T21:40:56.902Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 34
-  completed_plans: 32
+  completed_plans: 33
   percent: 50
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
 
@@ -146,6 +146,7 @@ Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a opt
 | Phase 32 P02 | 7min | 3 tasks | 3 files |
 | Phase 32 P03 | 4min | 1 tasks | 0 files |
 | Phase 32 P04 | 7min | 2 tasks | 3 files |
+| Phase 32 P05 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -286,6 +287,11 @@ Recent decisions affecting current work:
 - [Phase ?]: 32-04: assert_class_parity raises for a package with no Client/AsyncClient pair instead of passing vacuously; the absence is asserted explicitly via class_parity_report + CLASS_AXIS_ABSENT
 - [Phase ?]: 32-04: ParityReport counts are class-EXCLUSIVE on the module axis so the bounds table and the report share one metric (Pitfall 4 structural fix)
 - [Phase ?]: 32-04: D-09 closed in source — market_data_client.aio.configure threads http_client into _ClientState with a ResourceWarning on live-client replacement, and does NOT set rotated
+- [Phase ?]: 32-05: automated import-linter RED proof chosen over manual demonstration — the 'decenas de segundos' cost premise measured wrong (~0.06 s), so the cheaper conforming route was rejected on merit rather than necessity
+- [Phase ?]: 32-05: the RED fixture reads the other four contract names from [tool.importlinter] at runtime instead of hardcoding them — a hardcoded four would be a seventh package roster inside the very phase whose subject is rosters that drift apart
+- [Phase ?]: 32-05: wallets stays OUT of import-linter root_packages for a STRUCTURAL reason (no _core.py, so no source_modules against which a forbidden contract could be written); recorded in check_decode_intactness.py resolved_by in the past tense, closing the forward reference that named Phase 32 as its own resolver
+- [Phase ?]: 32-05: verification/test_public_surface._PACKAGES stays at four — verification/ never executes in CI, so a fifth snapshot would be red-invisible after the first surface change; market-data's real net is in-package and does run in the 6x2 matrix
+- [Phase ?]: 32-05: Task 2 landing in its own commit does NOT break criterion 4's atomicity — atomicity is a property of the four enrollment lists moving together, and the RED fixture touches none of them
 
 ### Pending Todos
 
@@ -367,8 +373,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:30:55.972Z
-Stopped at: Completed 32-04-PLAN.md
+Last session: 2026-08-25T21:40:56.897Z
+Stopped at: Completed 32-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
