@@ -618,7 +618,17 @@ def test_literal_enforcement_is_off_for_all_nine_published_aliases() -> None:
     )
     assert len(aliases) == 9
     for alias in aliases:
-        assert all(isinstance(member, str) for member in get_args(alias))
+        # Fase 32 WR-09: el bind intermedio + el assert de no-vacuidad son
+        # necesarios. La línea previa era `alias.__args__`, que levantaba
+        # `AttributeError` si el alias dejaba de ser un genérico parametrizado.
+        # `get_args()` devuelve `()` para un no-genérico y `all(...)` sobre un
+        # iterable vacío es `True`, así que la afirmación "cada miembro de los
+        # nueve aliases publicados es un `str`" pasaba vacuamente para cualquier
+        # alias que degenerara. El `len(aliases) == 9` de arriba acota la CANTIDAD
+        # de aliases, no la membresía de cada uno.
+        members = get_args(alias)
+        assert members, f"{alias!r} carries no Literal members"
+        assert all(isinstance(member, str) for member in members)
         out_of_set = "definitely-not-a-member"
         assert (
             walk_field(
