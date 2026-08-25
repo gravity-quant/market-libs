@@ -25,7 +25,7 @@ import logging
 import pathlib
 import time
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -953,7 +953,9 @@ def test_health_models_declare_no_mapping_field_and_no_received_at(
     model_cls: type[SafeModel],
 ) -> None:
     """No ``dict[...]`` field (4 of the 6 are nested field types) and no staleness stamp."""
-    hints = _decode.hints_for(model_cls)
+    # ``cast(Any, ...)`` is the walker's own mypy-strict discipline for
+    # ``get_type_hints``-driven code (``models._apply_mapping_policy`` does the same).
+    hints = _decode.hints_for(cast(Any, model_cls))
     assert "received_at" not in hints
     assert not any(models._is_mapping(h) for h in hints.values())
 
