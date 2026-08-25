@@ -964,7 +964,7 @@ killed mid-test. Flagged as OQ-3.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **OQ-1 — Where does the shared parity helper live: `tools/` or `verification/`?**
    - What we know: both work. `tools/` is importable as a namespace package (no `__init__.py`) and
