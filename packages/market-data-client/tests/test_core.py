@@ -434,7 +434,7 @@ def test_build_set_calendar_config_request_puts_serialized_body() -> None:
 
 def test_build_preview_calendar_config_request_posts_serialized_body() -> None:
     state = _ClientState()
-    body = {"market_hours": []}
+    body: dict[str, Any] = {"market_hours": []}
     spec = _core.build_preview_calendar_config_request(state, body)
     assert spec.method == "POST"
     assert spec.path == "/calendar/config/preview"

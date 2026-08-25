@@ -581,7 +581,12 @@ def test_literal_membership_is_not_enforced_under_strict_mode() -> None:
     finally:
         _decode.STRICT_DECODE.reset(token)
 
-    assert _WithLiteral(**kwargs).lado == "zzz"
+    # ``cast`` is the ASSERTION's point, not a workaround: the declared type is
+    # ``Literal["BUY", "SELL"] | None``, so mypy calls the comparison
+    # non-overlapping — which is exactly the lock being pinned. The walker lets
+    # an off-Literal member through at RUNTIME, and that runtime fact is what
+    # this test measures.
+    assert cast(Any, _WithLiteral(**kwargs).lado) == "zzz"
 
 
 def test_optional_field_stays_none_without_a_divergence(
@@ -695,7 +700,11 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
     ]
     assert exempt, "no call-site-exempt model found — the guard would be vacuous"
     for cls in shipped:
-        hints = _decode.hints_for(cls)
+        # ``cast(Any, cls)`` mirrors the ``exempt`` comprehension four lines
+        # above and ``_decode.py``'s own discipline: ``hints_for`` is
+        # ``lru_cache``-wrapped, so its parameter is ``Hashable``, which
+        # ``type[SafeModel]``'s inherited ``__hash__`` signature does not satisfy.
+        hints = _decode.hints_for(cast(Any, cls))
         for field in dataclasses.fields(cls):  # type: ignore[arg-type]
             rendered = str(hints[field.name])
             for other in exempt:

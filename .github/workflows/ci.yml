@@ -92,7 +92,7 @@ jobs:
       - name: mypy (tests por paquete)
         run: |
           set -e
-          for pkg in higyrus-client wallets-client matriz-client iol-client ambito-financiero-client; do
+          for pkg in higyrus-client wallets-client matriz-client iol-client ambito-financiero-client market-data-client; do
             echo "::group::mypy packages/$pkg/tests"
             uv run mypy packages/$pkg/tests
             echo "::endgroup::"
