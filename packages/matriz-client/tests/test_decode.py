@@ -39,7 +39,7 @@ import logging
 import pathlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any, cast, get_args
+from typing import Any, get_args
 
 import pytest
 from pytest_httpx import HTTPXMock
@@ -477,16 +477,29 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
         for obj in vars(models).values()
         if isinstance(obj, type) and dataclasses.is_dataclass(obj) and issubclass(obj, _SafeModel)
     ]
+    # Fase 32 WR-10: la supresión es `# type: ignore[arg-type]`, no `cast(Any,
+    # cls)`. El error que se silencia es angosto — mypy objeta que la firma de
+    # `__hash__` de `type[_SafeModel]` (`def __hash__(self: object) -> int`) no
+    # coincide con la de `Hashable` (`def __hash__() -> int`), sobre el wrapper
+    # `lru_cache` de `_decode.hints_for`. `cast(Any, cls)` desactivaba TODO el
+    # chequeo de ese argumento, así que un cambio futuro que pasara un no-tipo
+    # (una instancia, un string) type-checkeaba en silencio. El ignore está
+    # acotado por código de error, deja el resto del argumento chequeado, y bajo
+    # `strict = true` (que implica `warn_unused_ignores`) se vuelve un ERROR el
+    # día que la variancia se arregle — un cast se pudriría callado.
+    #
+    # Los archivos hermanos de la misma Wave-0 (ambito, higyrus) no llevan
+    # supresión porque ahí `cls` es un `type` pelado, compatible con `Hashable`.
     carriers = {
         cls.__name__
         for cls in shipped
-        if any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, cls)).values())
+        if any(models._is_mapping(h) for h in _decode.hints_for(cls).values())  # type: ignore[arg-type]
     }
     assert carriers, "expected at least InstrumentDetail / DetailedPosition / AccountReport"
 
     nested_types: set[str] = set()
     for cls in shipped:
-        for hint in _decode.hints_for(cast(Any, cls)).values():
+        for hint in _decode.hints_for(cls).values():  # type: ignore[arg-type]
             inner = models._strip_optional(hint)
             for candidate in (inner, *getattr(inner, "__args__", ())):
                 if (
