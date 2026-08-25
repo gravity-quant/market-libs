@@ -88,8 +88,10 @@ from typing import Any, Self, Union, cast, get_args, get_origin
 from market_data_client import _decode, _params
 
 __all__ = [
+    "AddHolidaysResult",
     "CalendarConfig",
     "CalendarDay",
+    "DeleteHolidayResult",
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",

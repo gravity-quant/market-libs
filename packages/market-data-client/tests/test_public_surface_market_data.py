@@ -19,14 +19,17 @@ export surface nor its sync/async name parity. This in-package net fills that ga
     shims live on ``market_data_client.aio`` (async methods are NOT flat-namespace
     re-exported).
 
-Las cuatro pruebas de abajo son genéricas sobre las dos tuplas: extender
+Cuatro de las pruebas de abajo son genéricas sobre las dos tuplas: extender
 ``_NEW_PUBLIC_NAMES`` / ``_MUTATION_METHODS`` extiende automáticamente la red.
+La quinta (WR-02) NO usa lista alguna: deriva el conjunto esperado del propio
+``models``, porque el modo de fallo que cubre es exactamente el de un nombre
+nuevo que nadie se acordó de agregar a una lista.
 """
 
 from __future__ import annotations
 
 import market_data_client
-from market_data_client import aio
+from market_data_client import aio, models
 
 _NEW_PUBLIC_NAMES = (
     # Phase 25 — symbols write (MUT-MD-01)
@@ -84,6 +87,28 @@ def test_new_public_names_in_dunder_all() -> None:
     """Each new public name is declared in ``__all__`` (the export contract)."""
     for name in _NEW_PUBLIC_NAMES:
         assert name in market_data_client.__all__, f"{name} missing from __all__"
+
+
+def test_models_dunder_all_covers_every_safemodel_subclass() -> None:
+    """WR-02: ``models.__all__`` declares EVERY ``SafeModel`` subclass in the module.
+
+    The two tests above only inspect the PACKAGE ``__all__``, so
+    ``AddHolidaysResult`` and ``DeleteHolidayResult`` shipped absent from
+    ``models.__all__`` while present in ``market_data_client.__all__`` — a
+    ``from market_data_client.models import *`` silently omitted the two classes
+    that this package's own ``_core`` and tests import by name. CONVENTIONS
+    mandates an explicit ``__all__`` with ALL public names, so the check is
+    derived from the module rather than from a second hand-maintained list.
+    """
+    declared = set(models.__all__)
+    subclasses = {
+        name
+        for name, obj in vars(models).items()
+        if isinstance(obj, type)
+        and issubclass(obj, models.SafeModel)
+        and obj.__module__ == models.__name__
+    }
+    assert subclasses <= declared, f"missing from models.__all__: {sorted(subclasses - declared)}"
 
 
 # (b) sync/async method name parity ------------------------------------------
