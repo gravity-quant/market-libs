@@ -122,6 +122,48 @@ uv run mypy packages/market-data-client
 
 ## Changelog
 
+### v0.5.0 — sin publicar todavía
+
+El bump de `pyproject.toml` y el tag los hace la Phase 34; esta entrada existe
+para que la ruptura quede registrada en el momento en que se introduce y no en
+el momento en que se publica. **Cualquiera que compile desde HEAD obtiene una
+rueda cuya metadata dice `0.4.0` y cuya API es incompatible con la `0.4.0`
+publicada** — hasta el bump, esa es la advertencia operativa.
+
+**Cuatro endpoints de ops dejan de devolver diccionarios y pasan a devolver
+modelos tipados** (breaking, minor bump en línea 0.x — mismo criterio y misma
+forma que la ruptura dict→modelo de `iol-client` v0.3.0).
+
+| Función | Antes | Ahora |
+|---|---|---|
+| `get_health` | `dict[str, Any]` | `Health` |
+| `get_health_feed` | `dict[str, Any]` | `HealthFeed` |
+| `add_holidays` | `dict[str, Any]` | `AddHolidaysResult` |
+| `delete_holiday` | `dict[str, Any]` | `DeleteHolidayResult` |
+
+Las cuatro cambian en sus **dos superficies** (método de clase y shim de módulo)
+y en **sync y async**. El acceso pasa de `health["status"]` a `health.status`; un
+acceso por clave sobre el resultado levanta `TypeError` (los modelos no son
+subscriptables). Vale acá el mismo **flip de truthiness** que documenta el
+changelog de `iol-client`: un dict vacío es falso, una instancia de dataclass es
+verdadera siempre, y el typechecker no atrapa esa rama.
+
+- **Ocho modelos nuevos exportados:** `Health`, `HealthAuth`, `HealthFeed`,
+  `FeedIngestor`, `FeedMarket`, `FeedPipeline`, `AddHolidaysResult` y
+  `DeleteHolidayResult`, todos en el `__all__` del paquete y en el de
+  `market_data_client.models`. Frozen + `slots`, construidos vía
+  `SafeModel.from_api()`.
+- **Escape hatch:** `to_dict()` reproyecta cualquiera de ellos al dict plano.
+  Sirve para call sites de `len()` / `isinstance`; **no** es una entrada válida
+  para un snapshot de schema, porque el walker ya coercionó cada campo declarado
+  y descartó toda clave no declarada.
+- **Tolerancia preservada en las dos mutaciones:** un body ausente, `null`, lista
+  o escalar en `add_holidays` / `delete_holiday` sigue degradando al resultado
+  zero-valued en lugar de levantar — también bajo `strict_decode`, para que una
+  mutación ya publicada nunca responda a un ACK anómalo con una excepción
+  levantada después de que la escritura se commiteó. La divergencia se registra
+  igual en el logger `market_data_client`.
+
 ### v0.4.0
 
 **Nueva superficie de escritura: calendar, más los fixes verificados en vivo contra develop**
