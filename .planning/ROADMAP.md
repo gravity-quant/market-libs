@@ -181,7 +181,7 @@ Plans:
   4. **D-16 cerrado** reconciliando las **4** listas de enrollment en un commit atómico — mypy `files`, import-linter `root_packages`, el loop mypy-tests de `ci.yml:85` y `verification/test_public_surface._PACKAGES` — con el contrato import-linter de `market_data_client._core` **RED-probado**, la inclusión (o exclusión) de `wallets_client` decidida explícitamente, y la exclusión **deliberada** de market-data en `_PACKAGES` (ya tiene su test in-package desde Phase 25) documentada como intencional, no "arreglada".
   5. La matriz completa de CI (6 paquetes × py3.12 + py3.13) queda verde con los gates nuevos activos.
 
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 
 Plans:
 
@@ -196,7 +196,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 32-04-PLAN.md — Helper de paridad sync/async compartido (métrica única, tabla de 4 reglas, lower bounds por paquete) + piloto market-data que RED-prueba el drift D-09 + su fix (criterio 3)
+- [x] 32-04-PLAN.md — Helper de paridad sync/async compartido (métrica única, tabla de 4 reglas, lower bounds por paquete) + piloto market-data que RED-prueba el drift D-09 + su fix (criterio 3)
 - [ ] 32-05-PLAN.md — Cierre de D-16 en commit atómico (mypy `files` + 2 exclusiones documentadas) + prueba RED automatizada del contrato import-linter de `market_data_client._core` (criterio 4)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -267,7 +267,7 @@ Plans:
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
-| 32. Gates de homogeneidad + D-16                            | v1.6      | 3/6 | In Progress|  |
+| 32. Gates de homogeneidad + D-16                            | v1.6      | 4/6 | In Progress|  |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |
 

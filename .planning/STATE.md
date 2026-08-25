@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
 current_phase_name: gates-de-homogeneidad-d-16
 status: executing
-stopped_at: Completed 32-03-PLAN.md (D-09 decision gate — option-a, auto-resolved)
-last_updated: "2026-08-25T21:20:39.077Z"
+stopped_at: Completed 32-04-PLAN.md
+last_updated: "2026-08-25T21:31:00.719Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 34
-  completed_plans: 31
+  completed_plans: 32
   percent: 50
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a option-a (auto-resuelto), plan 32-04 autorizado a tocar la superficie publica de market-data
 
@@ -145,6 +145,7 @@ Last activity: 2026-08-25 — Phase 32 plan 03 complete — D-09 dispuesto a opt
 | Phase 32 P01 | 9min | 3 tasks | 4 files |
 | Phase 32 P02 | 7min | 3 tasks | 3 files |
 | Phase 32 P03 | 4min | 1 tasks | 0 files |
+| Phase 32 P04 | 7min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -282,6 +283,9 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-03: la seleccion de D-09 fue AUTO-RESUELTA al default investigado bajo auto_advance/yolo, NO respondida por el desarrollador — el action del plan lo autoriza explicitamente y exige declararlo para que el registro no sea repudiable (T-32-10)
 - [Phase 32]: 32-03: consecuencia semver declarada antes de que ningun codigo dependa de ella — market-data-client (publicado v0.4.0) gana un parametro publico keyword-only aditivo, entrada de changelog minor-worthy en la Phase 34 y nunca un major; la irreversibilidad esta en retirarlo, no en publicarlo
 - [Phase 32]: 32-03: el roster de tres paquetes de verification/test_async_configure_resource_warning.py:27 (ambito, iol, higyrus) queda INTACTO por D-12 cualquiera fuera la seleccion — que option-a haga emitir un ResourceWarning a market-data NO habilita enrolarlo ahi dentro de la Phase 32 (T-32-11)
+- [Phase ?]: 32-04: assert_class_parity raises for a package with no Client/AsyncClient pair instead of passing vacuously; the absence is asserted explicitly via class_parity_report + CLASS_AXIS_ABSENT
+- [Phase ?]: 32-04: ParityReport counts are class-EXCLUSIVE on the module axis so the bounds table and the report share one metric (Pitfall 4 structural fix)
+- [Phase ?]: 32-04: D-09 closed in source — market_data_client.aio.configure threads http_client into _ClientState with a ResourceWarning on live-client replacement, and does NOT set rotated
 
 ### Pending Todos
 
@@ -363,8 +367,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:20:39.072Z
-Stopped at: Completed 32-03-PLAN.md (D-09 decision gate — option-a, auto-resolved)
+Last session: 2026-08-25T21:30:55.972Z
+Stopped at: Completed 32-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
