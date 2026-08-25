@@ -60,8 +60,10 @@ from market_data_client.exceptions import (
     MarketDataRateLimitError,
 )
 from market_data_client.models import (
+    AddHolidaysResult,
     CalendarConfig,
     CalendarDay,
+    DeleteHolidayResult,
     Health,
     HealthFeed,
     Instrument,
@@ -92,9 +94,10 @@ __all__ = [
     "build_symbols_request",
     "build_token_request",
     "build_update_symbol_request",
+    "parse_add_holidays_response",
     "parse_calendar_config_response",
     "parse_calendar_response",
-    "parse_calendar_write_response",
+    "parse_delete_holiday_response",
     "parse_health_feed_response",
     "parse_health_response",
     "parse_instruments_response",
@@ -836,7 +839,7 @@ def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
     ``authenticated=True``; ``json_body`` is OMITTED so it stays ``None`` and the
     DELETE goes out with an empty body and no ``Content-Type`` (D-02). The
     response is parsed by the tolerant passthrough
-    :func:`parse_calendar_write_response`, not by any calendar-read parser (D-16).
+    :func:`parse_delete_holiday_response`, not by any calendar-read parser (D-16).
 
     Path-safety guard (D-18 / T-26-01): ``day`` is interpolated RAW into the path
     — no percent-encoding, so a legitimate ISO date rides the wire byte for byte
@@ -1128,35 +1131,81 @@ def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
     return CalendarConfig.from_api(raw)
 
 
-def parse_calendar_write_response(resp: httpx.Response) -> dict[str, Any]:
-    """Pure: parse a calendar-write ``200`` → tolerant dict passthrough (D-06 / D-07).
+@_decode._response_parser
+def parse_add_holidays_response(resp: httpx.Response) -> AddHolidaysResult:
+    """Pure: parse ``POST /calendar/holidays`` → :class:`AddHolidaysResult` (D-05).
 
-    Serves BOTH holiday endpoints (``POST /calendar/holidays`` and
-    ``DELETE /calendar/holidays/{day}``) — same contract, same tolerance, one
-    function. The live OpenAPI declares every calendar-write ``200`` as a bare
-    ``object`` with no schema, so there is nothing to type against until Phase 27
-    (LIVE-MUT-01) captures the real shape; until then the body is handed back
-    verbatim.
+    **The split (Phase 31 D-05).** This replaces one half of
+    ``parse_calendar_write_response``, which served BOTH holiday endpoints because
+    the live OpenAPI declares every calendar-write ``200`` as a bare, schema-less
+    ``object`` and there was nothing to type against. Phase 27's LIVE-MUT-01
+    capture supplied the real shapes and they are UNRELATED —
+    ``{days, note, saved}`` here versus ``{day, deleted}`` for the delete — so one
+    function can no longer serve both.
 
-    Tolerance is deliberate (T-26-13): an absent body, a ``null``, a list or a
-    scalar all degrade to an empty dict instead of raising a raw
-    :class:`json.JSONDecodeError` or silently returning a value that contradicts
-    the annotation. This is why it is a NEW function rather than a reuse of
-    ``parse_health_response`` — that one copies only the body-consume-then-raise
-    ORDER, not its (missing) guards. Transport errors keep flowing through
-    ``raise_for_response`` (401/403 → Auth, 429 → RateLimit, 422 and the rest →
-    API error) before any decoding happens.
+    **The T-26-13 tolerance is PRESERVED, not dropped (G-4).** The replaced
+    function argued at length that its tolerance was deliberate: an absent body,
+    a ``null``, a JSON list or a JSON scalar all degraded to an empty mapping
+    rather than raising a raw :class:`json.JSONDecodeError` or returning a value
+    contradicting its own annotation. All four branches survive here, merely
+    re-expressed through the type: they collapse to ``AddHolidaysResult.from_api(None)``,
+    the zero-valued instance. **None of them raises.** That disposition
+    deliberately differs from the two health parsers, which gained a non-dict
+    RAISE in plan 31-04: those serve reads, whereas this endpoint is a MUTATION
+    already published in v0.4.0, and turning tolerance into a raise would be a
+    behaviour change that this phase's response-only framing does not authorize.
+    ``parse_calendar_config_response`` one function above is the direct in-package
+    precedent for the empty-body → ``from_api(None)`` shape.
+
+    Transport errors keep flowing through ``raise_for_response`` (401/403 → Auth,
+    429 → RateLimit, 422 and the rest → API error) BEFORE any decoding, in the
+    Phase 7 D-06 body-consume-then-raise order every parser in this file honours.
+
+    ``days[]`` decodes into the shipped :class:`CalendarDay` — the same model the
+    calendar READ uses — because the capture matches it field for field (D-01).
+    No ``received_at`` stamp: a mutation acknowledgement is not a snapshot (D-05).
 
     The config trio (``set`` / ``delete`` / ``preview``) does NOT use this parser:
-    it reuses ``parse_calendar_config_response`` unmodified (D-05). Neither
-    holiday endpoint is typed against the calendar-read model — that read pair is
-    broken against the real wire (D-16).
+    it reuses ``parse_calendar_config_response`` unmodified (D-05).
     """
     resp.read()
     raise_for_response(resp)
     if not resp.content:
-        return {}
+        return AddHolidaysResult.from_api(None)
     raw = resp.json()
     if not isinstance(raw, dict):
-        return {}
-    return raw
+        return AddHolidaysResult.from_api(None)
+    return AddHolidaysResult.from_api(raw)
+
+
+@_decode._response_parser
+def parse_delete_holiday_response(resp: httpx.Response) -> DeleteHolidayResult:
+    """Pure: parse ``DELETE /calendar/holidays/{day}`` → :class:`DeleteHolidayResult` (D-05).
+
+    The other half of the ``parse_calendar_write_response`` split — see
+    :func:`parse_add_holidays_response` for the full rationale. In brief: the two
+    endpoints' live shapes are unrelated, so the shared function became two.
+
+    **The T-26-13 tolerance is PRESERVED (G-4).** An absent body, a ``null``, a
+    JSON list and a JSON scalar all collapse to
+    ``DeleteHolidayResult.from_api(None)`` — the zero-valued instance — and none
+    of them raises. This is a MUTATION published in v0.4.0; a raise here would be
+    a behaviour change, not a typing change.
+
+    ``deleted`` is a BOOLEAN on the wire
+    (``.planning/verification/schemas/market-data-client/delete-holiday-sync-response.json``),
+    which the model declares faithfully. Note the measured consequence, pinned by
+    ``tests/test_core.py``: an ``int`` arriving for that field is NOT widened —
+    it earns a ``type`` divergence record and is substituted with ``False``.
+
+    Body-consume-then-raise order preserved (Phase 7 D-06); no ``received_at``
+    stamp (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return DeleteHolidayResult.from_api(None)
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        return DeleteHolidayResult.from_api(None)
+    return DeleteHolidayResult.from_api(raw)

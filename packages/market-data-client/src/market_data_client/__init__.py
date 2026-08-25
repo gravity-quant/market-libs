@@ -70,8 +70,10 @@ from market_data_client.exceptions import (  # noqa: E402
     MarketDataRateLimitError,
 )
 from market_data_client.models import (  # noqa: E402
+    AddHolidaysResult,
     CalendarConfig,
     CalendarDay,
+    DeleteHolidayResult,
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
@@ -95,10 +97,12 @@ from market_data_client.models import (  # noqa: E402
 # underscore — NOT in ``__all__``) so tests and helpers can access it via
 # ``market_data_client._get_default()`` without reaching into ``.client``.
 __all__ = [
+    "AddHolidaysResult",
     "AsyncClient",
     "CalendarConfig",
     "CalendarDay",
     "Client",
+    "DeleteHolidayResult",
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",

@@ -43,7 +43,7 @@ un host distinto (Auth0) que la API de market data.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Self
+from typing import Self
 from urllib.parse import urlsplit
 
 import httpx
@@ -56,8 +56,10 @@ from market_data_client.exceptions import (
     MarketDataMutationNotAllowedError,
 )
 from market_data_client.models import (
+    AddHolidaysResult,
     CalendarConfig,
     CalendarDay,
+    DeleteHolidayResult,
     Health,
     HealthFeed,
     HolidaysIn,
@@ -680,31 +682,36 @@ class Client:
         resp = self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
-    def add_holidays(self, holidays: HolidaysIn) -> dict[str, Any]:
-        """Gated ``POST {base_url}/calendar/holidays`` → tolerant ``dict`` (MUT-MD-02).
+    def add_holidays(self, holidays: HolidaysIn) -> AddHolidaysResult:
+        """Gated ``POST {base_url}/calendar/holidays`` → ``AddHolidaysResult`` (MUT-MD-02).
 
-        Gate-first (D-14). The builder marks this spec ``idempotent=False`` — the
-        ONLY such spec in the package (DM-03 / D-04) — so ``RetryTransport`` does
-        NOT retry it: appending holidays is not replay-safe and a retried append
-        would duplicate the days. The 1-500 batch bound already cut client-side in
-        ``HolidaysIn.__post_init__``, before this method ran.
+        Gate-first (D-14). The builder marks this spec ``idempotent=True``, so
+        ``RetryTransport`` DOES retry it on a transient failure. That flag was
+        corrected from ``False`` in Phase 27 on live measurement (D-20): the
+        LIVE-MUT-01 armed run counted ROWS rather than status codes and found that
+        two identical POSTs leave exactly one row per date on both surfaces
+        (F-49 / F-59) — the endpoint upserts by date. No builder in this package
+        carries ``idempotent=False`` any more. The 1-500 batch bound already cut
+        client-side in ``HolidaysIn.__post_init__``, before this method ran.
 
-        Returns the ``200`` body verbatim as a ``dict`` via
-        ``_core.parse_calendar_write_response`` (D-06): the live OpenAPI declares
-        this ``200`` as a bare ``object`` with no schema, so there is nothing to
-        type against until Phase 27 captures the real shape. The calendar-read
-        model and ``parse_calendar_response`` are deliberately NOT used — that read
-        pair is broken against the real wire (D-16), a bug this phase records
-        rather than fixes. An absent body degrades to ``{}`` (D-07); a ``422``
-        flows through the existing ``_core.raise_for_response``.
+        Returns the ``200`` body as a typed :class:`AddHolidaysResult` via
+        ``_core.parse_add_holidays_response`` (Phase 31 TYP-02 / D-05). The live
+        OpenAPI declares this ``200`` as a bare schema-less ``object``; the model
+        is built from Phase 27's committed live capture instead. ``days[]`` reuses
+        the shipped :class:`CalendarDay`; the calendar-read PARSER
+        (``parse_calendar_response``) is still deliberately NOT used — that read
+        pair is broken against the real wire (D-16). An absent, ``null``, list or
+        scalar body degrades to the zero-valued result (D-07 / T-26-13 tolerance,
+        preserved); a ``422`` flows through the existing
+        ``_core.raise_for_response``.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
         resp = self._request(spec)
-        return _core.parse_calendar_write_response(resp)
+        return _core.parse_add_holidays_response(resp)
 
-    def delete_holiday(self, day: str) -> dict[str, Any]:
-        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → tolerant ``dict``.
+    def delete_holiday(self, day: str) -> DeleteHolidayResult:
+        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → ``DeleteHolidayResult``.
 
         Gate-first (D-14). ``day`` is an ISO ``YYYY-MM-DD`` date (the OpenAPI
         declares the path param as ``format: date``). The builder applies the D-18
@@ -717,13 +724,15 @@ class Client:
 
         The builder omits ``json_body``, so the DELETE goes out with
         ``content == b""`` and no ``Content-Type`` (D-02). Returns the body as a
-        ``dict`` via ``_core.parse_calendar_write_response`` (D-06 / D-16), ``{}``
-        when the body is absent.
+        typed :class:`DeleteHolidayResult` via
+        ``_core.parse_delete_holiday_response`` (Phase 31 TYP-02 / D-05), and the
+        zero-valued result when the body is absent, ``null``, a list or a scalar
+        (T-26-13 tolerance, preserved).
         """
         self._ensure_mutation_allowed()
         spec = _core.build_delete_holiday_request(self._state, day)
         resp = self._request(spec)
-        return _core.parse_calendar_write_response(resp)
+        return _core.parse_delete_holiday_response(resp)
 
 
 # ----------------------------------------------------------------------
@@ -949,11 +958,11 @@ def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
     return _get_default().preview_calendar_config(config)
 
 
-def add_holidays(holidays: HolidaysIn) -> dict[str, Any]:
+def add_holidays(holidays: HolidaysIn) -> AddHolidaysResult:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().add_holidays(holidays)
 
 
-def delete_holiday(day: str) -> dict[str, Any]:
+def delete_holiday(day: str) -> DeleteHolidayResult:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().delete_holiday(day)
