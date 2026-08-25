@@ -21,7 +21,7 @@
 
 - [x] **Phase 29: Decoder observable** *(load-bearing, PRIMERO)* — decoder único de política observable copiado verbatim 6×, divergencias emitidas estructuradas por el logger del paquete, modo estricto por `ContextVar`, decisión msgspec-vs-stdlib como artefacto, reconciliación de matriz y corrida de sizing — DEC-01 (completed 2026-08-19)
 - [x] **Phase 30: `iol-client` tipado** — `models.py` nuevo + 16 firmas migradas + parsers de `_core.py` + `main_iol.py` a acceso por atributo; `mercado`/`plazo` quedan `str` (promoción a `Literal` diferida a F33) — TYP-01 (completed 2026-08-20)
-- [ ] **Phase 31: Endpoints de ops + estructura uniforme** — modelos para los 5 endpoints de ops (higyrus + market-data), request byte-idéntico probado para las 2 mutaciones ya publicadas, `models.py`/`types.py` presentes en los 6 paquetes — TYP-02, TYP-03
+- [x] **Phase 31: Endpoints de ops + estructura uniforme** — modelos para los 5 endpoints de ops (higyrus + market-data), request byte-idéntico probado para las 2 mutaciones ya publicadas, `models.py`/`types.py` presentes en los 6 paquetes — TYP-02, TYP-03 (completed 2026-08-25)
 - [ ] **Phase 32: Gates de homogeneidad + D-16** — gate AST de superficie como **job de CI nuevo** + test de paridad sync/async no-vacuo + cierre de D-16 reconciliando las **4** listas de enrollment — GATE-TYP-01
 - [ ] **Phase 33: Verificación en vivo en modo estricto + fixes** — drivers en modo estricto contra APIs reales, `Literal` cerrados con evidencia, divergencias corregidas in-cycle, cycle closure PASS por paquete — LIVE-TYP-01
 - [ ] **Phase 34: Releases por paquete** — bumps sólo de los paquetes cuya superficie cambió, iol 0.2.0 → **0.3.0** source-breaking con callout, `uv.lock` refrescado una sola vez, ops irreversibles detrás de doble gate humano — PUB-TYP-01
@@ -151,7 +151,7 @@ Plans:
 > **construye** (plan 31-01), in-package y no-vacuo. Ambos builders de feriados llevan `idempotent=True`
 > hoy (D-20, medido en vivo en la Phase 27); el criterio 3 significa que deben **seguir** en `True`.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -166,7 +166,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 31-05-PLAN.md — market-data feriados: `AddHolidaysResult` (reusa `CalendarDay`) + `DeleteHolidayResult`, `parse_calendar_write_response` dividido preservando su tolerancia T-26-13, 8 firmas, docstring stale de `idempotent=` corregido (G-6), ~96 líneas re-mockeadas. El pin y el guard de 31-01 se re-corren tras cada task. [wave 3]
+- [x] 31-05-PLAN.md — market-data feriados: `AddHolidaysResult` (reusa `CalendarDay`) + `DeleteHolidayResult`, `parse_calendar_write_response` dividido preservando su tolerancia T-26-13, 8 firmas, docstring stale de `idempotent=` corregido (G-6), ~96 líneas re-mockeadas. El pin y el guard de 31-01 se re-corren tras cada task. [wave 3]
 
 ### Phase 32: Gates de homogeneidad + D-16
 
@@ -246,7 +246,7 @@ Plans:
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
-| 31. Endpoints de ops + estructura uniforme                  | v1.6      | 4/5 | In Progress|  |
+| 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete   | 2026-08-25 |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |

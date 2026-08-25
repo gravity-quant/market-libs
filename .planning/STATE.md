@@ -4,17 +4,17 @@ milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 31
 current_phase_name: endpoints-de-ops-estructura-uniforme
-status: executing
-stopped_at: Completed 31-02-PLAN.md (estructura uniforme)
-last_updated: "2026-08-25T10:45:31.158Z"
+status: verifying
+stopped_at: Completed 31-05-PLAN.md (last plan of phase 31)
+last_updated: "2026-08-25T11:17:10.312Z"
 last_activity: 2026-08-24
 last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 28
-  completed_plans: 27
-  percent: 33
+  completed_plans: 28
+  percent: 50
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 31 (endpoints-de-ops-estructura-uniforme) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-24 — Phase 31 execution started
 
 ## Performance Metrics
@@ -141,6 +141,7 @@ Last activity: 2026-08-24 — Phase 31 execution started
 | Phase 31 P02 | 95min | 2 tasks | 12 files |
 | Phase 31 P03 | 52min | 3 tasks | 10 files |
 | Phase 31 P04 | 47min | 3 tasks | 15 files |
+| Phase 31 P05 | 27min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -261,6 +262,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 31-03: higyrus get_health returns Health; the 204/empty-body carve-out resolves to Health.from_api(None), which emits one non_dict divergence and RAISES HigyrusDecodeError under strict_decode=True (measured, pinned by test)
 - [Phase ?]: 31-03: CONTEXT D-03 corrected — main_higyrus.py health probes need no to_dict() site (they read raw wire); plan 31-04 must re-check each market-data driver site individually
 - [Phase ?]: 31-03: SafeModel.to_dict() is copied byte-identically into each package's own base, never imported cross-package (C-2)
+- [Phase ?]: 31-05: G-4 resuelto hacia TOLERANCIA — los dos parsers de calendar-write preservan la tolerancia T-26-13 como Model.from_api(None) en las cuatro ramas; un raise seria un cambio de comportamiento sobre mutaciones ya publicadas en v0.4.0 (diverge deliberadamente del raise de 31-04, que sirve LECTURAS)
+- [Phase ?]: 31-05: MEDIDO — un int que llega a un campo declarado bool NO se ensancha: walk_field emite divergencia type (declared=bool/observed=int) y sustituye False (POLICY.scalar_passthrough=False). Contrasta con Phase 29 en matriz, donde un int para un campo float SI ensancha
+- [Phase ?]: 31-05: los probes de delete_holiday ACEPTAN la ceguera a la deriva del snapshot (T-31-29) con carry-forward en ambos docstrings — un re-fire crudo es imposible (un segundo DELETE es legitimamente 404 Y ES la medicion D-19). Para Phase 33 la señal autoritativa es el CENSO de divergencias
+- [Phase ?]: 31-05: CRITERIO 1 CERRADO — 5 endpoints de ops x 2 superficies x (metodo, shim) = 20 sitios devuelven una clase modelo; ningun retorno de mapping sin tipar sobrevive
 
 ### Pending Todos
 
@@ -342,9 +347,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T10:45:31.153Z
-Stopped at: Completed 31-02-PLAN.md (estructura uniforme)
-Resume file: .planning/phases/31-endpoints-de-ops-estructura-uniforme/31-CONTEXT.md
+Last session: 2026-08-25T11:17:10.307Z
+Stopped at: Completed 31-05-PLAN.md (last plan of phase 31)
+Resume file: None
 
 ## Operator Next Steps
 
