@@ -848,6 +848,13 @@ def configure(
     if token_expires_at is not None:
         state.token_expires_at = token_expires_at
     if http_client is not None:
+        # Fase 32 WR-07: espeja la validación de `aio.configure`. El único chequeo
+        # de tipo sobre el transporte inyectado era un `assert isinstance`, que
+        # desaparece bajo `python -O`.
+        if not isinstance(http_client, httpx.Client):
+            raise TypeError(
+                f"http_client must be an httpx.Client, got {type(http_client).__name__}"
+            )
         if state.http_client is not None:
             assert isinstance(state.http_client, httpx.Client)
             state.http_client.close()

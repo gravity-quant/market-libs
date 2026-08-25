@@ -195,7 +195,19 @@ class AsyncClient:
         if http_client is not None:
             assert isinstance(http_client, httpx.AsyncClient)
             await http_client.aclose()
-            self._state.http_client = None
+            # Fase 32 WR-07: el `await` de arriba es un punto de suspensión, y
+            # `_state.http_client` se muta fuera de este método (`configure(
+            # http_client=...)`, `_ensure_http_client`). Sin el guard de
+            # identidad, este `= None` pisaba un transporte que otra task había
+            # inyectado mientras esta esperaba:
+            #     task A: await client.aclose()   -> lee el viejo, await ...
+            #     task B: aio.configure(http_client=NUEVO)
+            #     task A:    _state.http_client = None   # NUEVO descartado
+            # El NUEVO quedaba sin cerrar y el próximo request construía un
+            # tercero — exactamente el leak de connection pool que el
+            # ResourceWarning de `configure()` existe para advertir.
+            if self._state.http_client is http_client:
+                self._state.http_client = None
 
     def with_options(self, *, max_retries: int) -> Self:
         """Retorna un shared-view clone con un ``max_retries`` sobrescrito.
@@ -862,6 +874,16 @@ def configure(
     # sync tampoco lo setea acá, ``client.py:820-824``). El guard de identidad
     # (``is not``) hace que re-pasar el MISMO cliente sea silencioso.
     if http_client is not None:
+        # Fase 32 WR-07: entrada pública alcanzable desde un caller sin tipos. El
+        # único chequeo de tipo sobre el objeto almacenado eran los `assert
+        # isinstance` de `aclose()` / `_ensure_http_client()`, que desaparecen
+        # bajo `python -O`; un `httpx.Client` entregado acá reaparecía como
+        # `AttributeError: 'Client' object has no attribute 'aclose'` o como un
+        # `TypeError` en `await http.send(req)`, lejos de la llamada culpable.
+        if not isinstance(http_client, httpx.AsyncClient):
+            raise TypeError(
+                f"http_client must be an httpx.AsyncClient, got {type(http_client).__name__}"
+            )
         if client._state.http_client is not None and client._state.http_client is not http_client:
             warnings.warn(
                 "market_data_client.aio.configure(): replacing a live httpx.AsyncClient "
