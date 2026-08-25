@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+import warnings
 from typing import Self
 from urllib.parse import urlsplit
 
@@ -782,6 +783,7 @@ def configure(
     base_url: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
+    http_client: httpx.AsyncClient | None = None,
     mutating_allowed: bool | None = None,
     expected_host: str | None = None,
     strict_decode: bool | None = None,
@@ -798,6 +800,18 @@ def configure(
     ``client.configure`` (WR-01 — el constraint dual sync/async exige que ambas
     superficies invaliden en ``base_url``). No expone credenciales de usuario,
     rotación de refresh ni override de reintentos (grant machine-to-machine, D-05).
+
+    ``http_client`` se usa AS-IS (sin auto-wrap con ``RetryTransport``), igual que
+    en la superficie sync. Fase 32 D-09: este parámetro faltaba acá y su ausencia
+    volvía FALSA la afirmación de espejo del párrafo anterior; el gate de paridad
+    ``tools/surface_parity.py`` lo detectó y esta firma cierra la deriva. Queda UNA
+    diferencia honesta con la superficie sync, y se nombra en vez de taparse: sync
+    **cierra** el cliente cacheado previo antes de reemplazarlo, y acá no se puede
+    porque ``configure`` es un ``def`` plano y no puede ``await
+    http_client.aclose()``. En su lugar emite un ``ResourceWarning`` cuando
+    reemplaza un cliente vivo DISTINTO — el mismo shape que ``matriz_client.aio``
+    — y nombra ``await market_data_client.aio.aclose()`` como remedio. Re-pasar el
+    MISMO cliente no advierte nada.
 
     Fase 29 D-03: ``strict_decode`` es config puro con el mismo sentinel
     ``None`` = "no cambiar" que la superficie sync.
@@ -829,6 +843,20 @@ def configure(
         client._state.token = token
     if token_expires_at is not None:
         client._state.token_expires_at = token_expires_at
+    # Transporte inyectado (D-09): NO setea ``rotated`` — cambiar de transporte no
+    # es una rotación de credencial y no invalida el token cacheado (la superficie
+    # sync tampoco lo setea acá, ``client.py:820-824``). El guard de identidad
+    # (``is not``) hace que re-pasar el MISMO cliente sea silencioso.
+    if http_client is not None:
+        if client._state.http_client is not None and client._state.http_client is not http_client:
+            warnings.warn(
+                "market_data_client.aio.configure(): replacing a live httpx.AsyncClient "
+                "(via http_client=) without awaiting aclose() leaks the connection "
+                "pool. Call `await market_data_client.aio.aclose()` before configure(...).",
+                ResourceWarning,
+                stacklevel=2,
+            )
+        client._state.http_client = http_client
     # Gate de mutaciones: config puro (D-13/D-15), NO credenciales — NO setea
     # ``rotated`` (no invalida el token). Sentinel None = "no cambiar", así que
     # un ``configure(base_url=...)`` NO resetea un opt-in previo (Pitfall 5).
