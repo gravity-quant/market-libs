@@ -151,7 +151,7 @@ Plans:
 > **construye** (plan 31-01), in-package y no-vacuo. Ambos builders de feriados llevan `idempotent=True`
 > hoy (D-20, medido en vivo en la Phase 27); el criterio 3 significa que deben **seguir** en `True`.
 
-**Plans**: 3/5 plans executed
+**Plans**: 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -162,7 +162,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 31-04-PLAN.md — market-data health: 6 modelos (3 niveles de nesting), `parse_health_response` dividido en dos parsers decorados y guardados, 8 firmas, exports + roster de superficie, probes del driver capturando wire crudo. **Checkpoint bloqueante** sobre la nulabilidad de 9 campos sub-determinados. [wave 2]
+- [x] 31-04-PLAN.md — market-data health: 6 modelos (3 niveles de nesting), `parse_health_response` dividido en dos parsers decorados y guardados, 8 firmas, exports + roster de superficie, probes del driver capturando wire crudo. **Checkpoint bloqueante** sobre la nulabilidad de 9 campos sub-determinados. [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -246,7 +246,7 @@ Plans:
 | 28. Release prep + publish v0.3.0                           | v1.5      | 3/3 | Complete    | 2026-08-12 |
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
-| 31. Endpoints de ops + estructura uniforme                  | v1.6      | 3/5 | In Progress|  |
+| 31. Endpoints de ops + estructura uniforme                  | v1.6      | 4/5 | In Progress|  |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |

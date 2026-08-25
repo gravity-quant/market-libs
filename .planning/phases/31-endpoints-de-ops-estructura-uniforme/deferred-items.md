@@ -96,3 +96,40 @@ for the same reason. Applying 31-02's ratified precedent: defer.
 
 **Owner:** a dedicated plan that repairs the shared `test_decode.py` construct in **all five**
 verbatim copies at once, keeping them byte-identical.
+
+## D-4 — four `mypy --strict` errors in `packages/market-data-client/tests/`
+
+**Found during:** plan 31-04, Task 3 (`uv run mypy packages/market-data-client/tests`).
+
+**Symptom (line numbers at plan 31-04's HEAD):**
+
+```
+test_reference_core.py:412: error: Need type annotation for "body"  [var-annotated]
+test_core.py:433:          error: Need type annotation for "body"  [var-annotated]
+test_decode.py:584:        error: Non-overlapping equality check
+                                  (left: "Literal['BUY','SELL'] | None", right: "Literal['COMPRA']")
+test_decode.py:698:        error: Argument 1 to "__call__" of "_lru_cache_wrapper"
+                                  has incompatible type "type[SafeModel]"  [arg-type]
+```
+
+**Pre-existing:** yes, and **measured net-negative**. At `4e7f414` (the plan-04 start commit)
+the same command reported **five** errors — the four above plus
+`test_core.py:311: Non-overlapping equality check`, which was
+`assert data == {"status": "ok"}` against `parse_health_response`'s old
+`dict[str, Any]` return. Plan 31-04's retype removed that one and introduced none.
+Proven by `git checkout 4e7f414 -- packages/market-data-client/tests/test_{core,decode}.py`,
+re-running mypy, and restoring the working copies.
+
+**Relationship to D-2 / D-3:** the family, not the same constructs. D-2/D-3 are the
+`SILENT_SINK` assertion and the `dataclasses.fields` `type: ignore` in the byte-frozen
+`test_decode.py`; these four are market-data-local (two untyped `body` literals, one
+`Literal` comparison, and one `hints_for(cls)` without the walker's `cast(Any, ...)`
+discipline). Plan 31-04 applied that cast to the code it wrote — it simply did not
+retrofit the four sites it did not touch.
+
+**Not caught earlier:** the `typecheck` CI job iterates `higyrus-client` first under
+`set -e`, so D-3 has masked every later package's `tests` step on
+`milestone/v1.5-mutations` since before this phase.
+
+**Owner:** the same plan that discharges D-2 / D-3 — a single pass over all five
+`tests/` trees, keeping the byte-frozen suites identical.
