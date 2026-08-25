@@ -702,8 +702,13 @@ class Client:
         (``parse_calendar_response``) is still deliberately NOT used — that read
         pair is broken against the real wire (D-16). An absent, ``null``, list or
         scalar body degrades to the zero-valued result (D-07 / T-26-13 tolerance,
-        preserved); a ``422`` flows through the existing
-        ``_core.raise_for_response``.
+        preserved) **in either decode mode**: the parser silences the strict
+        disposition of that one terminal ``non_dict`` divergence so a published
+        mutation never answers an anomalous acknowledgement with an exception
+        raised AFTER the write already committed (CR-02). The divergence is still
+        recorded on the ``market_data_client`` logger, and a well-shaped ``dict``
+        body whose FIELDS diverge still raises under ``strict_decode``. A ``422``
+        flows through the existing ``_core.raise_for_response``.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
@@ -727,7 +732,10 @@ class Client:
         typed :class:`DeleteHolidayResult` via
         ``_core.parse_delete_holiday_response`` (Phase 31 TYP-02 / D-05), and the
         zero-valued result when the body is absent, ``null``, a list or a scalar
-        (T-26-13 tolerance, preserved).
+        (T-26-13 tolerance, preserved) — in either decode mode, for the same
+        after-the-write-committed reason spelled out on :meth:`add_holidays`
+        (CR-02). The divergence is still recorded on the ``market_data_client``
+        logger.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_delete_holiday_request(self._state, day)

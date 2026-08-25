@@ -39,6 +39,7 @@ from market_data_client._state import (
 from market_data_client.exceptions import (
     MarketDataAPIError,
     MarketDataAuthError,
+    MarketDataDecodeError,
     MarketDataError,
     MarketDataRateLimitError,
 )
@@ -670,6 +671,16 @@ def test_build_delete_holiday_request_is_state_independent() -> None:
 # ``from_api`` verbatim, so the ``non_dict`` divergence record still names the
 # type the vendor really sent (``list`` / ``str`` / ``int``), which is what
 # ``test_calendar_write_parsers_record_the_type_actually_observed`` pins.
+#
+# CR-02: "NONE of them raises" was only true in the DEFAULT decode mode when it
+# was first written. Under ``STRICT_DECODE`` — the mode Phase 33 runs the driver
+# in — the terminal ``non_dict`` record made all four branches raise
+# ``MarketDataDecodeError``, on a mutation whose write the server had already
+# committed. The parsers now silence the strict DISPOSITION for that one branch,
+# so the claim holds in BOTH modes; the record is still emitted either way.
+# ``test_calendar_write_parsers_do_not_raise_under_strict_decode`` pins the
+# tolerance and ``..._still_raise_under_strict_when_a_field_diverges`` pins its
+# scope — a well-shaped dict body with a divergent FIELD keeps raising.
 
 
 def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
@@ -771,6 +782,80 @@ def test_calendar_write_parsers_record_the_type_actually_observed(
     assert [(r.model, r.divergence, r.observed_type) for r in records] == [  # type: ignore[attr-defined]
         (model_name, "non_dict", observed)
     ]
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+@pytest.mark.parametrize(
+    ("parser_name", "model_cls"),
+    [
+        ("parse_add_holidays_response", AddHolidaysResult),
+        ("parse_delete_holiday_response", DeleteHolidayResult),
+    ],
+)
+@pytest.mark.parametrize(
+    ("branch", "body"),
+    [
+        ("absent body", b""),
+        ("null body", b"null"),
+        ("list body", b"[]"),
+        ("scalar body", b'"texto"'),
+    ],
+)
+def test_calendar_write_parsers_do_not_raise_under_strict_decode(
+    parser_name: str,
+    model_cls: type[SafeModel],
+    branch: str,
+    body: bytes,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CR-02, MEASURED: the T-26-13 tolerance holds in the mode Phase 33 runs in.
+
+    ``test_calendar_write_parsers_preserve_the_t2613_tolerance`` above never
+    enables ``STRICT_DECODE``, so it pinned the tolerance only in the default
+    mode. It was FALSE in strict mode: all four branches reach ``walk_model``'s
+    non-dict arm, ``non_dict`` is not an ``_INFO_KIND``, and the strict sink
+    raised ``MarketDataDecodeError`` — on a MUTATION, after the server had
+    already committed the write, so the caller lost the acknowledgement and could
+    not tell whether the holiday was upserted. ``ROADMAP.md`` schedules Phase 33
+    to run ``main_market_data.py`` in strict mode against develop, which made it
+    imminent rather than hypothetical.
+
+    The parsers now silence the strict DISPOSITION for that one branch. The
+    divergence record is still emitted (``_emit`` runs before the disposition),
+    which is what this test also asserts: the tolerance costs the census nothing.
+    """
+    expected = model_cls.from_api(None)  # built while the mode is still default
+    parser = getattr(_core, parser_name)
+    _decode.STRICT_DECODE.set(True)
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        out = parser(_raw_resp(200, body))
+    assert out == expected, branch
+    records = [r for r in caplog.records if r.getMessage() == _MESSAGE]
+    assert [r.divergence for r in records] == ["non_dict"], branch  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+@pytest.mark.parametrize(
+    ("parser_name", "json_body"),
+    [
+        ("parse_add_holidays_response", {"days": "not-a-list", "note": "x", "saved": 1}),
+        ("parse_delete_holiday_response", {"day": "2099-12-29", "deleted": 1}),
+    ],
+)
+def test_calendar_write_parsers_still_raise_under_strict_when_a_field_diverges(
+    parser_name: str, json_body: dict[str, object]
+) -> None:
+    """CR-02 SCOPE: the strict silence covers the terminal non-dict branch ONLY.
+
+    A well-shaped ``dict`` acknowledgement whose FIELDS diverge is a genuine
+    typing divergence on a body the server did send, not an anomalous ACK shape,
+    so it keeps the strict disposition every other parser in this file has.
+    """
+    parser = getattr(_core, parser_name)
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MarketDataDecodeError):
+        parser(_resp(200, json_body=json_body))
 
 
 @pytest.mark.parametrize(

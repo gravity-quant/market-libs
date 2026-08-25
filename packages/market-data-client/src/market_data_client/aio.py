@@ -711,7 +711,13 @@ class AsyncClient:
         calendario (``parse_calendar_response``) sigue sin usarse a propósito — ese
         par de lectura está roto contra el wire real (D-16). Un body ausente,
         ``null``, lista o escalar degrada al resultado zero-valued (tolerancia
-        D-07 / T-26-13, preservada); un ``422`` fluye por el
+        D-07 / T-26-13, preservada) **en cualquiera de los dos modos de decode**:
+        el parser silencia la disposición estricta de ese único record terminal
+        ``non_dict`` para que una mutación publicada nunca responda a un ACK
+        anómalo con una excepción levantada DESPUÉS de que la escritura ya se
+        commiteó (CR-02). La divergencia se sigue registrando en el logger
+        ``market_data_client``, y un body ``dict`` bien formado cuyos CAMPOS
+        divergen sí levanta bajo ``strict_decode``. Un ``422`` fluye por el
         ``_core.raise_for_response`` existente.
         """
         self._ensure_mutation_allowed()
@@ -736,7 +742,10 @@ class AsyncClient:
         como :class:`DeleteHolidayResult` vía
         ``_core.parse_delete_holiday_response`` (Phase 31 TYP-02 / D-05), y el
         resultado zero-valued cuando el body está ausente, es ``null``, una lista o
-        un escalar (tolerancia T-26-13, preservada).
+        un escalar (tolerancia T-26-13, preservada) — en cualquiera de los dos
+        modos de decode, por la misma razón de after-the-write-committed detallada
+        en :meth:`add_holidays` (CR-02). La divergencia se sigue registrando en el
+        logger ``market_data_client``.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_delete_holiday_request(self._state, day)
