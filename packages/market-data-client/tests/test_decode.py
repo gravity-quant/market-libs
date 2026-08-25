@@ -640,17 +640,34 @@ def test_real_model_extra_wire_key_reports_and_builds_unchanged(
     assert (".vendorNuevo", "extra") in _tuples(records)
 
 
-def test_no_shipped_safemodel_appears_as_a_nested_field_type() -> None:
+def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
     """Plan 02's carried-forward finding, discharged structurally for market-data.
 
     ``walk_field`` walks a nested model through ``walk_model`` directly rather
     than ``hint.from_api(value)``, so that a nested path stays dotted from the
-    decode root. The consequence is that a ``from_api`` OVERRIDE on a nested
-    model type would be BYPASSED. market-data has two overrides
-    (:class:`MarketDataSnapshot`, :class:`Symbol`), so this test asserts the
-    precondition that makes the bypass moot: no shipped ``SafeModel`` subclass
-    is ever declared as another model's field type. If a future plan nests one,
-    this test fails and the walker needs an explicit hook.
+    decode root. The consequence is that any CALL-SITE-EXEMPT behaviour — a
+    ``from_api`` OVERRIDE, or ``models._apply_mapping_policy``'s post-walk pass
+    over a ``dict[...]``-declaring model — would be BYPASSED for a model reached
+    as another model's field type. This test asserts the precondition that makes
+    the bypass moot: no model carrying such an exemption is ever declared as
+    another model's field type. If a future plan nests one, this test fails and
+    the walker needs an explicit hook.
+
+    **Phase 31 (TYP-02) NARROWING.** Until Phase 31 this was stated as the blanket
+    "no shipped ``SafeModel`` is EVER a nested field type", because at the time no
+    shipped market-data model had a nested-model field at all, so the blanket and
+    the precise forms were indistinguishable. Phase 31 declares the six health
+    models, four of which (:class:`~market_data_client.models.HealthAuth`,
+    :class:`~market_data_client.models.FeedMarket`,
+    :class:`~market_data_client.models.FeedPipeline`,
+    :class:`~market_data_client.models.FeedIngestor`) legitimately ARE nested
+    field types — and none of them carries an exemption, so nothing is bypassed.
+    The guard is therefore narrowed to the invariant it actually protects, NOT
+    relaxed: the two companion tests below
+    (``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` and
+    ``test_models_with_a_from_api_override_are_never_a_nested_field_type``) pin
+    the same two exemption sets independently, so a regression on either axis
+    still fails in three places.
     """
     shipped = [
         obj
@@ -658,11 +675,18 @@ def test_no_shipped_safemodel_appears_as_a_nested_field_type() -> None:
         if isinstance(obj, type) and issubclass(obj, SafeModel) and obj is not SafeModel
     ]
     assert shipped, "no shipped SafeModel subclasses found — the guard would be vacuous"
+    exempt = [
+        obj
+        for obj in shipped
+        if obj.__dict__.get("from_api") is not None
+        or any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, obj)).values())
+    ]
+    assert exempt, "no call-site-exempt model found — the guard would be vacuous"
     for cls in shipped:
         hints = _decode.hints_for(cls)
         for field in dataclasses.fields(cls):  # type: ignore[arg-type]
             rendered = str(hints[field.name])
-            for other in shipped:
+            for other in exempt:
                 assert other.__name__ not in rendered, (cls.__name__, field.name, rendered)
 
 

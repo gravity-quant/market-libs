@@ -62,10 +62,25 @@ such a field and had no pass, so an absent or wrong-typed ``market_data``
 substituted ``None`` silently: no divergence record, no strict raise, and a value
 contradicting its own ``dict[str, Any]`` annotation. It now falls back to ``{}``
 and reports, exactly as every other declared field falls back to its typed zero.
+
+Phase 31 (TYP-02, D-02): :meth:`SafeModel.to_dict` is added to the base — a
+per-package VERBATIM COPY of ``iol_client.models.SafeModel.to_dict``, never an
+import (C-2 forbids cross-package imports and there is no shared internal
+package by design). **CR-01 caveat, load-bearing:** its docstring calls it "the
+adapter the verification harness feeds to ``verification.schema.schema_of``",
+which is the iol wording and is now known to be WRONG for a snapshot site. Phase
+30's own CR-01 finding is that ``schema_of`` over a model projection is a
+function of the DECLARATION, not of the wire — the walker has already coerced
+every non-optional field to its declared type and dropped every undeclared key,
+so a ``float -> str``, an added key and a removed key are all three invisible.
+``to_dict()`` is therefore the escape hatch for ``len()`` / ``isinstance``
+call sites ONLY; every driver schema-snapshot site must keep feeding RAW WIRE
+(see ``main_market_data.py``'s ``_raw_via_request_sync`` / ``_raw_via_request_async``).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import types
 from dataclasses import dataclass, fields
 from typing import Any, Self, Union, cast, get_args, get_origin
@@ -75,6 +90,12 @@ from market_data_client import _decode, _params
 __all__ = [
     "CalendarConfig",
     "CalendarDay",
+    "FeedIngestor",
+    "FeedMarket",
+    "FeedPipeline",
+    "Health",
+    "HealthAuth",
+    "HealthFeed",
     "HolidayIn",
     "HolidaysIn",
     "Instrument",
@@ -177,6 +198,22 @@ class SafeModel:
             cls, kwargs, sink=sink if isinstance(payload, dict) else _decode.SILENT_SINK
         )
         return cls(**kwargs)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Re-project the model as the plain wire dict (D-08).
+
+        Escape hatch for the dict -> model break of Phase 30, and the adapter
+        the verification harness feeds to ``verification.schema.schema_of``.
+        Nested models are flattened to dicts; ``None`` keys are **kept** — a
+        response model must reproduce the wire shape, holes included.
+
+        ``cast(Any, self)`` follows ``_decode.py``'s existing mypy-strict
+        discipline: :class:`SafeModel` itself is not a dataclass — every
+        concrete subclass is — so ``asdict``'s ``DataclassInstance`` overload
+        cannot be satisfied by the base's ``self``.
+        """
+        wire: dict[str, Any] = dataclasses.asdict(cast(Any, self))
+        return wire
 
 
 def _coerce(value: Any, hint: Any) -> Any:
@@ -660,3 +697,216 @@ class CalendarConfig(SafeModel):
     updated_by: str
     warnings: list[Any]
     updated_at: str | None = None
+
+
+# ----------------------------------------------------------------------
+# Health models (Phase 31, TYP-02 / D-01) — ``GET /health`` + ``GET /health/feed``
+# ----------------------------------------------------------------------
+#
+# Declared in DEPENDENCY ORDER so every nested type exists before its parent.
+# NONE of the six overrides ``from_api`` (the walker builds a nested model with
+# ``hint(**walk_model(...))`` and never calls it, so an override on a nested
+# model is silently skipped — it looks like a fix and is not one); NONE declares
+# a ``dict[...]`` field (four of them ARE nested field types, and
+# ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` forbids a
+# mapping-carrying model from being one); and NONE carries a ``received_at`` —
+# health is not a snapshot and has no staleness dimension.
+#
+# NULLABILITY VERDICT (plan 31-04 Task 1 checkpoint, **option-b / Restraint**):
+# nothing is declared nullable unless it was CONTEXT-locked (D-01) or actually
+# observed as ``null`` in the one live capture. Exactly TWO fields qualify —
+# :attr:`FeedIngestor.last_error` and :attr:`FeedPipeline.last_write_error`.
+# Rationale, recorded here because Phase 33 adjudicates against it: a wrong
+# non-null guess surfaces LOUDLY in Phase 33's strict driver run (self-correcting,
+# the designed outcome, directly comparable against the ratified
+# ``market-data-client >= 50`` divergence floor), whereas an over-declared
+# ``Optional`` would SILENTLY and permanently hide that field from the divergence
+# census — ``_decode.walk_field``'s union-with-``None`` branch returns ``None``
+# without emitting a divergence record (T-31-17).
+
+
+@dataclass(frozen=True, slots=True)
+class HealthAuth(SafeModel):
+    """The ``auth`` sub-object of ``GET /health`` (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-health.json``,
+    captured 2026-07-31 against ``market-data-develop``. Not from the OpenAPI and
+    not from a mock.
+
+    No ``| None`` field: every one of the three came back populated and
+    non-nullable in the capture (checkpoint verdict option-b).
+    """
+
+    configured: bool
+    enabled: bool
+    issuer: str
+
+
+@dataclass(frozen=True, slots=True)
+class Health(SafeModel):
+    """The ``GET /health`` envelope (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-health.json``,
+    captured 2026-07-31 against ``market-data-develop``.
+
+    No ``| None`` field. :attr:`auth` is declared as the non-optional nested
+    :class:`HealthAuth`, so an absent ``auth`` key yields the ZERO-VALUED
+    ``HealthAuth`` plus a ``missing`` divergence record — never ``None``, which
+    would have been reported by nothing (checkpoint verdict option-b).
+    """
+
+    status: str
+    auth: HealthAuth
+
+
+@dataclass(frozen=True, slots=True)
+class FeedMarket(SafeModel):
+    """``ingestor.market`` inside ``GET /health/feed`` (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-health-feed.json``,
+    captured 2026-07-31 against ``market-data-develop``.
+
+    No ``| None`` field — and this is the model the Task 1 checkpoint argued
+    hardest about. :attr:`last_business_day`, :attr:`next_transition`,
+    :attr:`session_open`, :attr:`session_close` and :attr:`reason` are the
+    "market-session group": a CLOSED or DISABLED market plausibly has no session
+    times, so option-a would have declared all five ``str | None``. The verdict
+    was **option-b**: the single capture observed all five as populated strings
+    with ``enabled: true``, so declaring them nullable would be inference rather
+    than evidence, and would make each field's future ``null`` permanently
+    invisible to the divergence census. If one of them IS nullable, Phase 33's
+    strict run raises on it — loud, in-cycle, and corrected there.
+
+    :attr:`reason` also exists on :class:`FeedIngestor`. They are independent
+    fields on independent models; only this one is in the market-session group.
+    """
+
+    enabled: bool
+    is_open: bool
+    state: str
+    local_time: str
+    last_business_day: str
+    next_transition: str
+    session_open: str
+    session_close: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class FeedPipeline(SafeModel):
+    """``ingestor.pipeline`` inside ``GET /health/feed`` (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-health-feed.json``,
+    captured 2026-07-31 against ``market-data-develop``.
+
+    ``| None`` justification — :attr:`last_write_error` is declared
+    ``str | None`` because the live capture OBSERVED it as ``null`` and because
+    CONTEXT D-01 locks it as nullable. Its non-``None`` member is typed ``str``
+    on the OpenAPI's word alone: the capture shows a healthy pipeline, so a
+    populated error value was never seen (RESEARCH assumption A1). That half is
+    still an assumption and Phase 33's live evidence adjudicates it.
+
+    :attr:`last_write_at` is deliberately NOT nullable (checkpoint verdict
+    option-b): it came back a populated string, and an over-declared ``Optional``
+    here would silently absorb a future ``null`` with no divergence record.
+    """
+
+    batch_interval_ms: int
+    conserved: bool
+    flushes: int
+    frames_accepted: int
+    frames_coalesced: int
+    frames_unknown_symbol: int
+    last_flush_ms: float
+    pending: int
+    pending_peak: int
+    rows_skipped_stale: int
+    last_write_at: str
+    last_write_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FeedIngestor(SafeModel):
+    """``ingestor`` inside ``GET /health/feed`` (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-health-feed.json``,
+    captured 2026-07-31 against ``market-data-develop``.
+
+    ``| None`` justification — :attr:`last_error` is declared ``str | None``
+    because the live capture OBSERVED it as ``null`` and because CONTEXT D-01
+    locks it as nullable. As with :attr:`FeedPipeline.last_write_error`, the
+    ``str`` half of the union is unobserved (RESEARCH assumption A1) and awaits
+    Phase 33.
+
+    :attr:`last_frame_at` and :attr:`started_at` are deliberately NOT nullable
+    (checkpoint verdict option-b): both came back populated strings from a
+    connected ingestor. A disconnected one plausibly has neither, which is
+    precisely the guess Phase 33's strict run is expected to adjudicate — loudly,
+    which is the designed outcome, rather than silently, which an ``Optional``
+    would have made it.
+
+    :attr:`market` and :attr:`pipeline` are non-optional nested models, so an
+    absent key yields the zero-valued instance plus a ``missing`` record.
+    """
+
+    connected: bool
+    present: bool
+    state: str
+    reason: str
+    frames_total: int
+    reconnects: int
+    rows_written: int
+    symbols_subscribed: int
+    uptime_seconds: int
+    heartbeat_age_seconds: float
+    last_frame_age_seconds: float
+    last_frame_at: str
+    started_at: str
+    market: FeedMarket
+    pipeline: FeedPipeline
+    last_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HealthFeed(SafeModel):
+    """The ``GET /health/feed`` envelope, three nesting levels (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-health-feed.json``,
+    captured 2026-07-31 against ``market-data-develop``. Its shape is unrelated to
+    :class:`Health`'s, which is why the two endpoints stopped sharing one parser
+    (D-05).
+
+    No ``| None`` field on this level. :attr:`newest_received_at` and
+    :attr:`oldest_received_at` came back populated strings and are declared
+    ``str`` per the checkpoint verdict — note they are WIRE timestamps of the
+    newest/oldest stored row, NOT the client-stamped ``received_at`` of
+    :class:`MarketDataSnapshot`; this model carries no client stamp at all.
+
+    **SINGLE-STATE CAVEAT (RESEARCH A1/A2/A3 — read before trusting any
+    declaration in this tree).** The one committed capture is a single
+    observation of a CONNECTED ingestor with an OPEN market and a healthy
+    pipeline. It therefore cannot distinguish "never ``null``" from "not ``null``
+    right now". Under the Task 1 checkpoint verdict (**option-b / Restraint**)
+    nine under-determined fields — :attr:`FeedIngestor.last_frame_at`,
+    :attr:`FeedIngestor.started_at`, :attr:`FeedPipeline.last_write_at`,
+    :attr:`FeedMarket.next_transition`, :attr:`FeedMarket.session_open`,
+    :attr:`FeedMarket.session_close`, :attr:`FeedMarket.last_business_day`,
+    :attr:`newest_received_at` and :attr:`oldest_received_at` — are declared
+    non-nullable on evidence from that single state. Each is a DECLARED
+    ASSUMPTION awaiting Phase 33's live strict run, which is the confirming
+    evidence and the intended adjudicator.
+    """
+
+    status: str
+    active_symbols: int
+    symbols_with_data: int
+    staleness_seconds: float
+    newest_received_at: str
+    oldest_received_at: str
+    ingestor: FeedIngestor
