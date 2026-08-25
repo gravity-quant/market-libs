@@ -34,12 +34,16 @@ import queue
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import pytest
 
-if TYPE_CHECKING:  # pragma: no cover - typing-only, never imported at runtime
-    import websocket
+# Fase 32 WR-08: import plano, no ``if TYPE_CHECKING``. ``websocket-client>=1.8.0``
+# es una dependencia de RUNTIME dura de ``matriz-client`` y ``ws_client.py`` la
+# importa incondicionalmente, así que el guard no evitaba ningún import y su
+# comentario ("typing-only, never imported at runtime") declaraba una restricción
+# que no existe.
+import websocket
 
 import matriz_client
 from matriz_client import _decode
@@ -355,12 +359,17 @@ def test_strict_mode_error_is_logged_when_no_error_callback_is_registered(
 
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
-        # ``_handle_message`` never reads its ``ws`` argument, but it is
-        # declared ``websocket.WebSocketApp``. Hand it this module's declared
-        # stand-in — the same object the monkeypatched constructor yields on
-        # the connected paths — rather than a bare ``object()``.
-        app = cast("websocket.WebSocketApp", _FakeWebSocketApp("ws://unused"))
-        _ws._handle_message(app, _DIVERGENT_FRAME)  # must not raise
+        # Fase 32 WR-08: a BARE ``object()`` on purpose. Passing one is itself an
+        # assertion — ``_handle_message`` reads NOTHING off its ``ws`` parameter
+        # (``ws_client.py`` never touches it, unlike ``_handle_open``, which does
+        # ``getattr(ws, _DECODE_STRICT_ATTR, None)``). Handing it a
+        # ``_FakeWebSocketApp`` — an object carrying ``url``, ``header``, a
+        # ``queue.Queue``, a ``threading.Semaphore``, a ``threading.Event`` and
+        # callback slots — would stop the test distinguishing "reads nothing"
+        # from "reads something the fake happens to provide". The mypy complaint
+        # was ``arg-type`` and is silenced by the cast, without touching the
+        # object under test.
+        _ws._handle_message(cast("websocket.WebSocketApp", object()), _DIVERGENT_FRAME)
 
     logged = [r for r in caplog.records if "failed strict decode" in r.getMessage()]
     assert len(logged) == 1
