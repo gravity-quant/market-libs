@@ -58,6 +58,12 @@ jobs:
         # Tampoco puede vivir bajo `verification/`: el job `test` pasa un path
         # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
         run: uv run python tools/check_uniform_structure.py
+      - name: surface-types (Phase 32 GATE-TYP-01 — cero Any/dict[str, Any] en la superficie exportada)
+        # Cross-package por naturaleza: NO va al job `test`, que corre per-package.
+        # Tampoco puede vivir bajo `verification/`: el job `test` pasa un path
+        # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
+        # D-05: step en `lint`, NO job nuevo (Phase 31 D-12 supersede ROADMAP.md:25).
+        run: uv run python tools/check_surface_types.py
 
   pre-commit:
     name: pre-commit hooks
