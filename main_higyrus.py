@@ -111,6 +111,7 @@ from higyrus_client import (
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusClientError,
+    HigyrusDecodeError,
 )
 from higyrus_client._core import RequestSpec, raise_for_response
 from higyrus_client._params import format_bool, format_date
@@ -607,20 +608,36 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
 
 
 def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 3: ``higyrus_client.get_health()`` (HIGY-02). WR-03 single call.
+    """Probe 3: ``higyrus_client.get_health()`` (HIGY-02).
 
-    Captura el raw payload vía ``_request`` directo, NO vía el wrapper tipado.
-    Desde Phase 31 (TYP-02) ``get_health()`` devuelve un ``Health``, no un dict:
-    tomar el snapshot desde el wrapper haría que el ``schema_of`` de probe 15
-    fuese función de la DECLARACIÓN del modelo y no del wire — el walker ya
-    coercionó cada campo no-opcional a su tipo declarado y descartó toda clave
-    no declarada, así que un float-vuelto-string, una clave agregada y una clave
-    eliminada quedarían los tres invisibles. Éste es el análogo higyrus del
-    ``_capture_raw_wire`` de ``main_iol.py`` (Phase 30 CR-01). Por eso ``raw``
-    llega acá como dict crudo y los reads ``isinstance(raw, dict)`` / ``len(raw)``
-    de abajo siguen siendo drift-visible sin necesitar ``to_dict()``.
+    Hace las DOS cosas (Phase 31 code review CR-01), igual que
+    ``probe_health_sync`` de ``main_market_data.py``:
 
-    D-HIGY-2: el detail emite ``keys=N`` (conteo), nunca contenido.
+    1. **Llama al wrapper tipado** ``Client.get_health() -> Health``. Ésta es la
+       única forma de que la superficie pública de TYP-02 quede efectivamente
+       ejercitada contra la API viva: el wrapper construye el ``Health`` vía
+       ``_decode.walk_model``, emite records de divergencia en el logger
+       ``higyrus_client`` y levanta ``HigyrusDecodeError`` bajo
+       ``strict_decode=True``. Sin esta llamada la corrida estricta de la
+       Phase 33 produciría CERO evidencia de divergencia para ``Health`` y para
+       ``parse_get_health_response``.
+    2. **Re-dispara el raw** vía ``_request`` directo para quedarse con el wire
+       crudo que alimenta el snapshot de probe 15. El snapshot NO puede salir
+       del wrapper: el ``schema_of`` sería función de la DECLARACIÓN del modelo
+       y no del wire — el walker ya coercionó cada campo no-opcional a su tipo
+       declarado y descartó toda clave no declarada, así que un
+       float-vuelto-string, una clave agregada y una clave eliminada quedarían
+       los tres invisibles. Éste es el análogo higyrus del ``_capture_raw_wire``
+       de ``main_iol.py`` (Phase 30 CR-01). Por eso ``raw`` llega acá como dict
+       crudo y los reads ``isinstance(raw, dict)`` / ``len(raw)`` de abajo
+       siguen siendo drift-visible sin necesitar ``to_dict()``.
+
+    Ambas llamadas van DENTRO del mismo ``try`` (aislamiento per-probe). El
+    ``HigyrusDecodeError`` del modo estricto se mapea a un finding SHAPE en vez
+    de escapar: no es subclase de ``HigyrusAPIError`` ni de los residuales.
+
+    D-HIGY-2: el detail emite ``keys=N`` (conteo) y el NOMBRE del tipo devuelto
+    por el wrapper, nunca contenido del wire.
     """
     if _auth_failed:
         return (
@@ -629,6 +646,7 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
         )
     base_url = client._state.base_url
     try:
+        health = client.get_health()
         raw = _raw_request_sync(client, "GET", "/api/health")
     except HigyrusAuthError as exc:
         fid = _next_fid()
@@ -657,6 +675,21 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
             expected="200 OK",
             actual=repr(exc),
             diff=f"status_code={exc.status_code!r}",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
+    except HigyrusDecodeError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="sync",
+            status="OPEN",
+            title="get_health_sync: divergencia de decode en Health (strict_decode)",
+            expected="payload compatible con el modelo Health declarado",
+            actual=f"model={exc.model} field_path={exc.field_path}",
+            diff=f"declared={exc.declared_type} observed={exc.observed_type}",
             base_url=base_url,
         )
         return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
@@ -690,13 +723,21 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
             base_url=base_url,
         )
         return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_health_sync", "PASS", f"keys={len(raw)}"), raw)
+    return (
+        ProbeResult("get_health_sync", "PASS", f"keys={len(raw)} typed={type(health).__name__}"),
+        raw,
+    )
 
 
 async def probe_get_health_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 4: espejo async de probe 3 (HIGY-02)."""
+    """Probe 4: espejo async de probe 3 (HIGY-02).
+
+    Mismo par wrapper-tipado + re-disparo crudo que el sync (code review CR-01):
+    ``await aclient.get_health()`` ejercita la superficie pública de TYP-02 y
+    ``_raw_request_async`` conserva el wire para el snapshot de probe 15.
+    """
     if _auth_failed:
         return (
             ProbeResult("get_health_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
@@ -704,6 +745,7 @@ async def probe_get_health_async(
         )
     base_url = aclient._state.base_url
     try:
+        health = await aclient.get_health()
         raw = await _raw_request_async(aclient, "GET", "/api/health")
     except HigyrusAuthError as exc:
         fid = _next_fid()
@@ -732,6 +774,21 @@ async def probe_get_health_async(
             expected="200 OK",
             actual=repr(exc),
             diff=f"status_code={exc.status_code!r}",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
+    except HigyrusDecodeError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="async",
+            status="OPEN",
+            title="get_health_async: divergencia de decode en Health (strict_decode)",
+            expected="payload compatible con el modelo Health declarado",
+            actual=f"model={exc.model} field_path={exc.field_path}",
+            diff=f"declared={exc.declared_type} observed={exc.observed_type}",
             base_url=base_url,
         )
         return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
@@ -765,7 +822,10 @@ async def probe_get_health_async(
             base_url=base_url,
         )
         return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_health_async", "PASS", f"keys={len(raw)}"), raw)
+    return (
+        ProbeResult("get_health_async", "PASS", f"keys={len(raw)} typed={type(health).__name__}"),
+        raw,
+    )
 
 
 # ---------------------------------------------------------------------------
