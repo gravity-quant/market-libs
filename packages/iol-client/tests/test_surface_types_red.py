@@ -62,16 +62,25 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _UNTYPED_MAPPING_RETURN = "dict[str, Any]"
 
 
-def _write_fake_package(root: Path, *, init_source: str, client_source: str) -> None:
+def _write_fake_package(
+    root: Path,
+    *,
+    init_source: str,
+    client_source: str,
+    extra_modules: dict[str, str] | None = None,
+) -> None:
     """Materialise ``<root>/packages/fake-client/src/fake_client/`` on disk.
 
-    Factored out so the four synthetic cases below differ only in the two source
-    strings that matter, never in ``mkdir`` plumbing.
+    Factored out so the synthetic cases below differ only in the source strings
+    that matter, never in ``mkdir`` plumbing. ``extra_modules`` maps a submodule
+    name to its source, for the cases that need a re-export intermediary.
     """
     pkg = root / "packages" / "fake-client" / "src" / "fake_client"
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / "__init__.py").write_text(init_source, encoding="utf-8")
     (pkg / "client.py").write_text(client_source, encoding="utf-8")
+    for name, source in (extra_modules or {}).items():
+        (pkg / f"{name}.py").write_text(source, encoding="utf-8")
 
 
 def test_gate_is_green_on_the_real_tree() -> None:
@@ -181,6 +190,196 @@ def test_exempt_members_do_not_trip_the_gate(tmp_path: Path) -> None:
         "private-helper": 1,
         "serialize-out": 1,
     }
+
+
+def test_alias_reexport_is_scanned_not_silently_skipped(tmp_path: Path) -> None:
+    """CR-01 shape 1: ``import Client as FakeClient`` must still scan ``Client``.
+
+    The bound name is ``FakeClient`` and the ``ClassDef`` is named ``Client``, so
+    a resolver that keys only on the bound name finds zero candidates and -- in
+    the first cut of this gate -- recorded nothing and reported nothing. The
+    whole class, every method, scanned green with ``dict[str, Any]`` in place.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source=(
+            "from fake_client.client import Client as FakeClient\n\n__all__ = ['FakeClient']\n"
+        ),
+        client_source=(
+            "from typing import Any\n"
+            "\n"
+            "\n"
+            "class Client:\n"
+            f"    def get_thing(self) -> {_UNTYPED_MAPPING_RETURN}:\n"
+            "        return {}\n"
+        ),
+    )
+
+    with pytest.raises(CheckFailure, match=r"Client\.get_thing"):
+        check_surface_types(root=tmp_path)
+
+
+def test_conditionally_defined_export_is_scanned(tmp_path: Path) -> None:
+    """CR-01 shape 2: a definition under ``if``/``try`` is not in ``tree.body``.
+
+    Both containers are exercised, because both are plausible in real source: a
+    version-guarded ``class`` and a ``try: ... except ImportError:`` fallback
+    ``def``. Iterating ``tree.body`` alone sees neither.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source=(
+            "from fake_client.client import Client, get_thing\n\n"
+            "__all__ = ['Client', 'get_thing']\n"
+        ),
+        client_source=(
+            "import sys\n"
+            "from typing import Any\n"
+            "\n"
+            "if sys.version_info >= (3, 12):\n"
+            "\n"
+            "    class Client:\n"
+            f"        def get_conditional(self) -> {_UNTYPED_MAPPING_RETURN}:\n"
+            "            return {}\n"
+            "\n"
+            "try:\n"
+            "    import json\n"
+            "except ImportError:  # pragma: no cover\n"
+            "    json = None\n"
+            "\n"
+            "\n"
+            f"def get_thing() -> {_UNTYPED_MAPPING_RETURN}:\n"
+            "    return {}\n"
+        ),
+    )
+
+    with pytest.raises(CheckFailure, match=r"Client\.get_conditional"):
+        check_surface_types(root=tmp_path)
+
+
+def test_all_augmented_assignment_names_are_scanned(tmp_path: Path) -> None:
+    """CR-01 shape 3: ``__all__ += [...]`` is an ``ast.AugAssign``.
+
+    The first cut handled ``Assign`` and ``AnnAssign`` and *returned at the first
+    match*, so every name appended this way was exported, never scanned, and
+    never reported -- the gate printed "1 definitions scanned, 0 violations".
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source=(
+            "from fake_client.client import get_a, get_b\n\n"
+            "__all__ = ['get_a']\n"
+            "__all__ += ['get_b']\n"
+        ),
+        client_source=(
+            "from typing import Any\n"
+            "\n"
+            "\n"
+            "def get_a() -> str:\n"
+            "    return ''\n"
+            "\n"
+            "\n"
+            f"def get_b() -> {_UNTYPED_MAPPING_RETURN}:\n"
+            "    return {}\n"
+        ),
+    )
+
+    with pytest.raises(CheckFailure, match="get_b"):
+        check_surface_types(root=tmp_path)
+
+
+def test_starred_all_element_is_a_failure_not_a_silent_drop(tmp_path: Path) -> None:
+    """A non-``Constant`` ``__all__`` element makes the surface unreadable.
+
+    ``__all__ = ['get_a', *models.__all__]`` passed the "is a list literal" check
+    and then dropped the starred names in silence. The gate cannot know what is
+    exported, and guessing "nothing" is the vacuity this file exists to prevent.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source=(
+            "from fake_client import models\n"
+            "from fake_client.client import get_a\n\n"
+            "__all__ = ['get_a', *models.__all__]\n"
+        ),
+        client_source="def get_a() -> str:\n    return ''\n",
+        extra_modules={"models": "__all__ = ['Thing']\n\n\nclass Thing:\n    pass\n"},
+    )
+
+    with pytest.raises(CheckFailure, match="non-literal element"):
+        scan_surface_types(tmp_path)
+
+
+def test_reexport_through_an_intermediate_is_followed_to_the_definition(tmp_path: Path) -> None:
+    """A chain ``__init__`` -> ``shim`` -> ``client`` resolves, and still reddens.
+
+    This is the shape live in the tree today (matriz publishes two constants
+    through ``ws_client``, which only re-imports them from ``types``). Treating
+    the first hop as authoritative would take the class's entire method surface
+    out of the gate; treating a first-hop miss as a *problem* would falsely
+    redden a correct tree. The chain is therefore followed.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source="from fake_client.shim import Client\n\n__all__ = ['Client']\n",
+        client_source=(
+            "from typing import Any\n"
+            "\n"
+            "\n"
+            "class Client:\n"
+            f"    def get_thing(self) -> {_UNTYPED_MAPPING_RETURN}:\n"
+            "        return {}\n"
+        ),
+        extra_modules={"shim": "from fake_client.client import Client\n\n__all__ = ['Client']\n"},
+    )
+
+    with pytest.raises(CheckFailure, match=r"Client\.get_thing"):
+        check_surface_types(root=tmp_path)
+
+
+def test_a_dead_ended_export_chain_is_a_problem_not_a_skip(tmp_path: Path) -> None:
+    """An export whose resolved module never binds the name must redden.
+
+    This is CR-01's root cause stated positively: the collection step used to
+    record nothing when zero candidates matched, and nothing was appended to
+    ``problems``. Every *other* unresolvable condition in the gate is a problem;
+    this one has to be too, or "an export the gate cannot inspect" stays silent.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source="from fake_client.shim import Client\n\n__all__ = ['Client']\n",
+        client_source="class Client:\n    def get_thing(self) -> str:\n        return ''\n",
+        extra_modules={"shim": "SOMETHING_ELSE = 1\n"},
+    )
+
+    with pytest.raises(CheckFailure, match="never a skip"):
+        scan_surface_types(tmp_path)
+
+
+def test_constant_exports_are_counted_rather_than_absorbed(tmp_path: Path) -> None:
+    """A ``Literal`` alias or constant resolves to an assignment, and says so.
+
+    It carries no return annotation, so it is neither a definition nor a
+    violation -- but it must be *reported* as a resolved constant rather than
+    vanish, otherwise "resolved to nothing" and "resolved to a constant" are the
+    same green.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source=(
+            "from fake_client.client import DEFAULT_MODE, get_thing\n\n"
+            "__all__ = ['DEFAULT_MODE', 'get_thing']\n"
+        ),
+        client_source=(
+            "DEFAULT_MODE: str = 'strict'\n\n\ndef get_thing() -> str:\n    return ''\n"
+        ),
+    )
+
+    result = scan_surface_types(tmp_path)
+
+    assert result.violations == ()
+    assert result.definitions == 1
+    assert result.assignments == 1
 
 
 def test_empty_and_unresolvable_trees_are_failures_not_greens(tmp_path: Path) -> None:

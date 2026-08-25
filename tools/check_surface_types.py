@@ -48,9 +48,10 @@ not rename the job, so no branch-protection required-check name moves.
 STDLIB-ONLY, ON PURPOSE
 =======================
 
-``ast``, ``sys``, ``pathlib`` and ``dataclasses`` are the only imports (D-12).
-``uv lock --check`` is the first step of the ``lint`` job, and a third-party
-helper here would move ``uv.lock`` to buy nothing this check needs.
+``ast``, ``sys``, ``pathlib``, ``dataclasses`` and ``collections.abc`` are the
+only imports (D-12). ``uv lock --check`` is the first step of the ``lint`` job,
+and a third-party helper here would move ``uv.lock`` to buy nothing this check
+needs.
 
 The gate reads source as **text** and parses it with ``ast.parse``. It never
 imports a package module and never calls ``eval``/``exec``: ``import <pkg>``
@@ -116,12 +117,53 @@ that is a scope addition, not a bug fix.
 be broadened -- from ``to_dict`` to any ``to_*`` name, say, or the underscore
 rule widened -- to silence a real violation. The fix is to type the return
 properly, or to add an exemption here WITH a stated reason.
+
+RESOLUTION IS TRANSITIVE, AND UNRESOLVED IS A PROBLEM (Phase 32 CR-01)
+======================================================================
+
+The first cut of this gate mapped each ``__all__`` name to the submodule the
+``__init__.py`` imported it from, then looked for a matching top-level ``def`` or
+``class`` in that one file. When nothing matched, **nothing was recorded and
+nothing was reported** -- the one unresolvable condition in this file that was a
+silent skip rather than a problem. Three reachable shapes hit it and scanned
+GREEN with the offending return type in place:
+
+1. **Alias re-export.** ``from pkg.client import Client as PkgClient`` binds
+   ``PkgClient``, but ``client.py`` defines ``Client``. Fixed by carrying the
+   *source* name (``alias.name``) alongside the bound name (``alias.asname``)
+   through resolution, so the definition is looked up under the name it was
+   actually defined with.
+2. **Conditionally-defined export.** A ``def``/``class`` under
+   ``if sys.version_info >= (3, 12):`` or inside ``try:`` is not in
+   ``tree.body``. Fixed by ``_module_level_statements``, which flattens the
+   module-level statement containers (``if`` / ``try`` / ``with`` / ``match``)
+   without ever descending into a function body.
+3. **``__all__ +=``.** ``ast.AugAssign`` was never handled and the first
+   ``__all__`` binding won outright. ``_all_names`` now accumulates every
+   ``__all__`` binding in the module, augmented or not, and a non-``Constant``
+   element (``*models.__all__``) is a failure rather than a silent drop.
+
+**Re-export chains are followed rather than reported.** ``matriz`` publishes two
+constants through ``ws_client``, which itself only re-imports them from
+``types``. Stopping at the first hop and calling that a problem would redden a
+correct tree; stopping at the first hop and calling it a skip is the CR-01 bug.
+So ``_resolve_binding`` follows intra-package ``ImportFrom`` hops (cycle-guarded,
+``_MAX_RESOLUTION_HOPS`` deep) until it reaches the module that actually binds
+the name. A chain that dead-ends -- a name a resolved module neither defines,
+assigns, nor re-exports -- is a **problem**, never a skip, because an export the
+gate cannot inspect is exactly the hole this section documents.
+
+A name whose chain ends at a module-level *assignment* (a constant, a ``Literal``
+alias, ``__version__``) is resolved-but-not-a-definition. It carries no return
+annotation to check, so it contributes to ``assignments`` and to nothing else.
+That is a stated outcome, not a silent one.
 """
 
 from __future__ import annotations
 
 import ast
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -137,6 +179,15 @@ _BUILD_ARTIFACT_SUFFIX = ".egg-info"
 # unparsed source, so ``Any``, ``t.Any``, ``dict[str, Any]``,
 # ``list[dict[str, Any]]`` and ``Any | None`` are one predicate rather than five.
 _ANY = "Any"
+
+# Depth limit for the intra-package re-export chase (see the CR-01 section of the
+# module docstring). The deepest real chain in the workspace today is two hops
+# (`__init__` -> `ws_client` -> `types`); this bound exists so a pathological or
+# cyclic tree fails loudly instead of looping.
+_MAX_RESOLUTION_HOPS = 8
+
+#: The submodule label for the package's own ``__init__.py``.
+_INIT = "__init__"
 
 
 class CheckFailure(Exception):
@@ -154,11 +205,17 @@ class ScanResult:
     ``exempted`` counts *hits* the exemptions absorbed -- definitions that would
     have been violations -- not every dunder or underscore member encountered.
     That is what makes it comparable to the measured baseline of 22.
+
+    ``assignments`` counts exported names that resolved to a module-level
+    *assignment* rather than to a ``def``/``class`` -- constants and ``Literal``
+    aliases. They carry no return annotation, so they are reported as a stated
+    outcome rather than absorbed into silence (Phase 32 CR-01).
     """
 
     packages: int
     all_names: int
     definitions: int
+    assignments: int
     exempted: int
     exempted_by_reason: tuple[tuple[str, int], ...]
     violations: tuple[str, ...]
@@ -203,68 +260,131 @@ def _parse(path: Path) -> ast.Module:
         raise _fail(f"cannot parse `{path}`: {exc}") from exc
 
 
+def _module_level_statements(body: list[ast.stmt]) -> Iterator[ast.stmt]:
+    """Yield ``body``'s statements, flattening module-level statement containers.
+
+    A ``def`` or ``class`` guarded by ``if sys.version_info >= (3, 12):`` or
+    written inside ``try: ... except ImportError:`` is still part of the exported
+    surface, but it is not in ``tree.body``. Iterating ``tree.body`` alone is what
+    made shape 2 of CR-01 invisible.
+
+    Function and class *bodies* are deliberately NOT descended into here -- a
+    nested helper is not module-level, and D-03 already scopes class members to
+    the direct children of an exported class.
+    """
+    for node in body:
+        yield node
+        if isinstance(node, ast.If):
+            yield from _module_level_statements(node.body)
+            yield from _module_level_statements(node.orelse)
+        elif isinstance(node, ast.With | ast.AsyncWith):
+            yield from _module_level_statements(node.body)
+        elif isinstance(node, ast.Try | ast.TryStar):
+            yield from _module_level_statements(node.body)
+            for handler in node.handlers:
+                yield from _module_level_statements(handler.body)
+            yield from _module_level_statements(node.orelse)
+            yield from _module_level_statements(node.finalbody)
+        elif isinstance(node, ast.Match):
+            for case in node.cases:
+                yield from _module_level_statements(case.body)
+
+
 def _all_names(tree: ast.Module, label: str) -> list[str]:
-    """The module-level ``__all__`` string literals, or a ``CheckFailure``.
+    """Every module-level ``__all__`` string literal, or a ``CheckFailure``.
 
     A missing binding, or one whose value is not a list/tuple literal, is a
     problem: the gate cannot know what a package exports and must not guess that
     the answer is "nothing".
+
+    **Every** ``__all__`` binding in the module is accumulated, not just the
+    first, and ``ast.AugAssign`` (``__all__ += [...]``) counts as one -- that
+    shape used to add names the gate then never scanned and never reported
+    (CR-01 shape 3). A non-``Constant`` element (``*models.__all__``) is likewise
+    a failure and not a silent drop: it makes the exported surface unreadable
+    statically, which is the same class of problem as a non-literal ``__all__``.
     """
-    for node in tree.body:
+    names: list[str] = []
+    found = False
+    for node in _module_level_statements(tree.body):
         if isinstance(node, ast.Assign):
             targets: list[ast.expr] = list(node.targets)
-        elif isinstance(node, ast.AnnAssign):
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign):
             targets = [node.target]
         else:
             continue
-        for target in targets:
-            if not (isinstance(target, ast.Name) and target.id == "__all__"):
-                continue
-            value = node.value
-            if not isinstance(value, ast.List | ast.Tuple):
+        if not any(isinstance(target, ast.Name) and target.id == "__all__" for target in targets):
+            continue
+        value = node.value
+        if not isinstance(value, ast.List | ast.Tuple):
+            raise _fail(
+                f"    package `{label}` declares `__all__` as something other than a "
+                f"list/tuple literal -- the exported surface is not statically readable"
+            )
+        for element in value.elts:
+            if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
                 raise _fail(
-                    f"    package `{label}` declares `__all__` as something other than a "
-                    f"list/tuple literal -- the exported surface is not statically readable"
+                    f"    package `{label}` has a non-literal element in `__all__` "
+                    f"(`{ast.unparse(element)}`) -- the exported surface is not "
+                    f"statically readable"
                 )
-            return [
-                element.value
-                for element in value.elts
-                if isinstance(element, ast.Constant) and isinstance(element.value, str)
-            ]
-    raise _fail(
-        f"    package `{label}` has no module-level `__all__` -- a package with no "
-        f"statically readable exported surface is a problem, never a skip"
-    )
+            names.append(element.value)
+        found = True
+    if not found:
+        raise _fail(
+            f"    package `{label}` has no module-level `__all__` -- a package with no "
+            f"statically readable exported surface is a problem, never a skip"
+        )
+    return names
 
 
-def _definition_sites(tree: ast.Module, import_name: str) -> dict[str, str]:
-    """Map each name bound in ``__init__.py`` to the submodule that defines it.
+@dataclass(frozen=True, slots=True)
+class _Binding:
+    """Where one module-level name comes from.
 
-    ``ast.walk`` rather than a first-match-wins shortcut: matriz and higyrus each
-    carry **two separate** ``ImportFrom`` blocks from ``.client``, and matriz
-    imports from eight distinct submodules.
-
-    Names defined directly in ``__init__.py`` (a ``def``, a ``class``, or a
-    module-level assignment such as ``__version__``) resolve to ``__init__``
-    itself, so a locally-bound export is resolved rather than reported missing.
+    ``submodule`` is the intra-package submodule the name was imported from, or
+    ``None`` when the name is bound in this module itself. ``source_name`` is the
+    name to look up at the next hop -- it differs from the bound name exactly
+    when an ``as`` alias is in play, which is CR-01 shape 1. ``node`` is set only
+    for a local ``def``/``class``; a local assignment leaves it ``None``.
     """
-    sites: dict[str, str] = {}
+
+    submodule: str | None
+    source_name: str
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | None
+
+
+def _module_bindings(tree: ast.Module, import_name: str) -> dict[str, _Binding]:
+    """Map every module-level name bound in ``tree`` to its :class:`_Binding`.
+
+    ``ast.walk`` for the imports rather than a first-match-wins shortcut: matriz
+    and higyrus each carry **two separate** ``ImportFrom`` blocks from
+    ``.client``, and matriz imports from eight distinct submodules.
+
+    ``alias.asname or alias.name`` is the *bound* name and ``alias.name`` is the
+    *source* name; both are recorded, so ``from pkg.client import Client as C``
+    resolves ``C`` to the ``ClassDef`` actually named ``Client`` instead of
+    silently matching nothing.
+    """
+    bindings: dict[str, _Binding] = {}
     prefix = f"{import_name}."
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(prefix):
             submodule = node.module[len(prefix) :]
             for alias in node.names:
-                sites[alias.asname or alias.name] = submodule
-    for node in tree.body:
+                bindings[alias.asname or alias.name] = _Binding(
+                    submodule=submodule, source_name=alias.name, node=None
+                )
+    for node in _module_level_statements(tree.body):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            sites.setdefault(node.name, "__init__")
+            bindings.setdefault(node.name, _Binding(None, node.name, node))
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    sites.setdefault(target.id, "__init__")
+                    bindings.setdefault(target.id, _Binding(None, target.id, None))
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            sites.setdefault(node.target.id, "__init__")
-    return sites
+            bindings.setdefault(node.target.id, _Binding(None, node.target.id, None))
+    return bindings
 
 
 def _is_exempt(name: str) -> str | None:
@@ -300,6 +420,98 @@ def _module_path(import_root: Path, submodule: str) -> Path:
     if flat.is_file():
         return flat
     return import_root.joinpath(*parts) / "__init__.py"
+
+
+def _bindings_for(
+    import_root: Path,
+    submodule: str,
+    cache: dict[str, dict[str, _Binding] | None],
+) -> dict[str, _Binding] | None:
+    """The module-level bindings of one submodule, or ``None`` if it has no file.
+
+    Cached per package because the re-export chase revisits the same modules --
+    matriz's eight submodules back 178 exported names.
+    """
+    if submodule not in cache:
+        path = _module_path(import_root, submodule)
+        cache[submodule] = (
+            _module_bindings(_parse(path), import_root.name) if path.is_file() else None
+        )
+    return cache[submodule]
+
+
+def _resolve_export(
+    import_root: Path,
+    package: str,
+    name: str,
+    cache: dict[str, dict[str, _Binding] | None],
+) -> tuple[str, _Binding] | str:
+    """Follow ``name`` from ``__init__`` to the module that actually binds it.
+
+    Returns ``(submodule_label, binding)`` where ``binding.submodule is None``,
+    or a fully formed problem line. **Every** unresolvable outcome returns a
+    problem: a dead-ended chain, a missing file, a cycle, and an over-deep chain
+    alike. There is deliberately no path through this function that returns
+    "nothing to look at" -- that silent third outcome was CR-01.
+    """
+    module, current = _INIT, name
+    seen = {(module, current)}
+    for _ in range(_MAX_RESOLUTION_HOPS):
+        bindings = _bindings_for(import_root, module, cache)
+        if bindings is None:
+            return (
+                f"    package `{package}` resolves `{name}` to `{module}`, which has "
+                f"no source file on disk"
+            )
+        binding = bindings.get(current)
+        if binding is None:
+            if module == _INIT:
+                return (
+                    f"    package `{package}` exports `{name}` but no import in "
+                    f"`__init__.py` resolves it to a definition site"
+                )
+            return (
+                f"    package `{package}` resolves `{name}` to `{module}`, which contains "
+                f"no top-level definition, assignment or re-export of `{current}` -- an "
+                f"export the gate cannot inspect is a problem, never a skip"
+            )
+        if binding.submodule is None:
+            return module, binding
+        step = (binding.submodule, binding.source_name)
+        if step in seen:
+            return (
+                f"    package `{package}` resolves `{name}` through a cyclic re-export "
+                f"chain that revisits `{binding.submodule}.{binding.source_name}`"
+            )
+        seen.add(step)
+        module, current = step
+    return (
+        f"    package `{package}` resolves `{name}` through more than "
+        f"{_MAX_RESOLUTION_HOPS} re-export hops -- the chain is unreadable, which is a "
+        f"problem, never a skip"
+    )
+
+
+def _candidates_for(
+    binding: _Binding,
+) -> list[tuple[str, str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """The definitions one resolved export contributes to the scan.
+
+    A function contributes itself. A class contributes its direct member
+    functions (D-03: the likeliest regression is a method of an exported class,
+    and a nested helper class is not part of the exported surface). Conditionally
+    defined members are included via :func:`_module_level_statements`.
+    """
+    node = binding.node
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return [(node.name, node.name, node)]
+    if isinstance(node, ast.ClassDef):
+        return [
+            (f"{node.name}.{member.name}", member.name, member)
+            for member in _module_level_statements(node.body)
+            if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef)
+        ]
+    return []
 
 
 def _adjudicate(
@@ -341,6 +553,7 @@ def scan_surface_types(root: Path) -> ScanResult:
     exempt_counts: dict[str, int] = {}
     all_names_total = 0
     definitions_total = 0
+    assignments_total = 0
 
     packages_dir = root / "packages"
     package_dirs: list[Path] = []
@@ -376,44 +589,26 @@ def scan_surface_types(root: Path) -> ScanResult:
             )
             continue
 
-        init_tree = _parse(init_path)
-        exported = _all_names(init_tree, package_dir.name)
+        exported = _all_names(_parse(init_path), package_dir.name)
         all_names_total += len(exported)
-        sites = _definition_sites(init_tree, import_root.name)
 
-        by_submodule: dict[str, set[str]] = {}
+        # Bindings are parsed once per submodule and reused across the whole
+        # package: the re-export chase revisits the same handful of modules for
+        # every one of the package's exported names.
+        bindings_cache: dict[str, dict[str, _Binding] | None] = {}
         for name in exported:
-            submodule = sites.get(name)
-            if submodule is None:
-                problems.append(
-                    f"    package `{package_dir.name}` exports `{name}` but no import in "
-                    f"`__init__.py` resolves it to a definition site"
-                )
+            resolved = _resolve_export(import_root, package_dir.name, name, bindings_cache)
+            if isinstance(resolved, str):
+                problems.append(resolved)
                 continue
-            by_submodule.setdefault(submodule, set()).add(name)
-
-        for submodule, wanted in sorted(by_submodule.items()):
-            module_path = _module_path(import_root, submodule)
-            if not module_path.is_file():
-                problems.append(
-                    f"    package `{package_dir.name}` resolves an export to "
-                    f"`{submodule}`, which has no source file on disk"
-                )
+            _, binding = resolved
+            candidates = _candidates_for(binding)
+            if not candidates and binding.node is None:
+                # Resolved to a module-level assignment: a constant or a
+                # `Literal` alias. It has no return annotation to check, so it
+                # is a stated outcome rather than a silent skip.
+                assignments_total += 1
                 continue
-            module_tree = init_tree if module_path == init_path else _parse(module_path)
-
-            candidates: list[tuple[str, str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
-            for node in module_tree.body:
-                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                    if node.name in wanted:
-                        candidates.append((node.name, node.name, node))
-                elif isinstance(node, ast.ClassDef) and node.name in wanted:
-                    # D-03: the likeliest regression is a method of an exported
-                    # class, not a module-level function. Direct children only --
-                    # a nested helper class is not part of the exported surface.
-                    for member in node.body:
-                        if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef):
-                            candidates.append((f"{node.name}.{member.name}", member.name, member))
 
             definitions_total += len(candidates)
             for qualified_name, member_name, func_node in candidates:
@@ -445,6 +640,7 @@ def scan_surface_types(root: Path) -> ScanResult:
         packages=len(package_dirs),
         all_names=all_names_total,
         definitions=definitions_total,
+        assignments=assignments_total,
         exempted=sum(exempt_counts.values()),
         exempted_by_reason=tuple(sorted(exempt_counts.items())),
         violations=tuple(violations),
@@ -461,8 +657,8 @@ def check_surface_types(root: Path = REPO_ROOT) -> str:
     taxonomy = ", ".join(f"{reason} {count}" for reason, count in result.exempted_by_reason)
     return (
         f"surface types: {result.packages} packages, {result.all_names} `__all__` names, "
-        f"{result.definitions} definitions scanned, {result.exempted} exempted "
-        f"({taxonomy or 'none'}), 0 violations"
+        f"{result.definitions} definitions scanned, {result.assignments} constant/alias "
+        f"exports, {result.exempted} exempted ({taxonomy or 'none'}), 0 violations"
     )
 
 
