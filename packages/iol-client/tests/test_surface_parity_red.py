@@ -42,7 +42,14 @@ from pathlib import Path
 from typing import Protocol
 
 import pytest
-from tools.surface_parity import class_parity_report, module_parity_report, public_names
+from tools.surface_parity import (
+    CLASS_COMPARED_LOWER_BOUNDS,
+    CLASS_LOWER_BOUNDS,
+    assert_class_parity,
+    class_parity_report,
+    module_parity_report,
+    public_names,
+)
 
 # A module-level `from __future__ import annotations` is what forces the gate to
 # resolve hints rather than string-match them, so every fixture carries it: the
@@ -419,3 +426,79 @@ def test_constants_are_name_compared_but_never_signature_diffed(
     assert report.hint_mismatches == ()
     # Only `configure` is a routine; the constant and the alias are name-compared.
     assert report.compared_hints == 1
+
+
+def test_class_floors_are_measured_per_package_not_a_shared_threshold() -> None:
+    """WR-03: the class axis had a hard-coded ``compared_hints < 1``.
+
+    The same module spends a whole docstring section arguing a shared floor is
+    arithmetically wrong -- "A shared floor set low enough for wallets would make
+    the matriz assertion meaningless" -- and then applied a shared floor of 1 to
+    the class axis, where matriz's ``Client`` carries 23 public members. Two
+    classes that collapsed in lockstep to a single shared method agreed with each
+    other perfectly and passed, and ``sync_count`` / ``async_count`` were
+    populated on that axis and asserted against nothing.
+
+    This asserts the property a shared threshold destroys: the floors are
+    measured, so they differ.
+    """
+    real_pairs = {
+        package: bounds for package, bounds in CLASS_LOWER_BOUNDS.items() if bounds != (0, 0)
+    }
+
+    assert len(real_pairs) >= 5, "every class-bearing package needs a measured class floor"
+    assert len(set(real_pairs.values())) > 1, (
+        "CLASS_LOWER_BOUNDS collapsed to a single shared value -- that is the uniform "
+        "threshold D-08 forbids, and it makes the largest package's assertion meaningless"
+    )
+    compared = {
+        package: floor
+        for package, floor in CLASS_COMPARED_LOWER_BOUNDS.items()
+        if package in real_pairs
+    }
+    assert min(compared.values()) > 1, (
+        "a class-bearing package still carries the old hard-coded floor of 1"
+    )
+    assert len(set(compared.values())) > 1, (
+        "CLASS_COMPARED_LOWER_BOUNDS collapsed to a single shared value"
+    )
+
+
+def test_lockstep_class_collapse_is_reported(
+    surface_pair: _SurfacePairFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The executable half of WR-03: two surfaces that agree because both shrank.
+
+    A parity *comparison* cannot catch this -- the two classes agree perfectly.
+    Only a floor on the member counts can, which is why ``sync_count`` and
+    ``async_count`` are asserted rather than merely reported.
+
+    The floors are injected with ``monkeypatch`` rather than by borrowing a real
+    package name: shadowing an already-imported package in ``sys.modules`` would
+    make the fixture resolve to the *real* module and quietly test nothing.
+    """
+    package = surface_pair(
+        "fake_lockstep_collapse",
+        client_source=(
+            "class Client:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    def close(self) -> None:\n"
+            "        return None\n"
+        ),
+        aio_source=(
+            "class AsyncClient:\n"
+            "    def __init__(self) -> None:\n"
+            "        return None\n"
+            "\n"
+            "    async def aclose(self) -> None:\n"
+            "        return None\n"
+        ),
+    )
+
+    monkeypatch.setitem(CLASS_LOWER_BOUNDS, package, (7, 7))
+    monkeypatch.setitem(CLASS_COMPARED_LOWER_BOUNDS, package, 8)
+
+    with pytest.raises(AssertionError, match="below the measured floor"):
+        assert_class_parity(package)

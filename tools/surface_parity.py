@@ -258,6 +258,42 @@ MODULE_COMPARED_LOWER_BOUNDS: dict[str, int] = {
     "wallets_client": 1,
 }
 
+# Phase 32 WR-03. The CLASS axis used a hard-coded `compared_hints < 1`, in the
+# same module that spends `THE LOWER BOUNDS ARE PER-PACKAGE INTEGERS` arguing a
+# shared floor is arithmetically wrong -- and it applied that shared floor of 1
+# where matriz's `Client` carries 23 public members. Two classes that collapsed
+# in lockstep to a single shared method agreed with each other perfectly and
+# passed. `ParityReport.sync_count` / `async_count` were populated on this axis
+# and asserted against nothing.
+#
+# (sync_min, async_min) public members of `Client` / `AsyncClient`.
+CLASS_LOWER_BOUNDS: dict[str, tuple[int, int]] = {
+    "ambito_financiero_client": (3, 3),
+    "iol_client": (7, 7),
+    "higyrus_client": (8, 8),
+    "matriz_client": (23, 23),
+    "market_data_client": (20, 20),
+    # NO CLASS PAIR AT ALL -- wallets is the one pre-Phase-7 package; its request
+    # functions are module-level. The entry exists, at (0, 0) and with this
+    # reason stated, so the roster cross-check has something to find rather than
+    # a hole it cannot tell from an oversight. `assert_class_parity` still
+    # RAISES for wallets; the absence is asserted explicitly in its hook file.
+    "wallets_client": (0, 0),
+}
+
+# Floor on `compared_hints` at the CLASS axis -- members whose hints AND
+# signature were diffed, `__init__` included (rule 5). Measured per package for
+# the same arithmetic reason as every other table here.
+CLASS_COMPARED_LOWER_BOUNDS: dict[str, int] = {
+    "ambito_financiero_client": 4,
+    "iol_client": 8,
+    "higyrus_client": 9,
+    "matriz_client": 24,
+    "market_data_client": 21,
+    # NO CLASS PAIR -- see CLASS_LOWER_BOUNDS.
+    "wallets_client": 0,
+}
+
 #: Axis label for a report over module-level names (``client`` vs ``aio``).
 MODULE_AXIS = "module"
 #: Axis label for a report over ``Client`` vs ``AsyncClient`` public members.
@@ -688,6 +724,28 @@ def _compared_floor_for(package: str) -> int:
     return MODULE_COMPARED_LOWER_BOUNDS[package]
 
 
+def _class_bounds_for(package: str) -> tuple[int, int]:
+    if package not in CLASS_LOWER_BOUNDS:
+        raise AssertionError(
+            f"{package!r} has no entry in CLASS_LOWER_BOUNDS. A package without a "
+            f"stated per-package floor on its Client/AsyncClient member counts cannot "
+            f"be asserted non-vacuously; add its measured (sync_min, async_min), or "
+            f"(0, 0) WITH the reason if it has no class pair."
+        )
+    return CLASS_LOWER_BOUNDS[package]
+
+
+def _class_compared_floor_for(package: str) -> int:
+    if package not in CLASS_COMPARED_LOWER_BOUNDS:
+        raise AssertionError(
+            f"{package!r} has no entry in CLASS_COMPARED_LOWER_BOUNDS. A package "
+            f"without a stated per-package floor on the number of members actually "
+            f"diffed cannot be asserted non-vacuously; add its measured integer rather "
+            f"than reusing another package's."
+        )
+    return CLASS_COMPARED_LOWER_BOUNDS[package]
+
+
 def _fail(report: ParityReport, problems: list[str]) -> None:
     raise AssertionError(
         f"sync/async {report.axis.upper()} parity FAILED for {report.package} "
@@ -744,6 +802,12 @@ def assert_class_parity(package: str) -> None:
     Raises for a package with **no** class pair rather than passing vacuously.
     Such a package must call :func:`class_parity_report` and assert the absence
     explicitly, with a stated reason -- an explicit skip, never a silent one.
+
+    The three floors are all per-package measured integers
+    (``CLASS_LOWER_BOUNDS``, ``CLASS_COMPARED_LOWER_BOUNDS``), never a shared
+    threshold. The shared threshold this replaces was ``compared_hints < 1``,
+    which two classes collapsed in lockstep to a single shared method would
+    satisfy (WR-03).
     """
     report = class_parity_report(package)
     if report.axis == CLASS_AXIS_ABSENT:
@@ -753,8 +817,26 @@ def assert_class_parity(package: str) -> None:
             f"and assert axis == CLASS_AXIS_ABSENT explicitly, with the reason stated."
         )
     problems = _name_and_hint_problems(report)
-    if report.compared_hints < 1:
-        problems.append(f"  VACUOUS: {report.compared_hints} method(s) had their hints compared.")
+    compared_floor = _class_compared_floor_for(package)
+    if report.compared_hints < compared_floor:
+        problems.append(
+            f"  VACUOUS: only {report.compared_hints} member(s) had their hints and "
+            f"signature compared, below the per-package floor of {compared_floor}. The "
+            f"comparison examined too little to mean anything."
+        )
+    sync_min, async_min = _class_bounds_for(package)
+    if report.sync_count < sync_min:
+        problems.append(
+            f"  {package}.client's Client exposes {report.sync_count} public member(s), "
+            f"below the measured floor of {sync_min} -- the two surfaces may agree "
+            f"because BOTH collapsed"
+        )
+    if report.async_count < async_min:
+        problems.append(
+            f"  {package}.aio's AsyncClient exposes {report.async_count} public member(s), "
+            f"below the measured floor of {async_min} -- the two surfaces may agree "
+            f"because BOTH collapsed"
+        )
     if problems:
         _fail(report, problems)
 
