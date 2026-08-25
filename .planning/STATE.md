@@ -5,8 +5,8 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
 current_phase_name: Gates de homogeneidad + D-16
 status: verifying
-stopped_at: Completed 31-05-PLAN.md (last plan of phase 31)
-last_updated: "2026-08-25T13:11:21.919Z"
+stopped_at: Phase 32 context gathered (assumptions mode)
+last_updated: "2026-08-25T17:53:39.855Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 31 complete, transitioned to Phase 32
 progress:
@@ -347,9 +347,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T11:17:10.307Z
-Stopped at: Completed 31-05-PLAN.md (last plan of phase 31)
-Resume file: None
+Last session: 2026-08-25T17:53:39.848Z
+Stopped at: Phase 32 context gathered (assumptions mode)
+Resume file: .planning/phases/32-gates-de-homogeneidad-d-16/32-CONTEXT.md
 
 ## Operator Next Steps
 
