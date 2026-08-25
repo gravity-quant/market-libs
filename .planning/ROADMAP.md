@@ -181,13 +181,13 @@ Plans:
   4. **D-16 cerrado** reconciliando las **4** listas de enrollment en un commit atómico — mypy `files`, import-linter `root_packages`, el loop mypy-tests de `ci.yml:85` y `verification/test_public_surface._PACKAGES` — con el contrato import-linter de `market_data_client._core` **RED-probado**, la inclusión (o exclusión) de `wallets_client` decidida explícitamente, y la exclusión **deliberada** de market-data en `_PACKAGES` (ya tiene su test in-package desde Phase 25) documentada como intencional, no "arreglada".
   5. La matriz completa de CI (6 paquetes × py3.12 + py3.13) queda verde con los gates nuevos activos.
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
 
 **Wave 0**
 
-- [ ] 32-01-PLAN.md — Baseline CI verde: reparar los 33 errores de mypy pre-existentes (matriz 29, higyrus 2, ambito 2) en los tests de la Phase 29 que bloquean el criterio 5
+- [x] 32-01-PLAN.md — Baseline CI verde: reparar los 33 errores de mypy pre-existentes (matriz 29, higyrus 2, ambito 2) en los tests de la Phase 29 que bloquean el criterio 5
 
 **Wave 1** *(blocked on Wave 0 completion)*
 
@@ -267,7 +267,7 @@ Plans:
 | 29. Decoder observable                                      | v1.6      | 10/10 | Complete    | 2026-08-19 |
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
-| 32. Gates de homogeneidad + D-16                            | v1.6      | 0/? | Not started | -          |
+| 32. Gates de homogeneidad + D-16                            | v1.6      | 1/6 | In Progress|  |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 0/? | Not started | -          |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |
 

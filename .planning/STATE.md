@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
-current_phase_name: Gates de homogeneidad + D-16
+current_phase_name: gates-de-homogeneidad-d-16
 status: executing
-stopped_at: Phase 32 context gathered (assumptions mode)
-last_updated: "2026-08-25T20:52:31.297Z"
+stopped_at: Completed 32-01-PLAN.md (Wave 0 CI-green baseline)
+last_updated: "2026-08-25T21:05:56.061Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 31 complete, transitioned to Phase 32
+last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 28
-  completed_plans: 28
+  total_plans: 34
+  completed_plans: 29
   percent: 50
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 31 — endpoints-de-ops-estructura-uniforme
+**Current focus:** Phase 32 — gates-de-homogeneidad-d-16
 
 ## Current Position
 
-Phase: 32 — Gates de homogeneidad + D-16
-Plan: Not started
+Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-08-25 — Phase 31 complete, transitioned to Phase 32
+Last activity: 2026-08-25 — Phase 32 execution started
 
 ## Performance Metrics
 
@@ -142,6 +142,7 @@ Last activity: 2026-08-25 — Phase 31 complete, transitioned to Phase 32
 | Phase 31 P03 | 52min | 3 tasks | 10 files |
 | Phase 31 P04 | 47min | 3 tasks | 15 files |
 | Phase 31 P05 | 27min | 3 tasks | 10 files |
+| Phase 32 P01 | 9min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 31-05: MEDIDO — un int que llega a un campo declarado bool NO se ensancha: walk_field emite divergencia type (declared=bool/observed=int) y sustituye False (POLICY.scalar_passthrough=False). Contrasta con Phase 29 en matriz, donde un int para un campo float SI ensancha
 - [Phase ?]: 31-05: los probes de delete_holiday ACEPTAN la ceguera a la deriva del snapshot (T-31-29) con carry-forward en ambos docstrings — un re-fire crudo es imposible (un segundo DELETE es legitimamente 404 Y ES la medicion D-19). Para Phase 33 la señal autoritativa es el CENSO de divergencias
 - [Phase ?]: 31-05: CRITERIO 1 CERRADO — 5 endpoints de ops x 2 superficies x (metodo, shim) = 20 sitios devuelven una clase modelo; ningun retorno de mapping sin tipar sobrevive
+- [Phase ?]: 32-01: los 6 errores comparison-overlap de matriz se arreglaron ensanchando la LECTURA a un intermedio tipado object, nunca re-asertando contra un typed zero sustituido — scalar_passthrough=True devuelve el valor de wire VERBATIM, asi que asertar un typed zero habria invertido la propiedad bajo test
+- [Phase ?]: 32-01: assumption A1 de RESEARCH.md CONFIRMADA por ejecucion — los 33 errores cayeron con cambios en codigo de test unicamente; pyproject.toml quedo byte-identico y ninguna perilla de strictness se afloja (sin per-file-ignores, sin warn_unused_ignores off, sin --no-strict)
+- [Phase ?]: 32-01: GATE-TYP-01 NO se marca completo — los seis planes de la Phase 32 cargan ese ID y este plan no entrega nada de su scope declarado; cerrarlo en el plan 1 de 6 seria una completitud falsa. Queda para el plan 32-06
 
 ### Pending Todos
 
@@ -287,8 +291,8 @@ Recent decisions affecting current work:
 - [v1.5 / Phase 27 risk]: La verificación en vivo es **destructiva** (crea/modifica estado en develop) — a diferencia de v1.4 (solo lectura). Requiere identificadores de prueba dedicados + cleanup obligatorio (crear→verificar→revertir, DM-06) y **confirmación del operator sobre qué es seguro tocar en develop** antes de Phase 27. El mutating-gate impide prod. Depende también de creds Auth0 + acceso a develop (mismo standing blocker que v1.4 Phase 23, ya resuelto post-close con creds provistas por el operator).
 - [v1.5 / Phase 27 risk]: La **idempotencia real** de los POST de symbols la declara el spec, pero un POST no idempotente reintentado duplicaría estado → se revalida en vivo (DM-03) antes de confiar el retry-behavior. `POST /calendar/holidays` se asume `idempotent=False` (no retry) salvo confirmación live.
 - [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
-- verification/ matriz probes call probe_login_sync() with the pre-15-05 signature (19 failed + 19 errors in the full local suite); ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run. Both pre-existing and out of scope for Phase 31 -- see .planning/phases/31-endpoints-de-ops-estructura-uniforme/deferred-items.md
-- mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.
+- [v1.6 / Phase 32 STILL OPEN]: `verification/` matriz probes call `probe_login_sync()` with the pre-15-05 signature (19 failed + 19 errors in a **full** local suite run). Sigue abierto y **fuera del scope del plan 32-01**: `verification/` nunca corrió en CI (`ci.yml:125` pasa un path `packages/<pkg>` explícito que pisa `testpaths`), así que no afecta ninguna de las 6 patas per-package. GATE-TYP-01 es lo primero que va a meter superficie de test a nivel repo en CI → re-chequear antes de que el plan 32-06 reclame un verde de matriz completa. Ver `.planning/phases/31-endpoints-de-ops-estructura-uniforme/deferred-items.md`.
+- ~~[v1.6 / Phase 31 deferred-items D-2/D-3]~~ **RESUELTO 2026-08-25 (Plan 32-01, commits `5ce4e87` + `f08b7f2`).** Texto original: *ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run; mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.* Los 33 errores (29 matriz + 2 higyrus + 2 ambito) se arreglaron **en código de test únicamente** — `pyproject.toml` byte-idéntico, cero tests borrados/skippeados. El loop per-package de `ci.yml:92-99` imprime `Success: no issues found` **seis veces**; el job `typecheck` está verde por primera vez desde 2026-08-18. Baseline completo de los 4 jobs en `.planning/phases/32-gates-de-homogeneidad-d-16/32-01-SUMMARY.md` § CI-green baseline (Wave 0 close).
 
 ### Quick Tasks Completed
 
@@ -347,9 +351,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T17:53:39.848Z
-Stopped at: Phase 32 context gathered (assumptions mode)
-Resume file: .planning/phases/32-gates-de-homogeneidad-d-16/32-CONTEXT.md
+Last session: 2026-08-25T21:05:56.056Z
+Stopped at: Completed 32-01-PLAN.md (Wave 0 CI-green baseline)
+Resume file: None
 
 ## Operator Next Steps
 
