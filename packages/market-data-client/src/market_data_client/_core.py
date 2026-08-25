@@ -1148,14 +1148,21 @@ def parse_add_holidays_response(resp: httpx.Response) -> AddHolidaysResult:
     a ``null``, a JSON list or a JSON scalar all degraded to an empty mapping
     rather than raising a raw :class:`json.JSONDecodeError` or returning a value
     contradicting its own annotation. All four branches survive here, merely
-    re-expressed through the type: they collapse to ``AddHolidaysResult.from_api(None)``,
-    the zero-valued instance. **None of them raises.** That disposition
+    re-expressed through the type: they collapse to the zero-valued
+    ``AddHolidaysResult``. **None of them raises.** That disposition
     deliberately differs from the two health parsers, which gained a non-dict
     RAISE in plan 31-04: those serve reads, whereas this endpoint is a MUTATION
     already published in v0.4.0, and turning tolerance into a raise would be a
     behaviour change that this phase's response-only framing does not authorize.
     ``parse_calendar_config_response`` one function above is the direct in-package
-    precedent for the empty-body → ``from_api(None)`` shape.
+    precedent for the empty-body → zero-valued-instance shape.
+
+    Tolerating the shape does NOT mean hiding it (WR-01). The anomalous payload
+    reaches ``from_api`` verbatim, so the ``non_dict`` divergence record carries
+    the type the vendor really sent — ``list``, ``str``, ``int``, or ``NoneType``
+    for a genuinely absent body — instead of stamping all four as ``NoneType``.
+    The record is what Phase 33 freezes into its census; the substituted value is
+    what the caller gets.
 
     Transport errors keep flowing through ``raise_for_response`` (401/403 → Auth,
     429 → RateLimit, 422 and the rest → API error) BEFORE any decoding, in the
@@ -1170,11 +1177,14 @@ def parse_add_holidays_response(resp: httpx.Response) -> AddHolidaysResult:
     """
     resp.read()
     raise_for_response(resp)
-    if not resp.content:
-        return AddHolidaysResult.from_api(None)
-    raw = resp.json()
-    if not isinstance(raw, dict):
-        return AddHolidaysResult.from_api(None)
+    # WR-01: the payload is handed to ``from_api`` VERBATIM, never replaced by a
+    # literal ``None``. ``walk_model``'s non-dict arm reports
+    # ``observed_type=type(payload).__name__``, so substituting ``None`` here
+    # stamped every anomalous body — list, str, int — as ``NoneType`` and threw
+    # away the one fact the census exists to record: what the vendor actually
+    # sent. The resulting VALUE is unchanged (any non-dict yields the same
+    # zero-valued instance); only the divergence record gets its truth back.
+    raw = resp.json() if resp.content else None
     return AddHolidaysResult.from_api(raw)
 
 
@@ -1187,10 +1197,11 @@ def parse_delete_holiday_response(resp: httpx.Response) -> DeleteHolidayResult:
     endpoints' live shapes are unrelated, so the shared function became two.
 
     **The T-26-13 tolerance is PRESERVED (G-4).** An absent body, a ``null``, a
-    JSON list and a JSON scalar all collapse to
-    ``DeleteHolidayResult.from_api(None)`` — the zero-valued instance — and none
-    of them raises. This is a MUTATION published in v0.4.0; a raise here would be
-    a behaviour change, not a typing change.
+    JSON list and a JSON scalar all collapse to the zero-valued
+    ``DeleteHolidayResult`` and none of them raises. This is a MUTATION published
+    in v0.4.0; a raise here would be a behaviour change, not a typing change.
+    As in the add half, the payload reaches ``from_api`` verbatim so the
+    ``non_dict`` record names the type actually observed (WR-01).
 
     ``deleted`` is a BOOLEAN on the wire
     (``.planning/verification/schemas/market-data-client/delete-holiday-sync-response.json``),
@@ -1203,9 +1214,7 @@ def parse_delete_holiday_response(resp: httpx.Response) -> DeleteHolidayResult:
     """
     resp.read()
     raise_for_response(resp)
-    if not resp.content:
-        return DeleteHolidayResult.from_api(None)
-    raw = resp.json()
-    if not isinstance(raw, dict):
-        return DeleteHolidayResult.from_api(None)
+    # WR-01: payload handed to ``from_api`` verbatim — see the add half for why
+    # substituting a literal ``None`` erased the observed type from the record.
+    raw = resp.json() if resp.content else None
     return DeleteHolidayResult.from_api(raw)

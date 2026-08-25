@@ -658,13 +658,18 @@ def test_build_delete_holiday_request_is_state_independent() -> None:
 #
 # G-4, RESOLVED TOWARD TOLERANCE. The T-26-13 tolerance of the replaced function
 # is PRESERVED in both halves: an absent body, a ``null``, a JSON list and a JSON
-# scalar all collapse to ``Model.from_api(None)`` — the zero-valued instance —
-# and NONE of them raises. This deliberately differs from the disposition the two
+# scalar all collapse to the ZERO-VALUED model instance and NONE of them raises.
+# This deliberately differs from the disposition the two
 # health parsers took in plan 31-04 (non-dict → raise): those serve READS, while
 # these two serve mutations already PUBLISHED in v0.4.0, and turning tolerance
 # into a raise would be a behaviour change that criterion 2's response-only
 # framing does not authorize. ``parse_calendar_config_response`` is the direct
-# in-package precedent for the empty-body → ``from_api(None)`` shape.
+# in-package precedent for the empty-body → zero-valued-instance shape.
+#
+# WR-01: the collapse is in the VALUE only. The payload itself reaches
+# ``from_api`` verbatim, so the ``non_dict`` divergence record still names the
+# type the vendor really sent (``list`` / ``str`` / ``int``), which is what
+# ``test_calendar_write_parsers_record_the_type_actually_observed`` pins.
 
 
 def _raw_resp(status_code: int, content: bytes) -> httpx.Response:
@@ -720,6 +725,52 @@ def test_calendar_write_parsers_preserve_the_t2613_tolerance(
     parser = getattr(_core, parser_name)
     out = parser(_raw_resp(200, body))
     assert out == model_cls.from_api(None), branch
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+@pytest.mark.parametrize(
+    ("parser_name", "model_name"),
+    [
+        ("parse_add_holidays_response", "AddHolidaysResult"),
+        ("parse_delete_holiday_response", "DeleteHolidayResult"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("body", "observed"),
+    [
+        (b"", "NoneType"),
+        (b"null", "NoneType"),
+        (b"[]", "list"),
+        (b'"texto"', "str"),
+        (b"7", "int"),
+    ],
+)
+def test_calendar_write_parsers_record_the_type_actually_observed(
+    parser_name: str,
+    model_name: str,
+    body: bytes,
+    observed: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-01: tolerating the shape must not erase WHAT the vendor sent.
+
+    The parsers used to hand ``from_api`` a literal ``None`` on every non-dict
+    branch, so ``walk_model``'s ``non_dict`` record — whose ``observed_type`` is
+    ``type(payload).__name__`` — stamped a JSON list, a JSON string and a JSON
+    number all three as ``NoneType``. Phase 33 freezes the
+    ``(model, field_path, kind)`` identity of these records into its census, so
+    the erasure would have been frozen with it. The payload now flows through
+    verbatim; only ``NoneType`` for the genuinely absent/``null`` bodies is a
+    true ``NoneType``.
+    """
+    parser = getattr(_core, parser_name)
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        parser(_raw_resp(200, body))
+    records = [r for r in caplog.records if r.getMessage() == _MESSAGE]
+    assert [(r.model, r.divergence, r.observed_type) for r in records] == [  # type: ignore[attr-defined]
+        (model_name, "non_dict", observed)
+    ]
 
 
 @pytest.mark.parametrize(
