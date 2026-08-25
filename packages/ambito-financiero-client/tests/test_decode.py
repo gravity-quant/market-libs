@@ -796,7 +796,11 @@ def test_silent_sink_records_nothing_emits_nothing_and_never_raises(
     try:
         with caplog.at_level(logging.DEBUG, logger="ambito_financiero_client"):
             for kind in ("missing", "type", "extra", "non_dict"):
-                assert _decode.SILENT_SINK("M", ".campo", kind, "str", "int") is None
+                # ``SILENT_SINK`` is annotated ``-> None``, so mypy proves the
+                # "returns nothing" leg statically and asserting it at runtime
+                # is a ``func-returns-value`` error under strict mode. The bare
+                # call still pins the leg that matters: it never raises.
+                _decode.SILENT_SINK("M", ".campo", kind, "str", "int")
             kwargs = walk_model(_Scalars, None, policy=POLICY, sink=_decode.SILENT_SINK)
     finally:
         _decode.STRICT_DECODE.reset(token)
@@ -865,7 +869,7 @@ def _full_payload(cls: type) -> dict[str, Any]:
     """A type-correct wire payload covering every declared field of ``cls``."""
     filler: dict[Any, Any] = {str: "x", int: 1, float: 1.0, bool: True}
     hints = _decode.hints_for(cls)
-    return {f.name: filler.get(hints[f.name], []) for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
+    return {f.name: filler.get(hints[f.name], []) for f in dataclasses.fields(cls)}
 
 
 def test_from_api_shape_decodes_a_clean_payload_without_a_single_record(
