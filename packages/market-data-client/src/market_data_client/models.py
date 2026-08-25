@@ -700,6 +700,88 @@ class CalendarConfig(SafeModel):
 
 
 # ----------------------------------------------------------------------
+# Calendar-WRITE mutation results (Phase 31, TYP-02 / D-01) — plan 31-05
+# ----------------------------------------------------------------------
+#
+# ``POST /calendar/holidays`` and ``DELETE /calendar/holidays/{day}`` are the
+# only two endpoints typed in this milestone that were ALREADY PUBLISHED as
+# mutations (v0.4.0). The change is therefore RESPONSE-ONLY and that claim is
+# mechanical, not asserted: ``tests/test_v040_request_pin.py`` pins the emitted
+# request of both, raw-bytes, on both surfaces, and
+# ``tests/test_mutation_gate_ast.py`` pins ``_ensure_mutation_allowed()`` as the
+# first executable statement of every gated method plus ``idempotent is True``
+# on both holiday builders.
+#
+# Declared AFTER :class:`CalendarDay` so :attr:`AddHolidaysResult.days` resolves.
+# Neither carries ``received_at``: a mutation ACKNOWLEDGEMENT is not a snapshot
+# and has no staleness dimension. Neither declares a ``dict[...]`` field and
+# neither overrides ``from_api`` — a shape carve-out belongs in the parser, and
+# on a nested model an override is silently skipped anyway because the walker
+# builds nested models with ``hint(**walk_model(...))``. No field of either is
+# declared ``| None``: all four committed captures show every field populated,
+# and an over-declared Optional would permanently hide that field from the
+# divergence census (T-31-17, the 31-04 option-b logic applied here).
+
+
+@dataclass(frozen=True, slots=True)
+class AddHolidaysResult(SafeModel):
+    """The ``POST /calendar/holidays`` ``200`` envelope (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/add-holidays-sync-response.json``,
+    captured 2026-08-01 against ``market-data-develop``. The ``-async-`` capture
+    of the same endpoint is BYTE-IDENTICAL to it, and that identity is itself the
+    sync/async surface-parity evidence. Not from the OpenAPI — which declares this
+    ``200`` as a bare, schema-less ``object`` — and not from a mock. The
+    pre-Phase-31 unit mock asserted ``{"created": 1}``; no such key exists on the
+    wire.
+
+    :attr:`days` REUSES the shipped :class:`CalendarDay` rather than declaring a
+    parallel element model (D-01). The capture's ``days[]`` items match
+    ``CalendarDay`` field for field — ``day``, ``closed``, ``description`` and
+    both ``str | None`` hour fields, which the capture shows as ``null`` for a
+    fully closed day. A parallel class would drift from ``CalendarDay`` on the
+    next wire change and would add a second nested field type to police under the
+    two committed structural decode tests, for no gain.
+
+    :attr:`saved` is the server's upserted-row count and :attr:`note` its
+    human-readable acknowledgement. This is a MUTATION response typed
+    response-only: no request byte moves and the mutating gate is untouched.
+    """
+
+    days: list[CalendarDay]
+    note: str
+    saved: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteHolidayResult(SafeModel):
+    """The ``DELETE /calendar/holidays/{day}`` ``200`` envelope (Phase 31 TYP-02, D-01).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/delete-holiday-sync-response.json``,
+    captured 2026-08-01 against ``market-data-develop``. The ``-async-`` capture is
+    BYTE-IDENTICAL. Not from the OpenAPI and not from a mock.
+
+    :attr:`deleted` is declared ``bool`` because the capture says ``bool``. The
+    pre-Phase-31 unit mock sent the INTEGER ``1`` and asserted a mapping equality
+    against it; that mock contradicts the wire and was corrected on the test side
+    rather than accommodated here by widening the declaration. The measured
+    consequence, pinned by
+    ``test_delete_holiday_result_integer_deleted_is_not_widened_and_is_reported``:
+    an ``int`` arriving for this field is NOT widened — ``walk_field`` emits a
+    ``type`` divergence (``declared=bool`` / ``observed=int``) and substitutes
+    ``False``, because market-data's ``POLICY.scalar_passthrough`` is ``False``.
+
+    :attr:`day` echoes the ISO ``YYYY-MM-DD`` path segment that was deleted. Like
+    :class:`AddHolidaysResult` this is a MUTATION response typed response-only.
+    """
+
+    day: str
+    deleted: bool
+
+
+# ----------------------------------------------------------------------
 # Health models (Phase 31, TYP-02 / D-01) — ``GET /health`` + ``GET /health/feed``
 # ----------------------------------------------------------------------
 #
