@@ -203,6 +203,25 @@ now two measured tables:
 - ``MODULE_COMPARED_LOWER_BOUNDS`` -- floor on ``compared_hints``, the count of
   callables whose hints AND signature were actually diffed.
 
+THE ROSTER IS CROSS-CHECKED AGAINST DISK (Phase 32 WR-04)
+=========================================================
+
+Parity coverage used to be the intersection of two hand-maintained lists -- the
+keys of ``MODULE_LOWER_BOUNDS`` and the six
+``packages/*/tests/test_surface_parity.py`` files -- with neither derived from
+disk and nothing cross-checking them. A seventh package could enter the workspace
+with **no** parity test and **no** bounds entry, and every gate would stay green:
+omission by silence, the exact failure mode this phase is written against.
+
+The two sibling gates adopted the opposite discipline and say so in prose
+(``tools/check_surface_types.py``'s ``THE ROSTER COMES FROM DISK``,
+``tools/check_decode_intactness.py``'s Check D). Only this module skipped it.
+:func:`assert_bounds_roster_matches_disk` closes that: it enumerates
+``packages/*/src/<import_name>`` at run time and requires every package found to
+carry an entry in **all four** bounds tables and an in-package hook file. A
+package that leaves must have its entries removed; one that arrives must have
+them measured.
+
 ``wallets_client``'s floors are near-vacuous **by construction** -- its only
 public module-level name is ``configure`` on the sync side and ``configure`` plus
 ``aclose`` on the async side, it is the one pre-Phase-7 package, and it has no
@@ -220,7 +239,21 @@ import sys
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
+
+#: Repository root, derived from this file's location. A **default argument
+#: value only** -- every roster function threads a ``root`` parameter, which is
+#: the seam that lets the RED suite inject a synthetic workspace.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: Directory names under ``packages/<pkg>/src/`` that are build or tooling
+#: artifacts rather than the package's import root.
+_NON_IMPORT_ROOTS = ("__pycache__",)
+_BUILD_ARTIFACT_SUFFIX = ".egg-info"
+
+#: The in-package hook every workspace package owes the parity axes.
+_HOOK_RELATIVE_PATH = Path("tests") / "test_surface_parity.py"
 
 # Per-package literal bounds (D-08), in the CLASS-EXCLUSIVE metric defined in
 # `THE METRIC, STATED ONCE` above -- (client_min, aio_min). The class-inclusive
@@ -863,3 +896,125 @@ def assert_module_lower_bound(package: str) -> None:
         )
     if problems:
         _fail(report, problems)
+
+
+# ---------------------------------------------------------------------------
+# Roster cross-check (WR-04)
+# ---------------------------------------------------------------------------
+
+
+def workspace_packages(root: Path = REPO_ROOT) -> dict[str, Path]:
+    """Map every workspace package's import name to its package directory.
+
+    Enumerated from ``packages/*/src/`` at run time, never from a literal list:
+    a seventh package entering the workspace must be *found*, not silently
+    exempted by omission. Every structural surprise -- no ``packages/``, an empty
+    roster, a ``src/`` with zero or several candidate import roots -- raises with
+    the offending candidates named, rather than being dropped from the result.
+    """
+    packages_dir = root / "packages"
+    if not packages_dir.is_dir():
+        raise AssertionError(
+            f"there is no `packages/` directory under {root} -- that is a broken "
+            f"checkout, not a workspace with no packages"
+        )
+
+    found: dict[str, Path] = {}
+    problems: list[str] = []
+    for package_dir in sorted(packages_dir.iterdir()):
+        if not package_dir.is_dir() or package_dir.name.startswith("."):
+            continue
+        src = package_dir / "src"
+        if not src.is_dir():
+            problems.append(f"  `{package_dir.name}` has no `src/` directory")
+            continue
+        candidates = [
+            child
+            for child in sorted(src.iterdir())
+            if child.is_dir()
+            and not child.name.startswith(".")
+            and child.name not in _NON_IMPORT_ROOTS
+            and not child.name.endswith(_BUILD_ARTIFACT_SUFFIX)
+        ]
+        if len(candidates) != 1:
+            problems.append(
+                f"  `{package_dir.name}` has {len(candidates)} candidate import roots under "
+                f"src/ (expected exactly 1): {[c.name for c in candidates]}"
+            )
+            continue
+        found[candidates[0].name] = package_dir
+
+    if problems:
+        raise AssertionError(
+            "the workspace roster could not be read from disk:\n" + "\n".join(problems)
+        )
+    if not found:
+        raise AssertionError(
+            f"`{packages_dir}` holds zero resolvable packages -- an empty roster is a "
+            f"broken checkout, and a roster check over nothing passes vacuously"
+        )
+    return found
+
+
+def assert_bounds_roster_matches_disk(root: Path = REPO_ROOT) -> None:
+    """Assert every package on disk has all four floors and an in-package hook.
+
+    See ``THE ROSTER IS CROSS-CHECKED AGAINST DISK``. Without this, parity
+    coverage is the intersection of two hand-maintained lists that nothing
+    reconciles, and a package can join the workspace with neither -- staying
+    green by being invisible.
+    """
+    on_disk = workspace_packages(root)
+    problems: list[str] = []
+
+    tables: tuple[tuple[str, frozenset[str], str], ...] = (
+        (
+            "MODULE_LOWER_BOUNDS",
+            frozenset(MODULE_LOWER_BOUNDS),
+            "its measured (client_min, aio_min) public-name floor",
+        ),
+        (
+            "MODULE_COMPARED_LOWER_BOUNDS",
+            frozenset(MODULE_COMPARED_LOWER_BOUNDS),
+            "its measured floor on the number of module-level callables diffed",
+        ),
+        (
+            "CLASS_LOWER_BOUNDS",
+            frozenset(CLASS_LOWER_BOUNDS),
+            "its measured (sync_min, async_min) Client/AsyncClient member floor, "
+            "or (0, 0) WITH a stated reason if it has no class pair",
+        ),
+        (
+            "CLASS_COMPARED_LOWER_BOUNDS",
+            frozenset(CLASS_COMPARED_LOWER_BOUNDS),
+            "its measured floor on the number of class members diffed",
+        ),
+    )
+    for label, keys, what in tables:
+        for missing in sorted(frozenset(on_disk) - keys):
+            problems.append(
+                f"  `{missing}` is in the workspace but absent from {label} -- add {what}"
+            )
+        for stale in sorted(keys - frozenset(on_disk)):
+            problems.append(
+                f"  `{stale}` has an entry in {label} but is not in the workspace -- "
+                f"remove the stale floor rather than leaving it to rot"
+            )
+
+    for import_name, package_dir in sorted(on_disk.items()):
+        hook = package_dir / _HOOK_RELATIVE_PATH
+        if not hook.is_file():
+            problems.append(
+                f"  `{import_name}` has no in-package parity hook at "
+                f"{hook.relative_to(root)} -- a floor with no test that calls it "
+                f"asserts nothing"
+            )
+
+    if problems:
+        raise AssertionError(
+            "the parity roster and the workspace disagree:\n"
+            + "\n".join(problems)
+            + "\n  A package that enters or leaves the workspace must enter or leave the\n"
+            "  bounds tables with it. Silence here is the omission-by-omission failure\n"
+            "  mode this gate exists to prevent."
+        )

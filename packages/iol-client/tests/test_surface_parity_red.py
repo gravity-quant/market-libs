@@ -45,6 +45,9 @@ import pytest
 from tools.surface_parity import (
     CLASS_COMPARED_LOWER_BOUNDS,
     CLASS_LOWER_BOUNDS,
+    MODULE_COMPARED_LOWER_BOUNDS,
+    MODULE_LOWER_BOUNDS,
+    assert_bounds_roster_matches_disk,
     assert_class_parity,
     class_parity_report,
     module_parity_report,
@@ -502,3 +505,72 @@ def test_lockstep_class_collapse_is_reported(
 
     with pytest.raises(AssertionError, match="below the measured floor"):
         assert_class_parity(package)
+
+
+def test_every_workspace_package_has_all_four_floors_and_a_hook() -> None:
+    """WR-04: the roster comes from disk, and the tree satisfies it today.
+
+    The upper bound of the roster check. The two sibling gates read their roster
+    from disk and say so in prose; this module used to be the intersection of two
+    hand-maintained lists -- the bounds tables and the six
+    ``packages/*/tests/test_surface_parity.py`` files -- with nothing reconciling
+    them.
+    """
+    assert_bounds_roster_matches_disk()
+
+
+def test_a_package_with_no_floor_is_reported(tmp_path: Path) -> None:
+    """The lower bound: a seventh package must not stay green by being invisible.
+
+    A synthetic workspace holding one package that appears in no bounds table
+    and owns no hook file. The pre-fix gate had nothing to say about it at all.
+    """
+    (tmp_path / "packages" / "seventh-client" / "src" / "seventh_client").mkdir(parents=True)
+
+    with pytest.raises(AssertionError, match="absent from MODULE_LOWER_BOUNDS"):
+        assert_bounds_roster_matches_disk(tmp_path)
+
+
+def test_a_package_with_a_floor_but_no_hook_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A measured floor that no test ever calls asserts exactly nothing.
+
+    The two lists have to be reconciled in *both* directions: an entry with no
+    hook is as silent as a hook with no entry.
+    """
+    package_dir = tmp_path / "packages" / "seventh-client"
+    (package_dir / "src" / "seventh_client").mkdir(parents=True)
+    monkeypatch.setitem(MODULE_LOWER_BOUNDS, "seventh_client", (1, 1))
+    monkeypatch.setitem(CLASS_LOWER_BOUNDS, "seventh_client", (0, 0))
+    monkeypatch.setitem(MODULE_COMPARED_LOWER_BOUNDS, "seventh_client", 0)
+    monkeypatch.setitem(CLASS_COMPARED_LOWER_BOUNDS, "seventh_client", 0)
+
+    with pytest.raises(AssertionError, match="no in-package parity hook"):
+        assert_bounds_roster_matches_disk(tmp_path)
+
+
+def test_a_stale_floor_for_a_departed_package_is_reported(tmp_path: Path) -> None:
+    """A package that leaves must take its floors with it.
+
+    An entry for a package no longer on disk is a floor that can never fail --
+    it is the same silence as a missing entry, arriving from the other side.
+    """
+    package_dir = tmp_path / "packages" / "iol-client"
+    (package_dir / "src" / "iol_client").mkdir(parents=True)
+    (package_dir / "tests").mkdir(parents=True)
+    (package_dir / "tests" / "test_surface_parity.py").write_text("", encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="not in the workspace"):
+        assert_bounds_roster_matches_disk(tmp_path)
+
+
+def test_an_empty_workspace_is_a_failure_not_a_green(tmp_path: Path) -> None:
+    """A roster check over zero packages passes every assertion it is given."""
+    (tmp_path / "packages").mkdir(parents=True)
+
+    with pytest.raises(AssertionError, match="zero resolvable packages"):
+        assert_bounds_roster_matches_disk(tmp_path)
+
+    with pytest.raises(AssertionError, match="no `packages/` directory"):
+        assert_bounds_roster_matches_disk(tmp_path / "nowhere")
