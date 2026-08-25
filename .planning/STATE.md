@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 32
 current_phase_name: gates-de-homogeneidad-d-16
 status: executing
-stopped_at: Completed 32-01-PLAN.md (Wave 0 CI-green baseline)
-last_updated: "2026-08-25T21:05:56.061Z"
+stopped_at: Completed 32-02-PLAN.md (surface-type gate TRACER slice)
+last_updated: "2026-08-25T21:16:56.203Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 32 execution started
+last_activity_desc: Phase 32 plan 02 complete — surface-type gate live in the lint job
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 34
-  completed_plans: 29
+  completed_plans: 30
   percent: 50
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
-Last activity: 2026-08-25 — Phase 32 execution started
+Last activity: 2026-08-25 — Phase 32 plan 02 complete — surface-type gate live in the lint job
 
 ## Performance Metrics
 
@@ -143,6 +143,7 @@ Last activity: 2026-08-25 — Phase 32 execution started
 | Phase 31 P04 | 47min | 3 tasks | 15 files |
 | Phase 31 P05 | 27min | 3 tasks | 10 files |
 | Phase 32 P01 | 9min | 3 tasks | 4 files |
+| Phase 32 P02 | 7min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -270,6 +271,12 @@ Recent decisions affecting current work:
 - [Phase ?]: 32-01: los 6 errores comparison-overlap de matriz se arreglaron ensanchando la LECTURA a un intermedio tipado object, nunca re-asertando contra un typed zero sustituido — scalar_passthrough=True devuelve el valor de wire VERBATIM, asi que asertar un typed zero habria invertido la propiedad bajo test
 - [Phase ?]: 32-01: assumption A1 de RESEARCH.md CONFIRMADA por ejecucion — los 33 errores cayeron con cambios en codigo de test unicamente; pyproject.toml quedo byte-identico y ninguna perilla de strictness se afloja (sin per-file-ignores, sin warn_unused_ignores off, sin --no-strict)
 - [Phase ?]: 32-01: GATE-TYP-01 NO se marca completo — los seis planes de la Phase 32 cargan ese ID y este plan no entrega nada de su scope declarado; cerrarlo en el plan 1 de 6 seria una completitud falsa. Queda para el plan 32-06
+- [Phase 32]: 32-02: una anotacion de retorno AUSENTE es violacion, no solo una que menciona `Any` — es lo que hace aparecer la exencion numero 23 (el `__init__` sin anotar de una clase de excepcion, absorbido como `dunder`); el delta contra los 22 medidos en RESEARCH sale de la regla mas estricta, nunca de un predicado de exencion mas ancho
+- [Phase 32]: 32-02: `exempted` cuenta HITS absorbidos (definiciones que habrian sido violaciones), no todo miembro dunder/underscore encontrado — es la unica semantica bajo la cual el numero es comparable con los 22 de RESEARCH y bajo la cual `exempted == 3` en el test 4 dice algo sobre el predicado
+- [Phase 32]: 32-02: `scan_surface_types` levanta solo ante problemas ESTRUCTURALES y DEVUELVE las violaciones; solo `check_surface_types` levanta ante violaciones. Ese split es lo que permite al fixture RED asertar la taxonomia de exenciones de un arbol deliberadamente lleno de hits exentos, y a la vez exigir que un arbol vacio/irresoluble levante desde el scan
+- [Phase 32]: 32-02: ningun nombre de paquete aparece en el codigo del gate, docstring incluido — una mencion en prosa se lee como roster hardcodeado para cualquiera que grepee uno, y el propio criterio de aceptacion del plan grepea (fallo en el primer draft y se reescribio describiendo la forma, no el dueño)
+- [Phase 32]: 32-02: D-05 registrado in situ (docstring del gate + comentario en `ci.yml`) — el "job de CI nuevo" de ROADMAP.md:25 queda superseded por el D-12 lockeado de la Phase 31 ("step en `lint`"); agregar un step ademas no renombra el job, lo que cierra la assumption A2 de RESEARCH sin tocar branch protection
+- [Phase 32]: 32-02: el seam de root inyectable (D-04) queda como precedente para `tools/surface_parity.py` del plan 32-04 — es la unica razon por la que este gate tiene test y los dos preexistentes no
 
 ### Pending Todos
 
@@ -351,7 +358,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:05:56.056Z
+Last session: 2026-08-25T21:16:34.204Z
 Stopped at: Completed 32-01-PLAN.md (Wave 0 CI-green baseline)
 Resume file: None
 

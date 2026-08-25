@@ -98,7 +98,7 @@ Traceback:
 packages/iol-client/tests/test_surface_types_red.py:57: in <module>
     from tools.check_surface_types import CheckFailure, check_surface_types, scan_surface_types
 E   ModuleNotFoundError: No module named 'tools.check_surface_types'
-=========================== short test summary18 ============================
+=========================== short test summary info ============================
 ERROR packages/iol-client/tests/test_surface_types_red.py
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
 1 error in 0.04s
