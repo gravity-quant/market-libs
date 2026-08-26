@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
-current_phase: 32
-current_phase_name: gates-de-homogeneidad-d-16
+current_phase: 33
+current_phase_name: Verificación en vivo en modo estricto + fixes
 status: verifying
 stopped_at: Completed 32-06-PLAN.md — Phase 32 complete, GATE-TYP-01 closed
-last_updated: "2026-08-25T22:07:46.542Z"
-last_activity: 2026-08-25
-last_activity_desc: Phase 32 plan 06 complete — paridad sync/async en los 6 paquetes (wallets con ausencia aserida), matriz de CI reproducida verde localmente (4 jobs, 12 legs, 1707 passing en py3.12 y py3.13), GATE-TYP-01 cerrado
+last_updated: "2026-08-26T12:28:46.724Z"
+last_activity: 2026-08-26
+last_activity_desc: Phase 32 complete, transitioned to Phase 33
 progress:
   total_phases: 6
   completed_phases: 4
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 32 (gates-de-homogeneidad-d-16) — EXECUTING
-Plan: 6 of 6
+Phase: 33 — Verificación en vivo en modo estricto + fixes
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-08-25 — Phase 32 plan 06 complete — paridad sync/async en los 6 paquetes (wallets con ausencia aserida), matriz de CI reproducida verde localmente (4 jobs, 12 legs, 1707 passing en py3.12 y py3.13), GATE-TYP-01 cerrado
+Last activity: 2026-08-26 — Phase 32 complete, transitioned to Phase 33
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 111 (v1.0)
+- Total plans completed: 117 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
