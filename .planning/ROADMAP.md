@@ -216,7 +216,30 @@ Plans:
   4. `verify_cycle_closure` PASS por paquete y los schema snapshots quedan reconciliados contra el baseline.
   5. El volumen real de divergencias se **contrasta contra el piso de sizing de la Phase 29**; si lo excede, el re-scope es explícito (findings diferidos documentados con su fase destino, nunca silenciados).
 
-**Plans**: TBD
+**Plans:** 7 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 33-01-PLAN.md — TRACER: `verification/divergences.py` (handler + endpoint/surface ContextVars + install CM + probe decorator) wired end-to-end through higyrus `get_health`, hardening tests for the three silent-loss channels, y baseline rojo de `verification/`
+
+**Wave 2** *(blocked on Wave 1 completion; los tres planes son independientes entre sí y corren en paralelo)*
+
+- [ ] 33-02-PLAN.md — Los dos drivers AST-gated que hoy MUEREN en modo estricto: matriz (46 probes + `_seed_fid_counter` sobre `F-10`) y higyrus (17 probes restantes)
+- [ ] 33-03-PLAN.md — iol (15 probes + rama `IOLDecodeError` como `SHAPE` delante del handler ancho) y ámbito (7 probes + `_seed_fid_counter`, smoke D-12)
+- [ ] 33-04-PLAN.md — market-data: `_ENDPOINT_TEMPLATES` nuevo (D-03), clasificación `SHAPE` centralizada en `_finding_for_exc` (un edit cubre los 43 sitios), 43 probes decorados
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 33-05-PLAN.md — Gates pre-run (cobertura AST sobre los 130 probes, consistencia fid/finding, pre-flight de autenticación real) + corridas en vivo de dos pasadas × 5 paquetes + `33-CENSUS.md` contra el piso `≥96` con re-scope nombrado
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 33-06-PLAN.md — Censo de `Literal` sobre wire crudo (7 campos RESPONSE de matriz sin ampliar ningún alias + `Titulo.mercado`/`plazo` de iol) → `33-LITERALS.md` y cierre de DT-07 como `str` permanente con evidencia
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 33-07-PLAN.md — Triage + fixes in-cycle espejados sync/async con test de regresión mockeado por fix bajo `packages/**/tests/` + `verify_cycle_closure` PASS **no-vacuo** con piso numérico por paquete
 
 ### Phase 34: Releases por paquete
 
