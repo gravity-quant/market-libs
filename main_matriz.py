@@ -33,7 +33,9 @@ PASS/FINDING/SKIPPED outcome sets between sync and async.
 
 Output verbatim (D-02 mirror Phase 2-4): cada probe emite una línea
 ``PROBE <name>: <status> <detail>`` y al final ``SUMMARY: PASS=N FAIL=N
-SKIPPED=N FINDING=N``, todo a través de ``safe_print(..., secrets=[...])``
+SKIPPED=N FINDING=N DIVERGENCES=N HANDLER_ERRORS=N`` (Phase 33: los dos últimos
+campos son ``len(handler.seen)`` —la unidad del censo— y el tally de fallas del
+sink; ver ``main()``), todo a través de ``safe_print(..., secrets=[...])``
 (D-MATZ-32) con ``PRIMARY_USER``, ``PRIMARY_PASSWORD`` y ``_token`` (este último
 agregado dinámicamente tras ``probe_login_sync``).
 
