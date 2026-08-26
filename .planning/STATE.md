@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 33
-current_phase_name: Verificación en vivo en modo estricto + fixes
+current_phase_name: verificaci-n-en-vivo-en-modo-estricto-fixes
 status: executing
-stopped_at: Phase 33 context gathered (assumptions mode)
-last_updated: "2026-08-26T22:56:08.648Z"
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-08-26T23:40:54.619Z"
 last_activity: 2026-08-26
-last_activity_desc: Phase 32 complete, transitioned to Phase 33
+last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 34
-  completed_plans: 34
+  total_plans: 41
+  completed_plans: 35
   percent: 67
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 32 — gates-de-homogeneidad-d-16
+**Current focus:** Phase 33 — verificaci-n-en-vivo-en-modo-estricto-fixes
 
 ## Current Position
 
-Phase: 33 — Verificación en vivo en modo estricto + fixes
-Plan: Not started
+Phase: 33 (verificaci-n-en-vivo-en-modo-estricto-fixes) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-08-26 — Phase 32 complete, transitioned to Phase 33
+Last activity: 2026-08-26 — Phase 33 execution started
 
 ## Performance Metrics
 
@@ -148,6 +148,7 @@ Last activity: 2026-08-26 — Phase 32 complete, transitioned to Phase 33
 | Phase 32 P04 | 7min | 2 tasks | 3 files |
 | Phase 32 P05 | 7min | 2 tasks | 4 files |
 | Phase 32 P06 | 21min | 3 tasks | 5 files |
+| Phase 33 P01 | 28min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -300,6 +301,11 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-06: criterio 5 se declara PROBADO LOCALMENTE con su unica pata no reproducible nombrada (las 12 legs sobre runners reales de GitHub Actions), nunca como un verde incondicional; las 4 jobs y las 12 legs corrieron verdes localmente a 1707 passing en py3.12 y py3.13
 - [Phase 32]: 32-06: D-05 resuelto y registrado — el 'job de CI nuevo' de ROADMAP.md:25 y REQUIREMENTS queda superseded por el D-12 lockeado de la Phase 31 ('step en lint'); la mitad load-bearing del texto (verification/ nunca corrio en CI) se honra plenamente y agregar un step no renombra el job (cierra A2)
 - [Phase 32]: 32-06: la deuda carry-forward de probe_login_sync se re-chequeo antes del claim de matriz verde — sigue abierta pero localizada en 2 call sites de un solo archivo (2 failed + 2 errors) e invisible a las 12 legs (0 items de verification/ colectados bajo un path per-package); un pytest verification completo NO termina en 10 min porque esos probes tocan servicios en vivo
+- [Phase ?]: [Phase 33 / 33-01]: convención de título de finding LOCKEADA en surface-in-title-write-new — la superficie VA embebida en el título f"{model}{path}: {kind} (declared={declared}, observed={observed}) [{surface}]", así que la identidad de dedupe cross-run es de SEIS componentes y una divergencia sync-only queda visible como finding propio. Consecuencia obligatoria para 33-04/33-05: el conteo de findings es ~2x el de triples distintos y hay que reportar y ETIQUETAR los dos números; el censo se cuenta SIEMPRE de DivergenceHandler.seen (distinto (slug, model, field_path, kind)), la única unidad comparable con el piso >=96 de 29-SIZING.md sin traducción. Resuelta en auto-mode al default recomendado por RESEARCH (Open Question 1), no respondida por el desarrollador.
+- [Phase ?]: [Phase 33 / 33-01]: matriz F-03..F-08 (los seis NO-FIX hand-written de las claves extra de InstrumentDetail) NO se absorben por matcheo de título — el handler escribe seis findings OPEN nuevos al lado y se triagean a NO-FIX referenciando los originales. Una tabla de títulos bespoke adentro del handler sería el patrón hand-rolled que D-07 borra en esta misma fase, y cualquier drift entre la tabla y los títulos reales revertiría en silencio a escribir duplicados igual.
+- [Phase ?]: [Phase 33 / 33-01]: probe_context NO importa ningún *_client — la clase de decode-error y el fallback con forma de ProbeResult se inyectan por los kwargs decode_error/on_decode_error. on_decode_error recibe (fn.__name__, surface, exc) y su retorno se devuelve sin tocar; NO debe escribir un finding (el SHAPE ya lo escribió el handler desde el record que _decode emitió justo antes de levantar — mintear otro rompe el idempotent_by_title del lock 10).
+- [Phase ?]: [Phase 33 / 33-01]: el triple del censo se agrega a DivergenceHandler.seen ANTES de llamar al sink — si se agregara después, una falla de escritura del findings file haría que el censo reporte un número MÁS CHICO, que se lee como 'menos divergencias' (falso limpio) en vez de como un error. Falsificado: mover el add después del sink enrojece test_emit_never_raises.
+- [Phase ?]: [Phase 33 / 33-01]: el rot rojo de verification/ (19 failed / 19 errors, 100% de una sola causa raíz: dos archivos llaman probes de main_matriz.py sin el parámetro client de la migración REFAC-05 de la Phase 15) queda committeado en 33-BASELINE.md y ruteado a HARN-VERIF-01 en ROADMAP § Backlog 'Deferred to v1.7+'. NO a una fase de v1.6: la 33 lo excluye por escrito (P-13) y la 34 es releases. Los dos archivos son el CANARIO del refactor de probe_context: 33-02 y 33-03 deben re-correrlos y comparar contra 17/17 y 2/2 exactos.
 
 ### Pending Todos
 
@@ -381,9 +387,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-26T17:07:53.203Z
-Stopped at: Phase 33 context gathered (assumptions mode)
-Resume file: .planning/phases/33-verificaci-n-en-vivo-en-modo-estricto-fixes/33-CONTEXT.md
+Last session: 2026-08-26T23:40:54.614Z
+Stopped at: Completed 33-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
