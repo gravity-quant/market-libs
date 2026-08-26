@@ -157,7 +157,7 @@ def test_probe_context_binding(isolated_findings: Path) -> None:
 
         original = verification.findings.append_finding
         try:
-            verification.findings.append_finding = _record_sink  # type: ignore[assignment]
+            verification.findings.append_finding = _record_sink
             _sync_probe()
             asyncio.run(_async_probe())
             # Fuera de todo decorador: los ContextVar deben leer sus defaults.
@@ -165,7 +165,7 @@ def test_probe_context_binding(isolated_findings: Path) -> None:
                 _MESSAGE, extra=_record_extra(model="Cuenta", field_path=".id")
             )
         finally:
-            verification.findings.append_finding = original  # type: ignore[assignment]
+            verification.findings.append_finding = original
 
     assert observed[0] == ("sync", "/api/health"), f"el probe sync no vio su binding: {observed!r}"
     assert observed[1] == ("async", "/api/health"), (

@@ -98,11 +98,13 @@ import httpx
 from verification import (
     append_finding,
     diff_safemodel_bidirectional,
+    probe_context,
     require_env,
     safe_print,
     schema_of,
     write_findings,
 )
+from verification.findings import max_existing_fid
 
 import higyrus_client
 from higyrus_client import (
@@ -162,6 +164,14 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
     "get_posiciones": "/api/cuentas/{id_cuenta}/posiciones",
 }
 
+# Phase 33 (LIVE-TYP-01): flag del segundo pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``, que prueba que el raise de modo estricto
+# efectivamente dispara. Viaja como kwarg del constructor para NO agregar un
+# segundo sitio de construcción: ``test_main_higyrus_uses_single_client_instance``
+# asserta ``1 <= ctor_calls <= 2`` por AST.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
+
 # D-HIGY-14: env vars opcionales para sample params.
 _SAMPLE_CUENTA: str | None = os.getenv("HIGYRUS_SAMPLE_CUENTA")
 _SAMPLE_TIPO_CUENTA: str = os.getenv("HIGYRUS_SAMPLE_TIPO_CUENTA", "propia")
@@ -198,6 +208,12 @@ _D_HIGY_10_ORDER: tuple[str, ...] = (
 )
 
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
+# NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
+# ya registrado antes del primer probe (D-16/D-24). Sin ese seed, cada finding
+# nuevo re-emitiría un fid ya ocupado — y contra el archivo committeado, que hoy
+# lleva F-01 y F-02, eso significa reescribir el triage del operador en un caso
+# y perder el finding en silencio en el otro, mientras el driver sigue
+# reportando ``FINDING=N``.
 _fid_counter: int = 0
 
 # D-HIGY-10 cascade SKIPPED (Phase 3 D-IOL-3 mirror): flag único compartido
@@ -234,11 +250,66 @@ def _get_event_hooks_lock_async() -> asyncio.Lock:
     return _event_hooks_lock_async
 
 
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (D-16/D-24).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+
+    La falla que previene tiene dos caras, y ambas son observables hoy contra
+    ``.planning/verification/higyrus-client-findings.md``:
+
+    - un fid re-emitido cuyo status registrado ES ``OPEN`` NO dispara el
+      short-circuit de :func:`verification.findings.append_finding`: el bloque de
+      detalle se **reescribe en el lugar** con contenido ajeno y el triage que el
+      operador arrastró desde fases anteriores se pierde;
+    - un fid re-emitido cuyo status registrado NO es ``OPEN`` sí dispara el
+      short-circuit: el write se vuelve un no-op **silencioso** mientras
+      ``main()`` igual lo cuenta en ``FINDING=N`` y el ``SUMMARY`` reporta éxito.
+      El run pierde su entregable creyendo que funcionó. Los DOS fids
+      committeados de higyrus están en este caso: ``F-01`` (``EXPECTED``) y
+      ``F-02`` (``NO-FIX``), ambos terminales.
+
+    Misma forma que ``main_iol.py::_seed_fid_counter`` y
+    ``main_market_data.py::_seed_fid_counter``.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
+
+
 def _next_fid() -> str:
     """Devuelve el siguiente ``F-NN`` (NN zero-padded a 2 dígitos)."""
     global _fid_counter
     _fid_counter += 1
     return f"F-{_fid_counter:02d}"
+
+
+def _shape_probe_result(
+    probe_name: str, surface: str, exc: BaseException
+) -> tuple[ProbeResult, None]:
+    """Fallback de ``probe_context`` ante un ``HigyrusDecodeError`` (D-07).
+
+    El finding ``SHAPE`` YA lo escribió :class:`verification.divergences.DivergenceHandler`
+    a partir del record de divergencia que ``_decode`` emitió justo antes de
+    levantar. Este helper NO escribe un segundo finding: mintear uno acá
+    duplicaría la divergencia bajo otro título y rompería el ``idempotent_by_title``
+    del lock 10. Sólo traduce la excepción al 2-tuple que el driver espera.
+
+    Lee ÚNICAMENTE ``model`` / ``field_path`` / ``declared_type`` /
+    ``observed_type`` — los cuatro atributos certificados type-and-path-only por
+    T-29-36 — y nada más de la excepción (T-33-07: nada de credenciales ni de
+    valores del wire puede filtrarse a stdout ni a un artefacto committeado).
+    """
+    name = probe_name.removeprefix("probe_")
+    if isinstance(exc, HigyrusDecodeError):
+        detail = (
+            f"SHAPE [{surface}] {exc.model}{exc.field_path} "
+            f"declared={exc.declared_type} observed={exc.observed_type}"
+        )
+    else:
+        detail = f"SHAPE [{surface}] {type(exc).__name__}"
+    return (ProbeResult(name, "FINDING", detail), None)
 
 
 def _raw_request_sync(
@@ -607,6 +678,12 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_health"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 3: ``higyrus_client.get_health()`` (HIGY-02).
 
@@ -632,9 +709,14 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
        crudo y los reads ``isinstance(raw, dict)`` / ``len(raw)`` de abajo
        siguen siendo drift-visible sin necesitar ``to_dict()``.
 
-    Ambas llamadas van DENTRO del mismo ``try`` (aislamiento per-probe). El
-    ``HigyrusDecodeError`` del modo estricto se mapea a un finding SHAPE en vez
-    de escapar: no es subclase de ``HigyrusAPIError`` ni de los residuales.
+    Ambas llamadas van DENTRO del mismo ``try`` (aislamiento per-probe).
+
+    Phase 33 (D-07): el ``HigyrusDecodeError`` del modo estricto ya NO se atrapa
+    acá. Lo intercepta el decorador ``probe_context``, y el finding ``SHAPE`` lo
+    escribe el ``DivergenceHandler`` desde el record de divergencia que
+    ``_decode`` emitió justo antes de levantar. Un catch a mano acá mintearía un
+    segundo finding para la misma divergencia, bajo un título distinto, rompiendo
+    el ``idempotent_by_title`` del lock 10.
 
     D-HIGY-2: el detail emite ``keys=N`` (conteo) y el NOMBRE del tipo devuelto
     por el wrapper, nunca contenido del wire.
@@ -678,21 +760,6 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
             base_url=base_url,
         )
         return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
-    except HigyrusDecodeError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="sync",
-            status="OPEN",
-            title="get_health_sync: divergencia de decode en Health (strict_decode)",
-            expected="payload compatible con el modelo Health declarado",
-            actual=f"model={exc.model} field_path={exc.field_path}",
-            diff=f"declared={exc.declared_type} observed={exc.observed_type}",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
     except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         fid = _next_fid()
         append_finding(
@@ -729,6 +796,12 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_health"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_health_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, dict[str, Any] | None]:
@@ -737,6 +810,9 @@ async def probe_get_health_async(
     Mismo par wrapper-tipado + re-disparo crudo que el sync (code review CR-01):
     ``await aclient.get_health()`` ejercita la superficie pública de TYP-02 y
     ``_raw_request_async`` conserva el wire para el snapshot de probe 15.
+
+    Phase 33 (D-07): igual que el sync, el ``HigyrusDecodeError`` lo intercepta
+    ``probe_context`` y el finding ``SHAPE`` lo escribe el ``DivergenceHandler``.
     """
     if _auth_failed:
         return (
@@ -774,21 +850,6 @@ async def probe_get_health_async(
             expected="200 OK",
             actual=repr(exc),
             diff=f"status_code={exc.status_code!r}",
-            base_url=base_url,
-        )
-        return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
-    except HigyrusDecodeError as exc:
-        fid = _next_fid()
-        append_finding(
-            _PKG,
-            fid=fid,
-            class_="SHAPE",
-            surface="async",
-            status="OPEN",
-            title="get_health_async: divergencia de decode en Health (strict_decode)",
-            expected="payload compatible con el modelo Health declarado",
-            actual=f"model={exc.model} field_path={exc.field_path}",
-            diff=f"declared={exc.declared_type} observed={exc.observed_type}",
             base_url=base_url,
         )
         return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
@@ -2383,7 +2444,7 @@ async def _async_main(
     # D-02: un único ``AsyncClient`` threadeado en todos los probes async; estado
     # propio (independiente del sync ``Client``). El ``aclose()`` del finally
     # cierra ESTA instancia (no el default-client module-level).
-    aclient = AsyncClient()
+    aclient = AsyncClient(strict_decode=_STRICT)
 
     result_login: ProbeResult = _skipped("login_async")
     async_token_snapshot: str | None = None
@@ -2476,6 +2537,11 @@ def main() -> None:
     # D-03 mirror: idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
 
+    # D-16/D-24 (P-3): sube el allocator por encima de todo fid ya committeado.
+    # Orden obligatorio — ``write_findings`` < ``_seed_fid_counter`` < primer
+    # probe. Mismo orden canónico que ``main_market_data.py`` y ``main_iol.py``.
+    _seed_fid_counter()
+
     # D-HIGY-15 initial secrets: HIGYRUS_USER + HIGYRUS_PASSWORD del env.
     # WR-03 (review-04): el password se redacta SIEMPRE — sin threshold —
     # porque un short-but-real password es el peor caso para dejar sin
@@ -2504,7 +2570,7 @@ def main() -> None:
     # D-01/D-02: un único ``Client`` sync threadeado en TODOS los probes sync.
     # Estado propio (independiente del ``AsyncClient`` que ``_async_main``
     # construye por separado). Reemplaza los ~14 ``_get_default()`` reads.
-    client = Client()
+    client = Client(strict_decode=_STRICT)
 
     # (a) Probe 1 sync (login_sync) — puede setear _auth_failed.
     results["login_sync"] = probe_login_sync(client)
