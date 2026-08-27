@@ -657,6 +657,21 @@ class Symbol(SafeModel):
     ``market_id`` into ``marketId``, so the alias — which used to be permanently
     ``""`` against a real payload — now carries the real value. New code should
     read :attr:`market_id`; the alias is scheduled for removal at the next MAJOR.
+
+    **BREAKING since 0.5.0 (Phase 33, SC-3).** :attr:`created_at` and
+    :attr:`updated_at` were declared ``str = ""`` and are now
+    ``str | None = None``. This model serves FOUR endpoints with three different
+    body shapes and only ONE of them carries the two timestamps: ``GET /symbols``
+    sends both, while the ``POST /symbols``, ``POST /symbols/batch`` and
+    ``PATCH /symbols/{id}`` acknowledgements send neither — measured live in
+    33-05 as ``F-141``/``F-142`` (sync) and ``F-110``/``F-111`` (async), and
+    visible in the committed baselines side by side.
+
+    The old declaration manufactured two empty strings on every write, which a
+    caller could not distinguish from a real row whose timestamps happened to be
+    blank, and made every write FATAL under ``strict_decode``. ``None`` states
+    the truth: this response shape does not carry the field. The operator
+    selected ``fix-shape-now`` at the 33-07 Task 1 checkpoint.
     """
 
     symbol: str
@@ -664,8 +679,8 @@ class Symbol(SafeModel):
     active: bool
     id: int = 0
     market_id: str = ""
-    created_at: str = ""
-    updated_at: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
     received_at: str | None = None
 
     @classmethod
