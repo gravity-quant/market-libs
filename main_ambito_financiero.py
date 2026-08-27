@@ -46,8 +46,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-from verification import safe_print, schema_of, write_findings
-from verification.findings import append_finding
+from verification import divergence_capture, probe_context, safe_print, schema_of, write_findings
+from verification.findings import append_finding, max_existing_fid
 
 import ambito_financiero_client as ambito
 from ambito_financiero_client import AsyncClient, Client
@@ -71,9 +71,51 @@ _EXPECTED_HEADER = ["Fecha", "Compra", "Venta"]
 _VENTA_MIN: float = 100.0
 _VENTA_MAX: float = 100_000.0
 
+# Phase 33 (LIVE-TYP-01): flag del segundo pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``. Viaja como kwarg del constructor para NO
+# agregar un segundo sitio de construcción:
+# ``test_main_ambito_financiero_uses_single_client_instance`` asserta
+# ``1 <= ctor_calls <= 2`` por AST.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
+
+# El único logger de paquete que este driver engancha. ``divergence_capture``
+# sube su nivel de NOTSET a INFO y lo restaura al salir; el logger raíz queda
+# intacto.
+_LOGGER_NAMES: tuple[str, ...] = ("ambito_financiero_client",)
+
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
 # (Discretion en la fase: counter sequence simple, no derivado del probe name).
+# NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
+# ya registrado antes del primer probe (P-3 / T-33-15).
 _fid_counter: int = 0
+
+
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (P-3).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+
+    Sin el seed, el PRIMER finding de cada corrida es un **no-op silencioso**, y
+    eso es observable hoy contra
+    ``.planning/verification/ambito-financiero-client-findings.md``: su único fid
+    committeado es ``F-01`` con status ``EXPECTED`` — terminal. Un fid re-emitido
+    cuyo status registrado no es ``OPEN`` dispara el short-circuit de
+    preservación de :func:`verification.findings.append_finding`, así que el write
+    se descarta **mientras ``main()`` igual lo cuenta en ``FINDING=N``** y el
+    ``SUMMARY`` reporta éxito. El run pierde su primer entregable creyendo que
+    funcionó. (El otro lado del mismo defecto — un fid ``OPEN`` re-emitido, que
+    NO corta y reescribe el bloque en el lugar, borrando el triage del operador —
+    hoy no es alcanzable acá porque no hay ningún fid ``OPEN`` committeado; sí lo
+    sería en cuanto este driver escriba el primero.)
+
+    Misma forma que ``main_iol.py::_seed_fid_counter`` y
+    ``main_market_data.py::_seed_fid_counter``.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
 
 
 def _next_fid() -> str:
@@ -130,6 +172,18 @@ def _last_business_day_with_day_gt_12(today: dt.date) -> dt.date:
 # ---------------------------------------------------------------------------
 
 
+# Phase 33 (D-02): los 7 probes bindean endpoint + superficie para que toda
+# divergencia nombre el endpoint del que salió. Este paquete declara **cero**
+# clases de modelo (``ambito_financiero_client.models`` tiene 0 ``ClassDef``,
+# imports ``__future__``-only y ``__all__`` vacío, por TYP-03), así que
+# ``AmbitoFinancieroDecodeError`` es estructuralmente inalcanzable acá (D-12):
+# ningún ``walk_model`` corre en este driver. Por eso NO se agrega ninguna rama
+# de decode a los 6 handlers amplios — sería código muerto demostrable. El
+# decorador se aplica igual, por el binding de endpoint/superficie y para que el
+# gate de cobertura de 33-05 mida los 130 probes de forma uniforme, NO porque se
+# espere una divergencia. El cero que este driver imprime es una medición
+# (``seen == 0`` Y ``errors == 0`` Y probes > 0), nunca una ausencia.
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="sync")
 def probe_happy_sync(today: dt.date, client: Client) -> tuple[ProbeResult, list[list[str]] | None]:
     """Probe 1: happy path sync de ``get_dollar_banco_nacion``.
 
@@ -219,6 +273,7 @@ def probe_happy_sync(today: dt.date, client: Client) -> tuple[ProbeResult, list[
     return (ProbeResult("happy_sync", "PASS", f"precio={precio}"), rows)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="async")
 async def probe_happy_async(
     today: dt.date, aclient: AsyncClient
 ) -> tuple[ProbeResult, float | None]:
@@ -304,6 +359,7 @@ async def probe_happy_async(
     return (ProbeResult("happy_async", "PASS", f"precio={precio}"), precio)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="sync")
 def probe_parity_sync_async(
     today: dt.date,
     rows_sync: list[list[str]] | None,
@@ -362,6 +418,7 @@ def probe_parity_sync_async(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="sync")
 def probe_parse_decimal_adversarial(
     rows_sync: list[list[str]] | None, client: Client
 ) -> ProbeResult:
@@ -452,6 +509,7 @@ def probe_parse_decimal_adversarial(
     return ProbeResult("parse_decimal", "PASS", f"venta={venta_parseada}")
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="sync")
 def probe_no_data(today: dt.date, client: Client) -> ProbeResult:
     """Probe 5: una fecha futura debe levantar ``AmbitoFinancieroNoDataError``.
 
@@ -498,6 +556,7 @@ def probe_no_data(today: dt.date, client: Client) -> ProbeResult:
     return ProbeResult("no_data", "FINDING", f"{fid} (OPEN)")
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="sync")
 def probe_schema_snapshot(
     today: dt.date,
     rows_sync: list[list[str]] | None,
@@ -558,6 +617,7 @@ def probe_schema_snapshot(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATE, surface="sync")
 def probe_antibot(today: dt.date, client: Client) -> ProbeResult:
     """Probe 7: anti-bot con BAD_UA (opt-in, sync, one-shot).
 
@@ -687,7 +747,7 @@ async def _async_main(today: dt.date) -> tuple[ProbeResult, float | None]:
     ``asyncio.run(...)`` y crashear el driver. El driver siempre completa
     todos los probes y sale con exit 0 salvo crash inesperado.
     """
-    aclient = AsyncClient()
+    aclient = AsyncClient(strict_decode=_STRICT)
     try:
         result, precio_async = await probe_happy_async(today, aclient)
     finally:
@@ -712,38 +772,53 @@ def main() -> None:
     # D-03: el helper es idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
 
+    # P-3 / T-33-15: seedear el allocator DESPUÉS del bootstrap y ANTES del
+    # primer probe. El único fid committeado de este paquete es ``F-01`` con
+    # status terminal ``EXPECTED``, así que sin este seed el PRIMER finding de
+    # cada corrida se descarta en silencio mientras ``FINDING=N`` lo sigue
+    # contando.
+    _seed_fid_counter()
+
     # Phase 15 (D-01/D-02): una sola instancia sync ``Client()`` threadeada a
     # todas las probes sync; el ``AsyncClient`` vive en ``_async_main`` (D-02).
-    client = Client()
+    client = Client(strict_decode=_STRICT)
     results: list[ProbeResult] = []
-    try:
-        # 1. happy_sync — captura rows para reutilizar en probes 3, 4, 6
-        result_happy_sync, rows_sync = probe_happy_sync(today, client)
-        results.append(result_happy_sync)
+    # Phase 33 (LIVE-TYP-01 / D-01 / D-12): el handler se instala alrededor del
+    # sweep entero igual que en los otros cuatro drivers. Acá se espera que
+    # ``handler.seen`` quede en 0 — pero ese cero se MIDE, no se asume: el
+    # ``SUMMARY`` lo imprime junto con el conteo de fallas del sink y con el
+    # conteo de probes, así que un cero producido por un pipeline no instalado o
+    # por una excepción tragada es distinguible de un cero producido por un
+    # paquete que declara cero clases de modelo (T-33-16).
+    with divergence_capture(_LOGGER_NAMES, next_fid=lambda _slug: _next_fid()) as handler:
+        try:
+            # 1. happy_sync — captura rows para reutilizar en probes 3, 4, 6
+            result_happy_sync, rows_sync = probe_happy_sync(today, client)
+            results.append(result_happy_sync)
 
-        # 2. happy_async — un único asyncio.run (D-11)
-        result_happy_async, precio_async = asyncio.run(_async_main(today))
-        results.append(result_happy_async)
+            # 2. happy_async — un único asyncio.run (D-11)
+            result_happy_async, precio_async = asyncio.run(_async_main(today))
+            results.append(result_happy_async)
 
-        # 3. parity sync ↔ async
-        results.append(probe_parity_sync_async(today, rows_sync, precio_async, client))
+            # 3. parity sync ↔ async
+            results.append(probe_parity_sync_async(today, rows_sync, precio_async, client))
 
-        # 4. parse_ar_decimal adversarial (D-23 doble check)
-        results.append(probe_parse_decimal_adversarial(rows_sync, client))
+            # 4. parse_ar_decimal adversarial (D-23 doble check)
+            results.append(probe_parse_decimal_adversarial(rows_sync, client))
 
-        # 5. fecha futura -> NoDataError
-        results.append(probe_no_data(today, client))
+            # 5. fecha futura -> NoDataError
+            results.append(probe_no_data(today, client))
 
-        # 6. schema snapshot (DRIFT-01 + D-25)
-        results.append(probe_schema_snapshot(today, rows_sync, client))
+            # 6. schema snapshot (DRIFT-01 + D-25)
+            results.append(probe_schema_snapshot(today, rows_sync, client))
 
-        # 7. anti-bot (D-13: ÚLTIMO)
-        results.append(probe_antibot(today, client))
-    finally:
-        # Pitfall 5 (mirror sync): cerrar el ``httpx.Client`` siempre. Aislamos
-        # el teardown para no violar D-04 (exit 0 salvo crash inesperado).
-        with contextlib.suppress(Exception):
-            client.close()
+            # 7. anti-bot (D-13: ÚLTIMO)
+            results.append(probe_antibot(today, client))
+        finally:
+            # Pitfall 5 (mirror sync): cerrar el ``httpx.Client`` siempre. Aislamos
+            # el teardown para no violar D-04 (exit 0 salvo crash inesperado).
+            with contextlib.suppress(Exception):
+                client.close()
 
     # Output verbatim D-02 + D-26 safe_print con secrets=[] para uniformidad.
     for r in results:
@@ -753,8 +828,18 @@ def main() -> None:
     n_fail = sum(1 for r in results if r.status == "FAIL")
     n_skip = sum(1 for r in results if r.status == "SKIPPED")
     n_find = sum(1 for r in results if r.status == "FINDING")
+    # Phase 33 (T-33-15/16): ``DIVERGENCES`` es ``len(handler.seen)`` — triples
+    # distintos ``(slug, model, field_path, kind)``, LA unidad del censo, nunca
+    # el conteo de findings. ``HANDLER_ERRORS`` es el tally de fallas del sink;
+    # un valor distinto de cero invalida el censo de esta corrida. Para este
+    # paquete D-12 predice ``DIVERGENCES=0``, y por eso ambos números se imprimen
+    # SIEMPRE: un cero solo, sin el conteo de errores del handler al lado, no
+    # distingue "corrida limpia" de "pipeline roto". Formato idéntico al de
+    # ``main_matriz.py``, ``main_higyrus.py`` y ``main_iol.py`` para que 33-04
+    # parsee una sola forma de línea.
     safe_print(
-        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find}",
+        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
+        f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=[],
     )
 
