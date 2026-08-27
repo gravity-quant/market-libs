@@ -253,7 +253,21 @@ Plans:
   3. PR → CI verde (6 paquetes × py3.12 + py3.13) → merge con **merge commit real** (nunca squash — orfanaría los SHAs que los SUMMARY cross-referencian, D-11) → tag por paquete → `release.yml` **sin editar** → GitHub Release con wheel + sdist por paquete.
   4. Cada operación irreversible (merge y push de tag) queda detrás de un checkpoint humano **independiente**; los dos gates **nunca** se colapsan (precedente D-18 de v1.5).
 
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 34-01-PLAN.md — Prep reversible: changelog `### v0.5.0` de market-data-client con los 3 breaks de forma de 33-07 + de-provisionalización, bump de los 4 sitios de versión (iol 0.3.0, market-data 0.5.0), `uv lock` único, mirror local del gate de CI, scan de credenciales y push fast-forward de la branch
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 34-02-PLAN.md — PR #12 actualizado en el lugar (retitulado + body para fases 29-34 y ambas versiones), gate de CI asertado por conteo (15/15, 2 filas iol + 2 filas market-data), **checkpoint humano bloqueante (a)** y merge con merge commit real
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 34-03-PLAN.md — **Checkpoint humano bloqueante (b)** cubriendo ambos tags en una sola aprobación, tags anotados `iol-client-v0.3.0` + `market-data-client-v0.5.0` sobre el SHA del merge commit, dos corridas de `release.yml`, verificación de wheel + sdist por paquete y refresh del memory in-repo de market-data-client
 
 ## Progress
 
