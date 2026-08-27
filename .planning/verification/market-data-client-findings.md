@@ -1,7 +1,7 @@
 # Findings: market-data-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-08-27T00:54:38.691653+00:00
+- Timestamp: 2026-08-27T01:54:10.152155+00:00
 - Resolved base URL / env: https://market-data-develop.bbsa.com.ar/api
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -78,83 +78,83 @@
 | F-64 | NO-DATA | sync | EXPECTED |
 | F-65 | SHAPE | async | EXPECTED |
 | F-66 | NO-DATA | async | EXPECTED |
-| F-67 | SHAPE | sync | OPEN |
-| F-68 | SHAPE | sync | OPEN |
-| F-69 | SHAPE | sync | OPEN |
-| F-70 | SHAPE | sync | OPEN |
-| F-71 | SHAPE | sync | OPEN |
-| F-72 | SHAPE | sync | OPEN |
-| F-73 | SHAPE | sync | OPEN |
-| F-74 | SHAPE | sync | OPEN |
-| F-75 | SHAPE | sync | OPEN |
-| F-81 | SHAPE | sync | OPEN |
-| F-82 | SHAPE | sync | OPEN |
-| F-83 | SHAPE | sync | OPEN |
-| F-84 | SHAPE | sync | OPEN |
-| F-85 | SHAPE | sync | OPEN |
-| F-86 | NO-DATA | sync | OPEN |
-| F-87 | SHAPE | async | OPEN |
-| F-88 | SHAPE | async | OPEN |
-| F-89 | SHAPE | async | OPEN |
-| F-90 | SHAPE | async | OPEN |
-| F-91 | SHAPE | async | OPEN |
-| F-92 | SHAPE | async | OPEN |
-| F-93 | SHAPE | async | OPEN |
-| F-94 | SHAPE | async | OPEN |
-| F-95 | SHAPE | async | OPEN |
-| F-101 | SHAPE | async | OPEN |
-| F-102 | SHAPE | async | OPEN |
-| F-103 | SHAPE | async | OPEN |
-| F-104 | SHAPE | async | OPEN |
-| F-105 | SHAPE | async | OPEN |
-| F-106 | NO-DATA | async | OPEN |
-| F-107 | ERROR-MAP | async | OPEN |
-| F-108 | SHAPE | async | OPEN |
-| F-109 | SHAPE | async | OPEN |
-| F-110 | SHAPE | async | OPEN |
-| F-111 | SHAPE | async | OPEN |
-| F-121 | SHAPE | async | OPEN |
-| F-122 | SHAPE | async | OPEN |
-| F-123 | SHAPE | async | OPEN |
-| F-124 | SHAPE | async | OPEN |
-| F-125 | SHAPE | async | OPEN |
-| F-126 | SHAPE | async | OPEN |
-| F-127 | SHAPE | async | OPEN |
-| F-128 | SHAPE | async | OPEN |
-| F-129 | SHAPE | async | OPEN |
-| F-130 | SHAPE | async | OPEN |
-| F-131 | SHAPE | async | OPEN |
-| F-132 | SHAPE | async | OPEN |
-| F-133 | SHAPE | async | OPEN |
-| F-135 | SHAPE | async | OPEN |
-| F-138 | ERROR-MAP | sync | OPEN |
-| F-139 | SHAPE | sync | OPEN |
-| F-140 | SHAPE | sync | OPEN |
-| F-141 | SHAPE | sync | OPEN |
-| F-142 | SHAPE | sync | OPEN |
-| F-152 | SHAPE | sync | OPEN |
-| F-153 | SHAPE | sync | OPEN |
-| F-154 | SHAPE | sync | OPEN |
-| F-155 | SHAPE | sync | OPEN |
-| F-156 | SHAPE | sync | OPEN |
-| F-157 | SHAPE | sync | OPEN |
-| F-158 | SHAPE | sync | OPEN |
-| F-159 | SHAPE | sync | OPEN |
-| F-160 | SHAPE | sync | OPEN |
-| F-161 | SHAPE | sync | OPEN |
-| F-162 | SHAPE | sync | OPEN |
-| F-163 | SHAPE | sync | OPEN |
-| F-164 | SHAPE | sync | OPEN |
-| F-166 | SHAPE | sync | OPEN |
+| F-67 | SHAPE | sync | NO-FIX |
+| F-68 | SHAPE | sync | NO-FIX |
+| F-69 | SHAPE | sync | NO-FIX |
+| F-70 | SHAPE | sync | NO-FIX |
+| F-71 | SHAPE | sync | NO-FIX |
+| F-72 | SHAPE | sync | FIXED |
+| F-73 | SHAPE | sync | FIXED |
+| F-74 | SHAPE | sync | NO-FIX |
+| F-75 | SHAPE | sync | FIXED |
+| F-81 | SHAPE | sync | NO-FIX |
+| F-82 | SHAPE | sync | FIXED |
+| F-83 | SHAPE | sync | FIXED |
+| F-84 | SHAPE | sync | NO-FIX |
+| F-85 | SHAPE | sync | NO-FIX |
+| F-86 | NO-DATA | sync | EXPECTED |
+| F-87 | SHAPE | async | NO-FIX |
+| F-88 | SHAPE | async | NO-FIX |
+| F-89 | SHAPE | async | NO-FIX |
+| F-90 | SHAPE | async | NO-FIX |
+| F-91 | SHAPE | async | NO-FIX |
+| F-92 | SHAPE | async | FIXED |
+| F-93 | SHAPE | async | FIXED |
+| F-94 | SHAPE | async | NO-FIX |
+| F-95 | SHAPE | async | FIXED |
+| F-101 | SHAPE | async | NO-FIX |
+| F-102 | SHAPE | async | FIXED |
+| F-103 | SHAPE | async | FIXED |
+| F-104 | SHAPE | async | NO-FIX |
+| F-105 | SHAPE | async | NO-FIX |
+| F-106 | NO-DATA | async | EXPECTED |
+| F-107 | ERROR-MAP | async | EXPECTED |
+| F-108 | SHAPE | async | NO-FIX |
+| F-109 | SHAPE | async | NO-FIX |
+| F-110 | SHAPE | async | FIXED |
+| F-111 | SHAPE | async | FIXED |
+| F-121 | SHAPE | async | FIXED |
+| F-122 | SHAPE | async | FIXED |
+| F-123 | SHAPE | async | FIXED |
+| F-124 | SHAPE | async | FIXED |
+| F-125 | SHAPE | async | FIXED |
+| F-126 | SHAPE | async | FIXED |
+| F-127 | SHAPE | async | FIXED |
+| F-128 | SHAPE | async | FIXED |
+| F-129 | SHAPE | async | FIXED |
+| F-130 | SHAPE | async | FIXED |
+| F-131 | SHAPE | async | FIXED |
+| F-132 | SHAPE | async | FIXED |
+| F-133 | SHAPE | async | NO-FIX |
+| F-135 | SHAPE | async | NO-FIX |
+| F-138 | ERROR-MAP | sync | EXPECTED |
+| F-139 | SHAPE | sync | NO-FIX |
+| F-140 | SHAPE | sync | NO-FIX |
+| F-141 | SHAPE | sync | FIXED |
+| F-142 | SHAPE | sync | FIXED |
+| F-152 | SHAPE | sync | FIXED |
+| F-153 | SHAPE | sync | FIXED |
+| F-154 | SHAPE | sync | FIXED |
+| F-155 | SHAPE | sync | FIXED |
+| F-156 | SHAPE | sync | FIXED |
+| F-157 | SHAPE | sync | FIXED |
+| F-158 | SHAPE | sync | FIXED |
+| F-159 | SHAPE | sync | FIXED |
+| F-160 | SHAPE | sync | FIXED |
+| F-161 | SHAPE | sync | FIXED |
+| F-162 | SHAPE | sync | FIXED |
+| F-163 | SHAPE | sync | FIXED |
+| F-164 | SHAPE | sync | NO-FIX |
+| F-166 | SHAPE | sync | NO-FIX |
 | F-173 | ERROR-MAP | sync | EXPECTED |
-| F-178 | SHAPE | sync | OPEN |
-| F-183 | SHAPE | sync | OPEN |
-| F-184 | SHAPE | sync | OPEN |
-| F-185 | NO-DATA | sync | OPEN |
-| F-190 | SHAPE | async | OPEN |
-| F-195 | SHAPE | async | OPEN |
-| F-196 | SHAPE | async | OPEN |
-| F-197 | NO-DATA | async | OPEN |
+| F-178 | SHAPE | sync | NO-FIX |
+| F-183 | SHAPE | sync | NO-FIX |
+| F-184 | SHAPE | sync | NO-FIX |
+| F-185 | NO-DATA | sync | EXPECTED |
+| F-190 | SHAPE | async | NO-FIX |
+| F-195 | SHAPE | async | NO-FIX |
+| F-196 | SHAPE | async | NO-FIX |
+| F-197 | NO-DATA | async | EXPECTED |
 
 ## Detalle por hallazgo
 
@@ -872,7 +872,7 @@
 
 ### F-67 -- HealthFeed.symbols_never_delivered: extra (declared=-, observed=int) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent int
@@ -880,7 +880,7 @@
 
 ### F-68 -- FeedIngestor.ingestor.last_error_age_seconds: extra (declared=-, observed=int) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent int
@@ -888,7 +888,7 @@
 
 ### F-69 -- FeedIngestor.ingestor.last_error_at: extra (declared=-, observed=str) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent str
@@ -896,7 +896,7 @@
 
 ### F-70 -- FeedIngestor.ingestor.subscription: extra (declared=-, observed=dict) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent dict
@@ -904,7 +904,7 @@
 
 ### F-71 -- schema drift en get_health_feed
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "NoneType", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_with_data": "int"}
 - **Actual:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "str", "last_error_age_seconds": "int", "last_error_at": "str", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "subscription": {"chunk_size": "int", "chunks": "int", "confirm_seconds": "int", "delivered_count": "int", "forced_reconnects": "int", "last_reconnect_reason": "str", "quarantined_count": "int", "quarantined_symbols": ["str"], "requested": "int", "sent": "int", "smd_rejections": "int", "smd_resends": "int", "smd_unattributed": "int", "unconfirmed_count": "int", "unconfirmed_symbols": []}, "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_never_delivered": "int", "symbols_with_data": "int"}
@@ -912,23 +912,25 @@
 
 ### F-72 -- MarketDataSnapshot.staleness_seconds: missing (declared=float, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares float
 - **Actual:** wire sent NoneType
 - **Diff:** float -> NoneType at MarketDataSnapshot.staleness_seconds via /marketdata
+- **Regression:** packages/market-data-client/tests/test_snapshot_no_data_row.py::test_no_data_row_keeps_its_nulls
 
 ### F-73 -- MarketDataSnapshot.market_data: missing (declared=dict, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares dict
 - **Actual:** wire sent NoneType
 - **Diff:** dict -> NoneType at MarketDataSnapshot.market_data via /marketdata
+- **Regression:** packages/market-data-client/tests/test_snapshot_no_data_row.py::test_no_data_row_keeps_its_nulls
 
 ### F-74 -- schema drift en get_market_data
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"count": "int", "items": [{"active": "bool", "entries": ["str"], "market_data": {"BI": [{"price": "int", "size": "int"}], "CL": {"date": "int", "price": "int"}, "HI": "int", "LA": {"date": "int", "price": "int", "size": "int"}, "LO": "int", "OF": [{"price": "int", "size": "int"}], "OI": "NoneType", "OP": "int", "SE": {"price": "int"}, "TV": "NoneType"}, "market_id": "str", "received_at": "str", "staleness_seconds": "float", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
 - **Actual:** {"count": "int", "items": [{"active": "bool", "entries": [], "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
@@ -936,15 +938,16 @@
 
 ### F-75 -- MarketDataSnapshot.entries: missing (declared=list, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares list
 - **Actual:** wire sent NoneType
 - **Diff:** list -> NoneType at MarketDataSnapshot.entries via /marketdata/latest
+- **Regression:** packages/market-data-client/tests/test_snapshot_no_data_row.py::test_no_data_row_keeps_its_nulls
 
 ### F-81 -- schema drift en get_latest
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** [{"active": "NoneType", "market_data": "NoneType", "market_id": "NoneType", "note": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
 - **Actual:** [{"active": "bool", "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
@@ -952,23 +955,25 @@
 
 ### F-82 -- Instrument: non_dict (declared=Instrument, observed=str) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares Instrument
 - **Actual:** wire sent str
 - **Diff:** Instrument -> str at Instrument via /instruments
+- **Regression:** packages/market-data-client/tests/test_reference_envelope_unwrap.py::test_get_instruments_unwraps_the_items_envelope
 
 ### F-83 -- Segment: non_dict (declared=Segment, observed=str) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares Segment
 - **Actual:** wire sent str
 - **Diff:** Segment -> str at Segment via /instruments/segments
+- **Regression:** packages/market-data-client/tests/test_reference_envelope_unwrap.py::test_get_segments_unwraps_the_segments_envelope
 
 ### F-84 -- schema drift en get_calendar
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
 - **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
@@ -976,7 +981,7 @@
 
 ### F-85 -- schema drift en get_calendar_config
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}
 - **Actual:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}
@@ -984,7 +989,7 @@
 
 ### F-86 -- market_data vacío para prefix '__no_such_symbol__'
 
-**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `EXPECTED`
 
 - **Expected:** lista vacía para un prefix inexistente
 - **Actual:** []
@@ -992,7 +997,7 @@
 
 ### F-87 -- HealthFeed.symbols_never_delivered: extra (declared=-, observed=int) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent int
@@ -1000,7 +1005,7 @@
 
 ### F-88 -- FeedIngestor.ingestor.last_error_age_seconds: extra (declared=-, observed=int) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent int
@@ -1008,7 +1013,7 @@
 
 ### F-89 -- FeedIngestor.ingestor.last_error_at: extra (declared=-, observed=str) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent str
@@ -1016,7 +1021,7 @@
 
 ### F-90 -- FeedIngestor.ingestor.subscription: extra (declared=-, observed=dict) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent dict
@@ -1024,7 +1029,7 @@
 
 ### F-91 -- schema drift en get_health_feed
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "NoneType", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_with_data": "int"}
 - **Actual:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "str", "last_error_age_seconds": "int", "last_error_at": "str", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "subscription": {"chunk_size": "int", "chunks": "int", "confirm_seconds": "int", "delivered_count": "int", "forced_reconnects": "int", "last_reconnect_reason": "str", "quarantined_count": "int", "quarantined_symbols": ["str"], "requested": "int", "sent": "int", "smd_rejections": "int", "smd_resends": "int", "smd_unattributed": "int", "unconfirmed_count": "int", "unconfirmed_symbols": []}, "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_never_delivered": "int", "symbols_with_data": "int"}
@@ -1032,23 +1037,25 @@
 
 ### F-92 -- MarketDataSnapshot.staleness_seconds: missing (declared=float, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares float
 - **Actual:** wire sent NoneType
 - **Diff:** float -> NoneType at MarketDataSnapshot.staleness_seconds via /marketdata
+- **Regression:** packages/market-data-client/tests/test_snapshot_no_data_row.py::test_no_data_row_keeps_its_nulls_async
 
 ### F-93 -- MarketDataSnapshot.market_data: missing (declared=dict, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares dict
 - **Actual:** wire sent NoneType
 - **Diff:** dict -> NoneType at MarketDataSnapshot.market_data via /marketdata
+- **Regression:** packages/market-data-client/tests/test_snapshot_no_data_row.py::test_no_data_row_keeps_its_nulls_async
 
 ### F-94 -- schema drift en get_market_data
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"count": "int", "items": [{"active": "bool", "entries": ["str"], "market_data": {"BI": [{"price": "int", "size": "int"}], "CL": {"date": "int", "price": "int"}, "HI": "int", "LA": {"date": "int", "price": "int", "size": "int"}, "LO": "int", "OF": [{"price": "int", "size": "int"}], "OI": "NoneType", "OP": "int", "SE": {"price": "int"}, "TV": "NoneType"}, "market_id": "str", "received_at": "str", "staleness_seconds": "float", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
 - **Actual:** {"count": "int", "items": [{"active": "bool", "entries": [], "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
@@ -1056,15 +1063,16 @@
 
 ### F-95 -- MarketDataSnapshot.entries: missing (declared=list, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares list
 - **Actual:** wire sent NoneType
 - **Diff:** list -> NoneType at MarketDataSnapshot.entries via /marketdata/latest
+- **Regression:** packages/market-data-client/tests/test_snapshot_no_data_row.py::test_no_data_row_keeps_its_nulls_async
 
 ### F-101 -- schema drift en get_latest
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** [{"active": "NoneType", "market_data": "NoneType", "market_id": "NoneType", "note": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
 - **Actual:** [{"active": "bool", "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
@@ -1072,23 +1080,25 @@
 
 ### F-102 -- Instrument: non_dict (declared=Instrument, observed=str) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares Instrument
 - **Actual:** wire sent str
 - **Diff:** Instrument -> str at Instrument via /instruments
+- **Regression:** packages/market-data-client/tests/test_reference_envelope_unwrap.py::test_get_instruments_unwraps_the_items_envelope_async
 
 ### F-103 -- Segment: non_dict (declared=Segment, observed=str) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares Segment
 - **Actual:** wire sent str
 - **Diff:** Segment -> str at Segment via /instruments/segments
+- **Regression:** packages/market-data-client/tests/test_reference_envelope_unwrap.py::test_get_segments_unwraps_the_segments_envelope_async
 
 ### F-104 -- schema drift en get_calendar
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
 - **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
@@ -1096,7 +1106,7 @@
 
 ### F-105 -- schema drift en get_calendar_config
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}
 - **Actual:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}
@@ -1104,7 +1114,7 @@
 
 ### F-106 -- market_data async vacío para prefix '__no_such_symbol__'
 
-**Class:** `NO-DATA` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `NO-DATA` . **Surface:** `async` . **Status:** `EXPECTED`
 
 - **Expected:** lista vacía para un prefix inexistente
 - **Actual:** []
@@ -1112,7 +1122,7 @@
 
 ### F-107 -- create_symbol_async: MarketDataAPIError inesperado
 
-**Class:** `ERROR-MAP` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `ERROR-MAP` . **Surface:** `async` . **Status:** `EXPECTED`
 
 - **Expected:** 200 OK
 - **Actual:** MarketDataAPIError('[422] {"detail":{"message":"el exchange no acepta estos símbolos; suscribirlos rechazaría el lote `smd` completo (docs/11-open-questions.md Q7). Usá ?force=true para guardarlos igual.","rejected":[{"symbol":"GSDPROBE/P27-ASYNC","market_id":"ROFX","reason":"el exchange no lista este símbolo (normalmente significa que el contrato venció); suscribirlo rechaza el lote entero y silencia hasta 50 símbolos válidos"}]}}')
@@ -1120,7 +1130,7 @@
 
 ### F-108 -- schema drift en create_symbols_batch_async_response
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"created": "int", "items": [{"active": "bool", "created": "bool", "id": "int", "market_id": "str", "symbol": "str"}], "note": "str", "reactivated": "int", "requested": "int"}
 - **Actual:** {"created": "int", "items": [], "note": "str", "reactivated": "int", "rejected": [{"market_id": "str", "reason": "str", "symbol": "str"}], "requested": "int", "validated": "bool", "warnings": []}
@@ -1128,7 +1138,7 @@
 
 ### F-109 -- Symbol.note: extra (declared=-, observed=str) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent str
@@ -1136,119 +1146,133 @@
 
 ### F-110 -- Symbol.created_at: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at Symbol.created_at via /symbols/{symbol_id}
+- **Regression:** packages/market-data-client/tests/test_symbol_write_ack_timestamps.py::test_create_ack_leaves_the_timestamps_absent_async
 
 ### F-111 -- Symbol.updated_at: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at Symbol.updated_at via /symbols/{symbol_id}
+- **Regression:** packages/market-data-client/tests/test_symbol_write_ack_timestamps.py::test_create_ack_leaves_the_timestamps_absent_async
 
 ### F-121 -- CalendarConfig.market_after: extra (declared=-, observed=dict) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares -
 - **Actual:** wire sent dict
 - **Diff:** - -> dict at CalendarConfig.market_after via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-122 -- CalendarConfig.requires_confirmation: extra (declared=-, observed=bool) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares -
 - **Actual:** wire sent bool
 - **Diff:** - -> bool at CalendarConfig.requires_confirmation via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-123 -- CalendarConfig.valid: extra (declared=-, observed=bool) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares -
 - **Actual:** wire sent bool
 - **Diff:** - -> bool at CalendarConfig.valid via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-124 -- CalendarConfig.open: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.open via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-125 -- CalendarConfig.close: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.close via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-126 -- CalendarConfig.enabled: missing (declared=bool, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares bool
 - **Actual:** wire sent NoneType
 - **Diff:** bool -> NoneType at CalendarConfig.enabled via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-127 -- CalendarConfig.editable: missing (declared=bool, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares bool
 - **Actual:** wire sent NoneType
 - **Diff:** bool -> NoneType at CalendarConfig.editable via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-128 -- CalendarConfig.env_bypass: missing (declared=bool, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares bool
 - **Actual:** wire sent NoneType
 - **Diff:** bool -> NoneType at CalendarConfig.env_bypass via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-129 -- CalendarConfig.pre_open_minutes: missing (declared=int, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares int
 - **Actual:** wire sent NoneType
 - **Diff:** int -> NoneType at CalendarConfig.pre_open_minutes via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-130 -- CalendarConfig.source: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.source via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-131 -- CalendarConfig.timezone: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.timezone via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-132 -- CalendarConfig.updated_by: missing (declared=str, observed=NoneType) [async]
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.updated_by via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope_async
 
 ### F-133 -- schema drift en preview_calendar_config_async_response
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"market_after": {"is_open": "bool", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "requires_confirmation": "bool", "valid": "bool", "warnings": []}
 - **Actual:** {"market_after": {"is_open": "bool", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "requires_confirmation": "bool", "valid": "bool", "warnings": ["str"]}
@@ -1256,7 +1280,7 @@
 
 ### F-135 -- schema drift en get_calendar_year_2099_async
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
 - **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
@@ -1264,7 +1288,7 @@
 
 ### F-138 -- create_symbol_sync: MarketDataAPIError inesperado
 
-**Class:** `ERROR-MAP` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `ERROR-MAP` . **Surface:** `sync` . **Status:** `EXPECTED`
 
 - **Expected:** 200 OK
 - **Actual:** MarketDataAPIError('[422] {"detail":{"message":"el exchange no acepta estos símbolos; suscribirlos rechazaría el lote `smd` completo (docs/11-open-questions.md Q7). Usá ?force=true para guardarlos igual.","rejected":[{"symbol":"GSDPROBE/P27-SYNC","market_id":"ROFX","reason":"el exchange no lista este símbolo (normalmente significa que el contrato venció); suscribirlo rechaza el lote entero y silencia hasta 50 símbolos válidos"}]}}')
@@ -1272,7 +1296,7 @@
 
 ### F-139 -- schema drift en create_symbols_batch_sync_response
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"created": "int", "items": [{"active": "bool", "created": "bool", "id": "int", "market_id": "str", "symbol": "str"}], "note": "str", "reactivated": "int", "requested": "int"}
 - **Actual:** {"created": "int", "items": [], "note": "str", "reactivated": "int", "rejected": [{"market_id": "str", "reason": "str", "symbol": "str"}], "requested": "int", "validated": "bool", "warnings": []}
@@ -1280,7 +1304,7 @@
 
 ### F-140 -- Symbol.note: extra (declared=-, observed=str) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** model declares -
 - **Actual:** wire sent str
@@ -1288,119 +1312,133 @@
 
 ### F-141 -- Symbol.created_at: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at Symbol.created_at via /symbols/{symbol_id}
+- **Regression:** packages/market-data-client/tests/test_symbol_write_ack_timestamps.py::test_create_ack_leaves_the_timestamps_absent
 
 ### F-142 -- Symbol.updated_at: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at Symbol.updated_at via /symbols/{symbol_id}
+- **Regression:** packages/market-data-client/tests/test_symbol_write_ack_timestamps.py::test_create_ack_leaves_the_timestamps_absent
 
 ### F-152 -- CalendarConfig.market_after: extra (declared=-, observed=dict) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares -
 - **Actual:** wire sent dict
 - **Diff:** - -> dict at CalendarConfig.market_after via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-153 -- CalendarConfig.requires_confirmation: extra (declared=-, observed=bool) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares -
 - **Actual:** wire sent bool
 - **Diff:** - -> bool at CalendarConfig.requires_confirmation via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-154 -- CalendarConfig.valid: extra (declared=-, observed=bool) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares -
 - **Actual:** wire sent bool
 - **Diff:** - -> bool at CalendarConfig.valid via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-155 -- CalendarConfig.open: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.open via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-156 -- CalendarConfig.close: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.close via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-157 -- CalendarConfig.enabled: missing (declared=bool, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares bool
 - **Actual:** wire sent NoneType
 - **Diff:** bool -> NoneType at CalendarConfig.enabled via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-158 -- CalendarConfig.editable: missing (declared=bool, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares bool
 - **Actual:** wire sent NoneType
 - **Diff:** bool -> NoneType at CalendarConfig.editable via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-159 -- CalendarConfig.env_bypass: missing (declared=bool, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares bool
 - **Actual:** wire sent NoneType
 - **Diff:** bool -> NoneType at CalendarConfig.env_bypass via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-160 -- CalendarConfig.pre_open_minutes: missing (declared=int, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares int
 - **Actual:** wire sent NoneType
 - **Diff:** int -> NoneType at CalendarConfig.pre_open_minutes via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-161 -- CalendarConfig.source: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.source via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-162 -- CalendarConfig.timezone: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.timezone via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-163 -- CalendarConfig.updated_by: missing (declared=str, observed=NoneType) [sync]
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `FIXED`
 
 - **Expected:** model declares str
 - **Actual:** wire sent NoneType
 - **Diff:** str -> NoneType at CalendarConfig.updated_by via /calendar/config/preview
+- **Regression:** packages/market-data-client/tests/test_preview_calendar_config_envelope.py::test_preview_returns_the_preview_envelope
 
 ### F-164 -- schema drift en preview_calendar_config_sync_response
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"market_after": {"is_open": "bool", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "requires_confirmation": "bool", "valid": "bool", "warnings": []}
 - **Actual:** {"market_after": {"is_open": "bool", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "requires_confirmation": "bool", "valid": "bool", "warnings": ["str"]}
@@ -1408,7 +1446,7 @@
 
 ### F-166 -- schema drift en get_calendar_year_2099_sync
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
 - **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
@@ -1424,7 +1462,7 @@
 
 ### F-178 -- schema drift en get_health_feed
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "NoneType", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_with_data": "int"}
 - **Actual:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "str", "last_error_age_seconds": "int", "last_error_at": "str", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "subscription": {"chunk_size": "int", "chunks": "int", "confirm_seconds": "int", "delivered_count": "int", "forced_reconnects": "int", "last_reconnect_reason": "str", "quarantined_count": "int", "quarantined_symbols": ["str"], "requested": "int", "sent": "int", "smd_rejections": "int", "smd_resends": "int", "smd_unattributed": "int", "unconfirmed_count": "int", "unconfirmed_symbols": []}, "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_never_delivered": "int", "symbols_with_data": "int"}
@@ -1432,7 +1470,7 @@
 
 ### F-183 -- schema drift en get_calendar
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
 - **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
@@ -1440,7 +1478,7 @@
 
 ### F-184 -- schema drift en get_calendar_config
 
-**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
 
 - **Expected:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}
 - **Actual:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}
@@ -1448,7 +1486,7 @@
 
 ### F-185 -- market_data vacío para prefix '__no_such_symbol__'
 
-**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `OPEN`
+**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `EXPECTED`
 
 - **Expected:** lista vacía para un prefix inexistente
 - **Actual:** []
@@ -1456,7 +1494,7 @@
 
 ### F-190 -- schema drift en get_health_feed
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "NoneType", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_with_data": "int"}
 - **Actual:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "str", "last_error_age_seconds": "int", "last_error_at": "str", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "subscription": {"chunk_size": "int", "chunks": "int", "confirm_seconds": "int", "delivered_count": "int", "forced_reconnects": "int", "last_reconnect_reason": "str", "quarantined_count": "int", "quarantined_symbols": ["str"], "requested": "int", "sent": "int", "smd_rejections": "int", "smd_resends": "int", "smd_unattributed": "int", "unconfirmed_count": "int", "unconfirmed_symbols": []}, "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_never_delivered": "int", "symbols_with_data": "int"}
@@ -1464,7 +1502,7 @@
 
 ### F-195 -- schema drift en get_calendar
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
 - **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
@@ -1472,7 +1510,7 @@
 
 ### F-196 -- schema drift en get_calendar_config
 
-**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `NO-FIX`
 
 - **Expected:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}
 - **Actual:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}
@@ -1480,7 +1518,7 @@
 
 ### F-197 -- market_data async vacío para prefix '__no_such_symbol__'
 
-**Class:** `NO-DATA` . **Surface:** `async` . **Status:** `OPEN`
+**Class:** `NO-DATA` . **Surface:** `async` . **Status:** `EXPECTED`
 
 - **Expected:** lista vacía para un prefix inexistente
 - **Actual:** []

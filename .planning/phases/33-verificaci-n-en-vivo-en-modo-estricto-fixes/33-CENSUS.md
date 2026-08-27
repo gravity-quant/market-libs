@@ -392,7 +392,13 @@ triage de 33-07 vea duplicados. **No se arregla acá** (la Task 2 prohíbe edita
 
 ## Re-scope
 
-Todo hallazgo confirmado o pendiente que el plan **33-07 no va a cerrar en este ciclo**,
+> **Enmendado por el plan 33-07 (2026-08-27), tras ejecutar el triage.** La tabla de abajo
+> es la realidad POST-triage, no la proyección que 33-05 escribió. Los cambios respecto de
+> la versión original están marcados en cada fila afectada, y la fila nueva
+> `SHAPE-MD-REF-33` es un hallazgo que **no existía** cuando 33-05 escribió esta sección:
+> apareció al arreglar S-1. Nada se quitó para achicar la tabla.
+
+Todo hallazgo confirmado o pendiente que el plan **33-07 no cerró en este ciclo**,
 con su destino nombrado. Ninguna celda dice `TBD`, `later` ni `a futuro`. La Phase 34 es
 releases por paquete y **no** es un destino válido para trabajo de defectos.
 
@@ -402,33 +408,74 @@ releases por paquete y **no** es un destino válido para trabajo de defectos.
 | `matriz-client` | `InstrumentDetail` | 7 claves no declaradas | `extra` — **S-4** | `LIVE-MATZ-33` | Idem. Informativo por política (lock 4), pero sin corroborar en vivo. |
 | `matriz-client` | `MarketDataSnapshot` | `.LA`, `.SE`, `.OI`, `.CL` | `non_dict` — **S-5** | `LIVE-MATZ-33` (requiere ventana de sesión ARG) | Doblemente indecidible: sin corrida, y la ventana fue de mercado cerrado. Un `null` de mercado cerrado no distingue defecto de forma legítima (P-12). |
 | `higyrus-client` | `Movimiento`, `PosicionValuada`, `Posicion` | 22 campos del piso ≥22 | `missing` | `LIVE-HIGY-33` (ROADMAP § Backlog, v1.7+) | El host del vendor no resuelve por DNS desde esta red. Credenciales presentes; es alcanzabilidad, no auth. |
-| `market-data-client` | `HealthFeed` | `.symbols_never_delivered` | `extra` | `TYP-MD-EXTRA-33` (ROADMAP § Backlog, v1.7+) | `extra` es informativo por política (lock 3/4): crecimiento normal del vendor. Tiparlo es trabajo de superficie, no un fix de defecto. |
-| `market-data-client` | `FeedIngestor` | `.ingestor.last_error_age_seconds`, `.ingestor.last_error_at`, `.ingestor.subscription` | `extra` | `TYP-MD-EXTRA-33` | Idem. Los tres son TYP-02: visibles porque `HealthFeed` se tipó en la Phase 31. |
-| `market-data-client` | `Symbol` | `.note` | `extra` | `TYP-MD-EXTRA-33` | Idem. Clave del ack de write que el modelo no declara. |
-| `market-data-client` | *(snapshots)* | 22 findings `schema drift` duplicados por superficie/pase | — | `HARN-DRIFT-33` (ROADMAP § Backlog, v1.7+) | `_write_or_check_schema` no pasa `idempotent_by_title=True`. Higiene del artefacto; no hay pérdida de censo. |
+| **`market-data-client`** | **`Instrument`, `Segment`** | **`Instrument`: `marketId`/`instrumentType` declarados y ausentes del wire + 7 claves de wire no declaradas; `Segment`: los 3 campos declarados disjuntos de las 2 claves del wire** | **`missing` + `extra` — mitad de forma de S-1** | **`SHAPE-MD-REF-33`** (ROADMAP § Backlog, v1.7+) | **FILA NUEVA (33-07).** No existía al escribirse 33-05: el `non_dict` terminal de S-1 la tapaba. Al desenvolver el sobre, el walker llega a los campos y la divergencia real queda expuesta. Corregir la forma es cambio de modelo **publicado** (v0.2.0) y el checkpoint 33-07 Task 1 gatea esa clase; el operator autorizó tres cambios de forma y éste no estaba entre ellos (T-33-44). **Post-33-07 la divergencia es visible y fatal en estricto, en vez de silenciosa.** |
+| `market-data-client` | `HealthFeed` | `.symbols_never_delivered` | `extra` | `TYP-MD-EXTRA-33` (ROADMAP § Backlog, v1.7+) | `extra` es informativo por política (lock 3/4): crecimiento normal del vendor. Tiparlo es trabajo de superficie, no un fix de defecto. Findings `F-67`/`F-87` → `NO-FIX`. |
+| `market-data-client` | `FeedIngestor` | `.ingestor.last_error_age_seconds`, `.ingestor.last_error_at`, `.ingestor.subscription` | `extra` | `TYP-MD-EXTRA-33` | Idem. Los tres son TYP-02: visibles porque `HealthFeed` se tipó en la Phase 31. Findings `F-68`..`F-70` / `F-88`..`F-90` → `NO-FIX`. |
+| `market-data-client` | `Symbol` | `.note` | `extra` | `TYP-MD-EXTRA-33` | Idem. Clave del ack de write que el modelo no declara. Findings `F-109`/`F-140` → `NO-FIX`. |
+| ~~`market-data-client`~~ | ~~`CalendarConfig`~~ | ~~`.market_after`, `.requires_confirmation`, `.valid`~~ | ~~`extra`~~ | **CERRADA por 33-07** | Las tres estaban ruteadas a `TYP-MD-EXTRA-33` por 33-05. Ya no: `CalendarConfigPreview` las declara, así que dejaron de ser `extra`. `TYP-MD-EXTRA-33` baja de 8 triples a **5**. |
+| `market-data-client` | *(snapshots)* | 22 findings `schema drift` duplicados por superficie/pase | — | `HARN-DRIFT-33` (ROADMAP § Backlog, v1.7+) | `_write_or_check_schema` no pasa `idempotent_by_title=True`. Higiene del artefacto; no hay pérdida de censo. Los 22 quedan `NO-FIX`: el drift es crecimiento de claves del vendor y los baselines **no** se re-basearon (D-25). |
 
-### Lo que 33-07 **sí** cierra en este ciclo
+### Lo que 33-07 **sí** cerró en este ciclo
 
-Seis triples confirmados en vivo, en dos familias, ordenados por consecuencia:
+Los 19 triples que 33-05 proyectó, los 19 cerrados, en cuatro familias ordenadas por
+consecuencia. Ninguna se recortó y ninguna creció:
 
 1. **S-1** — `Instrument` y `Segment` `non_dict` (2 triples). El más consecuente de los
-   medidos: cada fila del catálogo decodifica a un modelo all-default.
+   medidos: cada fila del catálogo decodificaba a un modelo all-default porque el parser
+   iteraba las CLAVES del sobre. **Cerrado a medias, y la otra mitad tiene destino** —
+   ver la fila `SHAPE-MD-REF-33` de arriba. Findings `F-82`/`F-83`/`F-102`/`F-103` → `FIXED`.
 2. **S-2** — `CalendarConfig` contra el sobre de preview (12 triples: 9 `missing` + 3
-   `extra`). El sobre quiere su propio modelo.
+   `extra`). El sobre recibió su propio modelo. Findings `F-121`..`F-132` y
+   `F-152`..`F-163` → `FIXED`.
 3. `MarketDataSnapshot.entries` / `.market_data` / `.staleness_seconds` `missing` sobre la
-   forma no-data de `/marketdata/latest` (3 triples) — candidatos a `Optional`.
+   forma no-data de `/marketdata/latest` (3 triples) — ensanchados a `Optional`. Findings
+   `F-72`/`F-73`/`F-75` y `F-92`/`F-93`/`F-95` → `FIXED`.
 4. `Symbol.created_at` / `.updated_at` `missing` en los acks de write (2 triples) —
-   candidatos a `Optional`.
+   ensanchados a `Optional`. Findings `F-141`/`F-142` y `F-110`/`F-111` → `FIXED`.
 
-Total dirigido a 33-07: **19 triples** (2 + 12 + 3 + 2), todos de `market-data-client`, todos
-`OPEN` en `.planning/verification/market-data-client-findings.md`. Los 5 triples restantes
-del censo de 24 son los `extra` ruteados arriba.
+**Cerrado: 19 triples ≡ 38 findings** (el factor ~2× por superficie que `## Method`
+explica), todos de `market-data-client`. Los 5 triples restantes del censo de 24 son los
+`extra` ruteados arriba.
 
-### Criterio 1 de la fase: estado real
+**Los tres de las familias 2-4 son cambios de forma de un modelo publicado.** Los tres
+pasaron por el checkpoint bloqueante 33-07 Task 1 y el operator eligió `fix-shape-now` en
+los tres. Consecuencia registrada: `market-data-client` entra al bump set de la Phase 34
+como **source-breaking, 0.4.0 → 0.5.0** (ROADMAP § Phase 34 criterio 1). `__version__` y
+`pyproject` **no se movieron** en esta fase: la opción elegida es literalmente *"que la
+Phase 34 cargue la consecuencia de semver"*.
+
+### Triage completo de los 76 findings `OPEN` (plan 33-07)
+
+Ninguno quedó `OPEN`. La partición es exhaustiva y disjunta, verificada mecánicamente
+contra el archivo antes de escribir:
+
+| Disposición | Cantidad | Qué son | Destino / evidencia |
+|---|---:|---|---|
+| `FIXED` | 38 | Las cuatro familias de arriba | Cada uno con un bullet `Regression:` que resuelve a `packages/market-data-client/tests/…` |
+| `EXPECTED` | 6 | 4 `NO-DATA` (`market_data` vacío para el prefix inexistente `__no_such_symbol__`) + 2 `ERROR-MAP` (el `422` del vendor sobre un símbolo que el exchange no lista) | Comportamiento correcto del vendor **y** del cliente: el `422` se mapeó a `MarketDataAPIError`, que es lo que debía pasar |
+| `NO-FIX` | 32 | 10 `extra` + 22 `schema drift` | `TYP-MD-EXTRA-33` y `HARN-DRIFT-33` |
+| **Total** | **76** | | |
+
+**Los cuatro campos del record de divergencia quedaron byte-verbatim en las 76
+promociones.** Sólo se movió `status` (y se agregó `regression` en los 38 `FIXED`). La
+razón de cada disposición vive acá y en `33-07-SUMMARY.md`, no dentro del finding: P-01
+prohíbe componer un campo del finding con algo que no sean las seis claves del record más
+el endpoint y la superficie, y meter prosa de triage en `Diff:` habría sido exactamente
+eso. La fidelidad del round-trip de `_parse_findings` → `_serialize_findings` se verificó
+en **0 líneas de diff** sobre el archivo real antes de promover, así que las 76 llamadas a
+`append_finding` no pudieron destruir prosa de operador (D-23 / CR-01).
+
+### Criterio 1 de la fase: estado real — **GATE HUMANO ABIERTO**
 
 Los cinco drivers están **cableados** al mecanismo (130/130 probes decorados, probado por
 `verification/test_probe_context_coverage.py`), pero sólo **3 de 5** pudieron **correr** contra
 su API real en esta ventana. `higyrus-client` y `matriz-client` quedan sin corrida por
 razones de entorno del operador —una de red, una de política de seguridad— y ninguna de las
-dos es resoluble desde dentro de este plan. **Es un gate humano**: 33-07 debe surfacearlo en
-lugar de dar el criterio 1 por cerrado.
+dos es resoluble desde dentro de este plan.
+
+**El plan 33-07 lo surfacea en vez de darlo por cerrado, que es lo que 33-05 pidió por
+escrito.** Estado, textual: el criterio 1 está **PARCIAL — 3 de 5 paquetes medidos en
+vivo**. `LIVE-HIGY-33` y `LIVE-MATZ-33` son los destinos nombrados, y mientras estén
+abiertos el criterio no se puede reportar cerrado sin mentir. La cobertura parcial fue
+**aceptada por el operator** para este ciclo; la aceptación no convierte 3 en 5 y no se
+registra como si lo hiciera.
