@@ -59,6 +59,9 @@ from typing import Any
 import httpx
 from verification import (
     diff_safemodel_bidirectional,
+    divergence_capture,
+    endpoint_scope,
+    probe_context,
     safe_print,
     schema_of,
     write_findings,
@@ -144,6 +147,16 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
     "add_holidays": "/calendar/holidays",
     "delete_holiday": "/calendar/holidays/{day}",
 }
+
+# Endpoint bindeado por los SEIS probes que NO hacen ninguna llamada en vivo
+# (``param_encoding_sync`` construye un ``RequestSpec`` y no lo despacha;
+# ``auth_fail_sync`` mapea un ``httpx.Response`` sintético; ``parity`` compara dos
+# listas ya capturadas; ``cycle_closure``, ``snapshot_rebaseline_notice_sync`` y
+# ``expected_put_config_operator_gated`` sólo leen o escriben artefactos locales).
+# ``"-"`` es el default del ``ContextVar`` de ``verification.divergences`` y
+# significa exactamente "ningún endpoint bindeado"; inventarles uno atribuiría una
+# divergencia a un endpoint que ese probe nunca tocó.
+_NO_ENDPOINT = "-"
 
 # Campos DEPRECATED-ALIAS (D-22): declarados por el modelo como alias de
 # compatibilidad de un campo cuyo nombre de wire es OTRO. ``Symbol.marketId`` es
@@ -708,6 +721,7 @@ def _emit_shape(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_health"], surface="sync")
 def probe_health_sync(client: Client) -> ProbeResult:
     """Health sync: ``get_health`` + ``get_health_feed`` (anónimos, D-09).
 
@@ -731,9 +745,15 @@ def probe_health_sync(client: Client) -> ProbeResult:
     base_url = client._state.base_url
     try:
         health = client.get_health()
-        feed = client.get_health_feed()
         raw_health = _raw_via_request_sync(client, _core.build_health_request(client._state))
-        raw_feed = _raw_via_request_sync(client, _core.build_health_feed_request(client._state))
+        # P-5: este probe toca DOS endpoints. El decorador bindeó ``/health``; sin
+        # este re-binding una divergencia de ``HealthFeed`` se atribuiría a
+        # ``/health``, un endpoint que ese modelo nunca sale de. La señal de que
+        # esto falta es un finding cuyo ``field_path`` pertenece a un modelo que el
+        # endpoint nombrado no devuelve.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_health_feed"]):
+            feed = client.get_health_feed()
+            raw_feed = _raw_via_request_sync(client, _core.build_health_feed_request(client._state))
         # D-09: el post-procesado (schema snapshot: file I/O + json.loads +
         # append_finding) va DENTRO del try para que un fallo de I/O/parse degrade
         # a finding/SKIP en vez de crashear el driver a FAILED.
@@ -756,6 +776,7 @@ def probe_health_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_health"], surface="async")
 async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
     """Health async: ``get_health`` + ``get_health_feed`` (anónimos, D-09).
 
@@ -767,13 +788,15 @@ async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
     base_url = aclient._state.base_url
     try:
         health = await aclient.get_health()
-        feed = await aclient.get_health_feed()
         raw_health = await _raw_via_request_async(
             aclient, _core.build_health_request(aclient._state)
         )
-        raw_feed = await _raw_via_request_async(
-            aclient, _core.build_health_feed_request(aclient._state)
-        )
+        # P-5: espejo exacto del re-binding sync — ver el comentario allá.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_health_feed"]):
+            feed = await aclient.get_health_feed()
+            raw_feed = await _raw_via_request_async(
+                aclient, _core.build_health_feed_request(aclient._state)
+            )
         # D-09: post-procesado dentro del try (espejo sync).
         _write_schema_snapshot(
             endpoint=_ENDPOINT_TEMPLATES["get_health"],
@@ -799,6 +822,7 @@ async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_market_data"], surface="sync")
 def probe_market_data_sync(client: Client) -> ProbeResult:
     """Market-data read sync: happy-path + SHAPE-diff (Snapshot) + snapshot."""
     name = "market_data_sync"
@@ -833,6 +857,7 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_latest"], surface="sync")
 def probe_latest_sync(client: Client) -> ProbeResult:
     """Latest reads sync: ``get_latest`` (GET) + ``get_latest_batch`` (POST body)."""
     name = "latest_sync"
@@ -859,6 +884,7 @@ def probe_latest_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="sync")
 def probe_instruments_sync(client: Client) -> ProbeResult:
     """Instruments read sync (bool filters) + SHAPE-diff + snapshot."""
     name = "instruments_sync"
@@ -887,6 +913,7 @@ def probe_instruments_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_segments"], surface="sync")
 def probe_segments_sync(client: Client) -> tuple[ProbeResult, list[Segment] | None]:
     """Segments read sync + SHAPE-diff + snapshot; devuelve la lista para paridad."""
     name = "segments_sync"
@@ -914,6 +941,7 @@ def probe_segments_sync(client: Client) -> tuple[ProbeResult, list[Segment] | No
         )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_symbols"], surface="sync")
 def probe_symbols_sync(client: Client) -> ProbeResult:
     """Symbols read sync (``active=False`` falsy filter) + SHAPE-diff + snapshot."""
     name = "symbols_sync"
@@ -939,17 +967,21 @@ def probe_symbols_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_calendar"], surface="sync")
 def probe_calendar_sync(client: Client) -> ProbeResult:
     """Calendar reads sync: ``get_calendar`` (list) + ``get_calendar_config`` (object)."""
     name = "calendar_sync"
     base_url = client._state.base_url
     try:
         days = client.get_calendar()
-        config = client.get_calendar_config()
         raw_days = _raw_via_request_sync(client, _core.build_calendar_request(client._state))
-        raw_config = _raw_via_request_sync(
-            client, _core.build_calendar_config_request(client._state)
-        )
+        # P-5: ``/calendar`` y ``/calendar/config`` son endpoints distintos con
+        # modelos distintos (``CalendarDay`` vs ``CalendarConfig``).
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_calendar_config"]):
+            config = client.get_calendar_config()
+            raw_config = _raw_via_request_sync(
+                client, _core.build_calendar_config_request(client._state)
+            )
         # D-09: post-procesado dentro del try.
         # El wire envuelve las filas en el envelope {config, coverage, days[],
         # market} (LIVE-MUT-01): tomar ``raw_days[0]`` sobre el dict daba siempre
@@ -980,6 +1012,7 @@ def probe_calendar_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_param_encoding_sync(client: Client) -> ProbeResult:
     """Param-encoding sync (D-04): los filtros bool falsy deben preservarse.
 
@@ -1027,6 +1060,7 @@ def probe_param_encoding_sync(client: Client) -> ProbeResult:
     return ProbeResult(name, "PASS", "filtros falsy preservados")
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_market_data"], surface="sync")
 def probe_no_data_sync(client: Client) -> ProbeResult:
     """No-data sync (D-09): un prefix inexistente → lista vacía clasificada NO-DATA."""
     name = "no_data_sync"
@@ -1053,6 +1087,7 @@ def probe_no_data_sync(client: Client) -> ProbeResult:
     return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_auth_fail_sync(client: Client) -> ProbeResult:
     """Auth-fail sync (D-05): un 401 debe mapear a ``MarketDataAuthError`` (AUTH)."""
     name = "auth_fail_sync"
@@ -1098,6 +1133,7 @@ def probe_auth_fail_sync(client: Client) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_market_data"], surface="async")
 async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_market_data_sync`."""
     name = "market_data_async"
@@ -1130,6 +1166,7 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_latest"], surface="async")
 async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_latest_sync`."""
     name = "latest_async"
@@ -1156,6 +1193,7 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="async")
 async def probe_instruments_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_instruments_sync`."""
     name = "instruments_async"
@@ -1186,6 +1224,7 @@ async def probe_instruments_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_segments"], surface="async")
 async def probe_segments_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, list[Segment] | None]:
@@ -1214,6 +1253,7 @@ async def probe_segments_async(
         )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_symbols"], surface="async")
 async def probe_symbols_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_symbols_sync`."""
     name = "symbols_async"
@@ -1239,19 +1279,22 @@ async def probe_symbols_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_calendar"], surface="async")
 async def probe_calendar_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_calendar_sync`."""
     name = "calendar_async"
     base_url = aclient._state.base_url
     try:
         days = await aclient.get_calendar()
-        config = await aclient.get_calendar_config()
         raw_days = await _raw_via_request_async(
             aclient, _core.build_calendar_request(aclient._state)
         )
-        raw_config = await _raw_via_request_async(
-            aclient, _core.build_calendar_config_request(aclient._state)
-        )
+        # P-5: espejo exacto del re-binding sync — ver el comentario allá.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_calendar_config"]):
+            config = await aclient.get_calendar_config()
+            raw_config = await _raw_via_request_async(
+                aclient, _core.build_calendar_config_request(aclient._state)
+            )
         # D-09: post-procesado dentro del try (espejo sync). Se desenvuelve el
         # envelope ``days[]`` antes de tomar la muestra (LIVE-MUT-01).
         day_rows = _unwrap_rows(raw_days, "days")
@@ -1279,6 +1322,7 @@ async def probe_calendar_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_market_data"], surface="async")
 async def probe_no_data_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_no_data_sync`."""
     name = "no_data_async"
@@ -1310,6 +1354,7 @@ async def probe_no_data_async(aclient: AsyncClient) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="both")
 def probe_parity(
     seg_sync: list[Segment] | None,
     seg_async: list[Segment] | None,
@@ -1359,6 +1404,7 @@ def probe_parity(
 # encontrar, así que se emite un finding ``AUTH`` OPEN en vez de un PASS.
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["preview_calendar_config"], surface="sync")
 def probe_mutation_gate_refusal_sync(client: Client) -> ProbeResult:
     """Refuse-by-default sync (D-04): sin opt-in, una mutación pública debe levantar."""
     name = "mutation_gate_refusal_sync"
@@ -1394,6 +1440,7 @@ def probe_mutation_gate_refusal_sync(client: Client) -> ProbeResult:
         client._state.mutating_allowed = previous
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["preview_calendar_config"], surface="async")
 async def probe_mutation_gate_refusal_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_mutation_gate_refusal_sync` (D-04)."""
     name = "mutation_gate_refusal_async"
@@ -1504,6 +1551,7 @@ def _count_symbol_rows(raw_rows: list[Any], symbol: str) -> int:
     return sum(1 for r in raw_rows if isinstance(r, dict) and r.get("symbol") == symbol)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["create_symbol"], surface="sync")
 def probe_create_symbol_sync(client: Client) -> ProbeResult:
     """Alta sync del símbolo de prueba: método público + re-fire crudo (D-05/D-11/D-19).
 
@@ -1565,6 +1613,7 @@ def probe_create_symbol_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_symbols"], surface="sync")
 def probe_symbols_after_create_sync(client: Client) -> ProbeResult:
     """Confirma el alta sync, DESCUBRE el id y juzga idempotencia por filas (D-10/D-19).
 
@@ -1659,6 +1708,7 @@ def probe_symbols_after_create_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["create_symbols"], surface="sync")
 def probe_create_symbols_batch_sync(client: Client) -> ProbeResult:
     """Alta batch sync doble-fire + conteo de filas por identificador (D-05/D-19).
 
@@ -1691,9 +1741,12 @@ def probe_create_symbols_batch_sync(client: Client) -> ProbeResult:
             base_url=base_url,
             surface="sync",
         )
-        readback = _raw_via_request_sync(
-            client, _core.build_symbols_request(client._state, prefix=_PROBE_PREFIX)
-        )
+        # P-5: la relectura de confirmación va contra ``/symbols``, no contra
+        # ``/symbols/batch`` que el decorador bindeó.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_symbols"]):
+            readback = _raw_via_request_sync(
+                client, _core.build_symbols_request(client._state, prefix=_PROBE_PREFIX)
+            )
         readback_rows = _prefixed_rows(readback)
         counts = {sym: _count_symbol_rows(readback_rows, sym) for sym in batch}
         for sym in batch:
@@ -1738,7 +1791,9 @@ def probe_create_symbols_batch_sync(client: Client) -> ProbeResult:
             row_id = _discovered_symbol_ids.get(sym)
             try:
                 if row_id is not None:
-                    client.update_symbol(str(row_id), SymbolPatch(active=False))
+                    # P-5: la reversión es un PATCH a ``/symbols/{symbol_id}``.
+                    with endpoint_scope(_ENDPOINT_TEMPLATES["update_symbol"]):
+                        client.update_symbol(str(row_id), SymbolPatch(active=False))
             except Exception as exc:
                 _emit_cleanup_finding(
                     name,
@@ -1749,6 +1804,7 @@ def probe_create_symbols_batch_sync(client: Client) -> ProbeResult:
                 )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["update_symbol"], surface="sync")
 def probe_update_symbol_sync(client: Client) -> ProbeResult:
     """Reversión sync: ``PATCH active=false`` doble-fire + confirmación (D-05/D-19).
 
@@ -1793,7 +1849,11 @@ def probe_update_symbol_sync(client: Client) -> ProbeResult:
             base_url=base_url,
             surface="sync",
         )
-        still_active = [s.symbol for s in client.get_symbols(prefix=_PROBE_PREFIX) if s.active]
+        # P-5: la confirmación de la reversión lee ``/symbols``, no el
+        # ``/symbols/{symbol_id}`` que el decorador bindeó.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_symbols"]):
+            current = client.get_symbols(prefix=_PROBE_PREFIX)
+        still_active = [s.symbol for s in current if s.active]
         if _SYM_SYNC in still_active:
             fid = _next_fid()
             append_finding(
@@ -1832,6 +1892,7 @@ def probe_update_symbol_sync(client: Client) -> ProbeResult:
             )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["create_symbol"], surface="async")
 async def probe_create_symbol_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_create_symbol_sync` (D-05/D-11/D-15/D-19)."""
     name = "create_symbol_async"
@@ -1885,6 +1946,7 @@ async def probe_create_symbol_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_symbols"], surface="async")
 async def probe_symbols_after_create_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_symbols_after_create_sync` (D-10/D-15/D-19)."""
     name = "symbols_after_create_async"
@@ -1969,6 +2031,7 @@ async def probe_symbols_after_create_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["create_symbols"], surface="async")
 async def probe_create_symbols_batch_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_create_symbols_batch_sync` (D-05/D-15/D-19)."""
     name = "create_symbols_batch_async"
@@ -1994,9 +2057,11 @@ async def probe_create_symbols_batch_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
             surface="async",
         )
-        readback = await _raw_via_request_async(
-            aclient, _core.build_symbols_request(aclient._state, prefix=_PROBE_PREFIX)
-        )
+        # P-5: espejo exacto del re-binding sync — ver el comentario allá.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_symbols"]):
+            readback = await _raw_via_request_async(
+                aclient, _core.build_symbols_request(aclient._state, prefix=_PROBE_PREFIX)
+            )
         readback_rows = _prefixed_rows(readback)
         counts = {sym: _count_symbol_rows(readback_rows, sym) for sym in batch}
         for sym in batch:
@@ -2041,7 +2106,9 @@ async def probe_create_symbols_batch_async(aclient: AsyncClient) -> ProbeResult:
             row_id = _discovered_symbol_ids.get(sym)
             try:
                 if row_id is not None:
-                    await aclient.update_symbol(str(row_id), SymbolPatch(active=False))
+                    # P-5: espejo exacto del cleanup sync.
+                    with endpoint_scope(_ENDPOINT_TEMPLATES["update_symbol"]):
+                        await aclient.update_symbol(str(row_id), SymbolPatch(active=False))
             except Exception as exc:
                 _emit_cleanup_finding(
                     name,
@@ -2052,6 +2119,7 @@ async def probe_create_symbols_batch_async(aclient: AsyncClient) -> ProbeResult:
                 )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["update_symbol"], surface="async")
 async def probe_update_symbol_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_update_symbol_sync` — la reversión (D-05/D-15/D-19)."""
     name = "update_symbol_async"
@@ -2090,7 +2158,9 @@ async def probe_update_symbol_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
             surface="async",
         )
-        current = await aclient.get_symbols(prefix=_PROBE_PREFIX)
+        # P-5: espejo exacto del re-binding sync — ver el comentario allá.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_symbols"]):
+            current = await aclient.get_symbols(prefix=_PROBE_PREFIX)
         still_active = [s.symbol for s in current if s.active]
         if _SYM_ASYNC in still_active:
             fid = _next_fid()
@@ -2217,6 +2287,7 @@ def _emit_preview_idempotency_verdict(*, surface: str, identical: bool, base_url
     return fid
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_calendar_config"], surface="sync")
 def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
     """Config sync PREVIEW-ONLY (D-06): verifica el *"Writes nothing"* en vez de creerlo.
 
@@ -2233,24 +2304,28 @@ def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
     try:
         before = client.get_calendar_config()
         echo = _echo_market_hours(before)
-        previewed = client.preview_calendar_config(echo)
-        first = _mutate_raw_sync(
-            client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
-        )
-        second = _mutate_raw_sync(
-            client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
-        )
-        body_first = first.json()
-        body_second = second.json()
-        narrow = MarketHoursIn(
-            open_time=_PREVIEW_NARROW_OPEN,
-            close_time=_PREVIEW_NARROW_CLOSE,
-            timezone=before.timezone,
-            updated_by=_PREVIEW_UPDATED_BY,
-        )
-        narrow_body = _mutate_raw_sync(
-            client, _core.build_preview_calendar_config_request(client._state, narrow.to_dict())
-        ).json()
+        # P-5: el decorador bindeó ``/calendar/config`` (las lecturas antes/después,
+        # que son la prueba en vivo del *"Writes nothing"*). Los cuatro disparos del
+        # preview van contra ``/calendar/config/preview``, otro endpoint.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["preview_calendar_config"]):
+            previewed = client.preview_calendar_config(echo)
+            first = _mutate_raw_sync(
+                client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
+            )
+            second = _mutate_raw_sync(
+                client, _core.build_preview_calendar_config_request(client._state, echo.to_dict())
+            )
+            body_first = first.json()
+            body_second = second.json()
+            narrow = MarketHoursIn(
+                open_time=_PREVIEW_NARROW_OPEN,
+                close_time=_PREVIEW_NARROW_CLOSE,
+                timezone=before.timezone,
+                updated_by=_PREVIEW_UPDATED_BY,
+            )
+            narrow_body = _mutate_raw_sync(
+                client, _core.build_preview_calendar_config_request(client._state, narrow.to_dict())
+            ).json()
         after = client.get_calendar_config()
         # D-09: todo el post-procesado dentro del try. El snapshot lleva un
         # ``client_function`` propio de esta superficie (D-17) y captura SÓLO el
@@ -2302,6 +2377,7 @@ def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_calendar_config"], surface="async")
 async def probe_preview_calendar_config_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_preview_calendar_config_sync` (D-06/D-19)."""
     name = "preview_calendar_config_async"
@@ -2311,25 +2387,30 @@ async def probe_preview_calendar_config_async(aclient: AsyncClient) -> ProbeResu
     try:
         before = await aclient.get_calendar_config()
         echo = _echo_market_hours(before)
-        previewed = await aclient.preview_calendar_config(echo)
-        first = await _mutate_raw_async(
-            aclient, _core.build_preview_calendar_config_request(aclient._state, echo.to_dict())
-        )
-        second = await _mutate_raw_async(
-            aclient, _core.build_preview_calendar_config_request(aclient._state, echo.to_dict())
-        )
-        body_first = first.json()
-        body_second = second.json()
-        narrow = MarketHoursIn(
-            open_time=_PREVIEW_NARROW_OPEN,
-            close_time=_PREVIEW_NARROW_CLOSE,
-            timezone=before.timezone,
-            updated_by=_PREVIEW_UPDATED_BY,
-        )
-        narrow_resp = await _mutate_raw_async(
-            aclient, _core.build_preview_calendar_config_request(aclient._state, narrow.to_dict())
-        )
-        narrow_body = narrow_resp.json()
+        # P-5: espejo exacto del re-binding sync — ver el comentario allá.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["preview_calendar_config"]):
+            previewed = await aclient.preview_calendar_config(echo)
+            first = await _mutate_raw_async(
+                aclient,
+                _core.build_preview_calendar_config_request(aclient._state, echo.to_dict()),
+            )
+            second = await _mutate_raw_async(
+                aclient,
+                _core.build_preview_calendar_config_request(aclient._state, echo.to_dict()),
+            )
+            body_first = first.json()
+            body_second = second.json()
+            narrow = MarketHoursIn(
+                open_time=_PREVIEW_NARROW_OPEN,
+                close_time=_PREVIEW_NARROW_CLOSE,
+                timezone=before.timezone,
+                updated_by=_PREVIEW_UPDATED_BY,
+            )
+            narrow_resp = await _mutate_raw_async(
+                aclient,
+                _core.build_preview_calendar_config_request(aclient._state, narrow.to_dict()),
+            )
+            narrow_body = narrow_resp.json()
         after = await aclient.get_calendar_config()
         # D-09: post-procesado dentro del try (espejo sync); ``client_function``
         # propio de ESTA superficie para que una divergencia sync/async del body
@@ -2467,6 +2548,7 @@ def _emit_delete_holiday_idempotency_verdict(
     return fid
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["add_holidays"], surface="sync")
 def probe_add_holidays_sync(client: Client) -> ProbeResult:
     """Alta sync del feriado de prueba: método público + re-fire crudo (D-07/D-19).
 
@@ -2530,6 +2612,7 @@ def probe_add_holidays_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_calendar"], surface="sync")
 def probe_calendar_after_holiday_sync(client: Client) -> ProbeResult:
     """Confirma el alta sync y juzga la idempotencia por CONTEO de días (D-19/D-27).
 
@@ -2609,6 +2692,7 @@ def probe_calendar_after_holiday_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["delete_holiday"], surface="sync")
 def probe_delete_holiday_sync(client: Client) -> ProbeResult:
     """Reversión sync del feriado: doble DELETE + confirmación de ausencia (D-07/D-08/D-19).
 
@@ -2652,9 +2736,12 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
         second_status, _second_body = _mutate_status_sync(
             client, _core.build_delete_holiday_request(client._state, _HOLIDAY_SYNC)
         )
-        raw = _raw_via_request_sync(
-            client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
-        )
+        # P-5: la confirmación de ausencia lee ``/calendar``, no el
+        # ``/calendar/holidays/{day}`` que el decorador bindeó.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_calendar"]):
+            raw = _raw_via_request_sync(
+                client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
+            )
         # D-09: todo el post-procesado dentro del try. Se snapshotea el body del
         # PRIMER delete (el público): el segundo puede ser legítimamente un 404, y
         # capturar un body de error como baseline sería capturar la shape
@@ -2720,6 +2807,7 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
             )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["add_holidays"], surface="async")
 async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_add_holidays_sync` (D-07/D-19).
 
@@ -2761,6 +2849,7 @@ async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_calendar"], surface="async")
 async def probe_calendar_after_holiday_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_calendar_after_holiday_sync` (D-19/D-27)."""
     name = "calendar_after_holiday_async"
@@ -2827,6 +2916,7 @@ async def probe_calendar_after_holiday_async(aclient: AsyncClient) -> ProbeResul
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["delete_holiday"], surface="async")
 async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_delete_holiday_sync` (D-07/D-08/D-19).
 
@@ -2855,9 +2945,11 @@ async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
         second_status, _second_body = await _mutate_status_async(
             aclient, _core.build_delete_holiday_request(aclient._state, _HOLIDAY_ASYNC)
         )
-        raw = await _raw_via_request_async(
-            aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
-        )
+        # P-5: espejo exacto del re-binding sync — ver el comentario allá.
+        with endpoint_scope(_ENDPOINT_TEMPLATES["get_calendar"]):
+            raw = await _raw_via_request_async(
+                aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
+            )
         # D-09: post-procesado dentro del try (espejo sync). Se snapshotea el body
         # del PRIMER delete: el segundo puede ser legítimamente un 404. Phase 31:
         # ``to_dict()`` — CIEGO A LA DERIVA, ver el warning del docstring.
@@ -2936,10 +3028,15 @@ def _residue_symbols_sync(client: Client) -> list[str]:
 
 
 def _residue_days_sync(client: Client) -> list[str]:
-    """Días presentes en el año dedicado del probe (cualquiera, no sólo los nuestros)."""
-    raw = _raw_via_request_sync(
-        client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
-    )
+    """Días presentes en el año dedicado del probe (cualquiera, no sólo los nuestros).
+
+    P-5: el ``endpoint_scope`` vive ACÁ y no en el call site porque este helper
+    corre desde ``probe_residue_sweep_sync``, cuyo decorador bindea ``/symbols``.
+    """
+    with endpoint_scope(_ENDPOINT_TEMPLATES["get_calendar"]):
+        raw = _raw_via_request_sync(
+            client, _core.build_calendar_request(client._state, year=_HOLIDAY_YEAR)
+        )
     return sorted(
         str(d.get("day")) for d in _unwrap_rows(raw, "days") if isinstance(d, dict) and d.get("day")
     )
@@ -2952,10 +3049,11 @@ async def _residue_symbols_async(aclient: AsyncClient) -> list[str]:
 
 
 async def _residue_days_async(aclient: AsyncClient) -> list[str]:
-    """Espejo async de :func:`_residue_days_sync`."""
-    raw = await _raw_via_request_async(
-        aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
-    )
+    """Espejo async de :func:`_residue_days_sync` (mismo re-binding P-5)."""
+    with endpoint_scope(_ENDPOINT_TEMPLATES["get_calendar"]):
+        raw = await _raw_via_request_async(
+            aclient, _core.build_calendar_request(aclient._state, year=_HOLIDAY_YEAR)
+        )
     return sorted(
         str(d.get("day")) for d in _unwrap_rows(raw, "days") if isinstance(d, dict) and d.get("day")
     )
@@ -2983,7 +3081,10 @@ def _retry_residue_cleanup_sync(
             found = _discover_row_id(match) if isinstance(match, dict) else None
             row_id = found[1] if found is not None else _discovered_symbol_ids.get(symbol)
             if row_id is not None:
-                client.update_symbol(str(row_id), SymbolPatch(active=False))
+                # P-5: el PATCH va contra ``/symbols/{symbol_id}``, no contra el
+                # ``/symbols`` que el decorador del sweep bindeó.
+                with endpoint_scope(_ENDPOINT_TEMPLATES["update_symbol"]):
+                    client.update_symbol(str(row_id), SymbolPatch(active=False))
         except Exception as exc:
             _emit_cleanup_finding(
                 name,
@@ -2996,7 +3097,8 @@ def _retry_residue_cleanup_sync(
         if day not in _PROBE_HOLIDAYS:
             continue  # NUNCA se borra una fila que este driver no creó
         try:
-            client.delete_holiday(day)
+            with endpoint_scope(_ENDPOINT_TEMPLATES["delete_holiday"]):  # P-5
+                client.delete_holiday(day)
         except Exception as exc:
             _emit_cleanup_finding(
                 name,
@@ -3023,7 +3125,9 @@ async def _retry_residue_cleanup_async(
             found = _discover_row_id(match) if isinstance(match, dict) else None
             row_id = found[1] if found is not None else _discovered_symbol_ids.get(symbol)
             if row_id is not None:
-                await aclient.update_symbol(str(row_id), SymbolPatch(active=False))
+                # P-5: espejo exacto del re-binding sync.
+                with endpoint_scope(_ENDPOINT_TEMPLATES["update_symbol"]):
+                    await aclient.update_symbol(str(row_id), SymbolPatch(active=False))
         except Exception as exc:
             _emit_cleanup_finding(
                 name,
@@ -3036,7 +3140,8 @@ async def _retry_residue_cleanup_async(
         if day not in _PROBE_HOLIDAYS:
             continue  # NUNCA se borra una fila que este driver no creó
         try:
-            await aclient.delete_holiday(day)
+            with endpoint_scope(_ENDPOINT_TEMPLATES["delete_holiday"]):  # P-5
+                await aclient.delete_holiday(day)
         except Exception as exc:
             _emit_cleanup_finding(
                 name,
@@ -3071,6 +3176,7 @@ def _emit_residue_finding(
     return fid
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_symbols"], surface="sync")
 def probe_residue_sweep_sync(client: Client) -> ProbeResult:
     """Sweep terminal sync: cero residuo, o un finding que nombra qué sobrevivió (D-08)."""
     name = "residue_sweep_sync"
@@ -3098,6 +3204,7 @@ def probe_residue_sweep_sync(client: Client) -> ProbeResult:
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_symbols"], surface="async")
 async def probe_residue_sweep_async(aclient: AsyncClient) -> ProbeResult:
     """Espejo async de :func:`probe_residue_sweep_sync` (D-08)."""
     name = "residue_sweep_async"
@@ -3130,6 +3237,7 @@ async def probe_residue_sweep_async(aclient: AsyncClient) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_cycle_closure(client: Client) -> ProbeResult:
     """Cierre de ciclo (D-18): todo CONFIRMED/FIXED enlazado a un test de regresión.
 
@@ -3169,6 +3277,7 @@ def probe_cycle_closure(client: Client) -> ProbeResult:
     return ProbeResult(name, "FAIL", f"{fid} (OPEN) missing: {', '.join(missing)}")
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_health_feed"], surface="sync")
 def probe_health_feed_recheck_sync(client: Client) -> ProbeResult:
     """Re-lectura terminal de ``/health/feed``: nuestra propia contaminación, clasificada (D-26).
 
@@ -3228,6 +3337,7 @@ def probe_health_feed_recheck_sync(client: Client) -> ProbeResult:
     return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_snapshot_rebaseline_notice_sync(client: Client) -> ProbeResult:
     """Terminal EXPECTED (D-17/D-26): la política de snapshots frente a las mutaciones.
 
@@ -3279,6 +3389,7 @@ def probe_snapshot_rebaseline_notice_sync(client: Client) -> ProbeResult:
     return ProbeResult(name, "PASS", f"{fid} (EXPECTED, dedupe by title)")
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="both")
 def probe_expected_put_config_operator_gated(client: Client) -> ProbeResult:
     """Terminal EXPECTED (D-06): PUT/DELETE ``/calendar/config`` fuera del run en vivo.
 
@@ -3430,73 +3541,89 @@ def main() -> None:
         expected_host=_EXPECTED_DEVELOP_HOST,
     )
 
-    # D-02: EXACTAMENTE UN Client sync threadeado a cada probe sync. El
-    # ``expected_host`` explícito mantiene la pata de host in-package
-    # independiente de su default: son dos afirmaciones genuinamente separadas.
-    client = Client(
-        mutating_allowed=mutating,
-        expected_host=_EXPECTED_DEVELOP_HOST,
-        strict_decode=_STRICT,
-    )
     results: list[ProbeResult] = []
     seg_sync: list[Segment] | None = None
-    try:
-        results.append(probe_health_sync(client))
-        results.append(probe_market_data_sync(client))
-        results.append(probe_latest_sync(client))
-        results.append(probe_instruments_sync(client))
-        seg_result, seg_sync = probe_segments_sync(client)
-        results.append(seg_result)
-        results.append(probe_symbols_sync(client))
-        results.append(probe_calendar_sync(client))
-        results.append(probe_param_encoding_sync(client))
-        results.append(probe_no_data_sync(client))
-        results.append(probe_auth_fail_sync(client))
-        # Refuse-by-default ANTES de cualquier probe destructivo (27-04).
-        results.append(probe_mutation_gate_refusal_sync(client))
-        async_results, seg_async = asyncio.run(_async_main(mutating))
-        results.extend(async_results)
-        # Ciclo destructivo de symbols (D-05), DESPUÉS de TODO el read sweep —
-        # sync arriba y async dentro de ``_async_main``. El orden es load-bearing:
-        # el ingestor de develop repollea el catálogo, así que un símbolo de prueba
-        # activo puede aflorar como ``last_error`` en ``/health/feed`` y derivar un
-        # baseline de salud si alguna lectura corriera después de una mutación.
-        results.append(probe_create_symbol_sync(client))
-        results.append(probe_symbols_after_create_sync(client))
-        results.append(probe_create_symbols_batch_sync(client))
-        results.append(probe_update_symbol_sync(client))
-        # Ciclo de calendar (27-05): config PREVIEW-ONLY (D-06) y luego el ciclo
-        # create -> verify -> revert de holidays (D-07). Las dos superficies usan
-        # DÍAS DISJUNTOS, así que un fallo acá no puede contaminar el conteo de
-        # filas —el observable de idempotencia— de la superficie async.
-        results.append(probe_preview_calendar_config_sync(client))
-        results.append(probe_add_holidays_sync(client))
-        results.append(probe_calendar_after_holiday_sync(client))
-        results.append(probe_delete_holiday_sync(client))
-        # Sweep terminal de la superficie sync: LO ÚLTIMO de esta superficie (D-08).
-        results.append(probe_residue_sweep_sync(client))
-        # Paridad: no emite HTTP, sólo compara las dos listas de segments ya
-        # capturadas, así que no altera el estado que el sweep acaba de constatar.
-        results.append(probe_parity(seg_sync, seg_async, client))
-        # Terminales, en orden: la re-lectura del feed (nuestra contaminación,
-        # clasificada EXPECTED en vez de SHAPE), la política de snapshots, la
-        # limitación operativa D-06 y, último de todo, el cierre de ciclo — que
-        # debe ver el findings file ya completo de este run.
-        results.append(probe_health_feed_recheck_sync(client))
-        results.append(probe_snapshot_rebaseline_notice_sync(client))
-        results.append(probe_expected_put_config_operator_gated(client))
-        results.append(probe_cycle_closure(client))
-    except Exception as exc:  # D-09 defensa en profundidad: el driver NUNCA exit != 0
-        results.append(
-            ProbeResult(
-                "driver_guard",
-                "SKIPPED",
-                f"excepción inesperada no aislada ({type(exc).__name__})",
-            )
+
+    # Phase 33 (LIVE-TYP-01 / D-01): el ``DivergenceHandler`` envuelve el sweep
+    # ENTERO —el sync, el async de ``asyncio.run`` y el bloque destructivo cuando
+    # corre—, sube ``market_data_client`` de NOTSET a INFO y traduce cada record de
+    # divergencia a un finding ``SHAPE``. ``next_fid`` recibe el slug y lo descarta:
+    # el driver ya tiene UN allocator seedeado (``_seed_fid_counter`` arriba) y un
+    # segundo contador colisionaría con él en el segundo finding. El ``handler``
+    # sobrevive al ``with``, así que el SUMMARY puede reportar sus dos números.
+    #
+    # Este bloque NO toca el gate de mutaciones: ``mutating_allowed_for`` ya se
+    # evaluó arriba y se threadea sin cambios, y el read sweep sigue corriendo con
+    # el gate cerrado (D-03 de la Phase 23). Tampoco hay ``sys.exit`` en el sweep.
+    with divergence_capture(("market_data_client",), next_fid=lambda _slug: _next_fid()) as handler:
+        # D-02: EXACTAMENTE UN Client sync threadeado a cada probe sync. El
+        # ``expected_host`` explícito mantiene la pata de host in-package
+        # independiente de su default: son dos afirmaciones genuinamente separadas.
+        client = Client(
+            mutating_allowed=mutating,
+            expected_host=_EXPECTED_DEVELOP_HOST,
+            strict_decode=_STRICT,
         )
-    finally:
-        with contextlib.suppress(Exception):
-            client.close()
+        try:
+            results.append(probe_health_sync(client))
+            results.append(probe_market_data_sync(client))
+            results.append(probe_latest_sync(client))
+            results.append(probe_instruments_sync(client))
+            seg_result, seg_sync = probe_segments_sync(client)
+            results.append(seg_result)
+            results.append(probe_symbols_sync(client))
+            results.append(probe_calendar_sync(client))
+            results.append(probe_param_encoding_sync(client))
+            results.append(probe_no_data_sync(client))
+            results.append(probe_auth_fail_sync(client))
+            # Refuse-by-default ANTES de cualquier probe destructivo (27-04).
+            results.append(probe_mutation_gate_refusal_sync(client))
+            async_results, seg_async = asyncio.run(_async_main(mutating))
+            results.extend(async_results)
+            # Ciclo destructivo de symbols (D-05), DESPUÉS de TODO el read sweep —
+            # sync arriba y async dentro de ``_async_main``. El orden es
+            # load-bearing: el ingestor de develop repollea el catálogo, así que un
+            # símbolo de prueba activo puede aflorar como ``last_error`` en
+            # ``/health/feed`` y derivar un baseline de salud si alguna lectura
+            # corriera después de una mutación. Es también la razón por la que el
+            # pase 2 del runner de dos pases corre SIN
+            # ``MARKET_DATA_VERIFY_MUTATING=1`` (T-33-18 / P-11; ver ``_STRICT``).
+            results.append(probe_create_symbol_sync(client))
+            results.append(probe_symbols_after_create_sync(client))
+            results.append(probe_create_symbols_batch_sync(client))
+            results.append(probe_update_symbol_sync(client))
+            # Ciclo de calendar (27-05): config PREVIEW-ONLY (D-06) y luego el ciclo
+            # create -> verify -> revert de holidays (D-07). Las dos superficies usan
+            # DÍAS DISJUNTOS, así que un fallo acá no puede contaminar el conteo de
+            # filas —el observable de idempotencia— de la superficie async.
+            results.append(probe_preview_calendar_config_sync(client))
+            results.append(probe_add_holidays_sync(client))
+            results.append(probe_calendar_after_holiday_sync(client))
+            results.append(probe_delete_holiday_sync(client))
+            # Sweep terminal de la superficie sync: LO ÚLTIMO de esta superficie (D-08).
+            results.append(probe_residue_sweep_sync(client))
+            # Paridad: no emite HTTP, sólo compara las dos listas de segments ya
+            # capturadas, así que no altera el estado que el sweep acaba de constatar.
+            results.append(probe_parity(seg_sync, seg_async, client))
+            # Terminales, en orden: la re-lectura del feed (nuestra contaminación,
+            # clasificada EXPECTED en vez de SHAPE), la política de snapshots, la
+            # limitación operativa D-06 y, último de todo, el cierre de ciclo — que
+            # debe ver el findings file ya completo de este run.
+            results.append(probe_health_feed_recheck_sync(client))
+            results.append(probe_snapshot_rebaseline_notice_sync(client))
+            results.append(probe_expected_put_config_operator_gated(client))
+            results.append(probe_cycle_closure(client))
+        except Exception as exc:  # D-09 defensa en profundidad: el driver NUNCA exit != 0
+            results.append(
+                ProbeResult(
+                    "driver_guard",
+                    "SKIPPED",
+                    f"excepción inesperada no aislada ({type(exc).__name__})",
+                )
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                client.close()
 
     for r in results:
         safe_print(f"PROBE {r.name}: {r.status} {r.detail}".rstrip(), secrets=[])
@@ -3505,8 +3632,14 @@ def main() -> None:
     n_fail = sum(1 for r in results if r.status == "FAIL")
     n_skip = sum(1 for r in results if r.status == "SKIPPED")
     n_find = sum(1 for r in results if r.status == "FINDING")
+    # ``DIVERGENCES`` es ``len(handler.seen)`` —triples distintos
+    # ``(slug, model, field_path, kind)``, LA unidad del censo— y NO el conteo de
+    # findings: con la superficie embebida en el título hay ~2 findings por triple.
+    # ``FINDING`` tampoco sirve para el censo: cuenta probes con status FINDING.
+    # ``HANDLER_ERRORS`` distinto de cero INVALIDA el censo de esta corrida (P-02).
     safe_print(
-        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find}",
+        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
+        f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=[],
     )
 
