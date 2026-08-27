@@ -49,6 +49,7 @@ import asyncio
 import contextlib
 import datetime as dt
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, fields
@@ -77,6 +78,7 @@ from market_data_client import (
     HolidaysIn,
     Instrument,
     LatestRequest,
+    MarketDataDecodeError,
     MarketDataSnapshot,
     MarketHoursIn,
     NewSymbol,
@@ -109,6 +111,40 @@ _CLIENT_STAMPED = frozenset({"received_at"})
 # excluyen del direction ``model-only`` del SHAPE-diff igual que ``received_at``.
 _ENDPOINT_OPTIONAL = frozenset({"note", "entries"})
 
+# D-03 (Phase 33): path templates por endpoint, keyed por NOMBRE DE FUNCIÓN DEL
+# CLIENTE — la misma forma que ``main_higyrus.py`` y ``main_iol.py`` ya llevan y
+# la única cosa de este driver que la D-03 declaraba faltante. Es lo que hace que
+# cada finding pueda nombrar el endpoint del que salió: ``probe_context`` recibe
+# el template VERBATIM, con los ``{param}`` SIN interpolar. Interpolarlos metería
+# un identificador en vivo (``/symbols/{symbol_id}``, ``/calendar/holidays/{day}``)
+# adentro de un archivo de findings que se commitea a git para siempre (T-33-20).
+#
+# NO confundir con ``_ENDPOINT_OPTIONAL`` de arriba: ése es un ``frozenset`` de
+# CLAVES DE RESPUESTA opcionales usado por el SHAPE-diff, no tiene ninguna
+# relación con este dict y no se toca.
+#
+# Los valores son la ÚNICA copia de cada URL del driver: los sitios de
+# ``_write_schema_snapshot`` los consumen desde acá en vez de repetir el literal,
+# así que el dict y los snapshots no pueden derivar uno del otro.
+_ENDPOINT_TEMPLATES: dict[str, str] = {
+    "get_health": "/health",
+    "get_health_feed": "/health/feed",
+    "get_market_data": "/marketdata",
+    "get_latest": "/marketdata/latest",
+    "get_latest_batch": "/marketdata/latest",
+    "get_instruments": "/instruments",
+    "get_segments": "/instruments/segments",
+    "get_symbols": "/symbols",
+    "create_symbol": "/symbols",
+    "create_symbols": "/symbols/batch",
+    "update_symbol": "/symbols/{symbol_id}",
+    "get_calendar": "/calendar",
+    "get_calendar_config": "/calendar/config",
+    "preview_calendar_config": "/calendar/config/preview",
+    "add_holidays": "/calendar/holidays",
+    "delete_holiday": "/calendar/holidays/{day}",
+}
+
 # Campos DEPRECATED-ALIAS (D-22): declarados por el modelo como alias de
 # compatibilidad de un campo cuyo nombre de wire es OTRO. ``Symbol.marketId`` es
 # el único: el wire manda ``market_id`` (snake_case, como toda esta API) y el
@@ -139,6 +175,27 @@ _NO_DATA_PREFIX = "__no_such_symbol__"
 # sería vacua acá y la variable sola habilitaría escrituras contra cualquier host.
 _EXPECTED_DEVELOP_HOST = "market-data-develop.bbsa.com.ar"
 _MUTATING_ENV_VAR = "MARKET_DATA_VERIFY_MUTATING"
+
+# Phase 33 (LIVE-TYP-01): flag del SEGUNDO pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``, que prueba que el raise de modo estricto
+# efectivamente dispara. Viaja como kwarg de los constructores que YA existen,
+# para no agregar un tercer sitio de construcción: la AST-guard
+# ``verification/test_main_market_data_uses_single_client_instance.py`` asserta
+# ``1 <= ctor_calls <= 2``.
+#
+# T-33-18 / P-11 — el pase 2 se invoca SIN ``MARKET_DATA_VERIFY_MUTATING=1``.
+# Este es el ÚNICO driver del repo con superficie destructiva, y el gate de
+# mutaciones es una variable INDEPENDIENTE de ésta: dejarlo apagado en el
+# segundo pase es lo que garantiza que el ciclo de symbols/holidays se dispare
+# COMO MUCHO una vez por sesión. La nota del propio driver al final de ``main()``
+# documenta la razón: un símbolo de prueba activo puede aflorar como
+# ``last_error`` en ``/health/feed`` y sesgar el baseline de salud, así que
+# dispararlo dos veces en una misma sesión sesgaría además el conteo de filas que
+# es el observable de idempotencia (D-19). Este flag NO abre ni debilita ninguna
+# de las dos patas del doble gate — sólo cambia si una divergencia de decode
+# levanta o se registra.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
 
 # Detalle de skip a nivel PROBE que usan los probes mutantes cuando el gate está
 # apagado (D-03). SIN dos puntos, a propósito: ``main_verify.py`` clasifica el
@@ -310,11 +367,39 @@ def _finding_for_exc(
 ) -> ProbeResult:
     """Mapea una excepción de probe a un finding + ``ProbeResult`` (ladder D-09).
 
-    - ``MarketDataAuthError`` → clase ``AUTH``.
     - ``httpx.ConnectError`` / ``ConnectTimeout`` → clase ``NO-DATA`` (develop
       inalcanzable via VPN/allowlist o timeout: se clasifica como skip, nunca un
       crash — D-09).
+    - ``MarketDataDecodeError`` → ``SHAPE``, con un detalle DETERMINÍSTICO que NO
+      contiene el nombre del probe (Phase 33 / P-4). Ver abajo.
+    - ``MarketDataAuthError`` → clase ``AUTH``.
     - cualquier otra ``Exception`` → clase ``ERROR-MAP``.
+
+    **Por qué la rama de decode va ANTES del fallthrough a ``ERROR-MAP``.** El
+    título del fallthrough es ``f"{name}: {type(exc).__name__} inesperado"``, es
+    decir ÚNICO POR PROBE. Los 43 probes de este driver enrutan sus excepciones
+    por este único helper, así que bajo ``MARKET_LIBS_STRICT_DECODE=1`` una sola
+    divergencia de forma repetida en varios endpoints mintearía un ``ERROR-MAP``
+    NUEVO por cada probe afectado: ``idempotent_by_title`` no puede colapsarlos
+    porque los títulos difieren, y el conteo de ``ERROR-MAP`` saltaría por
+    decenas sepultando la señal real (T-33-22).
+
+    **Por qué esta rama NO escribe un finding.** Para cuando corre, el finding
+    ``SHAPE`` YA ESTÁ ESCRITO: ``market_data_client._decode`` emite el record de
+    seis claves y RECIÉN DESPUÉS levanta, así que el ``DivergenceHandler`` que
+    ``main()`` instala lo registró bajo el título determinístico de la convención
+    lockeada ``surface-in-title-write-new``. Un segundo ``append_finding`` acá
+    produciría DOS findings por divergencia bajo dos títulos distintos y rompería
+    justamente el ``idempotent_by_title`` que esta rama existe para habilitar
+    (contrato de ``on_decode_error``, 33-01-SUMMARY.md; mismo criterio que los
+    ``_shape_probe_result`` de matriz, higyrus e iol).
+
+    El detalle se compone SÓLO con ``model`` / ``field_path`` / ``declared_type``
+    / ``observed_type`` — los cuatro atributos certificados type-and-path-only por
+    T-29-36 — y nunca con ``repr(exc)`` ni con ``name``: dos probes que golpean la
+    misma ``(model, field_path, declared, observed)`` producen el MISMO string
+    módulo la superficie (T-33-21). Las ramas pre-existentes conservan su
+    ``repr(exc)``; ésta no lo gana.
     """
     if isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout):
         fid = _next_fid()
@@ -331,6 +416,14 @@ def _finding_for_exc(
             base_url=base_url,
         )
         return ProbeResult(name, "SKIPPED", "develop inalcanzable")
+    if isinstance(exc, MarketDataDecodeError):
+        return ProbeResult(
+            name,
+            "FINDING",
+            f"SHAPE [{surface}] MarketDataDecodeError model={exc.model} "
+            f"path={exc.field_path} declared={exc.declared_type} "
+            f"observed={exc.observed_type}",
+        )
     class_ = "AUTH" if isinstance(exc, md.MarketDataAuthError) else "ERROR-MAP"
     fid = _next_fid()
     append_finding(
@@ -645,14 +738,14 @@ def probe_health_sync(client: Client) -> ProbeResult:
         # append_finding) va DENTRO del try para que un fallo de I/O/parse degrade
         # a finding/SKIP en vez de crashear el driver a FAILED.
         _write_schema_snapshot(
-            endpoint="/health",
+            endpoint=_ENDPOINT_TEMPLATES["get_health"],
             client_function="get_health",
             raw=raw_health,
             base_url=base_url,
             surface="sync",
         )
         _write_schema_snapshot(
-            endpoint="/health/feed",
+            endpoint=_ENDPOINT_TEMPLATES["get_health_feed"],
             client_function="get_health_feed",
             raw=raw_feed,
             base_url=base_url,
@@ -683,14 +776,14 @@ async def probe_health_async(aclient: AsyncClient) -> ProbeResult:
         )
         # D-09: post-procesado dentro del try (espejo sync).
         _write_schema_snapshot(
-            endpoint="/health",
+            endpoint=_ENDPOINT_TEMPLATES["get_health"],
             client_function="get_health",
             raw=raw_health,
             base_url=base_url,
             surface="async",
         )
         _write_schema_snapshot(
-            endpoint="/health/feed",
+            endpoint=_ENDPOINT_TEMPLATES["get_health_feed"],
             client_function="get_health_feed",
             raw=raw_feed,
             base_url=base_url,
@@ -729,7 +822,7 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
         _write_schema_snapshot(
-            endpoint="/marketdata",
+            endpoint=_ENDPOINT_TEMPLATES["get_market_data"],
             client_function="get_market_data",
             raw=raw,
             base_url=base_url,
@@ -755,7 +848,7 @@ def probe_latest_sync(client: Client) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "sync", base_url)
         _write_schema_snapshot(
-            endpoint="/marketdata/latest",
+            endpoint=_ENDPOINT_TEMPLATES["get_latest"],
             client_function="get_latest",
             raw=raw,
             base_url=base_url,
@@ -783,7 +876,7 @@ def probe_instruments_sync(client: Client) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, Instrument, "Instrument", "sync", base_url)
         _write_schema_snapshot(
-            endpoint="/instruments",
+            endpoint=_ENDPOINT_TEMPLATES["get_instruments"],
             client_function="get_instruments",
             raw=raw,
             base_url=base_url,
@@ -807,7 +900,7 @@ def probe_segments_sync(client: Client) -> tuple[ProbeResult, list[Segment] | No
         if isinstance(sample, dict):
             _emit_shape(sample, Segment, "Segment", "sync", base_url)
         _write_schema_snapshot(
-            endpoint="/instruments/segments",
+            endpoint=_ENDPOINT_TEMPLATES["get_segments"],
             client_function="get_segments",
             raw=raw,
             base_url=base_url,
@@ -835,7 +928,7 @@ def probe_symbols_sync(client: Client) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, Symbol, "Symbol", "sync", base_url)
         _write_schema_snapshot(
-            endpoint="/symbols",
+            endpoint=_ENDPOINT_TEMPLATES["get_symbols"],
             client_function="get_symbols",
             raw=raw,
             base_url=base_url,
@@ -869,14 +962,14 @@ def probe_calendar_sync(client: Client) -> ProbeResult:
         if isinstance(raw_config, dict):
             _emit_shape(raw_config, CalendarConfig, "CalendarConfig", "sync", base_url)
         _write_schema_snapshot(
-            endpoint="/calendar",
+            endpoint=_ENDPOINT_TEMPLATES["get_calendar"],
             client_function="get_calendar",
             raw=raw_days,
             base_url=base_url,
             surface="sync",
         )
         _write_schema_snapshot(
-            endpoint="/calendar/config",
+            endpoint=_ENDPOINT_TEMPLATES["get_calendar_config"],
             client_function="get_calendar_config",
             raw=raw_config,
             base_url=base_url,
@@ -1026,7 +1119,7 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
         _write_schema_snapshot(
-            endpoint="/marketdata",
+            endpoint=_ENDPOINT_TEMPLATES["get_market_data"],
             client_function="get_market_data",
             raw=raw,
             base_url=base_url,
@@ -1052,7 +1145,7 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, MarketDataSnapshot, "MarketDataSnapshot", "async", base_url)
         _write_schema_snapshot(
-            endpoint="/marketdata/latest",
+            endpoint=_ENDPOINT_TEMPLATES["get_latest"],
             client_function="get_latest",
             raw=raw,
             base_url=base_url,
@@ -1082,7 +1175,7 @@ async def probe_instruments_async(aclient: AsyncClient) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, Instrument, "Instrument", "async", base_url)
         _write_schema_snapshot(
-            endpoint="/instruments",
+            endpoint=_ENDPOINT_TEMPLATES["get_instruments"],
             client_function="get_instruments",
             raw=raw,
             base_url=base_url,
@@ -1107,7 +1200,7 @@ async def probe_segments_async(
         if isinstance(sample, dict):
             _emit_shape(sample, Segment, "Segment", "async", base_url)
         _write_schema_snapshot(
-            endpoint="/instruments/segments",
+            endpoint=_ENDPOINT_TEMPLATES["get_segments"],
             client_function="get_segments",
             raw=raw,
             base_url=base_url,
@@ -1135,7 +1228,7 @@ async def probe_symbols_async(aclient: AsyncClient) -> ProbeResult:
         if isinstance(sample, dict):
             _emit_shape(sample, Symbol, "Symbol", "async", base_url)
         _write_schema_snapshot(
-            endpoint="/symbols",
+            endpoint=_ENDPOINT_TEMPLATES["get_symbols"],
             client_function="get_symbols",
             raw=raw,
             base_url=base_url,
@@ -1168,14 +1261,14 @@ async def probe_calendar_async(aclient: AsyncClient) -> ProbeResult:
         if isinstance(raw_config, dict):
             _emit_shape(raw_config, CalendarConfig, "CalendarConfig", "async", base_url)
         _write_schema_snapshot(
-            endpoint="/calendar",
+            endpoint=_ENDPOINT_TEMPLATES["get_calendar"],
             client_function="get_calendar",
             raw=raw_days,
             base_url=base_url,
             surface="async",
         )
         _write_schema_snapshot(
-            endpoint="/calendar/config",
+            endpoint=_ENDPOINT_TEMPLATES["get_calendar_config"],
             client_function="get_calendar_config",
             raw=raw_config,
             base_url=base_url,
@@ -1438,7 +1531,7 @@ def probe_create_symbol_sync(client: Client) -> ProbeResult:
         parsed = _core.parse_symbols_response(refire)
         # D-09: todo el post-procesado dentro del try.
         _write_schema_snapshot(
-            endpoint="POST /symbols",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['create_symbol']}",
             client_function="create_symbol_sync_response",
             raw=raw,
             base_url=base_url,
@@ -1495,7 +1588,7 @@ def probe_symbols_after_create_sync(client: Client) -> ProbeResult:
         # pise ni derive el baseline del read sin filtrar (D-17).
         raw_rows = _prefixed_rows(raw)
         _write_schema_snapshot(
-            endpoint="GET /symbols?prefix=GSDPROBE/",
+            endpoint=f"GET {_ENDPOINT_TEMPLATES['get_symbols']}?prefix={_PROBE_PREFIX}",
             client_function="get_symbols_probe_prefix_sync",
             raw=raw,
             base_url=base_url,
@@ -1592,7 +1685,7 @@ def probe_create_symbols_batch_sync(client: Client) -> ProbeResult:
         raw = refire.json()
         # D-09: todo el post-procesado dentro del try.
         _write_schema_snapshot(
-            endpoint="POST /symbols/batch",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['create_symbols']}",
             client_function="create_symbols_batch_sync_response",
             raw=raw,
             base_url=base_url,
@@ -1694,7 +1787,7 @@ def probe_update_symbol_sync(client: Client) -> ProbeResult:
         )
         # D-09: todo el post-procesado dentro del try.
         _write_schema_snapshot(
-            endpoint="PATCH /symbols/{symbol_id}",
+            endpoint=f"PATCH {_ENDPOINT_TEMPLATES['update_symbol']}",
             client_function="update_symbol_sync_response",
             raw=refire.json(),
             base_url=base_url,
@@ -1758,7 +1851,7 @@ async def probe_create_symbol_async(aclient: AsyncClient) -> ProbeResult:
         # ``client_function`` es PROPIO de esta superficie, para que una divergencia
         # sync/async del body de escritura quede visible en vez de pisarse.
         _write_schema_snapshot(
-            endpoint="POST /symbols",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['create_symbol']}",
             client_function="create_symbol_async_response",
             raw=raw,
             base_url=base_url,
@@ -1807,7 +1900,7 @@ async def probe_symbols_after_create_async(aclient: AsyncClient) -> ProbeResult:
         # ``client_function`` propio del prefijo Y de la superficie (D-17).
         raw_rows = _prefixed_rows(raw)
         _write_schema_snapshot(
-            endpoint="GET /symbols?prefix=GSDPROBE/",
+            endpoint=f"GET {_ENDPOINT_TEMPLATES['get_symbols']}?prefix={_PROBE_PREFIX}",
             client_function="get_symbols_probe_prefix_async",
             raw=raw,
             base_url=base_url,
@@ -1895,7 +1988,7 @@ async def probe_create_symbols_batch_async(aclient: AsyncClient) -> ProbeResult:
         raw = refire.json()
         # D-09: todo el post-procesado dentro del try (espejo sync).
         _write_schema_snapshot(
-            endpoint="POST /symbols/batch",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['create_symbols']}",
             client_function="create_symbols_batch_async_response",
             raw=raw,
             base_url=base_url,
@@ -1991,7 +2084,7 @@ async def probe_update_symbol_async(aclient: AsyncClient) -> ProbeResult:
         )
         # D-09: todo el post-procesado dentro del try (espejo sync).
         _write_schema_snapshot(
-            endpoint="PATCH /symbols/{symbol_id}",
+            endpoint=f"PATCH {_ENDPOINT_TEMPLATES['update_symbol']}",
             client_function="update_symbol_async_response",
             raw=refire.json(),
             base_url=base_url,
@@ -2165,7 +2258,7 @@ def probe_preview_calendar_config_sync(client: Client) -> ProbeResult:
         # su tipo de lista derivaría el baseline en cuanto el servidor tocara ese
         # texto.
         _write_schema_snapshot(
-            endpoint="POST /calendar/config/preview",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['preview_calendar_config']}",
             client_function="preview_calendar_config_sync_response",
             raw=body_first,
             base_url=base_url,
@@ -2242,7 +2335,7 @@ async def probe_preview_calendar_config_async(aclient: AsyncClient) -> ProbeResu
         # propio de ESTA superficie para que una divergencia sync/async del body
         # quede visible en vez de pisarse (D-17).
         _write_schema_snapshot(
-            endpoint="POST /calendar/config/preview",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['preview_calendar_config']}",
             client_function="preview_calendar_config_async_response",
             raw=body_first,
             base_url=base_url,
@@ -2421,7 +2514,7 @@ def probe_add_holidays_sync(client: Client) -> ProbeResult:
         # de esta superficie (D-17): un body de MUTACIÓN no puede derivar jamás el
         # baseline de una lectura.
         _write_schema_snapshot(
-            endpoint="POST /calendar/holidays",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['add_holidays']}",
             client_function="add_holidays_sync_response",
             raw=raw,
             base_url=base_url,
@@ -2462,7 +2555,7 @@ def probe_calendar_after_holiday_sync(client: Client) -> ProbeResult:
         # sin filtrar (D-17).
         day_rows = _unwrap_rows(raw, "days")
         _write_schema_snapshot(
-            endpoint="GET /calendar?year=2099",
+            endpoint=f"GET {_ENDPOINT_TEMPLATES['get_calendar']}?year={_HOLIDAY_YEAR}",
             client_function="get_calendar_year_2099_sync",
             raw=raw,
             base_url=base_url,
@@ -2568,7 +2661,7 @@ def probe_delete_holiday_sync(client: Client) -> ProbeResult:
         # equivocada. Phase 31: ``to_dict()`` para que el snapshot siga siendo un
         # mapping — CIEGO A LA DERIVA, ver el warning del docstring.
         _write_schema_snapshot(
-            endpoint="DELETE /calendar/holidays/{day}",
+            endpoint=f"DELETE {_ENDPOINT_TEMPLATES['delete_holiday']}",
             client_function="delete_holiday_sync_response",
             raw=deleted.to_dict(),
             base_url=base_url,
@@ -2652,7 +2745,7 @@ async def probe_add_holidays_async(aclient: AsyncClient) -> ProbeResult:
         raw = refire.json()
         # D-09: post-procesado dentro del try (espejo sync).
         _write_schema_snapshot(
-            endpoint="POST /calendar/holidays",
+            endpoint=f"POST {_ENDPOINT_TEMPLATES['add_holidays']}",
             client_function="add_holidays_async_response",
             raw=raw,
             base_url=base_url,
@@ -2683,7 +2776,7 @@ async def probe_calendar_after_holiday_async(aclient: AsyncClient) -> ProbeResul
         # propio del filtro Y de la superficie (D-17).
         day_rows = _unwrap_rows(raw, "days")
         _write_schema_snapshot(
-            endpoint="GET /calendar?year=2099",
+            endpoint=f"GET {_ENDPOINT_TEMPLATES['get_calendar']}?year={_HOLIDAY_YEAR}",
             client_function="get_calendar_year_2099_async",
             raw=raw,
             base_url=base_url,
@@ -2769,7 +2862,7 @@ async def probe_delete_holiday_async(aclient: AsyncClient) -> ProbeResult:
         # del PRIMER delete: el segundo puede ser legítimamente un 404. Phase 31:
         # ``to_dict()`` — CIEGO A LA DERIVA, ver el warning del docstring.
         _write_schema_snapshot(
-            endpoint="DELETE /calendar/holidays/{day}",
+            endpoint=f"DELETE {_ENDPOINT_TEMPLATES['delete_holiday']}",
             client_function="delete_holiday_async_response",
             raw=deleted.to_dict(),
             base_url=base_url,
@@ -3248,7 +3341,11 @@ async def _async_main(mutating: bool) -> tuple[list[ProbeResult], list[Segment] 
     ``asyncio.run(...)`` y crashee el driver (D-09). Devuelve los resultados y la
     lista de segments async (para el probe de paridad en ``main``).
     """
-    aclient = AsyncClient(mutating_allowed=mutating, expected_host=_EXPECTED_DEVELOP_HOST)
+    aclient = AsyncClient(
+        mutating_allowed=mutating,
+        expected_host=_EXPECTED_DEVELOP_HOST,
+        strict_decode=_STRICT,
+    )
     results: list[ProbeResult] = []
     seg_async: list[Segment] | None = None
     try:
@@ -3336,7 +3433,11 @@ def main() -> None:
     # D-02: EXACTAMENTE UN Client sync threadeado a cada probe sync. El
     # ``expected_host`` explícito mantiene la pata de host in-package
     # independiente de su default: son dos afirmaciones genuinamente separadas.
-    client = Client(mutating_allowed=mutating, expected_host=_EXPECTED_DEVELOP_HOST)
+    client = Client(
+        mutating_allowed=mutating,
+        expected_host=_EXPECTED_DEVELOP_HOST,
+        strict_decode=_STRICT,
+    )
     results: list[ProbeResult] = []
     seg_sync: list[Segment] | None = None
     try:
