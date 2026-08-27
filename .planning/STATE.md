@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 33
 current_phase_name: verificaci-n-en-vivo-en-modo-estricto-fixes
 status: executing
-stopped_at: Completed 33-05-PLAN.md
-last_updated: "2026-08-27T01:06:12.267Z"
+stopped_at: Completed 33-06-PLAN.md
+last_updated: "2026-08-27T01:27:48.098Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 41
-  completed_plans: 39
+  completed_plans: 40
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 33 (verificaci-n-en-vivo-en-modo-estricto-fixes) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 33 execution started
 
@@ -153,6 +153,7 @@ Last activity: 2026-08-26 — Phase 33 execution started
 | Phase 33 P03 | 14min | 2 tasks | 2 files |
 | Phase 33 P04 | 15 min | 2 tasks | 1 files |
 | Phase 33 P05 | 16min | 3 tasks | 6 files |
+| Phase 33 P06 | 12min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -322,6 +323,9 @@ Recent decisions affecting current work:
 - [Phase 33]: El piso >=96 de 29-SIZING.md es una suma de REGISTROS sobre 43 archivos de corpus, no un conteo de triples distintos: el equivalente comparable con DivergenceHandler.seen es 58 (higyrus 22, matriz 14, market-data 22) — 33-RESEARCH Pattern 6 afirmaba que eran la misma unidad. Contrastar 24 triples en vivo contra 50 registros habria fabricado un "por debajo del piso" que es de la unidad y no del censo, disparando una investigacion de perdida donde no hay ninguna. 33-CENSUS.md contrasta contra ambas columnas.
 - [Phase 33]: La asercion "fids emitidos == bloques nuevos" es falsa por construccion; la forma decidible es "ningun fid asignado pudo chocar con un finding terminal" (min asignado 67 > max preexistente 66) mas la clasificacion enumerada de los 54 gaps como dedupe intencional — El DivergenceHandler pide un fid por CADA record y pasa idempotent_by_title=True, asi que un record repetido consume un fid y no escribe bloque. La igualdad literal habria reportado una falla P-3 masiva donde solo hay dedupe content-addressed intencional, probado offline (mismo titulo x5 -> 5 fids, 1 bloque).
 - [Phase 33]: matriz y higyrus se registran SKIPPED con su causa medida y destino nombrado (LIVE-MATZ-33 / LIVE-HIGY-33), nunca como cero; no se rodeo el assert remarkets-only de matriz ni se reapunto PRIMARY_BASE_URL — matriz autentica (AUTH OK) pero el driver aborta por politica D-MATZ-33, y las credenciales del .env fueron emitidas para el host demo: mandarlas a remarkets seria una fuga disfrazada de fix de config. higyrus falla por DNS gaierror con las tres credenciales presentes: es alcanzabilidad, no auth. Un cero seria una afirmacion de limpieza que ninguna medicion respalda (P-03).
+- [Phase ?]: DT-07 CERRADO: iol Titulo.mercado/Titulo.plazo quedan str permanente — censo vivo sobre 2191 filas (RESPONSE mercado={'1'}, plazo={'T0','T1'}) disjunto de los defaults de INPUT 'bcba'/'t2' de la propia libreria (33-06)
+- [Phase ?]: El censo de Literal se toma del wire crudo, no del stream de divergencias: literal_enforced=False en las cinco POLICY hace que walk_field:521-534 retorne temprano sin llamar al sink; 29-DLOCK-RESPONSE-LITERAL.md:140-142 queda falsificado por el codigo shipeado (33-06)
+- [Phase ?]: Los 7 campos Literal-aliased de matriz quedan SKIPPED — base URL fuera de politica (D-MATZ-33), sin rodear el gate y sin mover ningun alias; ruteado a LIVE-MATZ-33 (33-06)
 
 ### Pending Todos
 
@@ -404,8 +408,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T01:06:12.216Z
-Stopped at: Completed 33-05-PLAN.md
+Last session: 2026-08-27T01:27:42.962Z
+Stopped at: Completed 33-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

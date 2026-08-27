@@ -216,7 +216,7 @@ Plans:
   4. `verify_cycle_closure` PASS por paquete y los schema snapshots quedan reconciliados contra el baseline.
   5. El volumen real de divergencias se **contrasta contra el piso de sizing de la Phase 29**; si lo excede, el re-scope es explícito (findings diferidos documentados con su fase destino, nunca silenciados).
 
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -235,7 +235,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 33-06-PLAN.md — Censo de `Literal` sobre wire crudo (7 campos RESPONSE de matriz sin ampliar ningún alias + `Titulo.mercado`/`plazo` de iol) → `33-LITERALS.md` y cierre de DT-07 como `str` permanente con evidencia
+- [x] 33-06-PLAN.md — Censo de `Literal` sobre wire crudo (7 campos RESPONSE de matriz sin ampliar ningún alias + `Titulo.mercado`/`plazo` de iol) → `33-LITERALS.md` y cierre de DT-07 como `str` permanente con evidencia
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -291,7 +291,7 @@ Plans:
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 6/6 | Complete    | 2026-08-25 |
-| 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 5/7 | In Progress|  |
+| 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 6/7 | In Progress|  |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |
 
 ## Backlog
