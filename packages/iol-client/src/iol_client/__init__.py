@@ -84,4 +84,4 @@ __all__ = [
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
