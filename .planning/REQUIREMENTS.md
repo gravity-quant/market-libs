@@ -63,12 +63,12 @@ Fases definidas en `.planning/ROADMAP.md` § Phase Details (v1.6). Cada requisit
 
 | Requirement | Phase | Phase Name | Status |
 |-------------|-------|------------|--------|
-| DEC-01 | Phase 29 | Decoder observable *(load-bearing, PRIMERO)* | Pending |
-| TYP-01 | Phase 30 | `iol-client` tipado | Pending |
-| TYP-02 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
-| TYP-03 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
+| DEC-01 | Phase 29 | Decoder observable *(load-bearing, PRIMERO)* | Complete |
+| TYP-01 | Phase 30 | `iol-client` tipado | Complete |
+| TYP-02 | Phase 31 | Endpoints de ops + estructura uniforme | Complete |
+| TYP-03 | Phase 31 | Endpoints de ops + estructura uniforme | Complete |
 | GATE-TYP-01 | Phase 32 | Gates de homogeneidad + D-16 | Complete |
-| LIVE-TYP-01 | Phase 33 | Verificación en vivo en modo estricto + fixes | Pending |
+| LIVE-TYP-01 | Phase 33 | Verificación en vivo en modo estricto + fixes | Complete |
 | PUB-TYP-01 | Phase 34 | Releases por paquete | Complete |
 
 **Coverage:**
