@@ -978,9 +978,30 @@ def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
 
 @_decode._response_parser
 def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
-    """Pure: parse ``GET /instruments`` → ``list[Instrument]`` (D-05 / D-06).
+    """Pure: parse ``GET /instruments`` → ``list[Instrument]`` (D-05 / D-06 / S-1).
 
-    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    The develop wire wraps the rows in the object envelope
+    ``{catalogue, count, items[], limit, offset, total}`` (baseline
+    ``.planning/verification/schemas/market-data-client/get-instruments.json``), so
+    a dict body is unwrapped via ``items``. This mirrors
+    ``parse_market_data_response`` exactly — same unwrap key, same double
+    collection guard.
+
+    **The S-1 bug this fixes (Phase 33, LIVE-TYP-01).** The previous body was
+    ``[Instrument.from_api(item) for item in raw]``. Against the envelope that
+    iterates the object's KEYS, so every catalogue read produced one ALL-DEFAULT
+    ``Instrument`` per key — six rows of empty strings, and a single
+    ``non_dict`` divergence record per surface (``F-82`` / ``F-102``) whose count
+    of 1 badly understates the blast radius. ``29-SIZING.md`` named this "the
+    parser does not unwrap the envelope" and left open whether the server had
+    introduced the envelope after the client was written; the 33-05 live run
+    closed it: today's wire sends the envelope and today's parser did not unwrap
+    it. Same failure mode ``parse_calendar_response`` had before D-12 and
+    ``parse_symbols_response`` before D-11.
+
+    A bare-list body is still accepted as-is for compatibility; a dict without
+    ``items`` (or a non-list ``items``), a ``null``/empty, or any other body
+    collapses to ``[]``. Body-consume-then-raise order is preserved. No
     ``received_at`` stamp — reference data is unstamped (D-05).
     """
     resp.read()
@@ -990,14 +1011,46 @@ def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
     raw = resp.json()
     if raw is None:
         return []
-    return [Instrument.from_api(item) for item in raw]
+    rows: Any
+    if isinstance(raw, dict):
+        rows = raw.get("items", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [Instrument.from_api(item) for item in rows]
 
 
 @_decode._response_parser
 def parse_segments_response(resp: httpx.Response) -> list[Segment]:
-    """Pure: parse ``GET /instruments/segments`` → ``list[Segment]`` (D-05 / D-06).
+    """Pure: parse ``GET /instruments/segments`` → ``list[Segment]`` (D-05 / D-06 / S-1).
 
-    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    The develop wire wraps the rows in the object envelope
+    ``{catalogue, segments[]}`` (baseline
+    ``.planning/verification/schemas/market-data-client/get-segments.json``), so a
+    dict body is unwrapped via ``segments``. Identical to
+    ``parse_instruments_response`` except for the unwrap key.
+
+    **The S-1 bug this fixes (Phase 33, LIVE-TYP-01).** See
+    :func:`parse_instruments_response` — same defect, same measurement
+    (``F-83`` / ``F-103``), two all-default rows per read.
+
+    Unwrapping is only half of S-1's blast radius, and the other half is
+    DELIBERATELY not fixed here: :class:`~market_data_client.models.Segment`
+    declares ``marketSegmentId`` / ``marketId`` / ``description`` while the wire
+    row carries ``segment`` / ``live_instruments``. Correcting that is a
+    published-model shape change, which Phase 33's plan 33-07 Task 1 gates behind
+    an explicit operator disposition; the operator authorised three such changes
+    and this was not among them. The rows now decode as REAL rows with REPORTED
+    per-field ``missing``/``extra`` divergences instead of a single terminal
+    ``non_dict`` that hides them — visible instead of silent. The shape
+    correction is routed to ``SHAPE-MD-REF-33`` (``ROADMAP.md`` § Backlog).
+
+    A bare-list body is still accepted as-is for compatibility; a dict without
+    ``segments`` (or a non-list ``segments``), a ``null``/empty, or any other body
+    collapses to ``[]``. Body-consume-then-raise order is preserved. No
     ``received_at`` stamp — reference data is unstamped (D-05).
     """
     resp.read()
@@ -1007,7 +1060,16 @@ def parse_segments_response(resp: httpx.Response) -> list[Segment]:
     raw = resp.json()
     if raw is None:
         return []
-    return [Segment.from_api(item) for item in raw]
+    rows: Any
+    if isinstance(raw, dict):
+        rows = raw.get("segments", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [Segment.from_api(item) for item in rows]
 
 
 @_decode._response_parser
