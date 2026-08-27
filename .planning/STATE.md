@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 34
 current_phase_name: releases-por-paquete
 status: executing
-stopped_at: Completed 34-01-PLAN.md
-last_updated: "2026-08-27T20:10:01.142Z"
+stopped_at: "Completed 34-02-PLAN.md — PR #12 merged as a89fa45; no tags yet, D-08(b) gate outstanding in 34-03"
+last_updated: "2026-08-27T20:27:53.186Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 44
-  completed_plans: 42
+  completed_plans: 43
   percent: 83
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 34 (releases-por-paquete) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 34 execution started
 
@@ -156,6 +156,7 @@ Last activity: 2026-08-27 — Phase 34 execution started
 | Phase 33 P06 | 12min | 2 tasks | 5 files |
 | Phase 33 P07 | 42min | 3 tasks | 19 files |
 | Phase 34 P01 | 10 min | 3 tasks | 11 files |
+| Phase 34 P02 | 14 min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -334,6 +335,8 @@ Recent decisions affecting current work:
 - [Phase 33 / 33-07]: Criterio 4 no-vacuo con piso POR PAQUETE: ambito 0, higyrus 0, iol 1, matriz 1, market-data 88 (baseline medido 50 + 38 promociones). Las dos filas de piso cero NO llevan `>= 0` —esa asercion es el verde vacuo que el gate existe para prevenir—: ambito lleva la propiedad D-12 aseverada por AST (cero `ClassDef`, `__all__` vacio) MAS la linea SUMMARY verbatim de su pase estricto como evidencia POSITIVA de que el driver corrio; higyrus lleva su vacuidad DECLARADA con `LIVE-HIGY-33` aseverado como destino, porque hacer legible la vacuidad es mejor que taparla con un piso que pasaria por la razon equivocada. Probado por 4 falsificaciones, todas revertidas. Conteos inspeccionados pre->post: market-data 50->88; los otros cuatro sin mover.
 - [Phase 33 / 33-07]: Los cuatro campos del record de divergencia quedaron BYTE-VERBATIM en las 76 promociones; solo se movio `status` (+ `regression` en los 38 FIXED). La razon de cada disposicion vive en `33-CENSUS.md`, no dentro del finding: P-01 prohibe componer un campo del finding con algo fuera de las seis claves del record mas el endpoint y la superficie. El short-circuit de preservacion de `append_finding` mira el status EXISTENTE, no el nuevo, asi que promover un OPEN re-serializa el archivo entero — se midio la fidelidad del round-trip ANTES de promover (0 lineas de diff) en vez de confiar en la afirmacion del plan.
 - [Phase ?]: 34-01: memory files — refrescar market-data-client-releases.md en 34-03; NO crear iol-client-releases.md
+- [Phase 34]: 34-02: gate humano D-08(a) resuelto con un 'approved' literal del operador; NO auto-aprobado pese a auto_advance=true y mode=yolo
+- [Phase 34]: 34-02: la falla de 'Type check (mypy)' se corrigio con narrowing en el test (e5eeb8a), nunca parcheando ci.yml (D-11)
 
 ### Pending Todos
 
@@ -417,9 +420,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T20:10:01.137Z
-Stopped at: Completed 34-01-PLAN.md
-Resume file: .planning/phases/34-releases-por-paquete/34-CONTEXT.md
+Last session: 2026-08-27T20:27:53.181Z
+Stopped at: Completed 34-02-PLAN.md — PR #12 merged as a89fa45; no tags yet, D-08(b) gate outstanding in 34-03
+Resume file: None
 
 ## Operator Next Steps
 

@@ -253,17 +253,17 @@ Plans:
   3. PR → CI verde (6 paquetes × py3.12 + py3.13) → merge con **merge commit real** (nunca squash — orfanaría los SHAs que los SUMMARY cross-referencian, D-11) → tag por paquete → `release.yml` **sin editar** → GitHub Release con wheel + sdist por paquete.
   4. Cada operación irreversible (merge y push de tag) queda detrás de un checkpoint humano **independiente**; los dos gates **nunca** se colapsan (precedente D-18 de v1.5).
 
-**Plans:** 3 plans
+**Plans:** 2/3 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 34-01-PLAN.md — Prep reversible: changelog `### v0.5.0` de market-data-client con los 3 breaks de forma de 33-07 + de-provisionalización, bump de los 4 sitios de versión (iol 0.3.0, market-data 0.5.0), `uv lock` único, mirror local del gate de CI, scan de credenciales y push fast-forward de la branch
+- [x] 34-01-PLAN.md — Prep reversible: changelog `### v0.5.0` de market-data-client con los 3 breaks de forma de 33-07 + de-provisionalización, bump de los 4 sitios de versión (iol 0.3.0, market-data 0.5.0), `uv lock` único, mirror local del gate de CI, scan de credenciales y push fast-forward de la branch
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 34-02-PLAN.md — PR #12 actualizado en el lugar (retitulado + body para fases 29-34 y ambas versiones), gate de CI asertado por conteo (15/15, 2 filas iol + 2 filas market-data), **checkpoint humano bloqueante (a)** y merge con merge commit real
+- [x] 34-02-PLAN.md — PR #12 actualizado en el lugar (retitulado + body para fases 29-34 y ambas versiones), gate de CI asertado por conteo (15/15, 2 filas iol + 2 filas market-data), **checkpoint humano bloqueante (a)** y merge con merge commit real
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -306,7 +306,7 @@ Plans:
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 6/6 | Complete    | 2026-08-25 |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 7/7 | Complete    | 2026-08-27 |
-| 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |
+| 34. Releases por paquete                                    | v1.6      | 2/3 | In Progress|  |
 
 ## Backlog
 
