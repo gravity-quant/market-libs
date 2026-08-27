@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 34
-current_phase_name: Releases por paquete
+current_phase_name: releases-por-paquete
 status: executing
 stopped_at: Phase 34 context gathered (assumptions mode)
-last_updated: "2026-08-27T19:57:47.774Z"
+last_updated: "2026-08-27T19:58:59.788Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 33 complete, transitioned to Phase 34
+last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 41
+  total_plans: 44
   completed_plans: 41
   percent: 83
 ---
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 33 — verificaci-n-en-vivo-en-modo-estricto-fixes
+**Current focus:** Phase 34 — releases-por-paquete
 
 ## Current Position
 
-Phase: 34 — Releases por paquete
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-27 — Phase 33 complete, transitioned to Phase 34
+Phase: 34 (releases-por-paquete) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 34
+Last activity: 2026-08-27 — Phase 34 execution started
 
 ## Performance Metrics
 
