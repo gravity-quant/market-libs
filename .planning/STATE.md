@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 33
 current_phase_name: verificaci-n-en-vivo-en-modo-estricto-fixes
 status: executing
-stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-08-27T00:41:28.079Z"
+stopped_at: Completed 33-05-PLAN.md
+last_updated: "2026-08-27T01:06:12.267Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 41
-  completed_plans: 38
+  completed_plans: 39
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 33 (verificaci-n-en-vivo-en-modo-estricto-fixes) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 33 execution started
 
@@ -152,6 +152,7 @@ Last activity: 2026-08-26 — Phase 33 execution started
 | Phase 33 P02 | 15min | 2 tasks | 2 files |
 | Phase 33 P03 | 14min | 2 tasks | 2 files |
 | Phase 33 P04 | 15 min | 2 tasks | 1 files |
+| Phase 33 P05 | 16min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -318,6 +319,9 @@ Recent decisions affecting current work:
 - [Phase 33]: 33-03: 12 ramas de decode escritas en main_iol.py, 10 alcanzables — los dos números se reportan por separado — probe_auth_401 sólo llama login() y parse_login_response no está decorado con @_decode._response_parser; _capture_raw_wire corre _request + resp.json() sin ningún parser. Ambas ramas están declaradas inalcanzables en comentarios en el propio código. Reportar 12 como cobertura sería la señal que no inspecciona nada que P-02 prohíbe.
 - [Phase 33]: La rama de decode de main_market_data.py NO escribe un finding — _decode emite el record de seis claves ANTES de levantar, asi que el DivergenceHandler ya escribio el SHAPE bajo el titulo lockeado; un segundo append_finding duplicaria la divergencia y romperia idempotent_by_title. Ademas el titulo que el plan especifica no es componible: MarketDataDecodeError no guarda la especie de divergencia.
 - [Phase 33]: Los 34 sitios de _write_schema_snapshot consumen _ENDPOINT_TEMPLATES — Dejar el literal inlineado al lado del dict con el mismo valor es la duplicacion drift-prone que D-03 manda evitar; cada string renderizado es byte-identico al que reemplaza, asi que ningun baseline write-once se mueve.
+- [Phase 33]: El piso >=96 de 29-SIZING.md es una suma de REGISTROS sobre 43 archivos de corpus, no un conteo de triples distintos: el equivalente comparable con DivergenceHandler.seen es 58 (higyrus 22, matriz 14, market-data 22) — 33-RESEARCH Pattern 6 afirmaba que eran la misma unidad. Contrastar 24 triples en vivo contra 50 registros habria fabricado un "por debajo del piso" que es de la unidad y no del censo, disparando una investigacion de perdida donde no hay ninguna. 33-CENSUS.md contrasta contra ambas columnas.
+- [Phase 33]: La asercion "fids emitidos == bloques nuevos" es falsa por construccion; la forma decidible es "ningun fid asignado pudo chocar con un finding terminal" (min asignado 67 > max preexistente 66) mas la clasificacion enumerada de los 54 gaps como dedupe intencional — El DivergenceHandler pide un fid por CADA record y pasa idempotent_by_title=True, asi que un record repetido consume un fid y no escribe bloque. La igualdad literal habria reportado una falla P-3 masiva donde solo hay dedupe content-addressed intencional, probado offline (mismo titulo x5 -> 5 fids, 1 bloque).
+- [Phase 33]: matriz y higyrus se registran SKIPPED con su causa medida y destino nombrado (LIVE-MATZ-33 / LIVE-HIGY-33), nunca como cero; no se rodeo el assert remarkets-only de matriz ni se reapunto PRIMARY_BASE_URL — matriz autentica (AUTH OK) pero el driver aborta por politica D-MATZ-33, y las credenciales del .env fueron emitidas para el host demo: mandarlas a remarkets seria una fuga disfrazada de fix de config. higyrus falla por DNS gaierror con las tres credenciales presentes: es alcanzabilidad, no auth. Un cero seria una afirmacion de limpieza que ninguna medicion respalda (P-03).
 
 ### Pending Todos
 
@@ -341,6 +345,7 @@ Recent decisions affecting current work:
 - [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
 - [v1.6 / Phase 32 STILL OPEN]: `verification/` matriz probes call `probe_login_sync()` with the pre-15-05 signature (19 failed + 19 errors in a **full** local suite run). Sigue abierto y **fuera del scope del plan 32-01**: `verification/` nunca corrió en CI (`ci.yml:125` pasa un path `packages/<pkg>` explícito que pisa `testpaths`), así que no afecta ninguna de las 6 patas per-package. GATE-TYP-01 es lo primero que va a meter superficie de test a nivel repo en CI → re-chequear antes de que el plan 32-06 reclame un verde de matriz completa. Ver `.planning/phases/31-endpoints-de-ops-estructura-uniforme/deferred-items.md`.
 - ~~[v1.6 / Phase 31 deferred-items D-2/D-3]~~ **RESUELTO 2026-08-25 (Plan 32-01, commits `5ce4e87` + `f08b7f2`).** Texto original: *ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run; mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.* Los 33 errores (29 matriz + 2 higyrus + 2 ambito) se arreglaron **en código de test únicamente** — `pyproject.toml` byte-idéntico, cero tests borrados/skippeados. El loop per-package de `ci.yml:92-99` imprime `Success: no issues found` **seis veces**; el job `typecheck` está verde por primera vez desde 2026-08-18. Baseline completo de los 4 jobs en `.planning/phases/32-gates-de-homogeneidad-d-16/32-01-SUMMARY.md` § CI-green baseline (Wave 0 close).
+- Criterio 1 de la Phase 33 PARCIAL: solo 3 de 5 paquetes pudieron correr en vivo. higyrus (host del vendor sin resolucion DNS) y matriz (PRIMARY_BASE_URL fuera de la politica remarkets-only, assert D-MATZ-33) quedan sin medicion. Es un gate humano de entorno del operador, no resoluble desde el plan. Destinos nombrados: LIVE-HIGY-33 y LIVE-MATZ-33. 33-07 debe surfacearlo en vez de dar el criterio 1 por cerrado.
 
 ### Quick Tasks Completed
 
@@ -399,8 +404,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T00:41:14.252Z
-Stopped at: Completed 33-02-PLAN.md
+Last session: 2026-08-27T01:06:12.216Z
+Stopped at: Completed 33-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
