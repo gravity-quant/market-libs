@@ -5,15 +5,15 @@ milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 33
 current_phase_name: verificaci-n-en-vivo-en-modo-estricto-fixes
 status: executing
-stopped_at: Completed 33-01-PLAN.md
-last_updated: "2026-08-26T23:40:54.619Z"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-08-27T00:01:23.903Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 41
-  completed_plans: 35
+  completed_plans: 36
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 33 (verificaci-n-en-vivo-en-modo-estricto-fixes) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 33 execution started
 
@@ -149,6 +149,7 @@ Last activity: 2026-08-26 — Phase 33 execution started
 | Phase 32 P05 | 7min | 2 tasks | 4 files |
 | Phase 32 P06 | 21min | 3 tasks | 5 files |
 | Phase 33 P01 | 28min | 3 tasks | 7 files |
+| Phase 33 P02 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -306,6 +307,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 33 / 33-01]: probe_context NO importa ningún *_client — la clase de decode-error y el fallback con forma de ProbeResult se inyectan por los kwargs decode_error/on_decode_error. on_decode_error recibe (fn.__name__, surface, exc) y su retorno se devuelve sin tocar; NO debe escribir un finding (el SHAPE ya lo escribió el handler desde el record que _decode emitió justo antes de levantar — mintear otro rompe el idempotent_by_title del lock 10).
 - [Phase ?]: [Phase 33 / 33-01]: el triple del censo se agrega a DivergenceHandler.seen ANTES de llamar al sink — si se agregara después, una falla de escritura del findings file haría que el censo reporte un número MÁS CHICO, que se lee como 'menos divergencias' (falso limpio) en vez de como un error. Falsificado: mover el add después del sink enrojece test_emit_never_raises.
 - [Phase ?]: [Phase 33 / 33-01]: el rot rojo de verification/ (19 failed / 19 errors, 100% de una sola causa raíz: dos archivos llaman probes de main_matriz.py sin el parámetro client de la migración REFAC-05 de la Phase 15) queda committeado en 33-BASELINE.md y ruteado a HARN-VERIF-01 en ROADMAP § Backlog 'Deferred to v1.7+'. NO a una fase de v1.6: la 33 lo excluye por escrito (P-13) y la 34 es releases. Los dos archivos son el CANARIO del refactor de probe_context: 33-02 y 33-03 deben re-correrlos y comparar contra 17/17 y 2/2 exactos.
+- [Phase ?]: 33-02: dos helpers de fallback por driver (bare + _pair) — matriz y higyrus tienen CADA UNO dos formas canónicas de retorno de probe; un único fallback 2-tuple habría reventado 39 probes con AttributeError bajo modo estricto
+- [Phase ?]: 33-02: los probes de login de higyrus angostan su bracket de HigyrusClientError a HigyrusAPIError — el decode error es hermano, no subclase, y la base lo tragaba reclasificandolo como AUTH y cascadeando SKIPPED a los 17 probes restantes
+- [Phase ?]: 33-02: formato de linea SUMMARY unificado en ambos drivers con DIVERGENCES=len(handler.seen) (la unidad del censo) y HANDLER_ERRORS; DIVERGENCES NO es el conteo de findings
 
 ### Pending Todos
 
@@ -387,8 +391,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-26T23:40:54.614Z
-Stopped at: Completed 33-01-PLAN.md
+Last session: 2026-08-27T00:01:23.898Z
+Stopped at: Completed 33-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

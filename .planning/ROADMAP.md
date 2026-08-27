@@ -216,7 +216,7 @@ Plans:
   4. `verify_cycle_closure` PASS por paquete y los schema snapshots quedan reconciliados contra el baseline.
   5. El volumen real de divergencias se **contrasta contra el piso de sizing de la Phase 29**; si lo excede, el re-scope es explícito (findings diferidos documentados con su fase destino, nunca silenciados).
 
-**Plans:** 1/7 plans executed
+**Plans:** 2/7 plans executed
 
 Plans:
 **Wave 1**
@@ -225,7 +225,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion; los tres planes son independientes entre sí y corren en paralelo)*
 
-- [ ] 33-02-PLAN.md — Los dos drivers AST-gated que hoy MUEREN en modo estricto: matriz (46 probes + `_seed_fid_counter` sobre `F-10`) y higyrus (17 probes restantes)
+- [x] 33-02-PLAN.md — Los dos drivers AST-gated que hoy MUEREN en modo estricto: matriz (46 probes + `_seed_fid_counter` sobre `F-10`) y higyrus (17 probes restantes)
 - [ ] 33-03-PLAN.md — iol (15 probes + rama `IOLDecodeError` como `SHAPE` delante del handler ancho) y ámbito (7 probes + `_seed_fid_counter`, smoke D-12)
 - [ ] 33-04-PLAN.md — market-data: `_ENDPOINT_TEMPLATES` nuevo (D-03), clasificación `SHAPE` centralizada en `_finding_for_exc` (un edit cubre los 43 sitios), 43 probes decorados
 
@@ -291,7 +291,7 @@ Plans:
 | 30. `iol-client` tipado                                     | v1.6      | 13/13 | Complete    | 2026-08-23 |
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 6/6 | Complete    | 2026-08-25 |
-| 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 1/7 | In Progress|  |
+| 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 2/7 | In Progress|  |
 | 34. Releases por paquete                                    | v1.6      | 0/? | Not started | -          |
 
 ## Backlog
