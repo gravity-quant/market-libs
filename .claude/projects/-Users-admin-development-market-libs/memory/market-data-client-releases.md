@@ -14,8 +14,9 @@ only creates GitHub Releases with wheel + sdist.
 PR #12, `release.yml` run `33118800550`). This is the release to install. It is a **minor** over
 v0.4.0 — it types the four ops endpoints and corrects three model shapes against the live wire.
 **It is SOURCE-BREAKING**: seven source breaks in total — four dict→model changes plus three shape
-changes on models that already existed (detailed below). Nothing about the mutation surface or the
-mutating-gate changed in this release.
+changes on models that already existed (detailed below). The set of mutating operations and the
+mutating-gate semantics are unchanged in this release — but two of the four dict→model breaks
+(`add_holidays`, `delete_holiday`) ARE calendar mutations whose return type changed; see below.
 
 **v0.5.0 adds (v1.6 Phases 31 + 33 — TYP-02/TYP-03 + LIVE-TYP-01):**
 - **Four ops endpoints stop returning dictionaries and return typed models:** `get_health` →
@@ -113,12 +114,16 @@ tests (which hid the bug) were corrected to the real envelope.
   `update_symbol` (`SymbolPatch`) — sync and async, typed request-models → JSON, tolerant `SafeModel`
   responses, `422` → typed error; all three dispatched as idempotent per spec.
 
-**Scope note:** as of v0.5.0 the mutation surface is still **symbols + calendar**, unchanged since
-v0.4.0 and still behind the same opt-in mutating-gate (`mutating_allowed=True` + a matching
-`expected_host`); the default client still refuses every mutation with zero HTTP requests and zero
-Auth0 round-trips. What v1.6 adds is on the **read/ops** side: that surface is now **typed**, and it
-was exercised **in STRICT DECODE mode against the live API** under LIVE-TYP-01 (v1.6 Phase 33) —
-which is precisely what surfaced the three shape divergences (SC-1, SC-2, SC-3) now fixed above.
+**Scope note:** as of v0.5.0 the *set* of mutating operations and the mutating-gate semantics are
+unchanged since v0.4.0 — still **symbols + calendar**, still behind the same opt-in mutating-gate
+(`mutating_allowed=True` + a matching `expected_host`); the default client still refuses every
+mutation with zero HTTP requests and zero Auth0 round-trips. **But two calendar mutations DO change
+return type in this release:** `add_holidays` → `AddHolidaysResult` and `delete_holiday` →
+`DeleteHolidayResult` (dict → typed model, same truthiness-flip hazard as the read-side breaks —
+audit those call sites too). What v1.6 mainly adds is on the **read/ops** side: that surface is now
+**typed**, and it was exercised **in STRICT DECODE mode against the live API** under LIVE-TYP-01
+(v1.6 Phase 33) — which is precisely what surfaced the three shape divergences (SC-1, SC-2, SC-3)
+now fixed above.
 Strict decode raises on a missing, wrong-typed or non-dict field but **never** on extra wire keys, so
 legitimate upstream field growth stays informational. The mutation surfaces were previously
 exercised live against develop under LIVE-MUT-01 (v1.5 Phase 27) using dedicated test identifiers
