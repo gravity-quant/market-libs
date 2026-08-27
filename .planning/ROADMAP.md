@@ -24,7 +24,7 @@
 - [x] **Phase 31: Endpoints de ops + estructura uniforme** — modelos para los 5 endpoints de ops (higyrus + market-data), request byte-idéntico probado para las 2 mutaciones ya publicadas, `models.py`/`types.py` presentes en los 6 paquetes — TYP-02, TYP-03 (completed 2026-08-25)
 - [x] **Phase 32: Gates de homogeneidad + D-16** — gate AST de superficie como **job de CI nuevo** + test de paridad sync/async no-vacuo + cierre de D-16 reconciliando las **4** listas de enrollment — GATE-TYP-01 (completed 2026-08-25)
 - [x] **Phase 33: Verificación en vivo en modo estricto + fixes** — drivers en modo estricto contra APIs reales, `Literal` cerrados con evidencia, divergencias corregidas in-cycle, cycle closure PASS por paquete — LIVE-TYP-01 (completed 2026-08-27)
-- [ ] **Phase 34: Releases por paquete** — bumps sólo de los paquetes cuya superficie cambió, iol 0.2.0 → **0.3.0** y market-data 0.4.0 → **0.5.0**, ambos source-breaking con callout, `uv.lock` refrescado una sola vez, ops irreversibles detrás de doble gate humano — PUB-TYP-01
+- [x] **Phase 34: Releases por paquete** — bumps sólo de los paquetes cuya superficie cambió, iol 0.2.0 → **0.3.0** y market-data 0.4.0 → **0.5.0**, ambos source-breaking con callout, `uv.lock` refrescado una sola vez, ops irreversibles detrás de doble gate humano — PUB-TYP-01 (completed 2026-08-27)
 
 ## Phase Details (v1.6)
 
@@ -253,7 +253,7 @@ Plans:
   3. PR → CI verde (6 paquetes × py3.12 + py3.13) → merge con **merge commit real** (nunca squash — orfanaría los SHAs que los SUMMARY cross-referencian, D-11) → tag por paquete → `release.yml` **sin editar** → GitHub Release con wheel + sdist por paquete.
   4. Cada operación irreversible (merge y push de tag) queda detrás de un checkpoint humano **independiente**; los dos gates **nunca** se colapsan (precedente D-18 de v1.5).
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 
@@ -267,7 +267,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 34-03-PLAN.md — **Checkpoint humano bloqueante (b)** cubriendo ambos tags en una sola aprobación, tags anotados `iol-client-v0.3.0` + `market-data-client-v0.5.0` sobre el SHA del merge commit, dos corridas de `release.yml`, verificación de wheel + sdist por paquete y refresh del memory in-repo de market-data-client
+- [x] 34-03-PLAN.md — **Checkpoint humano bloqueante (b)** cubriendo ambos tags en una sola aprobación, tags anotados `iol-client-v0.3.0` + `market-data-client-v0.5.0` sobre el SHA del merge commit, dos corridas de `release.yml`, verificación de wheel + sdist por paquete y refresh del memory in-repo de market-data-client
 
 ## Progress
 
@@ -306,7 +306,7 @@ Plans:
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 6/6 | Complete    | 2026-08-25 |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 7/7 | Complete    | 2026-08-27 |
-| 34. Releases por paquete                                    | v1.6      | 2/3 | In Progress|  |
+| 34. Releases por paquete                                    | v1.6      | 3/3 | Complete   | 2026-08-27 |
 
 ## Backlog
 
