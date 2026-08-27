@@ -23,7 +23,7 @@ Requirements for this milestone. Each maps to roadmap phases (29-34). Decisiones
 
 ### Verificación en vivo
 
-- [ ] **LIVE-TYP-01**: La nueva decodificación queda verificada contra las APIs reales (ámbito, iol, higyrus, matriz; market-data contra develop con creds del operator) en modo estricto; los `Literal` de DT-07 se cierran con evidencia real; toda divergencia se documenta como finding y se corrige in-cycle, espejada sync/async, con test de regresión mockeado; cycle closure PASS por paquete.
+- [x] **LIVE-TYP-01**: La nueva decodificación queda verificada contra las APIs reales (ámbito, iol, higyrus, matriz; market-data contra develop con creds del operator) en modo estricto; los `Literal` de DT-07 se cierran con evidencia real; toda divergencia se documenta como finding y se corrige in-cycle, espejada sync/async, con test de regresión mockeado; cycle closure PASS por paquete.
 
 ### Publicación
 
