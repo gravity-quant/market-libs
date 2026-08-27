@@ -55,6 +55,32 @@ assert `-- .github/workflows/release.yml` by file, plus a phase-base-commit diff
 "modified by this phase" invariant. Do not assert the whole `.github/workflows` directory against a
 prior release tag.
 
+## 4. `iol-client` README, memory doc, and version test are pre-existing gaps (code review WR-03/04/05)
+
+**Found during:** `/gsd-code-review 34` (post-execution review, 2026-08-27).
+
+`iol-client` v0.3.0 was published by this phase, but three gaps predate it and were only surfaced by
+reviewing this phase's diff, not caused by it:
+
+- **WR-03:** `packages/iol-client/README.md:7` says `uv add iol-client` with no PyPI warning and no
+  working install command — the package isn't on PyPI (verified: `pypi.org/pypi/iol-client/json` →
+  404) and the pipeline only creates GitHub Releases. The install as documented fails today.
+- **WR-04:** no `iol-client-releases.md` memory doc exists (unlike market-data-client's), and no
+  MEMORY.md index entry for iol-client.
+- **WR-05:** `packages/iol-client/tests/` has no test binding `__version__` to `pyproject.toml`
+  (market-data-client has `test_version_metadata.py` for this). `release.yml:47` only validates
+  `pyproject.toml` against the tag — `__init__.__version__` drift would ship undetected.
+
+**Why not fixed here:** none of these files were touched by Phase 34 (34-01 explicitly left
+`iol-client/README.md` untouched per D-03 — its `### v0.3.0` changelog entry was already complete).
+Fixing them is real, scoped work (mirror market-data-client's install block + memory doc + version
+test) but is a new deliverable, not a correction of something this phase changed.
+
+**Suggested fix:** a small follow-up phase or todo: (1) add the not-on-PyPI warning + git-subdir
+install command to `iol-client/README.md`, mirroring market-data-client's block; (2) create
+`iol-client-releases.md` + MEMORY.md index line following the market-data-client template; (3) copy
+`test_version_metadata.py` into `packages/iol-client/tests/`.
+
 ## 3. `iol-client-releases.md` release memory does not exist
 
 **Found during:** 34-03 Task 3 (a deliberate deferral, not a defect — recorded here for discovery).
