@@ -173,10 +173,12 @@ class Instrumento(SafeModel):
       forma que el corpus demuestra (Plan 30-03).
     - ``instrumento`` y ``pais`` son **texto libre**. Aunque el corpus muestre
       un vocabulario chico (``acciones``, ``cedears``, ``argentina``…), ningún
-      campo de RESPONSE gana un tipo de conjunto cerrado en este milestone: la
-      promoción a ``Literal`` es trabajo de Phase 33 con un censo vivo detrás
-      (D-09 / DT-07). El ``pais`` que llega en la respuesta es distinto del
-      parámetro ``pais`` de entrada, que sí puede tener su propio dominio.
+      campo de RESPONSE gana un tipo de conjunto cerrado en este milestone
+      (D-09). El ``pais`` que llega en la respuesta es distinto del parámetro
+      ``pais`` de entrada, que sí puede tener su propio dominio — y esa
+      asimetría RESPONSE-vs-INPUT es exactamente la que el censo de la Phase 33
+      midió sobre ``mercado`` / ``plazo`` antes de cerrar DT-07 en ``str``
+      (``33-LITERALS.md``).
     """
 
     instrumento: str
@@ -211,10 +213,17 @@ class Titulo(SafeModel):
       rama decimal del walker **ensancha en silencio** un entero del wire,
       mientras que la entera sustituye el typed zero y **reporta**. Sigue la
       evidencia de cada endpoint, no una convención (RESEARCH Pitfall 4).
-    - ``mercado`` y ``plazo`` quedan como **texto libre**. Ningún campo de
-      RESPONSE gana un tipo de conjunto cerrado en este milestone; la
-      promoción a ``Literal`` es trabajo de Phase 33 con un censo vivo detrás
-      (D-09 / DT-07).
+    - ``mercado`` y ``plazo`` quedan como **texto libre, y eso ya está
+      decidido**: el censo vivo de la Phase 33 (plan 33-06) corrió sobre 2 191
+      filas de los seis tipos de instrumento y **DT-07 quedó CERRADO en
+      ``str``, de forma permanente**. El wire emite ``mercado`` en ``{"1"}`` y
+      ``plazo`` en ``{"T0", "T1"}``, mientras que los parámetros de ENTRADA
+      homónimos de este mismo cliente van por default en ``"bcba"`` y ``"t2"``:
+      los dos vocabularios son numérico-vs-nombre en un caso y disjuntos por
+      caja en el otro, así que un ``Literal`` derivado de la respuesta
+      rechazaría los propios defaults de la librería. Evidencia completa en
+      ``.planning/phases/33-verificaci-n-en-vivo-en-modo-estricto-fixes/33-LITERALS.md``
+      y resumen en :mod:`iol_client.types`.
     """
 
     apertura: float
