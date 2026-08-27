@@ -115,6 +115,9 @@ def test_from_api_marketdata_item_parses_new_fields() -> None:
     assert snap.active is True
     assert snap.entries == ["BI", "OF"]
     # market_data is a dict passthrough — nested rows are preserved verbatim.
+    # Desde 0.5.0 (Phase 33, SC-2) el campo es ``dict[str, Any] | None``: este payload lo
+    # trae poblado, así que el narrowing es además una aserción real sobre el parseo.
+    assert snap.market_data is not None
     assert snap.market_data["BI"][0]["price"] == 1
     assert snap.market_data["OI"] is None
     assert snap.staleness_seconds == 1.5
