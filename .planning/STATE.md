@@ -4,17 +4,17 @@ milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 34
 current_phase_name: releases-por-paquete
-status: executing
-stopped_at: Completed 34-01-PLAN.md
-last_updated: "2026-08-27T20:10:01.142Z"
+status: verifying
+stopped_at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
+last_updated: "2026-08-27T21:42:04.869Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 44
-  completed_plans: 42
-  percent: 83
+  completed_plans: 44
+  percent: 100
 ---
 
 # Project State
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 34 (releases-por-paquete) — EXECUTING
-Plan: 2 of 3
-Status: Ready to execute
+Plan: 3 of 3
+Status: Phase complete — ready for verification
 Last activity: 2026-08-27 — Phase 34 execution started
 
 ## Performance Metrics
@@ -156,6 +156,8 @@ Last activity: 2026-08-27 — Phase 34 execution started
 | Phase 33 P06 | 12min | 2 tasks | 5 files |
 | Phase 33 P07 | 42min | 3 tasks | 19 files |
 | Phase 34 P01 | 10 min | 3 tasks | 11 files |
+| Phase 34 P02 | 14 min | 3 tasks | 1 files |
+| Phase 34 P03 | 5 min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -334,6 +336,12 @@ Recent decisions affecting current work:
 - [Phase 33 / 33-07]: Criterio 4 no-vacuo con piso POR PAQUETE: ambito 0, higyrus 0, iol 1, matriz 1, market-data 88 (baseline medido 50 + 38 promociones). Las dos filas de piso cero NO llevan `>= 0` —esa asercion es el verde vacuo que el gate existe para prevenir—: ambito lleva la propiedad D-12 aseverada por AST (cero `ClassDef`, `__all__` vacio) MAS la linea SUMMARY verbatim de su pase estricto como evidencia POSITIVA de que el driver corrio; higyrus lleva su vacuidad DECLARADA con `LIVE-HIGY-33` aseverado como destino, porque hacer legible la vacuidad es mejor que taparla con un piso que pasaria por la razon equivocada. Probado por 4 falsificaciones, todas revertidas. Conteos inspeccionados pre->post: market-data 50->88; los otros cuatro sin mover.
 - [Phase 33 / 33-07]: Los cuatro campos del record de divergencia quedaron BYTE-VERBATIM en las 76 promociones; solo se movio `status` (+ `regression` en los 38 FIXED). La razon de cada disposicion vive en `33-CENSUS.md`, no dentro del finding: P-01 prohibe componer un campo del finding con algo fuera de las seis claves del record mas el endpoint y la superficie. El short-circuit de preservacion de `append_finding` mira el status EXISTENTE, no el nuevo, asi que promover un OPEN re-serializa el archivo entero — se midio la fidelidad del round-trip ANTES de promover (0 lineas de diff) en vez de confiar en la afirmacion del plan.
 - [Phase ?]: 34-01: memory files — refrescar market-data-client-releases.md en 34-03; NO crear iol-client-releases.md
+- [Phase 34]: 34-02: gate humano D-08(a) resuelto con un 'approved' literal del operador; NO auto-aprobado pese a auto_advance=true y mode=yolo
+- [Phase 34]: 34-02: la falla de 'Type check (mypy)' se corrigio con narrowing en el test (e5eeb8a), nunca parcheando ci.yml (D-11)
+- [Phase 34]: [Phase 34-03]: El gate humano D-08(b) se resolvió con un "approved" literal del operador (2026-08-27T21:34:30Z), independiente del gate (a) de 34-02 — NO se auto-aprobó pese a auto_advance:true, mode:yolo y el gate="blocking" del task; una sola aprobación cubrió AMBOS tags y el gate no se partió por paquete (D-08)
+- [Phase 34]: [Phase 34-03]: Dos tags anotados (iol-client-v0.3.0 + market-data-client-v0.5.0) sobre el MISMO merge commit a89fa45 re-resuelto en vivo con git rev-parse origin/main, pusheados POR NOMBRE uno por uno — nunca --tags, porque existía un tag local-only v1.3 que un push masivo habría publicado; dos runs independientes de release.yml (33118792322 + 33118800550) en verde, cuatro assets verificados por separado
+- [Phase 34]: [Phase 34-03]: Se refrescó la memory existente market-data-client-releases.md en sus seis regiones (commit 60fc58b en milestone/v1.5-mutations, llega a main en un PR futuro); NO se creó iol-client-releases.md — ese era el item diferido en CONTEXT y queda intacto y disponible para que una fase futura lo tome deliberadamente
+- [Phase 34]: [Phase 34-03]: La aserción (f) del plan (diff dir-wide de .github/workflows contra el tag de release anterior) usa baseline obsoleto y falla sobre ci.yml por commits de Phases 24/29/31/32; el invariante real de D-11 se asertó por sha256 de release.yml (7109ff0b… idéntico en los 4 refs) y por diff desde el commit base de la fase (0 archivos, 0 commits) — tercera aparición del mismo baseline obsoleto en la fase, conviene corregir la forma de la aserción en el patrón
 
 ### Pending Todos
 
@@ -417,9 +425,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T20:10:01.137Z
-Stopped at: Completed 34-01-PLAN.md
-Resume file: .planning/phases/34-releases-por-paquete/34-CONTEXT.md
+Last session: 2026-08-27T21:42:04.862Z
+Stopped at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
+Resume file: None
 
 ## Operator Next Steps
 

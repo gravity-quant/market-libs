@@ -27,7 +27,7 @@ Requirements for this milestone. Each maps to roadmap phases (29-34). Decisiones
 
 ### Publicación
 
-- [ ] **PUB-TYP-01**: Los paquetes cuya superficie cambió quedan publicados (bump + README changelog + PR → CI verde → merge con merge-commit real → tag por paquete → GitHub Release); iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); el set final de paquetes depende de la decisión msgspec de F29; `uv.lock` global se refresca una vez; ops irreversibles detrás de doble checkpoint humano (precedente D-18).
+- [x] **PUB-TYP-01**: Los paquetes cuya superficie cambió quedan publicados (bump + README changelog + PR → CI verde → merge con merge-commit real → tag por paquete → GitHub Release); iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); el set final de paquetes depende de la decisión msgspec de F29; `uv.lock` global se refresca una vez; ops irreversibles detrás de doble checkpoint humano (precedente D-18).
 
 ## v2 Requirements
 
@@ -69,7 +69,7 @@ Fases definidas en `.planning/ROADMAP.md` § Phase Details (v1.6). Cada requisit
 | TYP-03 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
 | GATE-TYP-01 | Phase 32 | Gates de homogeneidad + D-16 | Complete |
 | LIVE-TYP-01 | Phase 33 | Verificación en vivo en modo estricto + fixes | Pending |
-| PUB-TYP-01 | Phase 34 | Releases por paquete | Pending |
+| PUB-TYP-01 | Phase 34 | Releases por paquete | Complete |
 
 **Coverage:**
 
