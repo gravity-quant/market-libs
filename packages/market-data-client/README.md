@@ -122,13 +122,7 @@ uv run mypy packages/market-data-client
 
 ## Changelog
 
-### v0.5.0 — sin publicar todavía
-
-El bump de `pyproject.toml` y el tag los hace la Phase 34; esta entrada existe
-para que la ruptura quede registrada en el momento en que se introduce y no en
-el momento en que se publica. **Cualquiera que compile desde HEAD obtiene una
-rueda cuya metadata dice `0.4.0` y cuya API es incompatible con la `0.4.0`
-publicada** — hasta el bump, esa es la advertencia operativa.
+### v0.5.0
 
 **Cuatro endpoints de ops dejan de devolver diccionarios y pasan a devolver
 modelos tipados** (breaking, minor bump en línea 0.x — mismo criterio y misma
