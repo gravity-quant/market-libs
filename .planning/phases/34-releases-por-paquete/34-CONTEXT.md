@@ -31,9 +31,10 @@ editar `.github/workflows/release.yml` o `.github/workflows/ci.yml`; versionado 
   (dispositions `SC-1`/`SC-2`/`SC-3`, todas `fix-shape-now`, todas `market-data-client`) y en
   `ROADMAP.md` § Phase 34 criterio 1.
 
-- **D-02:** La rama msgspec del criterio 2 (README declarando pérdida de closure puro-Python) **no
-  aplica** — `29-DLOCK-MSGSPEC.md` está firmado `decision: no-go-stdlib-only`; msgspec nunca se
-  instaló en el workspace (cero hits en `uv.lock` o cualquier `pyproject.toml`).
+- **D-02 [informational]:** La rama msgspec del criterio 2 (README declarando pérdida de closure
+  puro-Python) **no aplica** — `29-DLOCK-MSGSPEC.md` está firmado `decision: no-go-stdlib-only`;
+  msgspec nunca se instaló en el workspace (cero hits en `uv.lock` o cualquier `pyproject.toml`).
+  Confirmación negativa, no un ítem accionable — no requiere task en ningún plan.
 
 ### Changelog de `market-data-client` — gap real a cerrar antes de bumpear
 
