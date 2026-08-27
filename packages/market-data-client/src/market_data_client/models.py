@@ -90,6 +90,7 @@ from market_data_client import _decode, _params
 __all__ = [
     "AddHolidaysResult",
     "CalendarConfig",
+    "CalendarConfigPreview",
     "CalendarDay",
     "DeleteHolidayResult",
     "FeedIngestor",
@@ -106,6 +107,7 @@ __all__ = [
     "MarketHoursIn",
     "NewSymbol",
     "NewSymbols",
+    "PreviewMarket",
     "SafeModel",
     "Segment",
     "Symbol",
@@ -705,6 +707,96 @@ class CalendarConfig(SafeModel):
     updated_by: str
     warnings: list[Any]
     updated_at: str | None = None
+
+
+# ----------------------------------------------------------------------
+# Calendar-config PREVIEW envelope (Phase 33, LIVE-TYP-01 / S-2) — plan 33-07
+# ----------------------------------------------------------------------
+#
+# ``POST /calendar/config/preview`` does NOT return a configuration. It returns
+# a compute-only verdict about a PROPOSED window, and the two shapes share not a
+# single key. Until Phase 33 the endpoint was declared ``-> CalendarConfig`` and
+# decoded through ``parse_calendar_config_response``, which manufactured an
+# all-typed-zero config and DISCARDED all three real answers.
+#
+# ``29-SIZING.md`` predicted the exact divergence set as S-2 and the 33-05 live
+# run returned it field for field: nine ``missing`` (``.close``, ``.editable``,
+# ``.enabled``, ``.env_bypass``, ``.open``, ``.pre_open_minutes``, ``.source``,
+# ``.timezone``, ``.updated_by``) and three ``extra`` (``.market_after``,
+# ``.requires_confirmation``, ``.valid``) on EACH surface — findings ``F-121``..
+# ``F-132`` and ``F-152``..``F-163``.
+#
+# Correcting it changes a PUBLISHED return type, so it went through the 33-07
+# Task 1 blocking checkpoint and the operator selected ``fix-shape-now``. The
+# consequence is recorded rather than absorbed: ``market-data-client`` becomes a
+# SOURCE-BREAKING entry of Phase 34's bump set at 0.4.0 -> 0.5.0.
+#
+# Neither class declares a ``dict[...]`` field and neither overrides
+# ``from_api``, so the walker's ``hint(**walk_model(...))`` nested-construction
+# path is correct for ``PreviewMarket`` (the preconditions pinned by
+# ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` and
+# ``test_models_with_a_from_api_override_are_never_a_nested_field_type`` hold).
+# Neither carries ``received_at``: a dry-run verdict is not a snapshot (D-05).
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewMarket(SafeModel):
+    """The ``market_after`` block of the preview verdict — the session the window would produce.
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/preview-calendar-config-sync-response.json``,
+    captured 2026-08-01 against ``market-data-develop``; the ``-async-`` capture
+    is byte-identical, and that identity is itself the sync/async parity
+    evidence. NOT from the OpenAPI, which declares this ``200`` as a bare,
+    schema-less ``object``.
+
+    Deliberately NOT :class:`FeedMarket`, which it superficially resembles:
+    ``FeedMarket`` additionally declares ``enabled`` and ``last_business_day``,
+    and neither key exists on this envelope. Reusing it would have manufactured
+    two permanent ``missing`` divergences per preview call — re-introducing, one
+    level down, exactly the defect this model exists to remove.
+
+    No field is declared ``| None``: both committed captures show every field
+    populated, and an over-declared Optional would permanently hide that field
+    from the divergence census (T-31-17, the 31-04 option-b logic applied here).
+    """
+
+    is_open: bool
+    local_time: str
+    next_transition: str
+    reason: str
+    session_close: str
+    session_open: str
+    state: str
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarConfigPreview(SafeModel):
+    """The ``POST /calendar/config/preview`` ``200`` envelope (Phase 33, S-2).
+
+    The dry run's three answers, none of which :class:`CalendarConfig` could
+    carry:
+
+    * :attr:`valid` — would the proposed window be accepted at all;
+    * :attr:`requires_confirmation` — does it produce warnings, so the real
+      ``PUT`` needs ``confirm=True`` as its second opinion;
+    * :attr:`market_after` — the session state the window would produce.
+
+    :attr:`warnings` is the list to read before deciding. It is the one key whose
+    NAME the old ``CalendarConfig`` also declared, which is precisely why the
+    defect was survivable in practice and invisible in review: the single
+    attribute a caller actually reached for happened to line up.
+
+    The intended flow is unchanged — ``preview_calendar_config(...)`` → inspect
+    ``warnings`` → re-issue ``set_calendar_config(...)`` with ``confirm=True`` —
+    but the verdict now arrives typed instead of being reconstructed from a
+    field that survived by coincidence.
+    """
+
+    market_after: PreviewMarket
+    requires_confirmation: bool
+    valid: bool
+    warnings: list[Any]
 
 
 # ----------------------------------------------------------------------

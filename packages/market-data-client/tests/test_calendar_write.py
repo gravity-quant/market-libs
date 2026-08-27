@@ -47,6 +47,7 @@ from market_data_client import MarketDataAPIError, MarketDataMutationNotAllowedE
 from market_data_client.models import (
     AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     DeleteHolidayResult,
     HolidayIn,
     HolidaysIn,
@@ -245,7 +246,11 @@ def test_preview_calendar_config_posts_same_body(httpx_mock: HTTPXMock) -> None:
     assert req.url.path == "/api/calendar/config/preview"
     assert req.headers["Authorization"] == "Bearer test-token"
     assert _json.loads(req.content) == _HOURS_BODY
-    assert isinstance(cfg, CalendarConfig)
+    # Phase 33 S-2: el REQUEST no se movió — el cambio es RESPONSE-ONLY. El tipo
+    # de retorno pasó de ``CalendarConfig`` a ``CalendarConfigPreview`` porque el
+    # sobre de veredicto no comparte una sola clave con una configuración; ver
+    # ``test_preview_calendar_config_envelope.py``.
+    assert isinstance(cfg, CalendarConfigPreview)
 
 
 def test_preview_calendar_config_422_raises_api_error(httpx_mock: HTTPXMock) -> None:

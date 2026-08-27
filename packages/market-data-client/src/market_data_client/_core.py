@@ -62,6 +62,7 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
     DeleteHolidayResult,
     Health,
@@ -103,6 +104,7 @@ __all__ = [
     "parse_instruments_response",
     "parse_latest_response",
     "parse_market_data_response",
+    "parse_preview_calendar_config_response",
     "parse_segments_response",
     "parse_symbols_response",
     "parse_token_response",
@@ -1191,6 +1193,38 @@ def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
         return CalendarConfig.from_api(None)
     raw = resp.json()
     return CalendarConfig.from_api(raw)
+
+
+@_decode._response_parser
+def parse_preview_calendar_config_response(resp: httpx.Response) -> CalendarConfigPreview:
+    """Pure: parse ``POST /calendar/config/preview`` → ``CalendarConfigPreview`` (S-2).
+
+    **The S-2 defect this fixes (Phase 33, LIVE-TYP-01).** The preview endpoint
+    used to share ``parse_calendar_config_response``, on the reading that a
+    preview of a config is a config. The wire disagrees on every key: the verdict
+    envelope is ``{market_after, requires_confirmation, valid, warnings}`` and
+    :class:`~market_data_client.models.CalendarConfig` declares ten fields none of
+    which appear in it. Decoding one as the other manufactured an all-typed-zero
+    config and threw the verdict away — measured live as nine ``missing`` plus
+    three ``extra`` divergences per surface (``F-121``..``F-132`` /
+    ``F-152``..``F-163``), exactly the set ``29-SIZING.md`` predicted as S-2.
+
+    The return TYPE change is source-breaking and was authorised at the 33-07
+    Task 1 checkpoint (``fix-shape-now``); Phase 34 carries the 0.4.0 → 0.5.0
+    consequence.
+
+    Structure is ``parse_calendar_config_response``'s verbatim — the same
+    body-consume-then-raise order and the same D-07 tolerant fallback, where an
+    empty/``None`` body collapses to ``CalendarConfigPreview.from_api(None)``
+    rather than raising. Only the target model differs. No ``received_at``
+    stamp: a dry-run verdict is not a snapshot (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return CalendarConfigPreview.from_api(None)
+    raw = resp.json()
+    return CalendarConfigPreview.from_api(raw)
 
 
 @_decode._response_parser

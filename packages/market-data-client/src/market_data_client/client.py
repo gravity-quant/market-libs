@@ -65,6 +65,7 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
     DeleteHolidayResult,
     Health,
@@ -692,8 +693,8 @@ class Client:
         resp = self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
-    def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
-        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+    def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfigPreview:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfigPreview``.
 
         Compute-only dry run: it persists NOTHING server-side, so it is read-safe
         in effect. That exception is DOCUMENTED here, NOT implemented as a gate
@@ -702,15 +703,29 @@ class Client:
         convenience. ``_ensure_mutation_allowed()`` therefore stays the literal
         first statement, exactly as in the two persisting methods.
 
-        Same serialized ``MarketHoursIn`` body as
-        :meth:`set_calendar_config` (``confirm`` included) and the same
-        ``_core.parse_calendar_config_response`` (D-05); read ``warnings`` off the
-        returned config to decide whether the real write needs ``confirm=True``.
+        Same serialized ``MarketHoursIn`` body as :meth:`set_calendar_config`
+        (``confirm`` included) — the REQUEST is byte-unchanged from v0.4.0 and
+        ``tests/test_preview_calendar_config_envelope.py`` pins that.
+
+        **BREAKING since 0.5.0 (Phase 33, S-2).** This used to be declared
+        ``-> CalendarConfig`` and decoded through
+        ``_core.parse_calendar_config_response``. The wire returns a VERDICT
+        envelope — ``{market_after, requires_confirmation, valid, warnings}`` —
+        that shares not one key with a configuration, so the old path
+        manufactured an all-typed-zero ``CalendarConfig`` and discarded all three
+        answers. The 33-05 live run measured exactly the nine ``missing`` +
+        three ``extra`` divergences ``29-SIZING.md`` predicted as S-2.
+
+        The flow is unchanged: preview → inspect
+        :attr:`~market_data_client.models.CalendarConfigPreview.warnings` →
+        re-issue :meth:`set_calendar_config` with ``confirm=True``. Callers that
+        only read ``warnings`` need no edit; callers annotating the result, or
+        reading any other attribute, do.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
         resp = self._request(spec)
-        return _core.parse_calendar_config_response(resp)
+        return _core.parse_preview_calendar_config_response(resp)
 
     def add_holidays(self, holidays: HolidaysIn) -> AddHolidaysResult:
         """Gated ``POST {base_url}/calendar/holidays`` → ``AddHolidaysResult`` (MUT-MD-02).
@@ -998,7 +1013,7 @@ def delete_calendar_config() -> CalendarConfig:
     return _get_default().delete_calendar_config()
 
 
-def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+def preview_calendar_config(config: MarketHoursIn) -> CalendarConfigPreview:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().preview_calendar_config(config)
 

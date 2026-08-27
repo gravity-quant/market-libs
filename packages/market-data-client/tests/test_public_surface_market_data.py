@@ -58,6 +58,9 @@ _NEW_PUBLIC_NAMES = (
     "Health",
     "HealthAuth",
     "HealthFeed",
+    # Phase 33 — preview envelope split (LIVE-TYP-01 / S-2)
+    "CalendarConfigPreview",
+    "PreviewMarket",
 )
 
 _MUTATION_METHODS = (

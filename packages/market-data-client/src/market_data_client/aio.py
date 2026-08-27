@@ -49,6 +49,7 @@ from market_data_client.exceptions import (
 from market_data_client.models import (
     AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
     DeleteHolidayResult,
     Health,
@@ -692,8 +693,8 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
-    async def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
-        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+    async def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfigPreview:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfigPreview``.
 
         Dry-run compute-only: NO persiste nada del lado del servidor, así que en
         efecto es read-safe. Esa excepción queda DOCUMENTADA acá, NO implementada
@@ -704,14 +705,22 @@ class AsyncClient:
         igual que en los dos métodos que sí persisten.
 
         Mismo body de ``MarketHoursIn`` serializado que
-        :meth:`set_calendar_config` (``confirm`` incluido) y el mismo
-        ``_core.parse_calendar_config_response`` (D-05); leé ``warnings`` en la
-        config devuelta para decidir si la escritura real necesita ``confirm=True``.
+        :meth:`set_calendar_config` (``confirm`` incluido) — el REQUEST queda
+        byte-idéntico al de v0.4.0.
+
+        **BREAKING desde 0.5.0 (Phase 33, S-2).** Espejo verbatim del sync: el
+        wire devuelve un sobre de VEREDICTO
+        (``{market_after, requires_confirmation, valid, warnings}``) que no
+        comparte una sola clave con una configuración, así que el parser viejo
+        fabricaba un ``CalendarConfig`` de ceros tipados y tiraba las tres
+        respuestas. Ver :meth:`market_data_client.Client.preview_calendar_config`
+        para la evidencia completa; el fix vive en ``_core.py``, por el que
+        despachan las dos superficies.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
         resp = await self._request(spec)
-        return _core.parse_calendar_config_response(resp)
+        return _core.parse_preview_calendar_config_response(resp)
 
     async def add_holidays(self, holidays: HolidaysIn) -> AddHolidaysResult:
         """Gated ``POST {base_url}/calendar/holidays`` → ``AddHolidaysResult`` (MUT-MD-02).
@@ -1032,7 +1041,7 @@ async def delete_calendar_config() -> CalendarConfig:
     return await _get_default().delete_calendar_config()
 
 
-async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfigPreview:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().preview_calendar_config(config)
 
