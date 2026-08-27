@@ -198,6 +198,40 @@ The first **greenfield package** since the verification cycle began — `market-
 
 ---
 
+## Milestone: v1.6 — Tipado homogéneo de la superficie pública
+
+**Shipped:** 2026-08-27
+**Phases:** 6 | **Plans:** 44
+
+### What Was Built
+Field-level decoder (`_decode.py` walker) retrofitted as the primary decode engine across all 6 packages, replacing silent field substitution with structured observable logging (Phase 29). `iol-client`'s full public surface (16 signatures) migrated to typed attribute access, closing 5 consecutive self-declared leak-guarantee gap cycles along the way (Phase 30). 5 ops endpoints across `higyrus-client`/`market-data-client` now return typed models; all 6 packages gained uniform `models.py`+`types.py` (Phase 31). 4 CI gates now enforce the homogeneity permanently: decode-intactness, uniform-structure, AST surface-types (zero `Any`/`dict[str,Any]` exported), sync/async parity — plus a 4-list enrollment reconciliation (D-16) (Phase 32). Every change live-verified against real APIs in strict-decode mode, surfacing and fixing 3 real shape divergences in `market-data-client` before shipping (Phase 33). `iol-client` v0.3.0 + `market-data-client` v0.5.0 published through the release pipeline under two genuinely independent human approvals (Phase 34).
+
+### What Worked
+- Tracer-first phase decomposition (one production-quality end-to-end slice before expansion) caught real gaps early in Phases 29-30 rather than after full breadth was built.
+- The count-based CI gate pattern (`TOTAL=N && PASSED=N`, never absence-of-"fail") — reused since v1.4 — caught two more live degenerate cases this milestone: a genuine pre-existing mypy failure and a transient "zero checks reported" race that an absence-of-failure check would have read as green.
+- Explicit `gate="blocking-human"`-equivalent override by the orchestrator when a plan's checkpoint attribute didn't match its own stated intent (D-08) — caught before any irreversible action, not after.
+- Live install-and-behavior verification of published wheels as a UAT step (fresh venv, install from the actual public Release URL) caught nothing new here but is now a repeatable pattern for future release phases.
+
+### What Was Inefficient
+- The `gate="blocking"` vs `gate="blocking-human"` authoring inconsistency appeared on both of Phase 34's checkpoints — a template/pattern fix (not a one-off plan fix) would prevent relying on the orchestrator to catch it every time.
+- The `.github/workflows`-wide diff assertion pattern (checking zero change since a prior release tag) produced 3 false positives in one phase because it inherits a single-package-release baseline that doesn't account for legitimate intervening CI work across multiple releases. Needs a narrower per-file assertion form.
+- `requirements mark-complete` short-circuits on `already_complete`, leaving the REQUIREMENTS.md traceability table stale for 5 requirements across the milestone — only caught during the final milestone audit, not at any individual phase close.
+
+### Patterns Established
+- Per-field decoder walker as the canonical "observable, never silent" decode primitive — now the template for any future package's `from_api`.
+- Two-gate (not N-gate) irreversible-ops pattern for multi-artifact releases: one gate per operation *type* (merge, tag-push), not one per artifact — D-08 explicitly generalized this from the single-package v1.4/v1.5 precedent to two packages in one phase.
+- Post-execution code review as a standing phase-completion step (not optional) — found a live bug on `main` in Phase 34 that would have shipped invisibly otherwise.
+
+### Key Lessons
+- A milestone's own docs can silently defer the same gap through multiple phases without ever closing it (the `verification/` matriz harness, broken since Phase 15, re-discovered and re-deferred at Phases 30/31/32) — a milestone audit is the right place to surface this pattern explicitly, even when it doesn't block shipping.
+- When a sibling package gets a release-prep upgrade (README, memory doc, version test) and another published package in the same phase doesn't, that asymmetry is worth flagging even if fixing it is out of the current phase's declared scope (`iol-client` WR-03/04/05).
+
+### Cost Observations
+- Sessions: 1 continuous session covering discuss→plan→execute→verify→audit→complete for the milestone's final phase plus milestone close.
+- Notable: this was the first milestone where a milestone-close code review found and fixed a live bug on `main` as part of closing, rather than deferring it — the fix shipped via a lightweight docs-only follow-up PR (#13) rather than blocking the milestone close.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
