@@ -164,6 +164,66 @@ verdadera siempre, y el typechecker no atrapa esa rama.
   levantada después de que la escritura se commiteó. La divergencia se registra
   igual en el logger `market_data_client`.
 
+**Tres fixes de forma sobre modelos ya publicados** (breaking, verificados en vivo
+contra develop en la Phase 33 — SC-1, SC-2 y SC-3). Sumados a los cuatro endpoints
+de ops de arriba, **esta versión trae siete rupturas de fuente en total**: cuatro
+cambios dict→modelo y tres cambios de forma sobre modelos que ya existían.
+
+**SC-1 — `preview_calendar_config` devuelve un sobre de preview dedicado**
+
+- Estaba declarada `-> CalendarConfig`, pero `POST /calendar/config/preview` no
+  devuelve una configuración: devuelve un sobre de dry-run distinto. **Nueve** de
+  los campos que `CalendarConfig` declara estaban ausentes del wire y se poblaban
+  con el zero-value, y **tres campos reales** del sobre —`valid`,
+  `requires_confirmation` y `market_after`— se descartaban por no estar
+  declarados. El único que coincidía por nombre era `warnings`, que es
+  justamente el que hacía el defecto invisible en review.
+
+  | Función | Antes | Ahora |
+  |---|---|---|
+  | `preview_calendar_config` | `CalendarConfig` | `CalendarConfigPreview` |
+
+- Cambia en sus **dos superficies** (método de clase y shim de módulo) y en
+  **sync y async** — cuatro sitios de declaración. `CalendarConfigPreview` es un
+  nombre público nuevo, en el `__all__` del paquete y en el de
+  `market_data_client.models`, junto con `PreviewMarket`, el modelo anidado que
+  tipa `market_after`.
+- Todo consumidor que anote el resultado como `CalendarConfig` ahora falla en
+  mypy. Todo consumidor que leyera uno de los nueve campos fantasma venía leyendo
+  un zero-value y ahora lee el sobre real. El flujo previsto no cambia:
+  previsualizar, mirar `warnings`, reemitir `set_calendar_config(...)` con
+  `confirm=True` — pero el veredicto llega tipado en vez de reconstruido.
+
+**SC-2 — `MarketDataSnapshot.entries`, `.market_data` y `.staleness_seconds` pasan
+a `| None`**
+
+- Los tres estaban declarados no-opcionales y llegan `null` en la fila **no-data**
+  de `GET /marketdata/latest`: para un símbolo que el feed nunca entregó, el
+  servidor responde con `symbol` y `note` poblados y `null` en todo lo demás. Los
+  tres campos de `MarketDataSnapshot` estaban simplemente sobre-declarados.
+- `entries`, `market_data` y `staleness_seconds` siguen siendo argumentos
+  requeridos del constructor y conservan su posición: sólo se ensancha la
+  anotación, no se mueve ningún campo ni aparece un default que tape una clave
+  ausente.
+- Código que indexara o iterara `entries` / `market_data` sin chequear `None`
+  ahora falla en mypy, y en runtime el valor puede ser legítimamente `None` en
+  vez de un cero tipado; `staleness_seconds` deja de ser seguro para aritmética
+  directa. El ensanchamiento admite `None` y nada más: un valor de tipo
+  equivocado sigue siendo divergencia y sigue siendo fatal bajo `strict_decode`.
+
+**SC-3 — `Symbol.created_at` y `.updated_at` pasan a `str | None`**
+
+- Estaban declarados `str = ""`. `Symbol` sirve cuatro endpoints con tres formas
+  de body distintas y sólo una las trae: `GET /symbols` manda ambos timestamps,
+  mientras que los acks de `POST /symbols`, `POST /symbols/batch` y
+  `PATCH /symbols/{symbol_id}` no mandan ninguno.
+- La declaración vieja fabricaba dos strings vacíos en cada escritura, que el
+  consumidor no podía distinguir de una fila real con timestamps en blanco, y
+  volvía fatal toda escritura bajo `strict_decode`. `None` dice la verdad: esa
+  forma de respuesta no trae el campo.
+- Un consumidor que trate `created_at` o `updated_at` como `str` no opcional
+  ahora falla en mypy.
+
 ### v0.4.0
 
 **Nueva superficie de escritura: calendar, más los fixes verificados en vivo contra develop**
