@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
-current_phase: 34
-status: verifying
+current_phase: 6
+status: Awaiting next milestone
 stopped_at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
-last_updated: "2026-08-27T23:33:23.101Z"
+last_updated: "2026-08-27T23:51:25.337Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 34 complete
+last_activity_desc: Milestone v1.6 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 34
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-08-27 — Phase 34 complete
+Phase: Milestone v1.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-27 — Milestone v1.6 completed and archived
 
 ## Performance Metrics
 
@@ -431,6 +431,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Revisar `.planning/ROADMAP.md` § Phases (v1.6) + § Phase Details (v1.6)
-- Correr `/gsd-discuss-phase 29` **antes** de planificar: la decisión msgspec-dos-motores-vs-stdlib-only cambia el perfil de dependencias de los 6 wheels y el set de releases de la Phase 34 (research flag explícito)
-- Luego `/gsd-plan-phase 29` (Decoder observable — load-bearing, PRIMERO)
+- Start the next milestone with /gsd-new-milestone
