@@ -4,17 +4,17 @@ milestone: v1.6
 milestone_name: Tipado homogéneo de la superficie pública
 current_phase: 33
 current_phase_name: verificaci-n-en-vivo-en-modo-estricto-fixes
-status: executing
-stopped_at: Completed 33-06-PLAN.md
-last_updated: "2026-08-27T01:27:48.098Z"
+status: verifying
+stopped_at: Completed 33-07-PLAN.md
+last_updated: "2026-08-27T02:18:53.036Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 41
-  completed_plans: 40
-  percent: 67
+  completed_plans: 41
+  percent: 83
 ---
 
 # Project State
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 33 (verificaci-n-en-vivo-en-modo-estricto-fixes) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
-Last activity: 2026-08-26 — Phase 33 execution started
+Status: Phase complete — ready for verification
+Last activity: 2026-08-26 — Phase 33 completa (7/7 planes); LIVE-TYP-01 sigue Pending por el criterio 1 parcial
 
 ## Performance Metrics
 
@@ -154,6 +154,7 @@ Last activity: 2026-08-26 — Phase 33 execution started
 | Phase 33 P04 | 15 min | 2 tasks | 1 files |
 | Phase 33 P05 | 16min | 3 tasks | 6 files |
 | Phase 33 P06 | 12min | 2 tasks | 5 files |
+| Phase 33 P07 | 42min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -326,6 +327,11 @@ Recent decisions affecting current work:
 - [Phase ?]: DT-07 CERRADO: iol Titulo.mercado/Titulo.plazo quedan str permanente — censo vivo sobre 2191 filas (RESPONSE mercado={'1'}, plazo={'T0','T1'}) disjunto de los defaults de INPUT 'bcba'/'t2' de la propia libreria (33-06)
 - [Phase ?]: El censo de Literal se toma del wire crudo, no del stream de divergencias: literal_enforced=False en las cinco POLICY hace que walk_field:521-534 retorne temprano sin llamar al sink; 29-DLOCK-RESPONSE-LITERAL.md:140-142 queda falsificado por el codigo shipeado (33-06)
 - [Phase ?]: Los 7 campos Literal-aliased de matriz quedan SKIPPED — base URL fuera de politica (D-MATZ-33), sin rodear el gate y sin mover ningun alias; ruteado a LIVE-MATZ-33 (33-06)
+- [Phase 33 / 33-07]: Las tres disposiciones fix-shape-now del checkpoint 33-07 Task 1 se aplicaron, pero la consecuencia de semver NO se absorbio en la Phase 33 — `__version__` y `pyproject` siguen en 0.4.0 a proposito, porque la opcion que el operator eligio dice literalmente que la Phase 34 cargue la consecuencia. `market-data-client` 0.4.0 -> **0.5.0 SOURCE-BREAKING** queda escrito en ROADMAP § Phase 34 criterio 1: (a) `preview_calendar_config` pasa de `-> CalendarConfig` a `-> CalendarConfigPreview` en las dos superficies y en los dos shims module-level; (b) `MarketDataSnapshot.entries`/`.market_data`/`.staleness_seconds` pasan a `| None`; (c) `Symbol.created_at`/`.updated_at` pasan de `str = ""` a `str | None = None`. La Phase 34 tiene ahora DOS paquetes source-breaking (con iol 0.2.0->0.3.0 de DT-08), no uno, y los dos necesitan callout de changelog.
+- [Phase 33 / 33-07]: S-1 se cerro A MEDIAS y la mitad restante se ruteo a `SHAPE-MD-REF-33` en vez de arreglarse. Desenvolver el sobre destapo una divergencia de forma que el `non_dict` TERMINAL venia escondiendo (el lock 8 suprime los records por campo debajo de un `non_dict`): `Instrument` declara `marketId`/`instrumentType` que el wire no manda y omite 7 claves que si manda; `Segment` declara 3 campos disjuntos de las 2 del wire. Corregirlo es un CUARTO cambio de forma de modelo publicado desde v0.2.0 y el checkpoint bloqueante 33-07 Task 1 gatea esa clase (T-33-44): el operator autorizo tres nominalmente y este no estaba entre ellos. Aplicarlo 'de paso' porque el paquete ya estaba abierto habria sido el cambio de contrato sin decision que el checkpoint previene. El resultado igual es mejora neta: la divergencia paso de silenciosa (1 record, 6 filas all-default) a VISIBLE campo por campo y fatal bajo `strict_decode`.
+- [Phase 33 / 33-07]: El ensanche de `MarketDataSnapshot.market_data` a Optional era INEFECTIVO sin un guard en `_apply_mapping_policy`: `_is_mapping` desenvuelve Optional (tiene que hacerlo, o un campo `dict|None` se saltearia el pase entero y volveria al agujero que CR-03 cerro), asi que el pase seguia substituyendo `{}` y reportando `missing` una linea despues de que `walk_field` honro el `| None`. El guard vive en el pase especifico de market-data, NO en `_mapping_value`, que sigue byte-identico al port de matriz. La propiedad CR-03 (un `dict[...]` REQUERIDO nunca es un None silencioso) se re-anclo sobre un fixture module-local `_RequiredMapping`, porque tras SC-2 ningun modelo shipeado declara un mapping requerido.
+- [Phase 33 / 33-07]: Criterio 4 no-vacuo con piso POR PAQUETE: ambito 0, higyrus 0, iol 1, matriz 1, market-data 88 (baseline medido 50 + 38 promociones). Las dos filas de piso cero NO llevan `>= 0` —esa asercion es el verde vacuo que el gate existe para prevenir—: ambito lleva la propiedad D-12 aseverada por AST (cero `ClassDef`, `__all__` vacio) MAS la linea SUMMARY verbatim de su pase estricto como evidencia POSITIVA de que el driver corrio; higyrus lleva su vacuidad DECLARADA con `LIVE-HIGY-33` aseverado como destino, porque hacer legible la vacuidad es mejor que taparla con un piso que pasaria por la razon equivocada. Probado por 4 falsificaciones, todas revertidas. Conteos inspeccionados pre->post: market-data 50->88; los otros cuatro sin mover.
+- [Phase 33 / 33-07]: Los cuatro campos del record de divergencia quedaron BYTE-VERBATIM en las 76 promociones; solo se movio `status` (+ `regression` en los 38 FIXED). La razon de cada disposicion vive en `33-CENSUS.md`, no dentro del finding: P-01 prohibe componer un campo del finding con algo fuera de las seis claves del record mas el endpoint y la superficie. El short-circuit de preservacion de `append_finding` mira el status EXISTENTE, no el nuevo, asi que promover un OPEN re-serializa el archivo entero — se midio la fidelidad del round-trip ANTES de promover (0 lineas de diff) en vez de confiar en la afirmacion del plan.
 
 ### Pending Todos
 
@@ -349,7 +355,8 @@ Recent decisions affecting current work:
 - [v1.5 / Phase 26 note]: `PUT /calendar/config` tiene un guardrail `confirm` server-side → el cliente lo expone explícitamente con default `False`; nunca se persiste config real sin `confirm` explícito.
 - [v1.6 / Phase 32 STILL OPEN]: `verification/` matriz probes call `probe_login_sync()` with the pre-15-05 signature (19 failed + 19 errors in a **full** local suite run). Sigue abierto y **fuera del scope del plan 32-01**: `verification/` nunca corrió en CI (`ci.yml:125` pasa un path `packages/<pkg>` explícito que pisa `testpaths`), así que no afecta ninguna de las 6 patas per-package. GATE-TYP-01 es lo primero que va a meter superficie de test a nivel repo en CI → re-chequear antes de que el plan 32-06 reclame un verde de matriz completa. Ver `.planning/phases/31-endpoints-de-ops-estructura-uniforme/deferred-items.md`.
 - ~~[v1.6 / Phase 31 deferred-items D-2/D-3]~~ **RESUELTO 2026-08-25 (Plan 32-01, commits `5ce4e87` + `f08b7f2`).** Texto original: *ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run; mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.* Los 33 errores (29 matriz + 2 higyrus + 2 ambito) se arreglaron **en código de test únicamente** — `pyproject.toml` byte-idéntico, cero tests borrados/skippeados. El loop per-package de `ci.yml:92-99` imprime `Success: no issues found` **seis veces**; el job `typecheck` está verde por primera vez desde 2026-08-18. Baseline completo de los 4 jobs en `.planning/phases/32-gates-de-homogeneidad-d-16/32-01-SUMMARY.md` § CI-green baseline (Wave 0 close).
-- Criterio 1 de la Phase 33 PARCIAL: solo 3 de 5 paquetes pudieron correr en vivo. higyrus (host del vendor sin resolucion DNS) y matriz (PRIMARY_BASE_URL fuera de la politica remarkets-only, assert D-MATZ-33) quedan sin medicion. Es un gate humano de entorno del operador, no resoluble desde el plan. Destinos nombrados: LIVE-HIGY-33 y LIVE-MATZ-33. 33-07 debe surfacearlo en vez de dar el criterio 1 por cerrado.
+- ~~Criterio 1 de la Phase 33 PARCIAL (registrado por 33-05): 33-07 debe surfacearlo en vez de dar el criterio 1 por cerrado.~~ **SURFACEADO 2026-08-27 por el plan 33-07** en tres lugares: `33-CENSUS.md` § Criterio 1 (declarado GATE HUMANO ABIERTO), `33-07-SUMMARY.md`, y una asercion EJECUTABLE dentro de `verification/test_cycle_closure_phase33.py` que exige que el censo siga diciendo `SKIPPED — vendor inalcanzable` y que `LIVE-HIGY-33` siga nombrado. El gate en si **sigue abierto** — ver la entrada siguiente.
+- Criterio 1 de la Phase 33 **PARCIAL** — 3 de 5 paquetes medidos en vivo. `higyrus-client` (host que no resuelve por DNS) y `matriz-client` (assert de politica remarkets-only D-MATZ-33) no pudieron correr, y ninguna causa es resoluble desde dentro de la fase. Destinos nombrados: `LIVE-HIGY-33` y `LIVE-MATZ-33`. `LIVE-TYP-01` queda Pending por esto, no por prudencia: cerrarlo exigiria afirmar el criterio 1.
 
 ### Quick Tasks Completed
 
@@ -408,8 +415,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T01:27:42.962Z
-Stopped at: Completed 33-06-PLAN.md
+Last session: 2026-08-27T02:17:33.423Z
+Stopped at: Completed 33-07-PLAN.md (ultimo plan de la Phase 33 — fase completa, lista para verificacion)
 Resume file: None
 
 ## Operator Next Steps
