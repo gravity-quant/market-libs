@@ -33,7 +33,9 @@ PASS/FINDING/SKIPPED outcome sets between sync and async.
 
 Output verbatim (D-02 mirror Phase 2-4): cada probe emite una línea
 ``PROBE <name>: <status> <detail>`` y al final ``SUMMARY: PASS=N FAIL=N
-SKIPPED=N FINDING=N``, todo a través de ``safe_print(..., secrets=[...])``
+SKIPPED=N FINDING=N DIVERGENCES=N HANDLER_ERRORS=N`` (Phase 33: los dos últimos
+campos son ``len(handler.seen)`` —la unidad del censo— y el tally de fallas del
+sink; ver ``main()``), todo a través de ``safe_print(..., secrets=[...])``
 (D-MATZ-32) con ``PRIMARY_USER``, ``PRIMARY_PASSWORD`` y ``_token`` (este último
 agregado dinámicamente tras ``probe_login_sync``).
 
@@ -69,15 +71,18 @@ import httpx
 from verification import (
     append_finding,
     diff_safemodel_bidirectional,
+    divergence_capture,
+    probe_context,
     require_env,
     safe_print,
     schema_of,
     write_findings,
 )
 from verification.cycle_report import verify_cycle_closure
+from verification.findings import max_existing_fid
 
 import matriz_client as primary
-from matriz_client import AsyncClient, Client, PrimaryAPIError
+from matriz_client import AsyncClient, Client, MatrizDecodeError, PrimaryAPIError
 from matriz_client._core import RequestSpec, parse_envelope_response
 from matriz_client.exceptions import AuthenticationError
 from matriz_client.models import (
@@ -166,6 +171,14 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
     "get_account_report": "/rest/risk/accountReport/{account_id}",
 }
 
+# Phase 33 (LIVE-TYP-01): flag del segundo pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``, que prueba que el raise de modo estricto
+# efectivamente dispara. Viaja como kwarg del constructor para NO agregar un
+# segundo sitio de construcción: ``test_main_matriz_uses_single_client_instance``
+# asserta ``1 <= ctor_calls <= 2`` por AST.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
+
 # D-MATZ-33 env vars opt-in precargadas al import.
 _SAMPLE_SYMBOL: str | None = os.getenv("MATRIZ_SAMPLE_SYMBOL")
 _SAMPLE_CL_ORD_ID: str | None = os.getenv("MATRIZ_SAMPLE_CL_ORD_ID")
@@ -182,7 +195,44 @@ _resolved_symbol: str | None = None
 _resolved_segment: str | None = None
 
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
+# NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
+# ya registrado antes del primer probe (D-16/D-24). Sin ese seed, cada finding
+# nuevo re-emitiría un fid ya ocupado — y contra el archivo committeado, que hoy
+# lleva F-01..F-10, eso significa perder en silencio los primeros diez findings
+# de cada corrida mientras el driver sigue reportando ``FINDING=N``.
 _fid_counter: int = 0
+
+
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (D-16/D-24).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+
+    La falla que previene tiene dos caras, y en matriz **la segunda aplica a los
+    diez fids committeados**, sin excepción:
+
+    - un fid re-emitido cuyo status registrado ES ``OPEN`` NO dispara el
+      short-circuit de :func:`verification.findings.append_finding`: el bloque de
+      detalle se **reescribe en el lugar** con contenido ajeno y el triage que el
+      operador arrastró desde fases anteriores se pierde;
+    - un fid re-emitido cuyo status registrado NO es ``OPEN`` sí dispara el
+      short-circuit: el write se vuelve un no-op **silencioso** mientras
+      ``main()`` igual lo cuenta en ``FINDING=N`` y el ``SUMMARY`` reporta éxito.
+      El run pierde su entregable creyendo que funcionó.
+
+    ``.planning/verification/matriz-client-findings.md`` lleva hoy ``F-01``..
+    ``F-10`` y **ninguno** está ``OPEN``: 7 ``NO-FIX`` (``F-01``, ``F-03``..
+    ``F-08``), 2 ``EXPECTED`` (``F-02``, ``F-10``) y 1 ``FIXED`` (``F-09``). Es
+    decir que sin este seed los primeros diez findings de CADA corrida de matriz
+    se descartan en silencio — el caso peor de los dos, diez veces seguidas.
+
+    Misma forma que ``main_iol.py::_seed_fid_counter`` y
+    ``main_market_data.py::_seed_fid_counter``.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
 
 
 def _next_fid() -> str:
@@ -199,6 +249,55 @@ class ProbeResult:
     name: str
     status: str  # "PASS" | "FAIL" | "SKIPPED" | "FINDING"
     detail: str
+
+
+def _shape_probe_result(probe_name: str, surface: str, exc: BaseException) -> ProbeResult:
+    """Fallback de ``probe_context`` ante un ``MatrizDecodeError`` (D-07).
+
+    El finding ``SHAPE`` YA lo escribió :class:`verification.divergences.DivergenceHandler`
+    a partir del record de divergencia que ``_decode`` emitió justo antes de
+    levantar. Este helper NO escribe un segundo finding: mintear uno acá
+    duplicaría la divergencia bajo otro título y rompería el ``idempotent_by_title``
+    del lock 10. Sólo traduce la excepción al ``ProbeResult`` que el driver espera.
+
+    Lee ÚNICAMENTE ``model`` / ``field_path`` / ``declared_type`` /
+    ``observed_type`` — los cuatro atributos certificados type-and-path-only por
+    T-29-36 — y nada más de la excepción (T-33-07: nada de credenciales ni de
+    valores del wire puede filtrarse a stdout ni a un artefacto committeado).
+    Nunca ``repr(exc)``, nunca ``exc.args``.
+
+    ``MatrizDecodeError`` es hermano de ``PrimaryAPIError``, no subclase: ambos
+    cuelgan de ``MatrizClientError``. Por eso el ``_RESIDUAL_PROBE_EXCEPTIONS``
+    de este driver —que sí contiene ``PrimaryAPIError``— no lo atrapa, y sin este
+    seam el modo estricto mataría el proceso con traceback y cero findings.
+    """
+    name = probe_name.removeprefix("probe_")
+    if isinstance(exc, MatrizDecodeError):
+        detail = (
+            f"SHAPE [{surface}] {exc.model}{exc.field_path} "
+            f"declared={exc.declared_type} observed={exc.observed_type}"
+        )
+    else:
+        detail = f"SHAPE [{surface}] {type(exc).__name__}"
+    return ProbeResult(name, "FINDING", detail)
+
+
+def _shape_probe_result_pair(
+    probe_name: str, surface: str, exc: BaseException
+) -> tuple[ProbeResult, None]:
+    """Variante 2-tuple de :func:`_shape_probe_result` para los probes del sweep sync.
+
+    matriz tiene DOS formas canónicas de retorno de probe, no una: los 18 probes
+    del happy-path sweep devuelven ``(ProbeResult, raw_payload | None)`` porque
+    ``main()`` acumula sus payloads en ``payloads[...]``, mientras que login,
+    field_type_map, los tres error probes, schema_snapshot y los 22 probes async
+    devuelven un ``ProbeResult`` pelado. Un único fallback con forma de 2-tuple
+    haría que ``results.append(probe_error_bogus_symbol(client))`` metiera una
+    tupla en una ``list[ProbeResult]`` y el ``r.name`` del loop de impresión
+    explotara con ``AttributeError`` — bajo modo estricto, exactamente el crash
+    que este plan existe para eliminar. De ahí los dos helpers.
+    """
+    return (_shape_probe_result(probe_name, surface, exc), None)
 
 
 def _first_dict(payload: Any, *, fname: str | None = None) -> dict[str, Any] | None:
@@ -483,6 +582,12 @@ def _envelope_probe(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="/auth/getToken",
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_login_sync(client: Client) -> ProbeResult:
     """Probe 1: ``client.login()`` sync (MATZ-01).
 
@@ -549,6 +654,12 @@ def probe_login_sync(client: Client) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_segments"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_segments(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 2 (D-MATZ-29 #2): ``GET /rest/segment/all``.
 
@@ -602,6 +713,12 @@ def probe_get_segments(client: Client) -> tuple[ProbeResult, list[dict[str, Any]
     return (ProbeResult("get_segments", "PASS", f"{len(segments)} segments"), segments)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_all_instruments"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_all_instruments(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 3 (D-MATZ-29 #3): ``GET /rest/instruments/all``.
 
@@ -663,6 +780,12 @@ def probe_get_all_instruments(client: Client) -> tuple[ProbeResult, list[dict[st
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_details"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_instruments_details(
     client: Client,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -676,6 +799,12 @@ def probe_get_instruments_details(
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instrument_detail"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_instrument_detail(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 5 (D-MATZ-29 #5): ``GET /rest/instruments/detail`` con ``_resolved_symbol``.
 
@@ -696,6 +825,12 @@ def probe_get_instrument_detail(client: Client) -> tuple[ProbeResult, dict[str, 
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_cfi_ESXXXX"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_instruments_by_cfi_ESXXXX(
     client: Client,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -726,6 +861,12 @@ _CFI_SANITY_CODES: tuple[CFICode, ...] = (
 )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_cfi_ESXXXX"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_instruments_by_cfi_sanity(client: Client) -> tuple[ProbeResult, None]:
     """Probe 7 (D-MATZ-29 #7): sanity sweep de los 8 CFI codes restantes.
 
@@ -781,6 +922,12 @@ def probe_get_instruments_by_cfi_sanity(client: Client) -> tuple[ProbeResult, No
     return (ProbeResult("get_instruments_by_cfi_sanity", "PASS", detail), None)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_segment"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_instruments_by_segment(
     client: Client,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -805,6 +952,12 @@ def probe_get_instruments_by_segment(
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_market_data"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_market_data(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 9 (D-MATZ-29 #9): ``GET /rest/marketdata/get`` con ``_resolved_symbol``.
 
@@ -895,6 +1048,12 @@ def probe_get_market_data(client: Client) -> tuple[ProbeResult, dict[str, Any] |
     return (ProbeResult("get_market_data", "PASS", detail), md)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_trades"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_trades(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 10 (D-MATZ-29 #10): ``GET /rest/data/getTrades`` con ``date_from=today-7d``.
 
@@ -937,6 +1096,12 @@ def probe_get_trades(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] 
     return (result, payload)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_active_orders"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_active_orders(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 11 (D-MATZ-29 #11): ``GET /rest/order/actives`` con ``PRIMARY_ACCOUNT``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
@@ -951,6 +1116,12 @@ def probe_get_active_orders(client: Client) -> tuple[ProbeResult, list[dict[str,
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_filled_orders"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_filled_orders(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 12 (D-MATZ-29 #12): ``GET /rest/order/filleds`` con ``PRIMARY_ACCOUNT``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
@@ -965,6 +1136,12 @@ def probe_get_filled_orders(client: Client) -> tuple[ProbeResult, list[dict[str,
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_all_orders"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_all_orders(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 13 (D-MATZ-29 #13): ``GET /rest/order/all`` con ``PRIMARY_ACCOUNT``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
@@ -979,6 +1156,12 @@ def probe_get_all_orders(client: Client) -> tuple[ProbeResult, list[dict[str, An
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_order_status"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_order_status(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 14 (D-MATZ-29 #14): ``GET /rest/order/id`` con ``cl_ord_id``+``proprietary``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
@@ -1000,6 +1183,12 @@ def probe_get_order_status(client: Client) -> tuple[ProbeResult, dict[str, Any] 
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_order_history"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_order_history(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 15 (D-MATZ-29 #15): ``GET /rest/order/allById`` con ``cl_ord_id``+``proprietary``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
@@ -1021,6 +1210,12 @@ def probe_get_order_history(client: Client) -> tuple[ProbeResult, list[dict[str,
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_order_by_exec_id"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_order_by_exec_id(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 16 (D-MATZ-29 #16): ``GET /rest/order/byExecId`` con ``MATRIZ_SAMPLE_EXEC_ID``."""
     if _SAMPLE_EXEC_ID is None and not _auth_failed:
@@ -1038,6 +1233,12 @@ def probe_get_order_by_exec_id(client: Client) -> tuple[ProbeResult, dict[str, A
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_positions"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_positions(client: Client) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
     """Probe 17 (D-MATZ-29 #17): ``GET /rest/risk/position/getPositions/{account}``.
 
@@ -1056,6 +1257,12 @@ def probe_get_positions(client: Client) -> tuple[ProbeResult, list[dict[str, Any
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_detailed_positions"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 18 (D-MATZ-29 #18): ``GET /rest/risk/detailedPosition/{account}``.
 
@@ -1078,6 +1285,12 @@ def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str,
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_account_report"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 19 (D-MATZ-29 #19): ``GET /rest/risk/accountReport/{account}``.
 
@@ -1105,6 +1318,12 @@ def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="-",
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_field_type_map(payloads: dict[str, Any]) -> ProbeResult:
     """Probe 20 (D-MATZ-29 #20, MATZ-03): bidirectional SafeModel<->wire diff.
 
@@ -1181,6 +1400,12 @@ def probe_field_type_map(payloads: dict[str, Any]) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_market_data"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_error_bogus_symbol(client: Client) -> ProbeResult:
     """Probe 21 (D-MATZ-29 #21): símbolo inválido en ``get_market_data``.
 
@@ -1257,6 +1482,12 @@ def probe_error_bogus_symbol(client: Client) -> ProbeResult:
     return ProbeResult("error_bogus_symbol", "FINDING", f"{fid} (OPEN)")
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_active_orders"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_error_invalid_account(client: Client) -> ProbeResult:
     """Probe 22 (D-MATZ-29 #22): account inválido en ``get_active_orders``.
 
@@ -1337,6 +1568,12 @@ def probe_error_invalid_account(client: Client) -> ProbeResult:
     return ProbeResult("error_invalid_account", "FINDING", f"{fid} (OPEN)")
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_cfi_ESXXXX"],
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_error_malformed_cfi(client: Client) -> ProbeResult:
     """Probe 23 (D-MATZ-29 #23): CFI malformado en ``get_instruments_by_cfi``.
 
@@ -1421,6 +1658,12 @@ def probe_error_malformed_cfi(client: Client) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="-",
+    surface="sync",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_schema_snapshot(payloads: dict[str, Any], base_url: str) -> ProbeResult:
     """Probe 24 (D-MATZ-29 #24): schema snapshot sweep.
 
@@ -1518,6 +1761,12 @@ def probe_schema_snapshot(payloads: dict[str, Any], base_url: str) -> ProbeResul
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="/auth/getToken",
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     """Async login probe (D-06 pair of ``probe_login_sync``)."""
     global _auth_failed, _auth_failure_reason
@@ -1619,21 +1868,45 @@ async def _ainvoke(
     return ProbeResult(name, "PASS", "received")
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_segments"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_segments_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_segments``."""
     return await _ainvoke(aclient, "get_segments_async", aclient.get_segments)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_all_instruments"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_all_instruments_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_all_instruments``."""
     return await _ainvoke(aclient, "get_all_instruments_async", aclient.get_all_instruments)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_details"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_instruments_details_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_details``."""
     return await _ainvoke(aclient, "get_instruments_details_async", aclient.get_instruments_details)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instrument_detail"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_instrument_detail_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instrument_detail`` (depende de ``_resolved_symbol``)."""
     if _resolved_symbol is None and not _auth_failed:
@@ -1646,6 +1919,12 @@ async def probe_get_instrument_detail_async(aclient: AsyncClient) -> ProbeResult
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_cfi_ESXXXX"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_instruments_by_cfi_ESXXXX_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_by_cfi_ESXXXX``."""
     return await _ainvoke(
@@ -1655,6 +1934,12 @@ async def probe_get_instruments_by_cfi_ESXXXX_async(aclient: AsyncClient) -> Pro
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_cfi_ESXXXX"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_instruments_by_cfi_sanity_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_by_cfi_sanity`` — 8 CFI codes."""
     if _auth_failed:
@@ -1695,6 +1980,12 @@ async def probe_get_instruments_by_cfi_sanity_async(aclient: AsyncClient) -> Pro
     return ProbeResult("get_instruments_by_cfi_sanity_async", "PASS", detail)
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_segment"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_instruments_by_segment_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_instruments_by_segment``."""
     if _resolved_segment is None and not _auth_failed:
@@ -1709,6 +2000,12 @@ async def probe_get_instruments_by_segment_async(aclient: AsyncClient) -> ProbeR
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_market_data"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it)."""
     if _auth_failed:
@@ -1725,6 +2022,12 @@ async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_trades"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_trades_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_trades``."""
     if _resolved_symbol is None and not _auth_failed:
@@ -1741,6 +2044,12 @@ async def probe_get_trades_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_active_orders"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_active_orders_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_active_orders``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
@@ -1751,6 +2060,12 @@ async def probe_get_active_orders_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_filled_orders"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_filled_orders_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_filled_orders``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
@@ -1761,6 +2076,12 @@ async def probe_get_filled_orders_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_all_orders"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_all_orders_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_all_orders``."""
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
@@ -1769,6 +2090,12 @@ async def probe_get_all_orders_async(aclient: AsyncClient) -> ProbeResult:
     return await _ainvoke(aclient, "get_all_orders_async", lambda: aclient.get_all_orders(acct))
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_order_status"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_order_status_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_order_status``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
@@ -1784,6 +2111,12 @@ async def probe_get_order_status_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_order_history"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_order_history_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_order_history``."""
     if (_SAMPLE_CL_ORD_ID is None or _SAMPLE_PROPRIETARY is None) and not _auth_failed:
@@ -1799,6 +2132,12 @@ async def probe_get_order_history_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_order_by_exec_id"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_order_by_exec_id_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_get_order_by_exec_id``."""
     if _SAMPLE_EXEC_ID is None and not _auth_failed:
@@ -1819,6 +2158,12 @@ async def probe_get_order_by_exec_id_async(aclient: AsyncClient) -> ProbeResult:
 # scope deliberately defers their live exercise to Phase 11 CR-08).
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_positions"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_positions_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult(
         "get_positions_async",
@@ -1827,6 +2172,12 @@ async def probe_get_positions_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_detailed_positions"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_detailed_positions_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult(
         "get_detailed_positions_async",
@@ -1835,6 +2186,12 @@ async def probe_get_detailed_positions_async(aclient: AsyncClient) -> ProbeResul
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_account_report"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_get_account_report_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult(
         "get_account_report_async",
@@ -1843,6 +2200,12 @@ async def probe_get_account_report_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_market_data"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_error_bogus_symbol_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_error_bogus_symbol`` (MATZ-05)."""
     if _auth_failed:
@@ -1919,6 +2282,12 @@ async def probe_error_bogus_symbol_async(aclient: AsyncClient) -> ProbeResult:
     return ProbeResult("error_bogus_symbol_async", "FINDING", f"{fid} (OPEN)")
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_active_orders"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_error_invalid_account_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_error_invalid_account`` (MATZ-05)."""
     if _auth_failed:
@@ -1995,6 +2364,12 @@ async def probe_error_invalid_account_async(aclient: AsyncClient) -> ProbeResult
     return ProbeResult("error_invalid_account_async", "FINDING", f"{fid} (OPEN)")
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_cfi_ESXXXX"],
+    surface="async",
+    decode_error=MatrizDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_error_malformed_cfi_async(aclient: AsyncClient) -> ProbeResult:
     """D-06 async pair of ``probe_error_malformed_cfi`` (MATZ-05)."""
     if _auth_failed:
@@ -2098,7 +2473,7 @@ async def _async_main() -> list[ProbeResult]:
     # The <=2-ctor AST gate (test_main_matriz_uses_single_client_instance)
     # enforces this invariant. The single instance is threaded into every async
     # probe below.
-    aclient = AsyncClient()
+    aclient = AsyncClient(strict_decode=_STRICT)
     async_results: list[ProbeResult] = []
     try:
         async_results.append(await probe_login_async(aclient))
@@ -2141,8 +2516,15 @@ def main() -> None:
     1. HARN-01 ``require_env`` gate — exit 0 si faltan credenciales.
     2. D-MATZ-33 hostname assert remarkets — exit 1 si base_url no es remarkets.
     3. ``write_findings(_PKG)`` para inicializar el findings file.
+    3b. ``_seed_fid_counter()`` (Phase 33, P-3): sube el allocator por encima de
+       los diez fids ya committeados. Orden obligatorio: DESPUÉS de
+       ``write_findings`` y ANTES del primer probe.
     4. Secrets discovery dinámico (D-MATZ-32): PRIMARY_USER, PRIMARY_PASSWORD del
        env + ``_token`` agregado dinámicamente tras probe_login_sync.
+    4b. ``divergence_capture(("matriz_client",), ...)`` (Phase 33, D-01) envuelve
+       el sweep entero: sube el logger de paquete a INFO y traduce cada record de
+       divergencia a un finding ``SHAPE``. El ``handler`` sobrevive al ``with``,
+       así que el SUMMARY reporta ``DIVERGENCES`` y ``HANDLER_ERRORS``.
     5. Probes 1-19: login + 18 read-sweep (D-MATZ-29 happy-path sweep).
     6. Probe 20: field_type_map (MATZ-03).
     7. Probes 21-23: 3 error probes (MATZ-05).
@@ -2159,7 +2541,9 @@ def main() -> None:
 
     # Single sync Client for the whole sync sweep (D-01/D-02). One instance —
     # the AST gate caps construction at one sync + one async client.
-    client = Client()
+    # Phase 33 (LIVE-TYP-01): ``strict_decode`` viaja como kwarg del constructor
+    # justamente para no abrir un segundo sitio de construcción.
+    client = Client(strict_decode=_STRICT)
 
     # D-MATZ-33 belt-and-suspenders hostname assert: prevention contra prod.
     base = client._state.base_url
@@ -2172,6 +2556,14 @@ def main() -> None:
         sys.exit(1)
 
     write_findings(_PKG)
+
+    # D-16/D-24 (P-3): sube el allocator por encima de todo fid ya committeado.
+    # Orden obligatorio — ``write_findings`` < ``_seed_fid_counter`` < primer
+    # probe. Mismo orden canónico que ``main_iol.py``, ``main_higyrus.py`` y
+    # ``main_market_data.py``. Sin esto los diez fids committeados de matriz
+    # (ninguno ``OPEN``) se re-emiten y los diez primeros findings de la corrida
+    # se descartan en silencio mientras ``FINDING=N`` los sigue contando.
+    _seed_fid_counter()
 
     # D-MATZ-32 secrets dinámicos: filtrar credenciales de longitud >= 4 al inicio,
     # _token se agrega tras login.
@@ -2191,118 +2583,126 @@ def main() -> None:
     if account_env and len(account_env) >= 4:
         secrets.append(account_env)
 
-    results: list[ProbeResult] = []
-    payloads: dict[str, Any] = {}
+    # Phase 33 (LIVE-TYP-01 / D-01): el handler de divergencias se instala
+    # alrededor del sweep entero — sube ``matriz_client`` de NOTSET a INFO (sin
+    # eso los records de especie ``extra`` se descartan antes de llegar a
+    # ningún handler) y traduce cada record de seis claves a un finding
+    # ``SHAPE``. ``next_fid`` recibe el slug y lo descarta: el driver ya tiene
+    # UN allocator por proceso y compartirlo es lo que impide que el handler y
+    # el driver se pisen los fids.
+    with divergence_capture(("matriz_client",), next_fid=lambda _slug: _next_fid()) as handler:
+        results: list[ProbeResult] = []
+        payloads: dict[str, Any] = {}
 
-    # Probe 1: login.
-    r1 = probe_login_sync(client)
-    results.append(r1)
-    token = getattr(client._state, "token", None)
-    if isinstance(token, str) and len(token) >= 4:
-        secrets.append(token)
+        # Probe 1: login.
+        r1 = probe_login_sync(client)
+        results.append(r1)
+        token = getattr(client._state, "token", None)
+        if isinstance(token, str) and len(token) >= 4:
+            secrets.append(token)
 
-    # Probes 2-19: happy-path sweep (D-MATZ-29 #2-#19).
-    sweep_probes: list[tuple[str, Any]] = [
-        ("get_segments", probe_get_segments),
-        ("get_all_instruments", probe_get_all_instruments),
-        ("get_instruments_details", probe_get_instruments_details),
-        ("get_instrument_detail", probe_get_instrument_detail),
-        ("get_instruments_by_cfi_ESXXXX", probe_get_instruments_by_cfi_ESXXXX),
-        ("get_instruments_by_cfi_sanity", probe_get_instruments_by_cfi_sanity),
-        ("get_instruments_by_segment", probe_get_instruments_by_segment),
-        ("get_market_data", probe_get_market_data),
-        ("get_trades", probe_get_trades),
-        ("get_active_orders", probe_get_active_orders),
-        ("get_filled_orders", probe_get_filled_orders),
-        ("get_all_orders", probe_get_all_orders),
-        ("get_order_status", probe_get_order_status),
-        ("get_order_history", probe_get_order_history),
-        ("get_order_by_exec_id", probe_get_order_by_exec_id),
-        ("get_positions", probe_get_positions),
-        ("get_detailed_positions", probe_get_detailed_positions),
-        ("get_account_report", probe_get_account_report),
-    ]
-    for key, probe_fn in sweep_probes:
-        result, raw = probe_fn(client)
-        results.append(result)
-        if raw is not None:
-            payloads[key] = raw
+        # Probes 2-19: happy-path sweep (D-MATZ-29 #2-#19).
+        sweep_probes: list[tuple[str, Any]] = [
+            ("get_segments", probe_get_segments),
+            ("get_all_instruments", probe_get_all_instruments),
+            ("get_instruments_details", probe_get_instruments_details),
+            ("get_instrument_detail", probe_get_instrument_detail),
+            ("get_instruments_by_cfi_ESXXXX", probe_get_instruments_by_cfi_ESXXXX),
+            ("get_instruments_by_cfi_sanity", probe_get_instruments_by_cfi_sanity),
+            ("get_instruments_by_segment", probe_get_instruments_by_segment),
+            ("get_market_data", probe_get_market_data),
+            ("get_trades", probe_get_trades),
+            ("get_active_orders", probe_get_active_orders),
+            ("get_filled_orders", probe_get_filled_orders),
+            ("get_all_orders", probe_get_all_orders),
+            ("get_order_status", probe_get_order_status),
+            ("get_order_history", probe_get_order_history),
+            ("get_order_by_exec_id", probe_get_order_by_exec_id),
+            ("get_positions", probe_get_positions),
+            ("get_detailed_positions", probe_get_detailed_positions),
+            ("get_account_report", probe_get_account_report),
+        ]
+        for key, probe_fn in sweep_probes:
+            result, raw = probe_fn(client)
+            results.append(result)
+            if raw is not None:
+                payloads[key] = raw
 
-    # Probe 20: field_type_map (MATZ-03).
-    results.append(probe_field_type_map(payloads))
+        # Probe 20: field_type_map (MATZ-03).
+        results.append(probe_field_type_map(payloads))
 
-    # Probes 21-23: error probes (MATZ-05). D-MATZ-24: DESPUÉS de happy-path
-    # sweep y field_type_map para minimizar interferencia con state.
-    results.append(probe_error_bogus_symbol(client))
-    results.append(probe_error_invalid_account(client))
-    results.append(probe_error_malformed_cfi(client))
+        # Probes 21-23: error probes (MATZ-05). D-MATZ-24: DESPUÉS de happy-path
+        # sweep y field_type_map para minimizar interferencia con state.
+        results.append(probe_error_bogus_symbol(client))
+        results.append(probe_error_invalid_account(client))
+        results.append(probe_error_malformed_cfi(client))
 
-    # Probe 24: schema snapshots (DRIFT-01 mirror, D-MATZ-24 después de errors).
-    results.append(probe_schema_snapshot(payloads, base))
+        # Probe 24: schema snapshots (DRIFT-01 mirror, D-MATZ-24 después de errors).
+        results.append(probe_schema_snapshot(payloads, base))
 
-    # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
-    for pkg in (
-        "ambito-financiero-client",
-        "iol-client",
-        "higyrus-client",
-        "matriz-client",
-    ):
-        ok, missing = verify_cycle_closure(pkg)
-        status_str = "PASS" if ok else "FAIL"
-        detail = "" if ok else f"missing regressions: {', '.join(missing)}"
-        results.append(
-            ProbeResult(
-                f"cycle_closure_{pkg.replace('-', '_')}",
-                status_str,
-                detail,
+        # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
+        for pkg in (
+            "ambito-financiero-client",
+            "iol-client",
+            "higyrus-client",
+            "matriz-client",
+        ):
+            ok, missing = verify_cycle_closure(pkg)
+            status_str = "PASS" if ok else "FAIL"
+            detail = "" if ok else f"missing regressions: {', '.join(missing)}"
+            results.append(
+                ProbeResult(
+                    f"cycle_closure_{pkg.replace('-', '_')}",
+                    status_str,
+                    detail,
+                )
             )
+            if not ok:
+                fid = _next_fid()
+                append_finding(
+                    pkg,
+                    fid=fid,
+                    class_="ERROR-MAP",
+                    surface="sync",
+                    status="OPEN",
+                    title=f"cycle closure: {len(missing)} CONFIRMED/FIXED without regression test",
+                    expected="every CONFIRMED/FIXED finding linked to existing test path",
+                    actual=f"missing regressions: {', '.join(missing)}",
+                    diff="see verify_cycle_closure output",
+                )
+
+        # D-MATZ-27 EXPECTED terminal: prod-vs-remarkets divergence acknowledged.
+        # Esta ES la última invocación de append_finding sobre _PKG en main()
+        # (Assumption A3 del plan).
+        # HARN-10 (Phase 11): idempotent_by_title=True evita que el terminal se
+        # duplique cross-run con cada _next_fid() distinto — content-addressed
+        # dedupe by title; el title funciona como identidad estable del finding.
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="SHAPE",
+            surface="sync",
+            status="EXPECTED",
+            title="prod-vs-remarkets divergence acknowledged",
+            expected=(
+                "verification limited to remarkets sandbox by safety policy "
+                "(REQUIREMENTS.md Out of Scope)"
+            ),
+            actual=(
+                "prod (api.primary.com.ar) shape unverified; sandbox shape "
+                "committed in .planning/verification/schemas/matriz-client/"
+            ),
+            diff="N/A (acknowledged limitation, not detected drift)",
+            base_url=base,
+            idempotent_by_title=True,
         )
-        if not ok:
-            fid = _next_fid()
-            append_finding(
-                pkg,
-                fid=fid,
-                class_="ERROR-MAP",
-                surface="sync",
-                status="OPEN",
-                title=f"cycle closure: {len(missing)} CONFIRMED/FIXED without regression test",
-                expected="every CONFIRMED/FIXED finding linked to existing test path",
-                actual=f"missing regressions: {', '.join(missing)}",
-                diff="see verify_cycle_closure output",
-            )
 
-    # D-MATZ-27 EXPECTED terminal: prod-vs-remarkets divergence acknowledged.
-    # Esta ES la última invocación de append_finding sobre _PKG en main()
-    # (Assumption A3 del plan).
-    # HARN-10 (Phase 11): idempotent_by_title=True evita que el terminal se
-    # duplique cross-run con cada _next_fid() distinto — content-addressed
-    # dedupe by title; el title funciona como identidad estable del finding.
-    fid = _next_fid()
-    append_finding(
-        _PKG,
-        fid=fid,
-        class_="SHAPE",
-        surface="sync",
-        status="EXPECTED",
-        title="prod-vs-remarkets divergence acknowledged",
-        expected=(
-            "verification limited to remarkets sandbox by safety policy "
-            "(REQUIREMENTS.md Out of Scope)"
-        ),
-        actual=(
-            "prod (api.primary.com.ar) shape unverified; sandbox shape "
-            "committed in .planning/verification/schemas/matriz-client/"
-        ),
-        diff="N/A (acknowledged limitation, not detected drift)",
-        base_url=base,
-        idempotent_by_title=True,
-    )
-
-    # Phase 10 LIVE-02 — D-06 interleaved sync+async paridad.
-    # Run all async probes in a single asyncio.run (D-IOL-6 mirror), then
-    # APPEND each async result to the report alongside its sync counterpart.
-    async_results = asyncio.run(_async_main())
-    results.extend(async_results)
+        # Phase 10 LIVE-02 — D-06 interleaved sync+async paridad.
+        # Run all async probes in a single asyncio.run (D-IOL-6 mirror), then
+        # APPEND each async result to the report alongside its sync counterpart.
+        async_results = asyncio.run(_async_main())
+        results.extend(async_results)
 
     # Stdout verbatim D-02 + SUMMARY. Cada línea via safe_print con secrets.
     counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "SKIPPED": 0, "FINDING": 0}
@@ -2310,9 +2710,18 @@ def main() -> None:
         line = f"PROBE {r.name}: {r.status} {r.detail}".rstrip()
         safe_print(line, secrets=secrets)
         counts[r.status] = counts.get(r.status, 0) + 1
+    # Phase 33 (P-3 / T-33-11): ``DIVERGENCES`` es ``len(handler.seen)`` — el
+    # conteo de triples distintos ``(slug, model, field_path, kind)``, LA unidad
+    # del censo y la única directamente comparable contra el piso de
+    # ``29-SIZING.md``. NO es el conteo de findings: con la superficie embebida
+    # en el título hay ~2 findings por triple. ``HANDLER_ERRORS`` es el tally de
+    # fallas del sink: un pipeline de logging que puede fallar en silencio no
+    # sirve como registro de auditoría, así que el número se imprime siempre —
+    # un valor distinto de cero invalida el censo de esta corrida.
     safe_print(
         f"SUMMARY: PASS={counts['PASS']} FAIL={counts['FAIL']} "
-        f"SKIPPED={counts['SKIPPED']} FINDING={counts['FINDING']}",
+        f"SKIPPED={counts['SKIPPED']} FINDING={counts['FINDING']} "
+        f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
     )
 

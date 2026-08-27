@@ -9,18 +9,30 @@ dispara el login automáticamente si todavía no hay token cacheado.
 The connection runs its event loop in a background daemon thread. All
 inbound frames are dispatched to the user-provided callbacks registered
 at :func:`ws_connect` time.
+
+**Decode mode on the daemon thread (Phase 29 Plan 29-08, D-04).** This is the
+one decode path in the package that never passes through ``Client._request``,
+and a plain ``threading.Thread`` starts with an EMPTY execution context, so it
+inherits no ``ContextVar`` value from the thread that spawned it. The mode is
+therefore handed over explicitly: :func:`_bind_decode_mode_for_ws` snapshots
+``_ClientState.strict_decode`` at connect time (on the caller's thread) and
+:func:`_handle_open` binds that snapshot inside the daemon thread. See those
+two functions for the mechanism and the measurement behind it.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Callable
 from typing import Any
 
 import websocket
 
+from matriz_client import _decode
 from matriz_client import client as _rest
+from matriz_client.exceptions import MatrizDecodeError
 from matriz_client.models import (
     ExecutionReportFrame,
     MarketDataFrame,
@@ -28,6 +40,12 @@ from matriz_client.models import (
     UnknownFrame,
 )
 from matriz_client.types import DEFAULT_MARKET_DATA_ENTRIES, MARKET_DATA_ENTRIES
+
+# The package logger, exactly as ``_decode`` uses it. ``RedactingFilter`` is
+# attached to ``logging.getLogger("matriz_client")`` and a filter only sees
+# records logged directly to its own logger, so a child logger named after
+# this module would bypass redaction on propagation.
+_LOGGER = logging.getLogger("matriz_client")
 
 # -- Types --
 MessageCallback = Callable[[PrimaryWsMessage], None]
@@ -54,6 +72,19 @@ _on_error: ErrorCallback | None = None
 _on_close: CloseCallback | None = None
 _connected = threading.Event()
 
+# Phase 29 D-04: the decode mode snapshotted from the REST client's shared
+# state at connect time, for the daemon thread to bind at ``on_open``. ``None``
+# means "no connection has been established in this process yet"; it is reset
+# to ``None`` by :func:`ws_disconnect` so a reconnection re-reads the flag.
+_ws_strict_decode: bool | None = None
+
+# Phase 29 code review, WR-06: the attribute :func:`ws_connect` writes on the
+# ``WebSocketApp`` instance to hand the decode mode to the daemon thread. The
+# instance is owned by that thread for its whole lifetime, so — unlike the module
+# global above, which :func:`ws_disconnect` clears while a frame may still be in
+# flight — nothing can take the mode away mid-connection.
+_DECODE_STRICT_ATTR = "_decode_strict"
+
 
 # ------------------------------------------------------------------
 # Internal helpers
@@ -75,9 +106,46 @@ def _ws_url() -> str:
 
 
 def _handle_open(ws: websocket.WebSocketApp) -> None:
+    """Bind the decode mode inside the daemon thread, then signal readiness.
+
+    This callback is invoked by ``WebSocketApp.run_forever``, i.e. **on the
+    daemon thread**, which is the whole reason the bind lives here rather than
+    in :func:`ws_connect` (that runs on the caller's thread, whose context the
+    daemon thread does not inherit). The daemon thread's execution context is
+    stable for its lifetime, so binding once at open is sufficient for every
+    frame the connection subsequently delivers, and it involves no context
+    re-entry — see :func:`_bind_decode_mode_for_ws` for why that matters.
+
+    The mode is read from the ``WebSocketApp`` instance
+    (:data:`_DECODE_STRICT_ATTR`), which :func:`ws_connect` stamped on the caller's
+    thread. The instance belongs to the daemon thread for the whole connection, so
+    :func:`ws_disconnect` clearing the module global cannot take the mode away
+    while a frame is in flight — the interleaving WR-06 flagged.
+
+    WR-06 also removes the silent downgrade. The previous
+    ``bool(_ws_strict_decode)`` turned "the mode was never handed over" into
+    "observable", with no trace: a consumer who configured ``strict_decode=True``
+    then got "a divergence is a log line" from a mode whose entire purpose is "a
+    divergence is fatal". Observable is still the fallback — a WebSocket that
+    refuses to open is worse than one that under-reports — but it is now
+    ANNOUNCED, on the paquete logger, at WARNING.
+    """
+    mode = getattr(ws, _DECODE_STRICT_ATTR, None)
+    if mode is None:
+        # Reached without a preceding ``ws_connect`` — a direct call in a test, or
+        # a handler invoked on an app this module did not stamp.
+        mode = bool(_ws_strict_decode)
+        _LOGGER.warning(
+            "websocket decode mode was not handed over to the daemon thread; "
+            "falling back to %s mode",
+            "strict" if mode else "observable",
+        )
+    _decode.STRICT_DECODE.set(bool(mode))
+    _decode.open_request_scope()
     _connected.set()
 
 
+@_decode._response_parser
 def _parse_frame(data: dict[str, Any]) -> PrimaryWsMessage:
     """Wrap ``data`` in the safe-access frame model matching its ``type``.
 
@@ -94,9 +162,36 @@ def _parse_frame(data: dict[str, Any]) -> PrimaryWsMessage:
 
 
 def _handle_message(ws: websocket.WebSocketApp, raw: str) -> None:
-    if _on_message is not None:
-        data: dict[str, Any] = json.loads(raw)
-        _on_message(_parse_frame(data))
+    """Decode one inbound frame and hand it to the message callback.
+
+    A fresh decode scope is opened per frame. Aggregation-contract lock 6 binds
+    one scope per decoded unit and explicitly rejects a process-lifetime scope,
+    because a shared dedupe set makes the *second* identical divergence decode
+    silently clean. A streamed frame is the WebSocket analogue of one HTTP
+    response, so a scope that spanned the connection would let a long-lived
+    subscription report a recurring divergence exactly once and then go quiet.
+
+    A strict-mode decode raises, and an exception escaping this handler
+    terminates ``run_forever`` — tearing the connection down for *every*
+    subscriber over one malformed frame. :class:`MatrizDecodeError` is
+    therefore caught here and routed to the registered error callback, falling
+    back to the package logger when none is registered. Nothing broader is
+    caught: an unrelated exception keeps its previous behaviour, and an error
+    raised by ``_on_message`` itself is outside the guarded block.
+    """
+    if _on_message is None:
+        return
+    data: dict[str, Any] = json.loads(raw)
+    _decode.open_request_scope()
+    try:
+        frame = _parse_frame(data)
+    except MatrizDecodeError as exc:
+        if _on_error is not None:
+            _on_error(exc)
+        else:
+            _LOGGER.warning("websocket frame failed strict decode: %s", exc)
+        return
+    _on_message(frame)
 
 
 def _handle_error(ws: websocket.WebSocketApp, error: Exception) -> None:
@@ -140,6 +235,47 @@ def _acquire_token_for_ws(default: _rest.Client) -> None:
     assert default._state.token is not None
 
 
+def _bind_decode_mode_for_ws(default: _rest.Client) -> None:
+    """Snapshot the REST client's decode mode for the daemon thread (D-04).
+
+    Phase 29 Plan 29-08, D-04 — explicit decode-mode propagation. This helper
+    exists for one fact: **a plain ``threading.Thread`` starts with an empty
+    execution context and does not inherit the spawning thread's ``ContextVar``
+    values.** Every ``STRICT_DECODE.get()`` on the daemon thread would return
+    the ``False`` default. And the frame path never passes through
+    ``Client._request``, which is the only place the REST surface binds the
+    mode, so there is no other route by which the mode could arrive. Without
+    this hand-off every streamed frame would decode in observable mode
+    regardless of what the caller configured — a silent, mode-shaped hole in
+    DEC-01. The non-inheritance fact is measured, not assumed: see
+    ``market-data-client/tests/test_decode_concurrency.py`` (Plan 29-05) and
+    ``test_ws_decode_mode.py::test_plain_thread_does_not_inherit_the_decode_mode``.
+
+    This mirrors :func:`_acquire_token_for_ws` above, which hands the same
+    daemon thread its main-thread token state at the same point in
+    :func:`ws_connect`. D-03: the value is read from ``_ClientState``, never
+    from an environment variable. The snapshot is taken here, on the caller's
+    thread, and bound in :func:`_handle_open`, on the daemon thread.
+
+    **The fallback mechanism, and why it is not the one used.** The alternative
+    is a ``contextvars.copy_context()`` snapshot captured in :func:`ws_connect`
+    and each frame parsed via ``ctx.run(_parse_frame, data)``. Research
+    assumption A1 flagged its re-entrancy behaviour as reasoned but not
+    executed; it was measured for this plan on CPython 3.12.13 and **A1 is
+    confirmed**: repeated *sequential* ``ctx.run()`` calls on one stored
+    ``Context`` succeed, but a nested or a concurrent (overlapping) call raises
+    ``RuntimeError: cannot enter context ... is already entered``. Two further
+    measured facts make it worse for this call site: writes performed inside a
+    stored ``Context`` **persist across runs**, so a decode scope opened there
+    would live for the whole connection and violate lock 6; and the ``Context``
+    is process-global module state, so a second connection would contend with
+    the first. Binding the plain value once at open has none of those
+    properties, which is why it is the mechanism here.
+    """
+    global _ws_strict_decode
+    _ws_strict_decode = default._state.strict_decode
+
+
 # ------------------------------------------------------------------
 # Connection
 # ------------------------------------------------------------------
@@ -164,6 +300,7 @@ def ws_connect(
 
     default = _rest._get_default()
     _acquire_token_for_ws(default)
+    _bind_decode_mode_for_ws(default)
     assert default._state.token is not None  # narrowing for header dict below
 
     _on_message = on_message
@@ -180,6 +317,12 @@ def ws_connect(
         on_error=_handle_error,
         on_close=_handle_close,
     )
+    # WR-06: hand the mode over on the INSTANCE, before the thread starts. The
+    # module global stays as the observable record of the snapshot (and as the
+    # fallback for a handler invoked on an app this module did not build), but the
+    # value the daemon thread actually binds now travels with the connection it
+    # belongs to.
+    setattr(_ws, _DECODE_STRICT_ATTR, default._state.strict_decode)
 
     _ws_thread = threading.Thread(target=_ws.run_forever, daemon=True)
     _ws_thread.start()
@@ -188,14 +331,20 @@ def ws_connect(
 
 
 def ws_disconnect() -> None:
-    """Close the WebSocket connection."""
-    global _ws, _ws_thread
+    """Close the WebSocket connection.
+
+    Clears the D-04 decode-mode snapshot as well, so a client that flips
+    ``strict_decode`` between connections gets the new mode on the next
+    :func:`ws_connect` instead of the value the previous connection captured.
+    """
+    global _ws, _ws_thread, _ws_strict_decode
     if _ws is not None:
         _ws.close()
         _ws = None
     if _ws_thread is not None:
         _ws_thread.join(timeout=5.0)
         _ws_thread = None
+    _ws_strict_decode = None
     _connected.clear()
 
 

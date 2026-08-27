@@ -1,0 +1,85 @@
+# Requirements: market-libs — v1.6 Tipado homogéneo de la superficie pública
+
+**Defined:** 2026-08-18
+**Core Value:** Confianza de que cada cliente refleja fielmente el comportamiento real de su API; en v1.6: que sea imposible cometer un typo al consumir la lib (acceso por atributo verificado por mypy) y que ninguna divergencia con la API en vivo sea silenciosa.
+
+## v1 Requirements
+
+Requirements for this milestone. Each maps to roadmap phases (29-34). Decisiones bloqueadas DT-01..DT-09 en `.planning/future-plans/tipado_homogeneo.md`; correcciones empíricas del research en `.planning/research/SUMMARY.md`.
+
+### Decoder observable
+
+- [x] **DEC-01**: Todo consumidor de las 6 libs recibe divergencias de forma **observables** (registro estructurado por el logger del paquete) en lugar de sustituciones silenciosas; los drivers `main_*.py` corren en modo estricto (divergencia → finding). Implementación: walker por-campo como motor primario (evolución de `_coerce`, NO reemplazado — corrección del research), emisión flat/all-str/type-not-value compatible con `RedactingFilter` (+ fix del filter en las 6 copias), modo estricto por `ContextVar` bindeado desde `_ClientState`, `from_api` preservado como constructor público (DT-05), copiado verbatim 6× con test de intactness por hash (DT-03), reconciliación explícita de la implementación divergente de matriz, decisión msgspec-dura-vs-stdlib-only como artefacto de fase, y corrida exploratoria de sizing con el walker sobre `verification/snapshots/` antes de comprometer F30-32.
+
+### Tipado de superficie
+
+- [x] **TYP-01**: El consumidor de `iol-client` accede a cotizaciones, series históricas e instrumentos por **atributo tipado** (models.py nuevo con shapes derivados de los schemas capturados en vivo, `puntas` polimórfico resuelto); 16 firmas migradas (4 funciones × método/shim × sync/async) + parsers de `_core.py`; `main_iol.py` migrado a acceso por atributo (2 sitios reales). `mercado`/`plazo` quedan `str` en F30; promoción a `Literal` diferida a F33 con censo vivo (DT-07).
+- [x] **TYP-02**: Los 5 endpoints de ops devuelven modelos tipados (`higyrus.get_health`; `market-data.get_health`/`get_health_feed`/`add_holidays`/`delete_holiday`) — cambio response-only, con prueba de request byte-idéntico para las 2 mutaciones ya publicadas en v0.4.0 (no perturbar el mutating-gate).
+- [x] **TYP-03**: Los 6 paquetes presentan estructura uniforme `models.py` + `types.py` (mínimos pero presentes en ambito y wallets).
+
+### Gates de homogeneidad
+
+- [x] **GATE-TYP-01**: CI falla si la homogeneidad se degrada: (a) gate AST de superficie — cero `Any`/`dict[str, Any]` en retornos de funciones exportadas en `__all__`, con exenciones DT-06 resueltas (`to_dict()` serialize-out + módulos privados) — como **job de CI nuevo** (verification/ nunca corrió en CI); (b) test de paridad sync/async por introspección **no-vacuo** con lower bounds y fixtures RED (los `aio.py` sin `__all__` no pueden saltearse; precedente Phase 15 WR-01/WR-02); (c) cierre de D-16 reconciliando las **4** listas de enrollment (mypy `files`, import-linter `root_packages`, `ci.yml` mypy-tests loop, `test_public_surface._PACKAGES`) + contrato import-linter de `market_data_client._core` + decisión sobre la inclusión de wallets.
+
+### Verificación en vivo
+
+- [x] **LIVE-TYP-01**: La nueva decodificación queda verificada contra las APIs reales (ámbito, iol, higyrus, matriz; market-data contra develop con creds del operator) en modo estricto; los `Literal` de DT-07 se cierran con evidencia real; toda divergencia se documenta como finding y se corrige in-cycle, espejada sync/async, con test de regresión mockeado; cycle closure PASS por paquete.
+
+### Publicación
+
+- [ ] **PUB-TYP-01**: Los paquetes cuya superficie cambió quedan publicados (bump + README changelog + PR → CI verde → merge con merge-commit real → tag por paquete → GitHub Release); iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); el set final de paquetes depende de la decisión msgspec de F29; `uv.lock` global se refresca una vez; ops irreversibles detrás de doble checkpoint humano (precedente D-18).
+
+## v2 Requirements
+
+Deferred — carry-forwards del monorepo, sin cambios en este milestone.
+
+### Market-data
+
+- **STREAM-MD-01**: Streaming SSE `GET /marketdata/stream`
+- **SEC-MD-01**: Token cache en disco
+- **SEC-MD-02**: Validación de firma JWT (RS256 vs JWKS)
+
+### Monorepo
+
+- **D-MATZ-27**: prod-vs-remarkets para matriz
+- **WS-LIVE-01**: `matriz_client.ws_client` live verification
+- **SEC-TOK-01**: Token encryption at-rest
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Pydantic v2 como validador | Coerción lenient por default enmascara divergencias + peso `pydantic-core` en 6 wheels (verificado empíricamente) |
+| `TypedDict` como mecanismo de tipado | mypy no detecta typos vía `.get()` — el estilo de acceso real de los drivers (verificado empíricamente) |
+| Paquete compartido `market-libs-core` | DT-03: acoplaría los ciclos de release de 6 wheels independientes |
+| Codegen sync/async (REFAC-06) | Permanentemente archivado (DT-04) — dos NO-GO firmados (SPIKE-005, SPIKE-006); la paridad se AFIRMA por introspección |
+| Shim `__getitem__`/dict-compat en los modelos nuevos | Preserva la clase de typo que el milestone elimina; arrepentimiento documentado del ecosistema (stripe RFC #1454) |
+| `Literal` en campos de RESPONSE | Anti-feature: el crecimiento legítimo de enums del vendor se vuelve tormenta de divergencias (research F29) |
+| `wallets-client` más allá de `models.py`/`types.py` vacíos | Sigue stub sin endpoints reales ni servicio verificable |
+
+## Traceability
+
+Fases definidas en `.planning/ROADMAP.md` § Phase Details (v1.6). Cada requisito mapea a **exactamente una** fase.
+
+| Requirement | Phase | Phase Name | Status |
+|-------------|-------|------------|--------|
+| DEC-01 | Phase 29 | Decoder observable *(load-bearing, PRIMERO)* | Pending |
+| TYP-01 | Phase 30 | `iol-client` tipado | Pending |
+| TYP-02 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
+| TYP-03 | Phase 31 | Endpoints de ops + estructura uniforme | Pending |
+| GATE-TYP-01 | Phase 32 | Gates de homogeneidad + D-16 | Complete |
+| LIVE-TYP-01 | Phase 33 | Verificación en vivo en modo estricto + fixes | Pending |
+| PUB-TYP-01 | Phase 34 | Releases por paquete | Pending |
+
+**Coverage:**
+
+- v1 requirements: 7 total
+- Mapped to phases: 7
+- Unmapped: 0
+- Orphaned (fase sin requisito): 0
+
+**Dependencias entre fases:** 29 → {30, 31} (paralelizan) → 32 → 33 → 34. La mitad D-16 de la Phase 32 es independiente y puede adelantarse a la Phase 29.
+
+---
+*Requirements defined: 2026-08-18*
+*Last updated: 2026-08-18 after v1.6 roadmap creation (phases 29-34 mapped; no requirement shifted phase)*

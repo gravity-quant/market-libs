@@ -98,11 +98,15 @@ import httpx
 from verification import (
     append_finding,
     diff_safemodel_bidirectional,
+    divergence_capture,
+    endpoint_scope,
+    probe_context,
     require_env,
     safe_print,
     schema_of,
     write_findings,
 )
+from verification.findings import max_existing_fid
 
 import higyrus_client
 from higyrus_client import (
@@ -111,6 +115,7 @@ from higyrus_client import (
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusClientError,
+    HigyrusDecodeError,
 )
 from higyrus_client._core import RequestSpec, raise_for_response
 from higyrus_client._params import format_bool, format_date
@@ -161,6 +166,14 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
     "get_posiciones": "/api/cuentas/{id_cuenta}/posiciones",
 }
 
+# Phase 33 (LIVE-TYP-01): flag del segundo pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``, que prueba que el raise de modo estricto
+# efectivamente dispara. Viaja como kwarg del constructor para NO agregar un
+# segundo sitio de construcción: ``test_main_higyrus_uses_single_client_instance``
+# asserta ``1 <= ctor_calls <= 2`` por AST.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
+
 # D-HIGY-14: env vars opcionales para sample params.
 _SAMPLE_CUENTA: str | None = os.getenv("HIGYRUS_SAMPLE_CUENTA")
 _SAMPLE_TIPO_CUENTA: str = os.getenv("HIGYRUS_SAMPLE_TIPO_CUENTA", "propia")
@@ -197,6 +210,12 @@ _D_HIGY_10_ORDER: tuple[str, ...] = (
 )
 
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
+# NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
+# ya registrado antes del primer probe (D-16/D-24). Sin ese seed, cada finding
+# nuevo re-emitiría un fid ya ocupado — y contra el archivo committeado, que hoy
+# lleva F-01 y F-02, eso significa reescribir el triage del operador en un caso
+# y perder el finding en silencio en el otro, mientras el driver sigue
+# reportando ``FINDING=N``.
 _fid_counter: int = 0
 
 # D-HIGY-10 cascade SKIPPED (Phase 3 D-IOL-3 mirror): flag único compartido
@@ -233,11 +252,84 @@ def _get_event_hooks_lock_async() -> asyncio.Lock:
     return _event_hooks_lock_async
 
 
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (D-16/D-24).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+
+    La falla que previene tiene dos caras, y ambas son observables hoy contra
+    ``.planning/verification/higyrus-client-findings.md``:
+
+    - un fid re-emitido cuyo status registrado ES ``OPEN`` NO dispara el
+      short-circuit de :func:`verification.findings.append_finding`: el bloque de
+      detalle se **reescribe en el lugar** con contenido ajeno y el triage que el
+      operador arrastró desde fases anteriores se pierde;
+    - un fid re-emitido cuyo status registrado NO es ``OPEN`` sí dispara el
+      short-circuit: el write se vuelve un no-op **silencioso** mientras
+      ``main()`` igual lo cuenta en ``FINDING=N`` y el ``SUMMARY`` reporta éxito.
+      El run pierde su entregable creyendo que funcionó. Los DOS fids
+      committeados de higyrus están en este caso: ``F-01`` (``EXPECTED``) y
+      ``F-02`` (``NO-FIX``), ambos terminales.
+
+    Misma forma que ``main_iol.py::_seed_fid_counter`` y
+    ``main_market_data.py::_seed_fid_counter``.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
+
+
 def _next_fid() -> str:
     """Devuelve el siguiente ``F-NN`` (NN zero-padded a 2 dígitos)."""
     global _fid_counter
     _fid_counter += 1
     return f"F-{_fid_counter:02d}"
+
+
+def _shape_probe_result(probe_name: str, surface: str, exc: BaseException) -> ProbeResult:
+    """Fallback de ``probe_context`` ante un ``HigyrusDecodeError`` (D-07).
+
+    El finding ``SHAPE`` YA lo escribió :class:`verification.divergences.DivergenceHandler`
+    a partir del record de divergencia que ``_decode`` emitió justo antes de
+    levantar. Este helper NO escribe un segundo finding: mintear uno acá
+    duplicaría la divergencia bajo otro título y rompería el ``idempotent_by_title``
+    del lock 10. Sólo traduce la excepción al 2-tuple que el driver espera.
+
+    Lee ÚNICAMENTE ``model`` / ``field_path`` / ``declared_type`` /
+    ``observed_type`` — los cuatro atributos certificados type-and-path-only por
+    T-29-36 — y nada más de la excepción (T-33-07: nada de credenciales ni de
+    valores del wire puede filtrarse a stdout ni a un artefacto committeado).
+    """
+    name = probe_name.removeprefix("probe_")
+    if isinstance(exc, HigyrusDecodeError):
+        detail = (
+            f"SHAPE [{surface}] {exc.model}{exc.field_path} "
+            f"declared={exc.declared_type} observed={exc.observed_type}"
+        )
+    else:
+        detail = f"SHAPE [{surface}] {type(exc).__name__}"
+    return ProbeResult(name, "FINDING", detail)
+
+
+def _shape_probe_result_pair(
+    probe_name: str, surface: str, exc: BaseException
+) -> tuple[ProbeResult, None]:
+    """Variante 2-tuple de :func:`_shape_probe_result` para los probes con payload.
+
+    higyrus tiene DOS formas canónicas de retorno de probe, no una: los 8 probes
+    que alimentan ``payloads[...]`` en ``main()`` (health, listado_cuentas,
+    movimientos, posicion_valuada, posiciones — sync y async) devuelven
+    ``(ProbeResult, raw_payload | None)``, mientras que login, parity,
+    field_type_map, schema_snapshot, errors_envelope, auth_401 y
+    multi_account_iteration devuelven un ``ProbeResult`` pelado. Un único
+    fallback con forma de 2-tuple haría que
+    ``results["auth_401"] = probe_auth_401(client)`` metiera una tupla en un
+    ``dict[str, ProbeResult]`` y el ``r.status`` del loop de impresión explotara
+    con ``AttributeError`` — bajo modo estricto, exactamente el crash que este
+    plan existe para eliminar. Mismo par de helpers que ``main_matriz.py``.
+    """
+    return (_shape_probe_result(probe_name, surface, exc), None)
 
 
 def _raw_request_sync(
@@ -486,6 +578,12 @@ def _write_or_check_schema(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="/api/login",
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_login_sync(client: Client) -> ProbeResult:
     """Probe 1: ``client.login()`` (HIGY-01).
 
@@ -493,10 +591,11 @@ def probe_login_sync(client: Client) -> ProbeResult:
     la cascade SKIPPED (D-HIGY-10, Phase 3 D-IOL-3 mirror). Se diferencian
     dos brackets de exception:
 
-    1. ``HigyrusClientError`` — base class del paquete (cubre
-       ``HigyrusAuthError`` 401, ``HigyrusAuthorizationError`` 403,
-       ``HigyrusRateLimitError`` 429, ``HigyrusAPIError`` cualquier otro
-       non-2xx mapeado). Status code disponible en ``exc.status_code``.
+    1. ``HigyrusAPIError`` — la familia de errores de transporte-mapeado del
+       paquete (cubre ``HigyrusAuthError`` 401, ``HigyrusAuthorizationError``
+       403, ``HigyrusRateLimitError`` 429, y el propio ``HigyrusAPIError`` para
+       cualquier otro non-2xx mapeado). Status code disponible en
+       ``exc.status_code``.
     2. ``Exception`` — transporte / network (e.g. ``httpx.ConnectError``,
        ``httpx.TimeoutException``, ``httpx.HTTPStatusError`` para 5xx que
        bypassan ``_raise_for_response``). Sin status_code típico.
@@ -505,12 +604,21 @@ def probe_login_sync(client: Client) -> ProbeResult:
     para garantizar el contrato cascade SKIPPED del driver. Esto previene
     que un 403/429/500/network failure propague fuera de ``main()`` y
     aborte la driver antes de las 18 líneas + SUMMARY (review-04 CR-02).
+
+    Phase 33 (D-07): el bracket 1 se angosta de ``HigyrusClientError`` (la base
+    del paquete) a ``HigyrusAPIError``. ``HigyrusDecodeError`` es HERMANO de
+    ``HigyrusAPIError``, no subclase, y la base los cubría a los dos — así que
+    una divergencia de forma en la respuesta de login habría salido reclasificada
+    como ``AUTH`` **y** habría seteado ``_auth_failed``, cascadeando SKIPPED a
+    los 17 probes restantes y colapsando el censo entero de la corrida. La lista
+    que este docstring ya enumeraba es exactamente la familia ``HigyrusAPIError``;
+    el ``Decode`` nunca fue intencional acá. Ahora lo intercepta ``probe_context``.
     """
     global _auth_failed, _auth_failure_reason
     base_url = client._state.base_url
     try:
         client.login()
-    except HigyrusClientError as exc:
+    except HigyrusAPIError as exc:
         _auth_failed = True
         _auth_failure_reason = f"sync login: {type(exc).__name__}: {exc}"
         fid = _next_fid()
@@ -548,6 +656,12 @@ def probe_login_sync(client: Client) -> ProbeResult:
     return ProbeResult("login_sync", "PASS", "_token cached")
 
 
+@probe_context(
+    endpoint="/api/login",
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     """Probe 2: ``await aclient.login()`` (HIGY-01).
 
@@ -555,15 +669,20 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     flag único, no surface-segregated — D-IOL-3 Discretion mirror).
 
     Catch widening espejo de ``probe_login_sync`` (review-04 CR-02): captura
-    ``HigyrusClientError`` (cubre Auth/Authorization/RateLimit/APIError) y
+    ``HigyrusAPIError`` (cubre Auth/Authorization/RateLimit/APIError) y
     cualquier otro ``Exception`` (network / transport) para que no propaguen
     fuera de ``asyncio.run()`` y aborten la driver antes del SUMMARY.
+
+    Phase 33 (D-07): mismo angostamiento que el sync — de ``HigyrusClientError``
+    a ``HigyrusAPIError``, para que un ``HigyrusDecodeError`` (hermano, no
+    subclase) no salga reclasificado como ``AUTH`` cascadeando SKIPPED al resto
+    del sweep. Lo intercepta ``probe_context``.
     """
     global _auth_failed, _auth_failure_reason
     base_url = aclient._state.base_url
     try:
         await aclient.login()
-    except HigyrusClientError as exc:
+    except HigyrusAPIError as exc:
         _auth_failed = True
         _auth_failure_reason = f"async login: {type(exc).__name__}: {exc}"
         fid = _next_fid()
@@ -606,13 +725,48 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_health"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 3: ``higyrus_client.get_health()`` (HIGY-02). WR-03 single call.
+    """Probe 3: ``higyrus_client.get_health()`` (HIGY-02).
 
-    Captura el raw payload vía ``_request`` directo (en vez del wrapper, que
-    valida ``isinstance(raw, dict)`` y devuelve el mismo dict pero sin
-    diferencia observable) para reuso por probe 15 (schema_snapshot). D-HIGY-2:
-    el detail emite ``keys=N`` (conteo), nunca contenido.
+    Hace las DOS cosas (Phase 31 code review CR-01), igual que
+    ``probe_health_sync`` de ``main_market_data.py``:
+
+    1. **Llama al wrapper tipado** ``Client.get_health() -> Health``. Ésta es la
+       única forma de que la superficie pública de TYP-02 quede efectivamente
+       ejercitada contra la API viva: el wrapper construye el ``Health`` vía
+       ``_decode.walk_model``, emite records de divergencia en el logger
+       ``higyrus_client`` y levanta ``HigyrusDecodeError`` bajo
+       ``strict_decode=True``. Sin esta llamada la corrida estricta de la
+       Phase 33 produciría CERO evidencia de divergencia para ``Health`` y para
+       ``parse_get_health_response``.
+    2. **Re-dispara el raw** vía ``_request`` directo para quedarse con el wire
+       crudo que alimenta el snapshot de probe 15. El snapshot NO puede salir
+       del wrapper: el ``schema_of`` sería función de la DECLARACIÓN del modelo
+       y no del wire — el walker ya coercionó cada campo no-opcional a su tipo
+       declarado y descartó toda clave no declarada, así que un
+       float-vuelto-string, una clave agregada y una clave eliminada quedarían
+       los tres invisibles. Éste es el análogo higyrus del ``_capture_raw_wire``
+       de ``main_iol.py`` (Phase 30 CR-01). Por eso ``raw`` llega acá como dict
+       crudo y los reads ``isinstance(raw, dict)`` / ``len(raw)`` de abajo
+       siguen siendo drift-visible sin necesitar ``to_dict()``.
+
+    Ambas llamadas van DENTRO del mismo ``try`` (aislamiento per-probe).
+
+    Phase 33 (D-07): el ``HigyrusDecodeError`` del modo estricto ya NO se atrapa
+    acá. Lo intercepta el decorador ``probe_context``, y el finding ``SHAPE`` lo
+    escribe el ``DivergenceHandler`` desde el record de divergencia que
+    ``_decode`` emitió justo antes de levantar. Un catch a mano acá mintearía un
+    segundo finding para la misma divergencia, bajo un título distinto, rompiendo
+    el ``idempotent_by_title`` del lock 10.
+
+    D-HIGY-2: el detail emite ``keys=N`` (conteo) y el NOMBRE del tipo devuelto
+    por el wrapper, nunca contenido del wire.
     """
     if _auth_failed:
         return (
@@ -621,6 +775,7 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
         )
     base_url = client._state.base_url
     try:
+        health = client.get_health()
         raw = _raw_request_sync(client, "GET", "/api/health")
     except HigyrusAuthError as exc:
         fid = _next_fid()
@@ -682,13 +837,30 @@ def probe_get_health_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] |
             base_url=base_url,
         )
         return (ProbeResult("get_health_sync", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_health_sync", "PASS", f"keys={len(raw)}"), raw)
+    return (
+        ProbeResult("get_health_sync", "PASS", f"keys={len(raw)} typed={type(health).__name__}"),
+        raw,
+    )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_health"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 async def probe_get_health_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, dict[str, Any] | None]:
-    """Probe 4: espejo async de probe 3 (HIGY-02)."""
+    """Probe 4: espejo async de probe 3 (HIGY-02).
+
+    Mismo par wrapper-tipado + re-disparo crudo que el sync (code review CR-01):
+    ``await aclient.get_health()`` ejercita la superficie pública de TYP-02 y
+    ``_raw_request_async`` conserva el wire para el snapshot de probe 15.
+
+    Phase 33 (D-07): igual que el sync, el ``HigyrusDecodeError`` lo intercepta
+    ``probe_context`` y el finding ``SHAPE`` lo escribe el ``DivergenceHandler``.
+    """
     if _auth_failed:
         return (
             ProbeResult("get_health_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
@@ -696,6 +868,7 @@ async def probe_get_health_async(
         )
     base_url = aclient._state.base_url
     try:
+        health = await aclient.get_health()
         raw = await _raw_request_async(aclient, "GET", "/api/health")
     except HigyrusAuthError as exc:
         fid = _next_fid()
@@ -757,7 +930,10 @@ async def probe_get_health_async(
             base_url=base_url,
         )
         return (ProbeResult("get_health_async", "FINDING", f"{fid} (OPEN)"), None)
-    return (ProbeResult("get_health_async", "PASS", f"keys={len(raw)}"), raw)
+    return (
+        ProbeResult("get_health_async", "PASS", f"keys={len(raw)} typed={type(health).__name__}"),
+        raw,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -765,6 +941,12 @@ async def probe_get_health_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_listado_cuentas"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_listado_cuentas_sync(
     client: Client,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -925,6 +1107,12 @@ def probe_get_listado_cuentas_sync(
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_listado_cuentas"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 async def probe_get_listado_cuentas_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
@@ -1020,6 +1208,12 @@ async def probe_get_listado_cuentas_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_movimientos"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_movimientos_sync(
     client: Client,
     today: dt.date,
@@ -1126,6 +1320,12 @@ def probe_get_movimientos_sync(
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_movimientos"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 async def probe_get_movimientos_async(
     aclient: AsyncClient,
     today: dt.date,
@@ -1237,6 +1437,12 @@ async def probe_get_movimientos_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_posicion_valuada"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_posicion_valuada_sync(
     client: Client,
     today: dt.date,
@@ -1358,6 +1564,12 @@ def probe_get_posicion_valuada_sync(
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_posicion_valuada"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 async def probe_get_posicion_valuada_async(
     aclient: AsyncClient,
     today: dt.date,
@@ -1493,6 +1705,12 @@ def _errors_mention(errors: list[dict[str, Any]] | None, keywords: tuple[str, ..
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_posiciones"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 def probe_get_posiciones_sync(
     client: Client,
     today: dt.date,
@@ -1602,6 +1820,12 @@ def probe_get_posiciones_sync(
     )
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_posiciones"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result_pair,
+)
 async def probe_get_posiciones_async(
     aclient: AsyncClient,
     today: dt.date,
@@ -1714,6 +1938,12 @@ async def probe_get_posiciones_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_movimientos"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_parity_sync_async(
     client: Client,
     today: dt.date,
@@ -1765,6 +1995,12 @@ def probe_parity_sync_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="-",
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_field_type_map(
     client: Client,
     cuentas_raw: list[dict[str, Any]] | None,
@@ -1850,6 +2086,12 @@ def probe_field_type_map(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="-",
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_schema_snapshot(
     today: dt.date,
     resolved_cuenta: str | None,
@@ -1938,6 +2180,12 @@ def probe_schema_snapshot(
 _INVALID_CUENTA_LITERAL = "INVALID-CUENTA-XXXXX"
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_movimientos"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_errors_envelope_sync(client: Client, today: dt.date) -> ProbeResult:
     """Probe 16: id_cuenta inválido → envelope ``[{title, detail}]`` (HIGY-05)."""
     if _auth_failed:
@@ -2009,6 +2257,12 @@ def probe_errors_envelope_sync(client: Client, today: dt.date) -> ProbeResult:
     return ProbeResult("errors_envelope_sync", "FINDING", f"{fid} (OPEN)")
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_movimientos"],
+    surface="async",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 async def probe_errors_envelope_async(aclient: AsyncClient, today: dt.date) -> ProbeResult:
     """Probe 17: espejo async de probe 16 (HIGY-05)."""
     if _auth_failed:
@@ -2084,6 +2338,12 @@ async def probe_errors_envelope_async(aclient: AsyncClient, today: dt.date) -> P
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint="/api/login",
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_auth_401(client: Client) -> ProbeResult:
     """Probe 18: 401 con credenciales inválidas (HIGY-AUTH).
 
@@ -2191,6 +2451,12 @@ def probe_auth_401(client: Client) -> ProbeResult:
 # ---------------------------------------------------------------------------
 
 
+@probe_context(
+    endpoint=_ENDPOINT_TEMPLATES["get_listado_cuentas"],
+    surface="sync",
+    decode_error=HigyrusDecodeError,
+    on_decode_error=_shape_probe_result,
+)
 def probe_multi_account_iteration(client: Client) -> ProbeResult:
     """Probe BUG-04 (D-08 per-call only): itera ≥2 cuentas via per-call kwarg.
 
@@ -2232,32 +2498,37 @@ def probe_multi_account_iteration(client: Client) -> ProbeResult:
             "need >=2 cuentas; set HIGYRUS_SAMPLE_CUENTAS=A,B",
         )
     today = dt.date.today()
-    for acct in cuentas[:2]:
-        try:
-            client.get_movimientos(
-                id_cuenta=acct,
-                fecha_desde=today,
-                fecha_hasta=today,
-            )
-        except HigyrusAPIError as exc:
-            fid = _next_fid()
-            append_finding(
-                _PKG,
-                fid=fid,
-                class_="ERROR-MAP",
-                surface="sync",
-                status="OPEN",
-                title=f"multi_account: get_movimientos({acct})",
-                expected="200 OK",
-                actual=repr(exc),
-                diff=f"status={exc.status_code!r}",
-                base_url=base_url,
-            )
-            return ProbeResult(
-                "multi_account_iteration",
-                "FINDING",
-                f"{fid} (OPEN)",
-            )
+    # P-5: este probe golpea DOS endpoints bajo una sola superficie. El decorador
+    # bindea el primero (``get_listado_cuentas``, la fuente 2 de arriba); sin este
+    # re-binding toda divergencia de ``Movimiento`` se atribuiría al listado de
+    # cuentas y la ruta del finding señalaría el endpoint equivocado.
+    with endpoint_scope(_ENDPOINT_TEMPLATES["get_movimientos"]):
+        for acct in cuentas[:2]:
+            try:
+                client.get_movimientos(
+                    id_cuenta=acct,
+                    fecha_desde=today,
+                    fecha_hasta=today,
+                )
+            except HigyrusAPIError as exc:
+                fid = _next_fid()
+                append_finding(
+                    _PKG,
+                    fid=fid,
+                    class_="ERROR-MAP",
+                    surface="sync",
+                    status="OPEN",
+                    title=f"multi_account: get_movimientos({acct})",
+                    expected="200 OK",
+                    actual=repr(exc),
+                    diff=f"status={exc.status_code!r}",
+                    base_url=base_url,
+                )
+                return ProbeResult(
+                    "multi_account_iteration",
+                    "FINDING",
+                    f"{fid} (OPEN)",
+                )
     return ProbeResult(
         "multi_account_iteration",
         "PASS",
@@ -2315,7 +2586,7 @@ async def _async_main(
     # D-02: un único ``AsyncClient`` threadeado en todos los probes async; estado
     # propio (independiente del sync ``Client``). El ``aclose()`` del finally
     # cierra ESTA instancia (no el default-client module-level).
-    aclient = AsyncClient()
+    aclient = AsyncClient(strict_decode=_STRICT)
 
     result_login: ProbeResult = _skipped("login_async")
     async_token_snapshot: str | None = None
@@ -2340,13 +2611,24 @@ async def _async_main(
         result_pos, _pos_raw = await probe_get_posiciones_async(aclient, today, resolved_cuenta)
 
         # Async parity capture for probe 13 (params optional = None → drop_none).
+        # Phase 33 (P-5): éste es el ÚNICO call site de decode en vivo del driver
+        # que vive fuera de un ``probe_*``, así que el decorador no lo cubre —
+        # ``get_movimientos`` acá decodifica ``Movimiento`` igual que el probe
+        # dedicado. Sin este ``endpoint_scope`` el ``diff`` del finding diría
+        # ``via -``. La superficie sigue siendo ``-`` (bindearla necesitaría un
+        # ``surface_scope`` que ``verification/divergences.py`` no expone); no es
+        # un hueco del censo —``handler.seen`` se indexa por
+        # ``(slug, model, field_path, kind)``, sin endpoint ni superficie— y las
+        # mismas triples ya llegan bien atribuidas vía
+        # ``probe_get_movimientos_async``.
         if not _auth_failed and resolved_cuenta is not None:
             fecha_desde = today - dt.timedelta(days=30)
             fecha_hasta = today
             try:
-                async_query = await _capture_async_query_string(
-                    aclient, resolved_cuenta, fecha_desde, fecha_hasta
-                )
+                with endpoint_scope(_ENDPOINT_TEMPLATES["get_movimientos"]):
+                    async_query = await _capture_async_query_string(
+                        aclient, resolved_cuenta, fecha_desde, fecha_hasta
+                    )
             except _RESIDUAL_PROBE_EXCEPTIONS:
                 async_query = None
 
@@ -2408,6 +2690,11 @@ def main() -> None:
     # D-03 mirror: idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
 
+    # D-16/D-24 (P-3): sube el allocator por encima de todo fid ya committeado.
+    # Orden obligatorio — ``write_findings`` < ``_seed_fid_counter`` < primer
+    # probe. Mismo orden canónico que ``main_market_data.py`` y ``main_iol.py``.
+    _seed_fid_counter()
+
     # D-HIGY-15 initial secrets: HIGYRUS_USER + HIGYRUS_PASSWORD del env.
     # WR-03 (review-04): el password se redacta SIEMPRE — sin threshold —
     # porque un short-but-real password es el peor caso para dejar sin
@@ -2430,93 +2717,105 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    results: dict[str, ProbeResult] = {}
-    payloads: dict[str, Any] = {}
+    # Phase 33 (LIVE-TYP-01 / D-01): el handler de divergencias se instala
+    # alrededor del sweep entero — sube ``higyrus_client`` de NOTSET a INFO (sin
+    # eso los records de especie ``extra`` se descartan antes de llegar a ningún
+    # handler) y traduce cada record de seis claves a un finding ``SHAPE``.
+    # ``next_fid`` recibe el slug y lo descarta: el driver ya tiene UN allocator
+    # por proceso y compartirlo es lo que impide que el handler y el driver se
+    # pisen los fids.
+    with divergence_capture(("higyrus_client",), next_fid=lambda _slug: _next_fid()) as handler:
+        results: dict[str, ProbeResult] = {}
+        payloads: dict[str, Any] = {}
 
-    # D-01/D-02: un único ``Client`` sync threadeado en TODOS los probes sync.
-    # Estado propio (independiente del ``AsyncClient`` que ``_async_main``
-    # construye por separado). Reemplaza los ~14 ``_get_default()`` reads.
-    client = Client()
+        # D-01/D-02: un único ``Client`` sync threadeado en TODOS los probes sync.
+        # Estado propio (independiente del ``AsyncClient`` que ``_async_main``
+        # construye por separado). Reemplaza los ~14 ``_get_default()`` reads.
+        client = Client(strict_decode=_STRICT)
 
-    # (a) Probe 1 sync (login_sync) — puede setear _auth_failed.
-    results["login_sync"] = probe_login_sync(client)
-    _sync_token_snapshot = client._state.token if results["login_sync"].status == "PASS" else None
-    if _sync_token_snapshot:
-        secrets.append(_sync_token_snapshot)
+        # (a) Probe 1 sync (login_sync) — puede setear _auth_failed.
+        results["login_sync"] = probe_login_sync(client)
+        _sync_token_snapshot = (
+            client._state.token if results["login_sync"].status == "PASS" else None
+        )
+        if _sync_token_snapshot:
+            secrets.append(_sync_token_snapshot)
 
-    # (b) Probe 3 sync (get_health_sync).
-    result_health_sync, health_raw = probe_get_health_sync(client)
-    results["get_health_sync"] = result_health_sync
-    if health_raw is not None:
-        payloads["get_health"] = health_raw
+        # (b) Probe 3 sync (get_health_sync).
+        result_health_sync, health_raw = probe_get_health_sync(client)
+        results["get_health_sync"] = result_health_sync
+        if health_raw is not None:
+            payloads["get_health"] = health_raw
 
-    # (c) Probe 5 sync (get_listado_cuentas_sync) — RESOLVE _resolved_cuenta.
-    result_listado_sync, listado_raw = probe_get_listado_cuentas_sync(client)
-    results["get_listado_cuentas_sync"] = result_listado_sync
-    if listado_raw is not None:
-        payloads["get_listado_cuentas"] = listado_raw
+        # (c) Probe 5 sync (get_listado_cuentas_sync) — RESOLVE _resolved_cuenta.
+        result_listado_sync, listado_raw = probe_get_listado_cuentas_sync(client)
+        results["get_listado_cuentas_sync"] = result_listado_sync
+        if listado_raw is not None:
+            payloads["get_listado_cuentas"] = listado_raw
 
-    # (d) Probe 7 sync (get_movimientos_sync).
-    result_movs_sync, movs_raw = probe_get_movimientos_sync(client, today, _resolved_cuenta)
-    results["get_movimientos_sync"] = result_movs_sync
-    if movs_raw is not None:
-        payloads["get_movimientos"] = movs_raw
+        # (d) Probe 7 sync (get_movimientos_sync).
+        result_movs_sync, movs_raw = probe_get_movimientos_sync(client, today, _resolved_cuenta)
+        results["get_movimientos_sync"] = result_movs_sync
+        if movs_raw is not None:
+            payloads["get_movimientos"] = movs_raw
 
-    # (e) Probe 9 sync (get_posicion_valuada_sync).
-    result_pv_sync, pv_raw = probe_get_posicion_valuada_sync(client, today, _resolved_cuenta)
-    results["get_posicion_valuada_sync"] = result_pv_sync
-    if pv_raw is not None:
-        payloads["get_posicion_valuada"] = pv_raw
+        # (e) Probe 9 sync (get_posicion_valuada_sync).
+        result_pv_sync, pv_raw = probe_get_posicion_valuada_sync(client, today, _resolved_cuenta)
+        results["get_posicion_valuada_sync"] = result_pv_sync
+        if pv_raw is not None:
+            payloads["get_posicion_valuada"] = pv_raw
 
-    # (f) Probe 11 sync (get_posiciones_sync).
-    result_pos_sync, pos_raw = probe_get_posiciones_sync(client, today, _resolved_cuenta)
-    results["get_posiciones_sync"] = result_pos_sync
-    if pos_raw is not None:
-        payloads["get_posiciones"] = pos_raw
+        # (f) Probe 11 sync (get_posiciones_sync).
+        result_pos_sync, pos_raw = probe_get_posiciones_sync(client, today, _resolved_cuenta)
+        results["get_posiciones_sync"] = result_pos_sync
+        if pos_raw is not None:
+            payloads["get_posiciones"] = pos_raw
 
-    # (g) Single asyncio.run(_async_main(...)) — D-HIGY-13.
-    async_results = asyncio.run(_async_main(today, resolved_cuenta=_resolved_cuenta))
-    results["login_async"] = async_results.login
-    results["get_health_async"] = async_results.health
-    results["get_listado_cuentas_async"] = async_results.listado_cuentas
-    results["get_movimientos_async"] = async_results.movimientos
-    results["get_posicion_valuada_async"] = async_results.posicion_valuada
-    results["get_posiciones_async"] = async_results.posiciones
-    results["errors_envelope_async"] = async_results.errors_envelope
+        # (g) Single asyncio.run(_async_main(...)) — D-HIGY-13.
+        async_results = asyncio.run(_async_main(today, resolved_cuenta=_resolved_cuenta))
+        results["login_async"] = async_results.login
+        results["get_health_async"] = async_results.health
+        results["get_listado_cuentas_async"] = async_results.listado_cuentas
+        results["get_movimientos_async"] = async_results.movimientos
+        results["get_posicion_valuada_async"] = async_results.posicion_valuada
+        results["get_posiciones_async"] = async_results.posiciones
+        results["errors_envelope_async"] = async_results.errors_envelope
 
-    # Async token snapshot — captured POR VALOR dentro de _async_main.
-    if async_results.async_token_snapshot:
-        secrets.append(async_results.async_token_snapshot)
+        # Async token snapshot — captured POR VALOR dentro de _async_main.
+        if async_results.async_token_snapshot:
+            secrets.append(async_results.async_token_snapshot)
 
-    # (h) Probe 13 (parity_sync_async).
-    results["parity_sync_async"] = probe_parity_sync_async(
-        client, today, _resolved_cuenta, async_results.async_query
-    )
+        # (h) Probe 13 (parity_sync_async).
+        results["parity_sync_async"] = probe_parity_sync_async(
+            client, today, _resolved_cuenta, async_results.async_query
+        )
 
-    # (i) Probe 14 (field_type_map) — diff sobre raw sync payloads.
-    results["field_type_map"] = probe_field_type_map(
-        client,
-        payloads.get("get_listado_cuentas"),
-        payloads.get("get_movimientos"),
-        payloads.get("get_posiciones"),
-        payloads.get("get_posicion_valuada"),
-    )
+        # (i) Probe 14 (field_type_map) — diff sobre raw sync payloads.
+        results["field_type_map"] = probe_field_type_map(
+            client,
+            payloads.get("get_listado_cuentas"),
+            payloads.get("get_movimientos"),
+            payloads.get("get_posiciones"),
+            payloads.get("get_posicion_valuada"),
+        )
 
-    # (j) Probe 15 (schema_snapshot) — 5 snapshots.
-    base_url = client._state.base_url
-    results["schema_snapshot"] = probe_schema_snapshot(today, _resolved_cuenta, payloads, base_url)
+        # (j) Probe 15 (schema_snapshot) — 5 snapshots.
+        base_url = client._state.base_url
+        results["schema_snapshot"] = probe_schema_snapshot(
+            today, _resolved_cuenta, payloads, base_url
+        )
 
-    # (k) Probe 16 (errors_envelope_sync) — always-on.
-    results["errors_envelope_sync"] = probe_errors_envelope_sync(client, today)
+        # (k) Probe 16 (errors_envelope_sync) — always-on.
+        results["errors_envelope_sync"] = probe_errors_envelope_sync(client, today)
 
-    # (k.5) Phase 9 BUG-04 (D-08, D-10): multi-account iteration probe.
-    # Corre después de get_listado_cuentas + get_movimientos (sync + async) para
-    # que _resolved_cuenta esté disponible si el operator quiere comparar; el
-    # propio probe puede consumir get_listado_cuentas o el override CSV.
-    results["multi_account_iteration"] = probe_multi_account_iteration(client)
+        # (k.5) Phase 9 BUG-04 (D-08, D-10): multi-account iteration probe.
+        # Corre después de get_listado_cuentas + get_movimientos (sync + async) para
+        # que _resolved_cuenta esté disponible si el operator quiere comparar; el
+        # propio probe puede consumir get_listado_cuentas o el override CSV.
+        results["multi_account_iteration"] = probe_multi_account_iteration(client)
 
-    # (l) Probe 18 (auth_401) — opt-in, single-shot, ÚLTIMO.
-    results["auth_401"] = probe_auth_401(client)
+        # (l) Probe 18 (auth_401) — opt-in, single-shot, ÚLTIMO.
+        results["auth_401"] = probe_auth_401(client)
 
     # Presentation order: imprimir las 18 líneas en orden D-HIGY-10 declarado.
     for name in _D_HIGY_10_ORDER:
@@ -2533,8 +2832,20 @@ def main() -> None:
     n_fail = sum(1 for r in collected if r is not None and r.status == "FAIL")
     n_skip = sum(1 for r in collected if r is not None and r.status == "SKIPPED")
     n_find = sum(1 for r in collected if r is not None and r.status == "FINDING")
+    # Phase 33 (P-3 / T-33-11): ``DIVERGENCES`` es ``len(handler.seen)`` — el
+    # conteo de triples distintos ``(slug, model, field_path, kind)``, LA unidad
+    # del censo y la única directamente comparable contra el piso de
+    # ``29-SIZING.md``. NO es el conteo de findings: con la superficie embebida
+    # en el título hay ~2 findings por triple, así que ni ``FINDING=N`` ni el
+    # conteo de bloques del archivo sirven para ese contraste. ``HANDLER_ERRORS``
+    # es el tally de fallas del sink: un pipeline de logging que puede fallar en
+    # silencio no sirve como registro de auditoría, así que el número se imprime
+    # siempre — un valor distinto de cero invalida el censo de esta corrida.
+    # Formato idéntico al de ``main_matriz.py`` para que 33-04 parsee una sola
+    # forma de línea.
     safe_print(
-        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find}",
+        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
+        f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
     )
 

@@ -31,6 +31,10 @@ Fields:
 - ``client_id``: from ``HIGYRUS_CLIENT_ID`` (tenant identifier, not secret)
 - ``username``: from ``HIGYRUS_USER``
 - ``password``: from ``HIGYRUS_PASSWORD``
+- ``strict_decode``: Phase 29 D-03 decode mode. ``False`` (observable —
+  a divergence is reported and the policy default substituted) or ``True``
+  (strict — a ``missing`` / ``type`` / ``non_dict`` divergence raises
+  ``HigyrusDecodeError``). Never env-backed.
 - ``token``: cached Bearer token, ``None`` until first login
 - ``token_expires_at``: absolute epoch when ``token`` becomes stale
 - ``http_client``: lazy ``httpx.Client`` / ``httpx.AsyncClient``.
@@ -90,6 +94,16 @@ class _ClientState:
     client_id: str = field(default_factory=_env_client_id)
     username: str = field(default_factory=_env_user)
     password: str = field(default_factory=_env_password)
+    # Phase 29 D-03 — decode mode carrier. Deliberately a plain ``bool``
+    # default and NOT a ``field(default_factory=_env_...)``: the strict-decode
+    # flag must never be readable from an environment variable, and must never
+    # live in a module-level global. The only carriers are this field plus the
+    # ``_decode.STRICT_DECODE`` ContextVar that ``_request`` binds from it.
+    # Like ``market_data_client``'s ``mutating_allowed`` (D-14), it lives ONLY
+    # on the shared ``_ClientState`` — never in a ``Client.__slots__`` — so a
+    # ``with_options`` view inherits the parent's mode and sees the parent's
+    # later mutations.
+    strict_decode: bool = False
     token: str | None = None
     token_expires_at: float = 0.0
     # Lazy: created on first ``_ensure_http_client()`` call. Holds either

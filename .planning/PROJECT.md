@@ -21,7 +21,40 @@ corregida.
 
 ## Current State
 
+**v1.6 Phase 33 complete (2026-08-27) — verificación en vivo en modo estricto + fixes (LIVE-TYP-01 validated, con 2 overrides aceptados por el operator).** `verification/divergences.py` (handler de logging + `probe_context`/`divergence_capture` ContextVars) queda cableado a los 5 drivers, con los 130/130 probes decorados (probado por un gate AST no-vacuo con piso numérico por driver) — pero sólo **3 de 5 paquetes corrieron en vivo**: ámbito, iol y market-data. `higyrus-client` quedó `SKIPPED — vendor inalcanzable` (DNS `gaierror` desde esta red, credenciales presentes) y `matriz-client` quedó `SKIPPED — base URL fuera de política` (el propio assert D-MATZ-33 del driver bloqueó apuntar credenciales de demo a otro sandbox; no se rodeó ni se reapuntó). Ambos gaps fueron surfaceados al operator a mitad de ejecución y aceptados explícitamente, con destinos de backlog nombrados (`LIVE-HIGY-33`, `LIVE-MATZ-33`) en vez de reducción silenciosa de alcance — criterio 1 queda **PARCIAL, gate humano abierto**, no cerrado. 4 divergencias confirmadas en `market-data-client` se corrigieron in-cycle (envelope de `Instrument`/`Segment`, `CalendarConfigPreview`/`PreviewMarket` nuevo, 3 campos de `MarketDataSnapshot` a `Optional`, `Symbol.created_at`/`.updated_at` a `str | None`), cada una espejada sync/async con test de regresión mockeado — decisión de arquitectura del operator en un checkpoint bloqueante (`fix-shape-now` en las 3, consecuencia de semver **diferida a Phase 34**: `market-data-client` 0.4.0 → 0.5.0 queda escrito en el criterio 1 de esa fase, no ejecutado acá). DT-07 cerrado en `str` **permanente** con evidencia real (censo de 2191 filas: vocabularios INPUT/RESPONSE de `mercado`/`plazo` son numérico-vs-nombre y disjuntos por caja); los 4 Literals RESPONSE de matriz quedan `COULD-NOT-DECIDE` (matriz no corrió). `verify_cycle_closure` PASS no-vacuo por los 3 paquetes medidos, `verification/` baseline rojo sin regresión (19 failed/19 errors idénticos node-a-node contra `33-BASELINE.md`, +38 verdes). `33-CENSUS.md` contrasta el volumen real contra el piso ratificado de la Phase 29 con cero celdas `TBD`. 7 planes / 5 waves (tracer-first). Code review post-ejecución: 0 Critical, 2 Warning / 3 Info, ninguno bloqueante. Verifier: PASS con 2 overrides documentados (cobertura parcial de criterio 1, decisión de shape-change del operator), ambos re-verificados contra el código, no contra el reporte. Next: Phase 34 (releases por paquete, PUB-TYP-01) — carga iol 0.2.0→0.3.0 (ya D-08) y ahora también market-data-client 0.4.0→0.5.0 (ambos source-breaking).
+
+<details>
+<summary>v1.6 Phase 32 Current State block (shipped 2026-08-26, archived for reference)</summary>
+
+**v1.6 Phase 32 complete (2026-08-26) — gates de homogeneidad + D-16 (GATE-TYP-01 validated).** CI ahora falla si la homogeneidad se degrada, sin código compartido entre paquetes. `tools/check_surface_types.py` (stdlib-AST-only, sin imports de paquete) camina `__all__` de los 6 paquetes y falla ante cualquier `Any`/`dict[str, Any]` exportado (DT-06 exemptions); entregado como **step** `surface-types` dentro del job `lint` preexistente, no como job nuevo — D-05 registrado in situ (docstring + comentario en `ci.yml`) porque el D-12 lockeado de la Phase 31 supersede la prosa literal del roadmap. `tools/surface_parity.py` compara nombres públicos + `get_type_hints()` entre `client.py`/`aio.py` in-package sobre la matriz 6×2 existente, no-vacuo con lower bounds por paquete + fixture RED (wallets asevera su ausencia de par Client/AsyncClient por DOS caminos independientes, nunca por skip). **D-16 cerrado**: las 4 listas de enrollment (mypy `files`, import-linter `root_packages`, loop mypy-tests de `ci.yml`, `test_public_surface._PACKAGES`) reconciliadas en un commit atómico — wallets queda deliberadamente fuera de `root_packages` (razón estructural: sin `_core.py`), market-data deliberadamente fuera de `_PACKAGES` (ya tiene su red in-package desde Phase 25), y el contrato import-linter de `market_data_client._core` quedó RED-probado. Code review post-ejecución: 2 Critical + 10 Warning — 9/10 corregidos en un pase de fix (CR-01 gate de superficie con 3 formas de falso-negativo por resolución de re-exports; CR-02 `surface_parity` nunca comparaba `__init__`, divergencia real y viva en `market_data_client` detectada y cerrada; WR-01..05/07..10 corregidos, WR-06 fuera de `fix_scope` de esta fase, queda info-level abierto por diseño). 6 planes. **Human-verification item cerrado en esta sesión de UAT (2026-08-26)**: se pusheó la rama y se abrió PR #12 para disparar la corrida real de GitHub Actions — los 4 jobs y los 12 legs de la matriz (6 paquetes × py3.12/py3.13) quedaron verdes, incluido el step `surface-types` visible dentro de `lint`; `main` no tiene branch protection configurada, así que no había ningún nombre de required-status-check que pudiera haber cambiado. Security review (ASVS L1): 30 amenazas registradas desde los `<threat_model>` de los 6 planes, las 30 cerradas (mitigate/accept), ninguna con severidad ≥ high — `32-SECURITY.md`. Verifier 5/5 truths verificados. Next: Phase 33 (verificación en vivo en modo estricto + fixes, LIVE-TYP-01) — ya no bloqueada por 29/30/31/32.
+
+</details>
+
+<details>
+<summary>v1.6 Phase 31 Current State block (shipped 2026-08-25, archived for reference)</summary>
+
+**v1.6 Phase 31 complete (2026-08-25) — endpoints de ops + estructura uniforme (TYP-02 + TYP-03 validated).** Los 5 endpoints que todavía devolvían `dict[str, Any]` devuelven modelos tipados en sync y async, cero `dict[str, Any]` en firmas/shims: `higyrus.get_health` → `Health`; `market-data.get_health`/`get_health_feed` → `Health`/`HealthAuth`/`HealthFeed`/`FeedIngestor`/`FeedMarket`/`FeedPipeline` (checkpoint de nullability resuelto por el operador — **Restraint**: sólo `FeedIngestor.last_error`/`FeedPipeline.last_write_error` son `str | None`, los otros 7 campos bajo-determinados quedan `str`, sin ocultar divergencias no observadas); `add_holidays`/`delete_holiday` → `AddHolidaysResult`/`DeleteHolidayResult`, mutaciones ya publicadas en v0.4.0 con test de request byte-idéntico (raw-bytes, no `json.loads`) y mutating-gate probado no-vacuo (AST, set-equality contra el roster de 8 métodos) — ningún builder cambió su `idempotent=`. Los 6 paquetes ganan `models.py`+`types.py` uniformes (7 archivos nuevos, wallets/ámbito docstring-only), gate de existencia nuevo (`tools/check_uniform_structure.py`) cableado en el job `lint` de CI. 5 planes / 3 waves (tracer-first: 31-03 higyrus antes de expandir a market-data). Code review post-ejecución: 2 Critical + 7 Warning, los 9 corregidos en un pase de fix — CR-01 (el driver de higyrus nunca ejercitaba el wrapper tipado, TYP-02 sin cobertura en vivo) y **CR-02** (los parsers de holidays levantaban `MarketDataDecodeError` bajo `strict_decode` en una mutación ya publicada, después de que el write ya había comprometido) — CR-02 resuelto silenciando el raise SOLO en la rama terminal no-dict (el registro de divergencia se sigue emitiendo, `_emit()` corre antes que la disposición estricta), **decisión aprobada explícitamente por el operador** antes de cerrar la fase. Verifier 4/4 must-haves + los 9 fixes re-verificados independientemente contra el código, no contra el reporte. 1682 tests verdes (6 paquetes); único humano-needed (CR-02) resuelto. Next: Phase 32 (gates de homogeneidad + D-16) — ya no bloqueada por 29/30/31.
+
+<details>
+<summary>v1.6 Phase 30 Current State block (shipped 2026-08-23, archived for reference)</summary>
+
+**v1.6 Phase 30 complete (2026-08-23) — `iol-client` tipado (TYP-01 validated, sixth verification cycle).** La superficie pública publicada del paquete (SC1-SC5) quedó cerrada desde el plan 30-04 y no se tocó de nuevo en este ciclo: `models.py` nuevo (`Cotizacion`/`Punta`/`Titulo`/`Instrumento`, `puntas` polimórfico resuelto, `to_dict()` escape hatch), 16 firmas migradas a acceso por atributo (4 funciones × método/shim × sync/async) cero `Any`/`dict[str, Any]`, `main_iol.py` migrado en sus 2 sitios reales con fixture RED de typecheck, `mercado`/`plazo` quedan `str` (promoción a `Literal` diferida a F33 por DT-07). El grueso del ciclo (planes 30-05 a 30-13, 9 de 13 planes) fue cierre de gaps sobre una segunda garantía auto-declarada por esta fase — que `main_iol.py` nunca filtre un valor crudo del upstream a ningún sink observable — escalada a BLOCKER cinco veces consecutivas: filtración por índices de envelope (CR-02), drift de detección de schema (CR-01), fuga por representación de excepción en 32 sitios + lock AST de regresión (CR-01 file-wide), overwrite silencioso del allocator de findings + fuga en el crash path no capturado (30-10), lock AST ensanchado a 11 formas + censo falsificable (30-11), y finalmente **30-12/30-13** cerraron el quinto ciclo: `_redacted_excepthook` ahora falla **cerrado** (llamada al renderer + los dos sinks de escritura guardados independientemente vía `contextlib.suppress`, con lock AST propio) y el censo/lock de atributos gana `getattr` adjudicado por argumento + `__dict__` + regla `%`-format/delegación genérica. Verifier 8/8 must-haves, re-derivados independientemente (incluida una reproducción del peor caso combinado: renderer que levanta + stderr cerrado, simultáneamente). Code review post-cierre: 0 Critical, 4 Warning (todos lock-durability o no alcanzables hoy, ninguno bloqueante) — WR-04 en particular es una regresión real de `mypy --strict` en 2 archivos que el scope de CI no cubre (`main_iol.py`/`verification/` fuera de `pyproject.toml`'s `files`); recomendado un follow-up no-bloqueante (e.g. 30-14). 13/13 planes, TYP-01 flippeado a `[x]` en REQUIREMENTS.md. Next: Phase 31 (ops endpoints + estructura uniforme, TYP-02/TYP-03) — ya no bloqueada por 30, puede correr en paralelo con un eventual 30-14.
+
+</details>
+
+<details>
+<summary>v1.6 Phase 29 Current State block (shipped 2026-08-19, archived for reference)</summary>
+
+**v1.6 Phase 29 complete (2026-08-19) — Decoder observable (DEC-01 validated).** Ninguna sustitución de campo vuelve a ser silenciosa: el walker por-campo (evolución de `_coerce`, hints cacheados — 7× más rápido que el `from_api` previo) está copiado verbatim en 5 paquetes (wallets con exención documentada) con gate de intactness normalize-then-hash corriendo en el job de lint de CI (digest `ac14868282ad0a5c`); toda divergencia emite un registro estructurado de 6 claves (flat/all-str/type-not-value, claves probadas contra `LogRecord`) por el logger del paquete, con scope de dedupe por-response (`_response_parser` sobre 29 parsers) y `RedactingFilter` con scan anidado bounded ×5; el modo estricto viaja por `strict_decode` en `_ClientState` → ContextVar bindeado al tope de los 9 `_request` (sin reset, by design) + propagación explícita al daemon thread de `ws_client` (bind por conexión + scope por frame). Artefactos firmados (sebadlf): matriz de semánticas 6-way, contrato de agregación (strict nunca raisea en `extra`; missing estricto aunque haya default — WR-04), D-lock msgspec **NO-GO stdlib-only** (spike 3 brazos: walker 19.4ms vs budget 100ms; msgspec viola D-09), D-lock RESPONSE-Literal (nunca se cierran este milestone), piso de sizing ratificado **higyrus ≥22 / matriz ≥24 / market-data ≥50 / iol+ambito N/A (total ≥96)** = presupuesto declarado de F33, con 5 findings estructurales (S-1..S-5, destacado: colapso de `instrumentId` en matriz byCFICode/bySegment) ruteados a F33. Code review in-cycle: 4 Critical + 7 Warning → 10/11 fixed (WR-04 resuelto por decisión de operator: mantener estricto), 1531 tests verdes en los 5 paquetes, mypy strict/ruff/lint-imports limpios, merge gate zero-edit sostenido. 10/10 planes, verifier PASSED (5/5 criterios re-ejecutados independientemente). Next: Phase 30 (`iol-client` tipado) ‖ Phase 31 (ops endpoints) — paralelizables.
+
+</details>
+
+<details>
+<summary>v1.5 Phase 28 Current State block (shipped 2026-08-12, archived for reference)</summary>
+
 **v1.5 Phase 28 complete (2026-08-12) — MILESTONE v1.5 SHIPPED.** `market-data-client v0.4.0` is **publicly released** through the per-package tag pipeline (PUB-MUT-01, verifier 15/15 against live GitHub state): annotated tag `market-data-client-v0.4.0` on merge commit `5d0825d` (PR #10, real two-parent merge), `release.yml` run `31549711805` success, GitHub Release with wheel (`market_data_client-0.4.0-py3-none-any.whl`) + sdist; `release.yml` unedited (D-06). The release shipped under the **double independent human gate D-18**: gate (a) merge approval 2026-08-01T22:13:53Z, gate (b) tag-push approval 2026-08-12T00:13:56Z — never collapsed. v0.4.0 carries the calendar-write surface (MUT-MD-02, 13 new public names, Phase 26) plus the live-verified mutation fixes (LIVE-MUT-01, Phase 27: `update_symbol(symbol_id)` widened `str`→`int|str`, five defaulted `Symbol` fields, `Symbol.marketId` deprecated alias, symbols-write envelope unwrap), with the documented D-03 `CalendarDay` field replacement (`date`/`marketId`/`isBusinessDay` → `day`/`closed`/`description`/`open_time`/`close_time`) as the sole source-breaking carve-out inside the minor bump (D-13 claim accepted-not-audited; README callout is the locked mitigation). The in-repo release memory was refreshed across all six regions (commit `bb2adf4`, rides to `main` in a future PR per the `ce77ed4` precedent). All 5 v1.5 requirements validated: GATE-MD-01, MUT-MD-01 (Phase 25), MUT-MD-02 (Phase 26), LIVE-MUT-01 (Phase 27), PUB-MUT-01 (Phase 28). Known debt at close: 28-REVIEW.md `issues_found` (3 critical documentation-accuracy findings: false `confirm` guardrail claim in README+memory, pre-existing `get_marketdata()` README typo shipped inside the wheel, stale `MEMORY.md` index still citing v0.2.0 — route: `/gsd-code-review 28 --fix`), no SECURITY.md for phase 28 (security capability active — `/gsd-secure-phase 28`), pre-existing `verification/test_matriz_sweep_snapshot.py` failures (17-19, phase-07 era, reproduced at pre-phase baseline), and 66 deferred/pending UAT items across phases 3-27. Milestone v1.5 archived 2026-08-17 (audit passed 5/5 reqs, 6/6 integration; 28-REVIEW fixed 8/8 post-release). Next: `/gsd-new-milestone` to scope v1.6.
+
+</details>
 
 <details>
 <summary>v1.5 Phase 25 Current State block (complete 2026-07-31, archived for reference)</summary>
@@ -79,91 +112,23 @@ corregida.
 
 </details>
 
-## Current Milestone: v1.5 market-data-client · mutaciones
+## Current Milestone: v1.6 Tipado homogéneo de la superficie pública
 
-**Goal:** Extender `market-data-client` (v0.2.0, sólo lectura) con la superficie de **escritura** de la API primary-extractor —symbols + calendar— detrás de un **mutating-gate de seguridad** que espeja el patrón de `matriz-client`, verificarla en vivo de forma segura (create→verify→revert, sólo develop), y **publicar v0.3.0** por el pipeline de tags.
+**Goal:** Que las seis librerías expongan un **contrato de tipos idéntico y verificable por máquina** — cero `Any`/`dict[str, Any]` en la superficie pública de datos, una única decodificación de política **observable** (nunca silenciosa), parámetros de dominio como `Literal`, y gates de CI que sostengan la homogeneidad sin código compartido entre paquetes.
 
-**Target features:**
-- **Mutating-gate de seguridad** (GATE-MD-01): opt-in explícito `mutating_allowed` (constructor + `configure()`) + gate de entorno (host/base_url esperado) + no-retry de operaciones no idempotentes; error tipado `MarketDataMutationNotAllowedError` si no está habilitado. Dual sync/async.
-- **Symbols write** (MUT-MD-01): `POST /symbols`, `POST /symbols/batch`, `PATCH /symbols/{symbol_id}` + request-models (`NewSymbol`/`NewSymbols`/`SymbolPatch`).
-- **Calendar write** (MUT-MD-02): `PUT`/`DELETE /calendar/config`, `POST /calendar/config/preview`, `POST /calendar/holidays`, `DELETE /calendar/holidays/{day}` + request-models (`MarketHoursIn`/`HolidayIn`/`HolidaysIn`).
-- **Verificación en vivo segura** (LIVE-MUT-01): probes de mutación detrás del gate, con identificadores de prueba dedicados y cleanup; toda divergencia corregida in-cycle.
-- **Release v0.3.0** (PUB-MUT-01): bump + README changelog + PR → tag `market-data-client-v0.3.0` → GitHub Release.
+**Core value del milestone:** que sea **imposible cometer un typo al consumir la lib** (acceso por atributo verificado por mypy) y que **ninguna divergencia con la API en vivo sea silenciosa** — hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.
 
-**Key context:** minor bump (features nuevas, no rompe la superficie de lectura v0.2.0). Riesgo central = **mutación accidental** → el mutating-gate es load-bearing y lo primero a construir. La verificación en vivo es **destructiva** (crea/modifica estado en develop) → requiere identificadores de prueba + cleanup + confirmación del operator sobre qué es seguro tocar. La idempotencia real de los POST se revalida en vivo antes de confiar el retry-behavior. Plan fuente: `.planning/future-plans/market_data_mutations.md`.
+**Target features (7 requisitos → fases 29-34):**
+- **DEC-01** (F29, load-bearing PRIMERO): decoder único de política observable — `msgspec` interno (NUNCA en firmas públicas, DT-01), divergencias emitidas estructuradas por el logger del paquete (`RedactingFilter` activo), modo estricto para drivers; copiado verbatim 6× (DT-03); `from_api` preservado como constructor público (DT-05).
+- **TYP-01** (F30): `iol-client` tipado — `models.py` nuevo, 16 firmas migradas (4 funciones × método/shim × sync/async), `mercado`/`plazo` → `Literal` con set derivado de verificación en vivo (DT-07), `main_iol.py` a acceso por atributo.
+- **TYP-02 + TYP-03** (F31): modelos para los 5 endpoints de ops (higyrus health; market-data health/health_feed/add_holidays/delete_holiday) + `models.py`/`types.py` presentes en los 6 paquetes.
+- **GATE-TYP-01** (F32): gate AST de superficie (cero `Any`/`dict[str,Any]` en retornos de `__all__`, exenciones DT-06) + test de paridad sync/async por introspección no-vacuo (DT-04, sustituto afirmativo de REFAC-06) + cierre de **D-16** (market-data-client en mypy files/import-linter/ci.yml:85 + contrato `_core`).
+- **LIVE-TYP-01** (F33): drivers en modo estricto contra APIs reales; cierre de Literals con evidencia; divergencias corregidas in-cycle.
+- **PUB-TYP-01** (F34): releases sólo de paquetes cuya superficie cambió; iol 0.2.0 → **0.3.0** source-breaking con callout (DT-08); doble gate humano para ops irreversibles (precedente D-18).
 
-**Backlog no incluido en v1.5 (v2):** streaming SSE `GET /marketdata/stream` (STREAM-MD-01), token cache en disco (SEC-MD-01), validación de firma JWT RS256 (SEC-MD-02) — más los carry-forwards del monorepo (prod-vs-remarkets D-MATZ-27, `ws_client` live, token encryption at-rest).
+**Key context:** 9 decisiones bloqueadas DT-01..DT-09 con verificación empírica (2026-08-18): `msgspec` 0.21.1 decodifica directo a dataclasses stdlib frozen+slots; `TypedDict` descartado (mypy no reporta typos vía `.get()`, el estilo real de los drivers); Pydantic v2 descartado (coerción lenient + peso en 6 wheels). El cambio de política es *silencioso → observable*, NO *tolerante → fatal* (DT-02). Riesgo central: descubrimiento masivo de divergencias en F33 — mitigación: corrida estricta exploratoria al final de F29 para dimensionar antes de comprometer F30-32. Evaluar en F29 si `msgspec` (extensión C) debe ser extra opcional con fallback. Plan fuente: `.planning/future-plans/tipado_homogeneo.md`.
 
-<details>
-<summary>v1.4 Current Milestone block (shipped 2026-07-31 as market-data-client v0.1.0→v0.2.0, archived for reference)</summary>
-
-**Goal:** Crear un nuevo paquete cliente `market-data-client` en el monorepo que exponga la superficie de **lectura** de la API primary-extractor con Auth0 client-credentials, verificarlo en vivo contra develop y publicarlo como v0.1.0. **Outcome:** 6/6 requisitos validados; publicado v0.1.0 y luego v0.2.0 (fixes de la primera verificación credencial-real: `get_latest.symbol` requerido + reconciliación de modelos + envelope-unwrap). Ver `milestones/v1.4-ROADMAP.md`.
-
-</details>
-
-<details>
-<summary>v1.3 Current Milestone block (closed 2026-07-03 on signed NO-GO, archived for reference)</summary>
-
-### v1.3 Codegen Single-Source (libcst)
-
-**Goal:** Cerrar el único unknown arquitectónico residual de la codebase — eliminar la duplicación estructural sync/async de los transport shells `client.py`/`aio.py` × 4 paquetes vía codegen single-source con `libcst`, resolviendo (o descartando definitivamente) el NO-GO de unasync de v1.2 Phase 12 mediante una spike AST-level que cierre los 3 items FAIL del gate anterior (source-shape asymmetry).
-
-**Target features:**
-- **SPIKE-006 (libcst codegen spike):** evaluar `libcst >=1.8.0,<2` (AST-level codemod) contra un gate `D-RIGOR-02` de 10 items sobre el canary ámbito en su forma v1.2-head (sin migración de source) + matriz worst-case; produce la decisión binaria GO/NO-GO firmada. Cierra los items 1/4/6 que unasync no pudo (import-direction asymmetry, single-line import order, docstring localization).
-- **REFAC-06 codegen single-source (CONDITIONAL on SPIKE-006 GO):** los transport shells `client.py`/`aio.py` de los 4 paquetes verificables se single-sourcean vía libcst con `@generated` marker + CI `lint-codegen` verify-clean + B8 identity preservada.
-
-**Key context:** REFAC-06 está **spike-gated** por la decisión locked D-NOGO-01 (Phase 12 NO-GO). El milestone honra el gate: SPIKE-006 corre PRIMERO; REFAC-06 se implementa **solo si** el spike retorna GO. Si los items 1/4/6 vuelven a FAIL en libcst, REFAC-06 se archiva permanentemente y los shells duplicados `client.py`/`aio.py` quedan como feature estructural aceptado. Scope acotado a REFAC-06 (los otros deferrals de v1.3 — prod-vs-remarkets D-MATZ-27, `ws_client` live verification, token encryption at-rest — quedan en backlog). Non-breaking: refactor 100% interno, la API top-level `pkg.get_X(...)` no cambia.
-
-**Outcome:** SPIKE-006 returned a signed **NO-GO** (`sebadlf`, 2026-07-03; 7 PASS / 3 FAIL on the D-RIGOR-02 gate, items 1/3/6). REFAC-06 permanently shelved, Phase 19 dropped, duplicate shells accepted as a structural feature. Full archive: [`milestones/v1.3-ROADMAP.md`](./milestones/v1.3-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>v1.2 Current Milestone block (shipped 2026-06-25, archived for reference)</summary>
-
-**Goal:** Cerrar la deuda arquitectónica residual de v1.1 — migrar los 4 drivers `main_*.py` a consumir `Client`/`AsyncClient` directamente (cierra el LOC drop residual iol -5.1% / matriz -20%), eliminar la duplicación estructural sync/async vía unasync/codegen single-source, agregar IOL refresh_token disk persistence (secure token storage), y exponer ergonomics cross-package (`Client.from_env()` + `client.with_options(max_retries=N)`).
-
-**Outcome:** 5/6 phases delivered (Phase 16 codegen DROPPED per Phase 12 NO-GO); 4/4 active requirements satisfied (REFAC-05, SEC-01, ERG-01, LIVE-03); REFAC-06 deferred to v1.3; integration audit 0-BLOCKER. `Client.from_env()` was SKIPPED (industry survey of 7 SDKs found ZERO with the pattern; implicit env fallback already exists). Full archive: [`milestones/v1.2-ROADMAP.md`](./milestones/v1.2-ROADMAP.md).
-
-**Target features (as planned):**
-
-### Arquitectura sync/async dedup
-- Driver migration × 4 packages (`main_ambito` → `main_iol` → `main_higyrus` → `main_matriz`) a consumir `Client`/`AsyncClient` directamente vía instancias — cierra el LOC drop residual (iol -5.1%, matriz client.py -20%). **✓ Phase 15 (REFAC-05)**
-- Single-source sync/async via unasync/codegen approach — spike-validated antes del plan. **✗ Phase 12 NO-GO; REFAC-06 → v1.3 libcst spike**
-- Re-verificación live `main_*.py --live × 4` al cierre del milestone (LIVE-01-equivalent). **✓ Phase 17 (LIVE-03)**
-
-### Auth/Token persistence + Client ergonomics
-- IOL refresh_token disk persistence — secure token storage. **✓ Phase 14 (SEC-01)**
-- `Client.from_env()` classmethod × 4 packages. **— SKIPPED (no industry precedent; implicit env fallback exists)**
-- `client.with_options(max_retries=N)` per-call override × 4 packages. **✓ Phase 13 (ERG-01)**
-
-**Non-breaking constraint:** v1.2 minor — top-level `pkg.get_X(...)` API 100% backwards-compatible vía el PEP 562 shim de v1.1; solo migraron los drivers `main_*.py` internos.
-
-</details>
-
-<details>
-<summary>v1.1 Current Milestone block (shipped, archived for reference)</summary>
-
-**Goal:** Saldar la deuda técnica arquitectónica y los hallazgos diferidos de v1.0 — refactor a clase Client por instancia (con compat layer no-breaking), deduplicación sync/async con creación de `aio.py` para matriz-client, retries/backoff con jitter, logging estructurado, fix de los 4 findings/bugs deferred, hardening del harness y cierre de los 8 concerns del code review final de Phase 5.
-
-**Target features:**
-- Refactor "clase `Client` por instancia" en los 4 paquetes — eliminar singleton de módulo, mantener API top-level vía compat layer (no breaking).
-- Deduplicación lógica sync/async por paquete + creación de `aio.py` para `matriz-client` (hoy sync-only) y su verificación live.
-- Retries/backoff transparente con jitter para 5xx/429/connection-errors — respeta el `mutating_allowed` double-gate (no retry de mutaciones).
-- Logging estructurado con stdlib `logging` por paquete — integrado con `verification/redaction.py` (Bearer + patrones existentes).
-- Fixes pendientes: F-09 matriz ERROR-MAP, higyrus F-02 (`get_listado_cuentas=0`), IOL refresh_token persistence, HIGY multi-account iteration.
-- Driver bug bundle: D-MATZ-27 dedupe + `verification/findings.py` append-only (preserva rationale operator) — aplica a los 4 drivers.
-- Code review concerns WR-01..WR-08 (8 ítems del review final de Phase 5).
-
-**Out of scope para v1.1:**
-- prod-vs-remarkets verification (D-MATZ-27 REQUIRED handoff) — defer a v1.2
-- `matriz_client.ws_client` live verification (capa WebSocket) — defer a v1.2
-- Extender alcance a `wallets-client` o nuevos paquetes — defer
-- Nuevos endpoints o superficies live nuevas — defer
-
-**Outcome:** 6/6 phases delivered; 29/29 requirements satisfied; integration audit `passed`. Full archive: [`milestones/v1.1-ROADMAP.md`](./milestones/v1.1-ROADMAP.md).
-
-</details>
+**Fuera de alcance v1.6:** Pydantic v2, TypedDict, paquete compartido `market-libs-core` (DT-03), codegen sync/async (REFAC-06 permanentemente archivado, DT-04), `wallets-client` más allá de estructura vacía; carry-forwards en backlog (SSE, disk token cache, JWT, D-MATZ-27, ws_client live).
 
 ## Requirements
 
@@ -204,6 +169,9 @@ corregida.
 - ✓ **REF-MD-01** — superficie de referencia de lectura (instruments, segments, symbols, calendar) con cinco modelos tipados (sin `received_at`, D-05); colecciones con guarda 204/null→`[]` (D-06), `calendar/config` single-model (D-07) — v1.4 (Phase 22)
 - ✓ **LIVE-MD-01** — apparatus de verificación en vivo (`main_market_data.py`, 6to driver: 10 endpoints × sync/async, una `Client()`+una `AsyncClient()`, reusa `verification/`) verificado (verifier 12/12) + defecto D-09 never-FAILED corregido in-cycle — v1.4 (Phase 23). **Sweep credencial-real COMPLETADO post-cierre (2026-07-31):** con creds Auth0 provistas por el operator, corrió contra develop (`PASS=17`, `snapshots=12`, 9 schema baselines) y encontró+corrigió 3 divergencias reales in-cycle — quick tasks `260731-j93` (`get_latest.symbol` requerido) + `260731-jim` (reconciliación `MarketDataSnapshot`/`CalendarConfig` + fix envelope-unwrap). Re-run final: 0 divergencias reales. LIVE-MD-01 satisfecho con evidencia live real; fixes post-cierre en `release/v0.2.0-bump` (fuera del tag `v1.4`)
 - ✓ **PUB-MD-01** — `market-data-client-v0.1.0` publicado por el pipeline de tags: CI matrix (py3.12+3.13), PR #5 → 15/15 CI green → merge (`1ea655d`) → tag `market-data-client-v0.1.0` → GitHub Release con wheel + sdist (`release.yml` unedited, D-02) — v1.4 (Phase 24)
+
+- ✓ **DEC-01** — decoder observable: walker por-campo verbatim ×5 + registros estructurados type-not-value + modo estricto por ContextVar (incl. ws daemon thread) + gate de intactness en CI + D-locks firmados (msgspec NO-GO stdlib-only; RESPONSE-Literal abierto) + piso de sizing ratificado ≥96 — v1.6 (Phase 29, 2026-08-19)
+- ✓ **TYP-01** — `iol-client` tipado: `models.py` nuevo (`puntas` polimórfico resuelto, `to_dict()` escape hatch), 16 firmas migradas a modelos tipados (cero `Any`/`dict[str, Any]`), `main_iol.py` a acceso por atributo con fixture RED de typecheck, `mercado`/`plazo` quedan `str` (Literal diferido a F33/DT-07); más 5 ciclos de cierre de gaps sobre la garantía auto-declarada de no-fuga de `main_iol.py` (envelope indexing, schema drift, fuga por excepción en 32 sitios, crash-path fail-open, censo/lock AST) — v1.6 (Phase 30, 2026-08-23)
 
 ### Active
 
@@ -306,6 +274,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
+*Last updated: 2026-08-27 after Phase 33 complete — **v1.6 Phase 33 (verificación en vivo en modo estricto + fixes) shipped, LIVE-TYP-01 validated con 2 overrides**: `verification/divergences.py` cableado a los 5 drivers, 130/130 probes decorados, pero sólo 3/5 paquetes (ámbito, iol, market-data) corrieron en vivo — higyrus (DNS inalcanzable) y matriz (safety assert D-MATZ-33) quedaron `SKIPPED` con causa medida, aceptados por el operator con destinos nombrados (`LIVE-HIGY-33`, `LIVE-MATZ-33`). 4 divergencias confirmadas corregidas in-cycle en `market-data-client` (envelope unwrap, `CalendarConfigPreview` nuevo, 3 campos a `Optional`, `Symbol` timestamps a `str | None`), mirror sync/async con regresión mockeada — decisión de shape-change del operator en checkpoint bloqueante, consecuencia semver diferida a Phase 34 (0.4.0 → 0.5.0). DT-07 cerrado en `str` permanente con evidencia real; matriz Literals quedan `COULD-NOT-DECIDE`. `verify_cycle_closure` no-vacuo PASS por los 3 paquetes medidos; `verification/` baseline rojo sin regresión. 7 planes/5 waves, code review 0 Critical, verifier PASS con overrides documentados. Next: Phase 34 (releases por paquete) — bump set ahora incluye iol 0.2.0→0.3.0 Y market-data-client 0.4.0→0.5.0. Prior Phase-28 footer below for reference.*
+
 *Last updated: 2026-08-12 after Phase 28 complete — **v1.5 MILESTONE SHIPPED**: `market-data-client v0.4.0` publicly released (tag `market-data-client-v0.4.0` on `5d0825d`, PR #10, release run `31549711805`, wheel + sdist; double human gate D-18 honored). 4 phases (25-28) / 17 plans; requirements GATE-MD-01, MUT-MD-01, MUT-MD-02, LIVE-MUT-01, PUB-MUT-01 all validated. Known debt at close: 28-REVIEW critical doc-accuracy findings, missing 28-SECURITY.md, pre-existing matriz sweep-snapshot test failures, 66 cross-phase UAT items. Milestone archived 2026-08-17; audit passed; 28-REVIEW fixed 8/8. Next: `/gsd-new-milestone` v1.6. Prior v1.5-kickoff footer below for reference.*
 
 *Last updated: 2026-07-31 after starting milestone **v1.5 · market-data-client · mutaciones** — extiende el paquete `market-data-client` (v0.2.0, sólo lectura) con la superficie de **escritura** (symbols + calendar) detrás de un mutating-gate de seguridad estilo `matriz-client`, verificada en vivo de forma segura (create→verify→revert), publicada como **v0.3.0**. Requisitos activos: GATE-MD-01, MUT-MD-01, MUT-MD-02, LIVE-MUT-01, PUB-MUT-01 → Fases 25-28 (continúa la numeración de v1.4). Diferido a v2: SSE streaming, disk token cache, JWT validation. Plan fuente: `.planning/future-plans/market_data_mutations.md`. Prior v1.4-close footer below for reference.*

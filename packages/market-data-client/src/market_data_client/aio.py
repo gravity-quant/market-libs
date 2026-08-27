@@ -16,7 +16,7 @@ concurrencia de 3-vías de matriz)::
     from market_data_client import aio
 
     async with aio.AsyncClient() as c:
-        health = await c.get_health()
+        health = await c.get_health()  # -> Health; health.status
 
 Locks (Pitfall 2): ``self._state.token_lock`` y ``self._state.client_lock`` se
 crean LAZY en el primer uso async (NO en ``__init__``) para bindear al event
@@ -32,13 +32,14 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any, Self
+import warnings
+from typing import Self
 from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
 
-from market_data_client import _atransport, _core
+from market_data_client import _atransport, _core, _decode
 from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import (
@@ -46,8 +47,13 @@ from market_data_client.exceptions import (
     MarketDataMutationNotAllowedError,
 )
 from market_data_client.models import (
+    AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
+    DeleteHolidayResult,
+    Health,
+    HealthFeed,
     HolidaysIn,
     Instrument,
     LatestRequest,
@@ -115,10 +121,20 @@ class AsyncClient:
         http_client: httpx.AsyncClient | None = None,
         mutating_allowed: bool | None = None,
         expected_host: str | None = None,
+        strict_decode: bool | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: valida max_retries temprano (antes de mutar estado).
         _validate_max_retries(max_retries)
+        # Fase 32 CR-02: espeja la validación de `Client.__init__`. El único
+        # chequeo de tipo sobre el transport inyectado era un `assert` en
+        # `aclose()` / `_ensure_http_client()`, que desaparece bajo `python -O`;
+        # un `httpx.Client` entregado acá reaparecía mucho más tarde como
+        # `AttributeError: 'Client' object has no attribute 'aclose'`.
+        if http_client is not None and not isinstance(http_client, httpx.AsyncClient):
+            raise TypeError(
+                f"http_client must be an httpx.AsyncClient, got {type(http_client).__name__}"
+            )
         # NO se crea ningún asyncio.Lock acá (Pitfall 2 — se bindearía al loop
         # vivo en construcción). Los locks se crean lazy en el primer uso async.
         self._state = _ClientState()
@@ -139,6 +155,10 @@ class AsyncClient:
             self._state.mutating_allowed = mutating_allowed
         if expected_host is not None:
             self._state.expected_host = expected_host
+        # Fase 29 D-03: mismo sentinel ``None`` = "no cambiar" que la superficie
+        # sync — un kwarg omitido nunca resetea un opt-in estricto previo.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         if token is not None:
             self._state.token = token
         if token_expires_at is not None:
@@ -176,7 +196,19 @@ class AsyncClient:
         if http_client is not None:
             assert isinstance(http_client, httpx.AsyncClient)
             await http_client.aclose()
-            self._state.http_client = None
+            # Fase 32 WR-07: el `await` de arriba es un punto de suspensión, y
+            # `_state.http_client` se muta fuera de este método (`configure(
+            # http_client=...)`, `_ensure_http_client`). Sin el guard de
+            # identidad, este `= None` pisaba un transporte que otra task había
+            # inyectado mientras esta esperaba:
+            #     task A: await client.aclose()   -> lee el viejo, await ...
+            #     task B: aio.configure(http_client=NUEVO)
+            #     task A:    _state.http_client = None   # NUEVO descartado
+            # El NUEVO quedaba sin cerrar y el próximo request construía un
+            # tercero — exactamente el leak de connection pool que el
+            # ResourceWarning de `configure()` existe para advertir.
+            if self._state.http_client is http_client:
+                self._state.http_client = None
 
     def with_options(self, *, max_retries: int) -> Self:
         """Retorna un shared-view clone con un ``max_retries`` sobrescrito.
@@ -352,7 +384,22 @@ class AsyncClient:
         reenvía una vez y re-levanta si el segundo response vuelve a dar 401
         (sin recursión — Pitfall 4). Anónimo (health): sin ``_aensure_token`` ni
         header ``Authorization``; un 401 levanta inmediatamente.
+
+        Fase 29 D-03 + lock 6 del aggregation contract: las dos PRIMERAS
+        sentencias bindean el modo de decode y un scope fresco para este
+        response.
         """
+        # Fase 29 D-03: bindea el modo de decode + un scope fresco. NO hay reset
+        # ni try/finally a propósito — este método retorna el ``httpx.Response``
+        # y el decode ocurre DESPUÉS, en el parser, que no tiene referencia a
+        # este AsyncClient. Un reset en un ``finally`` desbindearía el modo antes
+        # de que el decoder llegue a leerlo.
+        #
+        # Cada task de asyncio lleva su PROPIA copia del contexto, así que dos
+        # tasks interleaved en modos distintos jamás ven el bind del otro.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         http = await self._ensure_http_client()
         token_lock = self._ensure_token_lock()
         if spec.authenticated:
@@ -411,17 +458,17 @@ class AsyncClient:
     # Public health endpoints (anonymous)
     # ------------------------------------------------------------------
 
-    async def get_health(self) -> dict[str, Any]:
+    async def get_health(self) -> Health:
         """Estado de salud del servicio (anónimo, D-08/D-09)."""
         spec = _core.build_health_request(self._state)
         resp = await self._request(spec)
         return _core.parse_health_response(resp)
 
-    async def get_health_feed(self) -> dict[str, Any]:
+    async def get_health_feed(self) -> HealthFeed:
         """Estado de salud del feed de datos (anónimo, D-08/D-09)."""
         spec = _core.build_health_feed_request(self._state)
         resp = await self._request(spec)
-        return _core.parse_health_response(resp)
+        return _core.parse_health_feed_response(resp)
 
     # ------------------------------------------------------------------
     # Public endpoint methods — market-data reads (authenticated, D-06)
@@ -646,8 +693,8 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
-    async def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
-        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+    async def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfigPreview:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfigPreview``.
 
         Dry-run compute-only: NO persiste nada del lado del servidor, así que en
         efecto es read-safe. Esa excepción queda DOCUMENTADA acá, NO implementada
@@ -658,40 +705,59 @@ class AsyncClient:
         igual que en los dos métodos que sí persisten.
 
         Mismo body de ``MarketHoursIn`` serializado que
-        :meth:`set_calendar_config` (``confirm`` incluido) y el mismo
-        ``_core.parse_calendar_config_response`` (D-05); leé ``warnings`` en la
-        config devuelta para decidir si la escritura real necesita ``confirm=True``.
+        :meth:`set_calendar_config` (``confirm`` incluido) — el REQUEST queda
+        byte-idéntico al de v0.4.0.
+
+        **BREAKING desde 0.5.0 (Phase 33, S-2).** Espejo verbatim del sync: el
+        wire devuelve un sobre de VEREDICTO
+        (``{market_after, requires_confirmation, valid, warnings}``) que no
+        comparte una sola clave con una configuración, así que el parser viejo
+        fabricaba un ``CalendarConfig`` de ceros tipados y tiraba las tres
+        respuestas. Ver :meth:`market_data_client.Client.preview_calendar_config`
+        para la evidencia completa; el fix vive en ``_core.py``, por el que
+        despachan las dos superficies.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
         resp = await self._request(spec)
-        return _core.parse_calendar_config_response(resp)
+        return _core.parse_preview_calendar_config_response(resp)
 
-    async def add_holidays(self, holidays: HolidaysIn) -> dict[str, Any]:
-        """Gated ``POST {base_url}/calendar/holidays`` → ``dict`` tolerante (MUT-MD-02).
+    async def add_holidays(self, holidays: HolidaysIn) -> AddHolidaysResult:
+        """Gated ``POST {base_url}/calendar/holidays`` → ``AddHolidaysResult`` (MUT-MD-02).
 
-        Gate-first (D-14). El builder marca este spec ``idempotent=False`` — el
-        ÚNICO del paquete (DM-03 / D-04) — así que ``RetryTransport`` NO lo
-        reintenta: dar de alta feriados no es replay-safe y un reintento
-        duplicaría los días. El bound 1-500 ya cortó client-side en
-        ``HolidaysIn.__post_init__``, antes de llegar acá.
+        Gate-first (D-14). El builder marca este spec ``idempotent=True``, así que
+        ``RetryTransport`` SÍ lo reintenta ante un fallo transitorio. El flag se
+        corrigió desde ``False`` en Phase 27 sobre medición en vivo (D-20): el
+        armed run LIVE-MUT-01 contó FILAS en vez de status codes y encontró que dos
+        POST idénticos dejan exactamente una fila por fecha en ambas superficies
+        (F-49 / F-59) — el endpoint hace upsert por fecha. Ningún builder del
+        paquete lleva ``idempotent=False`` ya. El bound 1-500 ya cortó client-side
+        en ``HolidaysIn.__post_init__``, antes de llegar acá.
 
-        Retorna el body del ``200`` tal cual como ``dict`` vía
-        ``_core.parse_calendar_write_response`` (D-06): la OpenAPI en vivo declara
-        este ``200`` como un ``object`` pelado sin schema, así que no hay nada
-        contra qué tipar hasta que Phase 27 capture la forma real. El modelo de
-        lectura del calendario y ``parse_calendar_response`` NO se usan a
-        propósito — ese par de lectura está roto contra el wire real (D-16), un bug
-        que esta fase registra en vez de arreglar. Un body ausente degrada a ``{}``
-        (D-07); un ``422`` fluye por el ``_core.raise_for_response`` existente.
+        Retorna el body del ``200`` tipado como :class:`AddHolidaysResult` vía
+        ``_core.parse_add_holidays_response`` (Phase 31 TYP-02 / D-05). La OpenAPI
+        en vivo declara este ``200`` como un ``object`` pelado sin schema; el modelo
+        se construye desde la captura en vivo de Phase 27 en su lugar. ``days[]``
+        reusa el :class:`CalendarDay` ya publicado; el PARSER de lectura del
+        calendario (``parse_calendar_response``) sigue sin usarse a propósito — ese
+        par de lectura está roto contra el wire real (D-16). Un body ausente,
+        ``null``, lista o escalar degrada al resultado zero-valued (tolerancia
+        D-07 / T-26-13, preservada) **en cualquiera de los dos modos de decode**:
+        el parser silencia la disposición estricta de ese único record terminal
+        ``non_dict`` para que una mutación publicada nunca responda a un ACK
+        anómalo con una excepción levantada DESPUÉS de que la escritura ya se
+        commiteó (CR-02). La divergencia se sigue registrando en el logger
+        ``market_data_client``, y un body ``dict`` bien formado cuyos CAMPOS
+        divergen sí levanta bajo ``strict_decode``. Un ``422`` fluye por el
+        ``_core.raise_for_response`` existente.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
         resp = await self._request(spec)
-        return _core.parse_calendar_write_response(resp)
+        return _core.parse_add_holidays_response(resp)
 
-    async def delete_holiday(self, day: str) -> dict[str, Any]:
-        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → ``dict`` tolerante.
+    async def delete_holiday(self, day: str) -> DeleteHolidayResult:
+        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → ``DeleteHolidayResult``.
 
         Gate-first (D-14). ``day`` es una fecha ISO ``YYYY-MM-DD`` (la OpenAPI
         declara el path param como ``format: date``). El builder aplica el guard de
@@ -703,14 +769,19 @@ class AsyncClient:
         lo pasa y se gana el ``422`` del servidor (D-13).
 
         El builder omite ``json_body``, así que el DELETE sale con
-        ``content == b""`` y sin ``Content-Type`` (D-02). Retorna el body como
-        ``dict`` vía ``_core.parse_calendar_write_response`` (D-06 / D-16), ``{}``
-        cuando el body está ausente.
+        ``content == b""`` y sin ``Content-Type`` (D-02). Retorna el body tipado
+        como :class:`DeleteHolidayResult` vía
+        ``_core.parse_delete_holiday_response`` (Phase 31 TYP-02 / D-05), y el
+        resultado zero-valued cuando el body está ausente, es ``null``, una lista o
+        un escalar (tolerancia T-26-13, preservada) — en cualquiera de los dos
+        modos de decode, por la misma razón de after-the-write-committed detallada
+        en :meth:`add_holidays` (CR-02). La divergencia se sigue registrando en el
+        logger ``market_data_client``.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_delete_holiday_request(self._state, day)
         resp = await self._request(spec)
-        return _core.parse_calendar_write_response(resp)
+        return _core.parse_delete_holiday_response(resp)
 
 
 # ----------------------------------------------------------------------
@@ -735,15 +806,22 @@ def _get_default() -> AsyncClient:
 
 def configure(
     *,
+    # Fase 32 WR-01: `base_url` declarado PRIMERO, espejando `client.configure`.
+    # Estaba quinto acá; todos son keyword-only, así que el reorden no rompe a
+    # ningún caller, pero el orden de declaración ES parte de la superficie que
+    # el constraint dual sync/async congela, y `typing.get_type_hints` (un mapa
+    # desordenado) no podía verlo.
+    base_url: str | None = None,
     client_id: str | None = None,
     client_secret: str | None = None,
     audience: str | None = None,
     auth0_token_url: str | None = None,
-    base_url: str | None = None,
     token: str | None = None,
     token_expires_at: float | None = None,
+    http_client: httpx.AsyncClient | None = None,
     mutating_allowed: bool | None = None,
     expected_host: str | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs del default async en runtime.
 
@@ -757,6 +835,21 @@ def configure(
     ``client.configure`` (WR-01 — el constraint dual sync/async exige que ambas
     superficies invaliden en ``base_url``). No expone credenciales de usuario,
     rotación de refresh ni override de reintentos (grant machine-to-machine, D-05).
+
+    ``http_client`` se usa AS-IS (sin auto-wrap con ``RetryTransport``), igual que
+    en la superficie sync. Fase 32 D-09: este parámetro faltaba acá y su ausencia
+    volvía FALSA la afirmación de espejo del párrafo anterior; el gate de paridad
+    ``tools/surface_parity.py`` lo detectó y esta firma cierra la deriva. Queda UNA
+    diferencia honesta con la superficie sync, y se nombra en vez de taparse: sync
+    **cierra** el cliente cacheado previo antes de reemplazarlo, y acá no se puede
+    porque ``configure`` es un ``def`` plano y no puede ``await
+    http_client.aclose()``. En su lugar emite un ``ResourceWarning`` cuando
+    reemplaza un cliente vivo DISTINTO — el mismo shape que ``matriz_client.aio``
+    — y nombra ``await market_data_client.aio.aclose()`` como remedio. Re-pasar el
+    MISMO cliente no advierte nada.
+
+    Fase 29 D-03: ``strict_decode`` es config puro con el mismo sentinel
+    ``None`` = "no cambiar" que la superficie sync.
     """
     client = _get_default()
     rotated = False
@@ -785,6 +878,30 @@ def configure(
         client._state.token = token
     if token_expires_at is not None:
         client._state.token_expires_at = token_expires_at
+    # Transporte inyectado (D-09): NO setea ``rotated`` — cambiar de transporte no
+    # es una rotación de credencial y no invalida el token cacheado (la superficie
+    # sync tampoco lo setea acá, ``client.py:820-824``). El guard de identidad
+    # (``is not``) hace que re-pasar el MISMO cliente sea silencioso.
+    if http_client is not None:
+        # Fase 32 WR-07: entrada pública alcanzable desde un caller sin tipos. El
+        # único chequeo de tipo sobre el objeto almacenado eran los `assert
+        # isinstance` de `aclose()` / `_ensure_http_client()`, que desaparecen
+        # bajo `python -O`; un `httpx.Client` entregado acá reaparecía como
+        # `AttributeError: 'Client' object has no attribute 'aclose'` o como un
+        # `TypeError` en `await http.send(req)`, lejos de la llamada culpable.
+        if not isinstance(http_client, httpx.AsyncClient):
+            raise TypeError(
+                f"http_client must be an httpx.AsyncClient, got {type(http_client).__name__}"
+            )
+        if client._state.http_client is not None and client._state.http_client is not http_client:
+            warnings.warn(
+                "market_data_client.aio.configure(): replacing a live httpx.AsyncClient "
+                "(via http_client=) without awaiting aclose() leaks the connection "
+                "pool. Call `await market_data_client.aio.aclose()` before configure(...).",
+                ResourceWarning,
+                stacklevel=2,
+            )
+        client._state.http_client = http_client
     # Gate de mutaciones: config puro (D-13/D-15), NO credenciales — NO setea
     # ``rotated`` (no invalida el token). Sentinel None = "no cambiar", así que
     # un ``configure(base_url=...)`` NO resetea un opt-in previo (Pitfall 5).
@@ -792,14 +909,17 @@ def configure(
         client._state.mutating_allowed = mutating_allowed
     if expected_host is not None:
         client._state.expected_host = expected_host
+    # Fase 29 D-03: modo de decode, config puro con el mismo sentinel.
+    if strict_decode is not None:
+        client._state.strict_decode = strict_decode
 
 
-async def get_health() -> dict[str, Any]:
+async def get_health() -> Health:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_health()
 
 
-async def get_health_feed() -> dict[str, Any]:
+async def get_health_feed() -> HealthFeed:
     """Shim async top-level: delega al default AsyncClient."""
     return await _get_default().get_health_feed()
 
@@ -921,17 +1041,17 @@ async def delete_calendar_config() -> CalendarConfig:
     return await _get_default().delete_calendar_config()
 
 
-async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+async def preview_calendar_config(config: MarketHoursIn) -> CalendarConfigPreview:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().preview_calendar_config(config)
 
 
-async def add_holidays(holidays: HolidaysIn) -> dict[str, Any]:
+async def add_holidays(holidays: HolidaysIn) -> AddHolidaysResult:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().add_holidays(holidays)
 
 
-async def delete_holiday(day: str) -> dict[str, Any]:
+async def delete_holiday(day: str) -> DeleteHolidayResult:
     """Shim async top-level: delega al default AsyncClient (gated)."""
     return await _get_default().delete_holiday(day)
 

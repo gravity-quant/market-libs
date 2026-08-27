@@ -409,7 +409,7 @@ def test_parse_calendar_config_response_empty_body_tolerant_default() -> None:
 
 
 def test_parse_calendar_config_response_returns_single_object() -> None:
-    body = {
+    body: dict[str, Any] = {
         "open": "11:00",
         "close": "17:00",
         "timezone": "America/Argentina/Buenos_Aires",

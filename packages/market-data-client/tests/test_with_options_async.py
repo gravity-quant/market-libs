@@ -97,7 +97,7 @@ async def test_async_with_options_shares_state_and_aclose_is_noop(httpx_mock: HT
     httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json={"status": "ok2"})
 
     client = aio._get_default()
-    assert await client.get_health() == {"status": "ok"}
+    assert (await client.get_health()).status == "ok"
     parent_http = client._state.http_client
     assert parent_http is not None
 
@@ -109,7 +109,7 @@ async def test_async_with_options_shares_state_and_aclose_is_noop(httpx_mock: HT
     assert client._state.http_client is not None  # parent's transport still open
 
     # Parent still usable after the view's aclose().
-    assert await client.get_health() == {"status": "ok2"}
+    assert (await client.get_health()).status == "ok2"
 
 
 async def test_async_with_options_invalid_max_retries_raises_value_error() -> None:

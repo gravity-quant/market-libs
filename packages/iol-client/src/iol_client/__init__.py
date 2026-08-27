@@ -45,7 +45,15 @@ from iol_client.exceptions import (  # noqa: E402
     IOLAPIError,
     IOLAuthError,
     IOLClientError,
+    IOLDecodeError,
     IOLRateLimitError,
+)
+from iol_client.models import (  # noqa: E402
+    Cotizacion,
+    Instrumento,
+    Punta,
+    SafeModel,
+    Titulo,
 )
 
 # ``_get_default`` is intentionally re-exported (private name with leading
@@ -54,11 +62,17 @@ from iol_client.exceptions import (  # noqa: E402
 __all__ = [
     "AsyncClient",
     "Client",
+    "Cotizacion",
     "IOLAPIError",
     "IOLAuthError",
     "IOLClientError",
+    "IOLDecodeError",
     "IOLRateLimitError",
     "InstrumentType",
+    "Instrumento",
+    "Punta",
+    "SafeModel",
+    "Titulo",
     "configure",
     "get_historical_quotes",
     "get_instruments",
@@ -70,4 +84,4 @@ __all__ = [
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

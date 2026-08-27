@@ -48,7 +48,7 @@ from typing import Any
 
 import httpx
 
-from market_data_client import _params
+from market_data_client import _decode, _params
 from market_data_client._state import (
     _TOKEN_TTL_BUFFER_SECONDS,
     _TOKEN_TTL_FALLBACK_SECONDS,
@@ -60,8 +60,13 @@ from market_data_client.exceptions import (
     MarketDataRateLimitError,
 )
 from market_data_client.models import (
+    AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
+    DeleteHolidayResult,
+    Health,
+    HealthFeed,
     Instrument,
     LatestRequest,
     MarketDataSnapshot,
@@ -90,13 +95,16 @@ __all__ = [
     "build_symbols_request",
     "build_token_request",
     "build_update_symbol_request",
+    "parse_add_holidays_response",
     "parse_calendar_config_response",
     "parse_calendar_response",
-    "parse_calendar_write_response",
+    "parse_delete_holiday_response",
+    "parse_health_feed_response",
     "parse_health_response",
     "parse_instruments_response",
     "parse_latest_response",
     "parse_market_data_response",
+    "parse_preview_calendar_config_response",
     "parse_segments_response",
     "parse_symbols_response",
     "parse_token_response",
@@ -277,12 +285,57 @@ def build_health_feed_request(state: _ClientState) -> RequestSpec:
     )
 
 
-def parse_health_response(resp: httpx.Response) -> dict[str, Any]:
-    """Pure: parse a health response → JSON dict (D-03: no SafeModel here)."""
+@_decode._response_parser
+def parse_health_response(resp: httpx.Response) -> Health:
+    """Pure: parse ``GET /health`` → a single :class:`Health` (Phase 31 TYP-02, D-01/D-05).
+
+    Until Phase 31 ONE function served both health endpoints and returned the raw
+    mapping. Their live shapes are unrelated — ``/health`` is ``{status, auth{}}``
+    and ``/health/feed`` is a three-level ingestor tree — so the sharing ended:
+    this parser is named by ``get_health`` only, and ``parse_health_feed_response``
+    below by ``get_health_feed`` only.
+
+    Shape follows ``parse_calendar_config_response``, the in-package template for
+    a non-collection typed parser. Body-consume-then-raise order is a Phase 7
+    D-06 HTTP/2-safety invariant and is NEVER reordered. An empty body / 204
+    collapses to ``Health.from_api(None)`` — the zero-valued instance, explicitly
+    NOT a raise and explicitly not an empty mapping.
+
+    D-04: this parser GAINS a non-dict shape guard it never had (the shared
+    version annotated ``resp.json()`` as a dict and returned it unchecked, so a
+    list body produced an instance-shaped lie). The message carries
+    ``type(raw).__name__`` — the type NAME only, never the value and never a
+    repr (T-31-19 / T-29-36 / ASVS V7): market-data payloads carry symbol and
+    account identifiers.
+    """
     resp.read()
     raise_for_response(resp)
-    data: dict[str, Any] = resp.json()
-    return data
+    if not resp.content:
+        return Health.from_api(None)
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        raise MarketDataAPIError(0, f"expected dict, got {type(raw).__name__}")
+    return Health.from_api(raw)
+
+
+@_decode._response_parser
+def parse_health_feed_response(resp: httpx.Response) -> HealthFeed:
+    """Pure: parse ``GET /health/feed`` → a single :class:`HealthFeed` (Phase 31, D-01/D-05).
+
+    The half of the Phase 31 split that ``get_health_feed`` now names for itself.
+    Same contract as :func:`parse_health_response` — decorated, body-consume-then-raise,
+    empty/204 → the zero-valued instance, non-dict → ``MarketDataAPIError`` naming
+    the observed TYPE only — over a different model whose tree is three levels
+    deep (``HealthFeed`` → ``FeedIngestor`` → ``FeedMarket`` / ``FeedPipeline``).
+    """
+    resp.read()
+    raise_for_response(resp)
+    if not resp.content:
+        return HealthFeed.from_api(None)
+    raw = resp.json()
+    if not isinstance(raw, dict):
+        raise MarketDataAPIError(0, f"expected dict, got {type(raw).__name__}")
+    return HealthFeed.from_api(raw)
 
 
 # ----------------------------------------------------------------------
@@ -788,7 +841,7 @@ def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
     ``authenticated=True``; ``json_body`` is OMITTED so it stays ``None`` and the
     DELETE goes out with an empty body and no ``Content-Type`` (D-02). The
     response is parsed by the tolerant passthrough
-    :func:`parse_calendar_write_response`, not by any calendar-read parser (D-16).
+    :func:`parse_delete_holiday_response`, not by any calendar-read parser (D-16).
 
     Path-safety guard (D-18 / T-26-01): ``day`` is interpolated RAW into the path
     — no percent-encoding, so a legitimate ISO date rides the wire byte for byte
@@ -843,6 +896,7 @@ def build_delete_holiday_request(state: _ClientState, day: str) -> RequestSpec:
 # ----------------------------------------------------------------------
 
 
+@_decode._response_parser
 def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     """Pure: parse a ``GET /marketdata`` response → list of snapshots (D-01).
 
@@ -874,6 +928,7 @@ def parse_market_data_response(resp: httpx.Response) -> list[MarketDataSnapshot]
     return [MarketDataSnapshot.from_api(item, received_at=received_at) for item in rows]
 
 
+@_decode._response_parser
 def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
     """Pure: parse a ``GET/POST /marketdata/latest`` response → list of snapshots.
 
@@ -923,10 +978,32 @@ def parse_latest_response(resp: httpx.Response) -> list[MarketDataSnapshot]:
 # is the single-object exception (D-07).
 
 
+@_decode._response_parser
 def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
-    """Pure: parse ``GET /instruments`` → ``list[Instrument]`` (D-05 / D-06).
+    """Pure: parse ``GET /instruments`` → ``list[Instrument]`` (D-05 / D-06 / S-1).
 
-    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    The develop wire wraps the rows in the object envelope
+    ``{catalogue, count, items[], limit, offset, total}`` (baseline
+    ``.planning/verification/schemas/market-data-client/get-instruments.json``), so
+    a dict body is unwrapped via ``items``. This mirrors
+    ``parse_market_data_response`` exactly — same unwrap key, same double
+    collection guard.
+
+    **The S-1 bug this fixes (Phase 33, LIVE-TYP-01).** The previous body was
+    ``[Instrument.from_api(item) for item in raw]``. Against the envelope that
+    iterates the object's KEYS, so every catalogue read produced one ALL-DEFAULT
+    ``Instrument`` per key — six rows of empty strings, and a single
+    ``non_dict`` divergence record per surface (``F-82`` / ``F-102``) whose count
+    of 1 badly understates the blast radius. ``29-SIZING.md`` named this "the
+    parser does not unwrap the envelope" and left open whether the server had
+    introduced the envelope after the client was written; the 33-05 live run
+    closed it: today's wire sends the envelope and today's parser did not unwrap
+    it. Same failure mode ``parse_calendar_response`` had before D-12 and
+    ``parse_symbols_response`` before D-11.
+
+    A bare-list body is still accepted as-is for compatibility; a dict without
+    ``items`` (or a non-list ``items``), a ``null``/empty, or any other body
+    collapses to ``[]``. Body-consume-then-raise order is preserved. No
     ``received_at`` stamp — reference data is unstamped (D-05).
     """
     resp.read()
@@ -936,13 +1013,46 @@ def parse_instruments_response(resp: httpx.Response) -> list[Instrument]:
     raw = resp.json()
     if raw is None:
         return []
-    return [Instrument.from_api(item) for item in raw]
+    rows: Any
+    if isinstance(raw, dict):
+        rows = raw.get("items", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [Instrument.from_api(item) for item in rows]
 
 
+@_decode._response_parser
 def parse_segments_response(resp: httpx.Response) -> list[Segment]:
-    """Pure: parse ``GET /instruments/segments`` → ``list[Segment]`` (D-05 / D-06).
+    """Pure: parse ``GET /instruments/segments`` → ``list[Segment]`` (D-05 / D-06 / S-1).
 
-    Body-consume-then-raise order; a 204 / ``null`` body collapses to ``[]``. No
+    The develop wire wraps the rows in the object envelope
+    ``{catalogue, segments[]}`` (baseline
+    ``.planning/verification/schemas/market-data-client/get-segments.json``), so a
+    dict body is unwrapped via ``segments``. Identical to
+    ``parse_instruments_response`` except for the unwrap key.
+
+    **The S-1 bug this fixes (Phase 33, LIVE-TYP-01).** See
+    :func:`parse_instruments_response` — same defect, same measurement
+    (``F-83`` / ``F-103``), two all-default rows per read.
+
+    Unwrapping is only half of S-1's blast radius, and the other half is
+    DELIBERATELY not fixed here: :class:`~market_data_client.models.Segment`
+    declares ``marketSegmentId`` / ``marketId`` / ``description`` while the wire
+    row carries ``segment`` / ``live_instruments``. Correcting that is a
+    published-model shape change, which Phase 33's plan 33-07 Task 1 gates behind
+    an explicit operator disposition; the operator authorised three such changes
+    and this was not among them. The rows now decode as REAL rows with REPORTED
+    per-field ``missing``/``extra`` divergences instead of a single terminal
+    ``non_dict`` that hides them — visible instead of silent. The shape
+    correction is routed to ``SHAPE-MD-REF-33`` (``ROADMAP.md`` § Backlog).
+
+    A bare-list body is still accepted as-is for compatibility; a dict without
+    ``segments`` (or a non-list ``segments``), a ``null``/empty, or any other body
+    collapses to ``[]``. Body-consume-then-raise order is preserved. No
     ``received_at`` stamp — reference data is unstamped (D-05).
     """
     resp.read()
@@ -952,9 +1062,19 @@ def parse_segments_response(resp: httpx.Response) -> list[Segment]:
     raw = resp.json()
     if raw is None:
         return []
-    return [Segment.from_api(item) for item in raw]
+    rows: Any
+    if isinstance(raw, dict):
+        rows = raw.get("segments", [])
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return [Segment.from_api(item) for item in rows]
 
 
+@_decode._response_parser
 def parse_symbols_response(resp: httpx.Response) -> list[Symbol]:
     """Pure: parse any ``/symbols`` response → ``list[Symbol]`` (D-05 / D-06 / D-11).
 
@@ -1021,6 +1141,7 @@ def parse_symbols_response(resp: httpx.Response) -> list[Symbol]:
     return [Symbol.from_api(item) for item in rows]
 
 
+@_decode._response_parser
 def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
     """Pure: parse ``GET /calendar`` → ``list[CalendarDay]`` (D-05 / D-06 / D-12).
 
@@ -1057,6 +1178,7 @@ def parse_calendar_response(resp: httpx.Response) -> list[CalendarDay]:
     return [CalendarDay.from_api(item) for item in rows]
 
 
+@_decode._response_parser
 def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
     """Pure: parse ``GET /calendar/config`` → a single ``CalendarConfig`` (D-07).
 
@@ -1073,35 +1195,169 @@ def parse_calendar_config_response(resp: httpx.Response) -> CalendarConfig:
     return CalendarConfig.from_api(raw)
 
 
-def parse_calendar_write_response(resp: httpx.Response) -> dict[str, Any]:
-    """Pure: parse a calendar-write ``200`` → tolerant dict passthrough (D-06 / D-07).
+@_decode._response_parser
+def parse_preview_calendar_config_response(resp: httpx.Response) -> CalendarConfigPreview:
+    """Pure: parse ``POST /calendar/config/preview`` → ``CalendarConfigPreview`` (S-2).
 
-    Serves BOTH holiday endpoints (``POST /calendar/holidays`` and
-    ``DELETE /calendar/holidays/{day}``) — same contract, same tolerance, one
-    function. The live OpenAPI declares every calendar-write ``200`` as a bare
-    ``object`` with no schema, so there is nothing to type against until Phase 27
-    (LIVE-MUT-01) captures the real shape; until then the body is handed back
-    verbatim.
+    **The S-2 defect this fixes (Phase 33, LIVE-TYP-01).** The preview endpoint
+    used to share ``parse_calendar_config_response``, on the reading that a
+    preview of a config is a config. The wire disagrees on every key: the verdict
+    envelope is ``{market_after, requires_confirmation, valid, warnings}`` and
+    :class:`~market_data_client.models.CalendarConfig` declares ten fields none of
+    which appear in it. Decoding one as the other manufactured an all-typed-zero
+    config and threw the verdict away — measured live as nine ``missing`` plus
+    three ``extra`` divergences per surface (``F-121``..``F-132`` /
+    ``F-152``..``F-163``), exactly the set ``29-SIZING.md`` predicted as S-2.
 
-    Tolerance is deliberate (T-26-13): an absent body, a ``null``, a list or a
-    scalar all degrade to an empty dict instead of raising a raw
-    :class:`json.JSONDecodeError` or silently returning a value that contradicts
-    the annotation. This is why it is a NEW function rather than a reuse of
-    ``parse_health_response`` — that one copies only the body-consume-then-raise
-    ORDER, not its (missing) guards. Transport errors keep flowing through
-    ``raise_for_response`` (401/403 → Auth, 429 → RateLimit, 422 and the rest →
-    API error) before any decoding happens.
+    The return TYPE change is source-breaking and was authorised at the 33-07
+    Task 1 checkpoint (``fix-shape-now``); Phase 34 carries the 0.4.0 → 0.5.0
+    consequence.
 
-    The config trio (``set`` / ``delete`` / ``preview``) does NOT use this parser:
-    it reuses ``parse_calendar_config_response`` unmodified (D-05). Neither
-    holiday endpoint is typed against the calendar-read model — that read pair is
-    broken against the real wire (D-16).
+    Structure is ``parse_calendar_config_response``'s verbatim — the same
+    body-consume-then-raise order and the same D-07 tolerant fallback, where an
+    empty/``None`` body collapses to ``CalendarConfigPreview.from_api(None)``
+    rather than raising. Only the target model differs. No ``received_at``
+    stamp: a dry-run verdict is not a snapshot (D-05).
     """
     resp.read()
     raise_for_response(resp)
     if not resp.content:
-        return {}
+        return CalendarConfigPreview.from_api(None)
     raw = resp.json()
+    return CalendarConfigPreview.from_api(raw)
+
+
+@_decode._response_parser
+def parse_add_holidays_response(resp: httpx.Response) -> AddHolidaysResult:
+    """Pure: parse ``POST /calendar/holidays`` → :class:`AddHolidaysResult` (D-05).
+
+    **The split (Phase 31 D-05).** This replaces one half of
+    ``parse_calendar_write_response``, which served BOTH holiday endpoints because
+    the live OpenAPI declares every calendar-write ``200`` as a bare, schema-less
+    ``object`` and there was nothing to type against. Phase 27's LIVE-MUT-01
+    capture supplied the real shapes and they are UNRELATED —
+    ``{days, note, saved}`` here versus ``{day, deleted}`` for the delete — so one
+    function can no longer serve both.
+
+    **The T-26-13 tolerance is PRESERVED, not dropped (G-4).** The replaced
+    function argued at length that its tolerance was deliberate: an absent body,
+    a ``null``, a JSON list or a JSON scalar all degraded to an empty mapping
+    rather than raising a raw :class:`json.JSONDecodeError` or returning a value
+    contradicting its own annotation. All four branches survive here, merely
+    re-expressed through the type: they collapse to the zero-valued
+    ``AddHolidaysResult``. **None of them raises.** That disposition
+    deliberately differs from the two health parsers, which gained a non-dict
+    RAISE in plan 31-04: those serve reads, whereas this endpoint is a MUTATION
+    already published in v0.4.0, and turning tolerance into a raise would be a
+    behaviour change that this phase's response-only framing does not authorize.
+    ``parse_calendar_config_response`` one function above is the direct in-package
+    precedent for the empty-body → zero-valued-instance shape.
+
+    **"None of them raises" holds under ``strict_decode`` too (CR-02).** It did
+    not, when the claim was first written. Every one of the four branches reaches
+    ``walk_model``'s non-dict arm, which reports a ``non_dict`` divergence; that
+    kind is not an ``_INFO_KIND``, so with ``_decode.STRICT_DECODE`` set — the
+    mode the Phase 33 driver runs in — the sink raised
+    :class:`~market_data_client.exceptions.MarketDataDecodeError` on all four.
+    On a MUTATION that raise lands after the server has already committed the
+    write, so the caller loses the acknowledgement and cannot tell whether the
+    holiday was upserted. The implementation therefore silences the strict
+    DISPOSITION for that single branch (and only that branch): a well-shaped
+    ``dict`` acknowledgement whose FIELDS diverge still raises under strict mode,
+    exactly like every other parser in this file.
+
+    Tolerating the shape does NOT mean hiding it (WR-01/CR-02). The anomalous
+    payload reaches ``from_api`` verbatim, so the ``non_dict`` divergence record
+    carries the type the vendor really sent — ``list``, ``str``, ``int``, or
+    ``NoneType`` for a genuinely absent body — instead of stamping all four as
+    ``NoneType``; and the record is emitted regardless of mode, because ``_emit``
+    runs BEFORE the strict disposition it is now spared. Phase 33's census loses
+    nothing: it gains the acknowledgement it would otherwise have traded for an
+    exception.
+
+    Transport errors keep flowing through ``raise_for_response`` (401/403 → Auth,
+    429 → RateLimit, 422 and the rest → API error) BEFORE any decoding, in the
+    Phase 7 D-06 body-consume-then-raise order every parser in this file honours.
+
+    ``days[]`` decodes into the shipped :class:`CalendarDay` — the same model the
+    calendar READ uses — because the capture matches it field for field (D-01).
+    No ``received_at`` stamp: a mutation acknowledgement is not a snapshot (D-05).
+
+    The config trio (``set`` / ``delete`` / ``preview``) does NOT use this parser:
+    it reuses ``parse_calendar_config_response`` unmodified (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    # WR-01: the payload is handed to ``from_api`` VERBATIM, never replaced by a
+    # literal ``None``. ``walk_model``'s non-dict arm reports
+    # ``observed_type=type(payload).__name__``, so substituting ``None`` here
+    # stamped every anomalous body — list, str, int — as ``NoneType`` and threw
+    # away the one fact the census exists to record: what the vendor actually
+    # sent. The resulting VALUE is unchanged (any non-dict yields the same
+    # zero-valued instance); only the divergence record gets its truth back.
+    raw = resp.json() if resp.content else None
     if not isinstance(raw, dict):
-        return {}
-    return raw
+        # CR-02: the tolerance has to hold under ``strict_decode`` too, or it is
+        # not the T-26-13 tolerance this function claims to preserve. Every
+        # branch here reaches ``walk_model``'s non-dict arm, whose ``non_dict``
+        # record is NOT an ``_INFO_KIND``, so the strict sink would raise
+        # ``MarketDataDecodeError`` — AFTER the server already committed the
+        # write, leaving the caller unable to tell whether the holiday was
+        # upserted. Silencing the RAISE for this one branch is what keeps a
+        # published mutation's acknowledgement out of strict mode's reach; the
+        # record itself is still emitted (``_emit`` runs before the strict
+        # disposition), so Phase 33's divergence census loses nothing.
+        token = _decode.STRICT_DECODE.set(False)
+        try:
+            return AddHolidaysResult.from_api(raw)
+        finally:
+            _decode.STRICT_DECODE.reset(token)
+    return AddHolidaysResult.from_api(raw)
+
+
+@_decode._response_parser
+def parse_delete_holiday_response(resp: httpx.Response) -> DeleteHolidayResult:
+    """Pure: parse ``DELETE /calendar/holidays/{day}`` → :class:`DeleteHolidayResult` (D-05).
+
+    The other half of the ``parse_calendar_write_response`` split — see
+    :func:`parse_add_holidays_response` for the full rationale. In brief: the two
+    endpoints' live shapes are unrelated, so the shared function became two.
+
+    **The T-26-13 tolerance is PRESERVED (G-4).** An absent body, a ``null``, a
+    JSON list and a JSON scalar all collapse to the zero-valued
+    ``DeleteHolidayResult`` and none of them raises — including under
+    ``strict_decode``, for which the strict disposition of the terminal
+    ``non_dict`` record is silenced on this branch alone (CR-02; see the add half
+    for why a published mutation must not answer an anomalous ACK with an
+    exception after the write committed). A well-shaped ``dict`` body whose
+    FIELDS diverge still raises under strict mode. This is a MUTATION published
+    in v0.4.0; a raise on the tolerance branches would be a behaviour change, not
+    a typing change. As in the add half, the payload reaches ``from_api``
+    verbatim so the ``non_dict`` record names the type actually observed (WR-01),
+    and that record is emitted in either mode.
+
+    ``deleted`` is a BOOLEAN on the wire
+    (``.planning/verification/schemas/market-data-client/delete-holiday-sync-response.json``),
+    which the model declares faithfully. Note the measured consequence, pinned by
+    ``tests/test_core.py``: an ``int`` arriving for that field is NOT widened —
+    it earns a ``type`` divergence record and is substituted with ``False``.
+
+    Body-consume-then-raise order preserved (Phase 7 D-06); no ``received_at``
+    stamp (D-05).
+    """
+    resp.read()
+    raise_for_response(resp)
+    # WR-01: payload handed to ``from_api`` verbatim — see the add half for why
+    # substituting a literal ``None`` erased the observed type from the record.
+    raw = resp.json() if resp.content else None
+    if not isinstance(raw, dict):
+        # CR-02: strict mode is silenced for this one branch only — see the add
+        # half for the full rationale (a published mutation must not turn an
+        # anomalous ACK into an exception after the write committed). The
+        # divergence record is still emitted.
+        token = _decode.STRICT_DECODE.set(False)
+        try:
+            return DeleteHolidayResult.from_api(raw)
+        finally:
+            _decode.STRICT_DECODE.reset(token)
+    return DeleteHolidayResult.from_api(raw)

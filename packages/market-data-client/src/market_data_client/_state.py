@@ -103,6 +103,17 @@ class _ClientState:
     # deshabilita SÓLO la pata del host (la del flag sigue vigente).
     mutating_allowed: bool = False
     expected_host: str | None = _DEFAULT_EXPECTED_HOST
+    # Modo de decode (Fase 29 D-03/DEC-01). ``False`` = observable (la
+    # divergencia se reporta y se sustituye el default de política); ``True`` =
+    # estricto (una divergencia ``missing`` / ``type`` / ``non_dict`` levanta
+    # ``MarketDataDecodeError``). Vive acá, junto al gate de mutaciones y NUNCA
+    # en un ``__slots__`` de instancia, así un view de ``with_options`` hereda
+    # el modo del parent y ve sus mutaciones posteriores (D-14).
+    # Declarado como ``bool = False`` PLANO a propósito: los campos vecinos usan
+    # ``field(default_factory=_env_...)``, pero un carrier por variable de
+    # entorno está explícitamente prohibido para este flag (T-29-16) — agregar
+    # una factory lo pondría en la superficie de env.
+    strict_decode: bool = False
     token: str | None = None
     token_expires_at: float = 0.0
     http_client: httpx.Client | httpx.AsyncClient | None = None

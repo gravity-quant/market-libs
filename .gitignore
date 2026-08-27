@@ -42,6 +42,8 @@ claude/
 .claude/scripts/
 .claude/skills/senior-prompt-engineer/
 .future_plans/
+# Sentinela de dispatch escrito por el harness en runtime — no es contenido del repo
+.gsd/
 
 # Env
 .env

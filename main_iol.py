@@ -18,8 +18,8 @@ Probes en orden de ejecución (D-IOL-5; ``probe_auth_401`` ÚLTIMO, D-IOL-4):
 9.  ``probe_get_instruments_by_type_sync``  — ``instrument_type="acciones"`` + sanity 6 types (IOL-02 + IOL-04 + IOL-17).
 10. ``probe_get_instruments_by_type_async`` — espejo async sample (IOL-02).
 11. ``probe_parity_sync_async``             — diff estructural sync↔async (IOL-06, D-IOL-20).
-12. ``probe_field_type_map``                — ``schema_of`` vs ``_ASSUMED_*`` + envelope check ``"titulos"`` (IOL-03 + IOL-04 detail + Pitfall 2).
-13. ``probe_schema_snapshot``               — 4 snapshots con envelope D-21 + D-25 no-overwrite (DRIFT-01).
+12. ``probe_field_type_map``                — ``schema_of`` vs ``_ASSUMED_*`` + envelope check ``"titulos"``, sobre la captura de wire CRUDO de los 4 endpoints (IOL-03 + IOL-04 detail + Pitfall 2 + CR-01).
+13. ``probe_schema_snapshot``               — 4 snapshots tomados del wire CRUDO, con envelope D-21 + D-25 no-overwrite (DRIFT-01 + CR-01).
 14. ``probe_refresh_token``                 — verifica IOL-07 in-vivo (D-IOL-11).
 15. ``probe_auth_401``                      — opt-in vía ``VERIFY_IOL_BAD_CREDS=1`` (D-IOL-1/2/4).
 
@@ -48,6 +48,22 @@ Reglas de seguridad:
 - **Redacción (D-IOL-7/22):** todos los prints pasan por ``safe_print(text,
   secrets=[IOL_USER, IOL_PASSWORD, _refresh_token])``; el regex ``_BEARER``
   cubre tokens reflejados aun sin enumerar.
+- **Camino de crash (CR-02, única excepción a la regla anterior):**
+  ``_redacted_excepthook`` escribe a **stderr** y por eso NO pasa por
+  ``safe_print`` — ``safe_print`` escribe sólo a stdout y no toma parámetro de
+  archivo, y volcar la salida del crash a stdout corrompería la línea
+  ``SUMMARY`` que el operador y CI parsean. El texto que el hook emite es
+  libre de credenciales **por construcción**: es exactamente la salida de
+  ``_redacted_exc`` (un nombre de clase más un status code entero) seguida de
+  frames de traceback, que son archivo/línea/función y fuente estática del
+  repo, jamás valores del wire ni variables locales.
+- **El camino de crash falla CERRADO (T-30-12-01/04):** si la maquinaria de
+  redacción falla a mitad de camino, el hook degrada el **texto** a un
+  placeholder estático, nunca la frontera. CPython, ante un excepthook que
+  levanta, cae al renderer default —que imprime ``[<status>] <body>``—, así que
+  un hook sin guard sería peor que no tener hook. La llamada al renderer va
+  adentro de un ``try``, y cada uno de los dos sinks de stderr va adentro de su
+  propio ``contextlib.suppress``.
 
 Artefactos generados (NO commiteados en este plan; se commitean en 03-03 tras
 checkpoint humano):
@@ -66,17 +82,37 @@ import contextlib
 import datetime as dt
 import json
 import os
+import sys
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
-from verification import require_env, safe_print, schema_of, write_findings
-from verification.findings import append_finding
+from verification import (
+    divergence_capture,
+    endpoint_scope,
+    probe_context,
+    require_env,
+    safe_print,
+    schema_of,
+    write_findings,
+)
+from verification.findings import append_finding, max_existing_fid
 
 import iol_client
-from iol_client import AsyncClient, Client, IOLAPIError, IOLAuthError
-from iol_client._core import RequestSpec
+from iol_client import (
+    AsyncClient,
+    Client,
+    Cotizacion,
+    Instrumento,
+    IOLAPIError,
+    IOLAuthError,
+    IOLDecodeError,
+    Titulo,
+    _core,
+)
 from iol_client.client import _raise_for_response
 
 # ---------------------------------------------------------------------------
@@ -108,9 +144,18 @@ _ALL_INSTRUMENT_TYPES: tuple[iol_client.InstrumentType, ...] = (
 # D-IOL-14: caller assumptions hardcoded como state público del driver.
 # Listas mínimas — campos cuya presencia/tipo el caller asume; ampliar a
 # discreción al observar payloads reales (Discretion).
+#
+# WR-02: **toda** entrada de estos dicts debe estar sostenida por el baseline
+# committeado correspondiente bajo ``.planning/verification/schemas/iol-client/``.
+# Una clave asumida que el corpus no registra emite, ahora que el probe vuelve a
+# leer wire real, un finding SHAPE OPEN en cada corrida viva que ningún cambio
+# upstream puede cerrar — ruido que entrena al operador a ignorar el archivo de
+# findings, que es lo opuesto a lo que este harness busca.
+# ``verification/test_main_iol_raw_wire_drift.py::
+# test_assumed_quote_fields_are_all_present_in_committed_baseline`` lo enforcea
+# offline: una entrada sin respaldo falla ahí, no en producción.
 _ASSUMED_QUOTE_FIELDS: dict[str, str] = {
     "ultimoPrecio": "float",  # IOL-04: numeric, JSON number
-    "simbolo": "str",
 }
 _ASSUMED_HISTORICAL_FIELDS: dict[str, str] = {
     "fechaHora": "str",
@@ -135,13 +180,66 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
     "get_instruments_by_type": "/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos",
 }
 
+# El endpoint del password grant / refresh grant (``_core.build_login_request``).
+# Vive aparte de ``_ENDPOINT_TEMPLATES`` porque ese dict indexa los 4 endpoints
+# que tienen schema snapshot, y ``/token`` no tiene ninguno.
+_LOGIN_ENDPOINT = "/token"
+
+# Endpoint bindeado por los probes que NO hacen ninguna llamada en vivo (11, 12 y
+# 13: paridad, field→type map y snapshots operan sobre modelos y wire ya
+# capturados). ``"-"`` es el default del ``ContextVar`` de
+# ``verification.divergences`` y significa exactamente "ningún endpoint
+# bindeado"; inventarles uno atribuiría una divergencia a un endpoint que ese
+# probe nunca tocó.
+_NO_ENDPOINT = "-"
+
+# Phase 33 (LIVE-TYP-01): flag del segundo pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``, que prueba que el raise de modo estricto
+# efectivamente dispara. Viaja como kwarg del constructor para NO agregar un
+# segundo sitio de construcción: ``test_main_iol_uses_single_client_instance``
+# asserta ``1 <= ctor_calls <= 2`` por AST.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
+
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
+# NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
+# ya registrado antes del primer probe (D-16/D-24). Sin ese seed, cada finding
+# nuevo re-emitiría un fid ya ocupado — y contra el archivo committeado, que hoy
+# lleva F-01 (OPEN) y F-02 (FIXED), eso significa reescribir el triage del
+# operador en el primer caso y perder el finding en silencio en el segundo,
+# mientras el driver sigue reportando ``FINDING=N``.
 _fid_counter: int = 0
 
 # D-IOL-3: cascade SKIPPED — flag único compartido entre surfaces sync y async.
 # Si CUALQUIER login falla, todos los downstream emiten SKIPPED.
 _auth_failed: bool = False
 _auth_failure_reason: str = ""
+
+
+def _seed_fid_counter() -> None:
+    """Sube ``_fid_counter`` al máximo fid ya registrado en el findings file (D-16/D-24).
+
+    Debe correr DESPUÉS de ``write_findings(_PKG)`` (el bootstrap del archivo) y
+    ANTES del primer probe, para que todo fid emitido en este run caiga por
+    encima de lo ya escrito y realmente aterrice en el archivo.
+
+    La falla que previene tiene dos caras, y ambas son observables hoy contra
+    ``.planning/verification/iol-client-findings.md``:
+
+    - un fid re-emitido cuyo status registrado ES ``OPEN`` (hoy ``F-01``) NO
+      dispara el short-circuit de :func:`verification.findings.append_finding`:
+      el bloque de detalle se **reescribe en el lugar** con contenido ajeno y el
+      triage que el operador arrastró desde la Phase 17 se pierde;
+    - un fid re-emitido cuyo status registrado NO es ``OPEN`` (hoy ``F-02``,
+      ``FIXED``) sí dispara el short-circuit: el write se vuelve un no-op
+      **silencioso** mientras ``main()`` igual lo cuenta en ``FINDING=N`` y el
+      ``SUMMARY`` reporta éxito. El run pierde su entregable creyendo que
+      funcionó.
+
+    Misma forma que ``main_market_data.py::_seed_fid_counter``.
+    """
+    global _fid_counter
+    _fid_counter = max_existing_fid(_PKG)
 
 
 def _next_fid() -> str:
@@ -179,10 +277,292 @@ def _last_business_day(today: dt.date) -> dt.date:
 
 
 # ---------------------------------------------------------------------------
+# Frontera hacia el harness de verificación (Phase 30, D-07/D-08)
+# ---------------------------------------------------------------------------
+
+
+def _as_wire(value: Any) -> Any:
+    """Proyecta un modelo (o una lista de modelos) de vuelta a su dict de wire.
+
+    **Un solo consumidor:** :func:`probe_parity_sync_async` (probe 11). Los
+    probes 12 y 13 tenían call sites acá y los perdieron con CR-01: ahora leen
+    el wire CRUDO capturado por :func:`_capture_raw_wire`, porque una proyección
+    del modelo es función de la **declaración** del modelo y no del wire, y por
+    lo tanto ciega al type-drift, a las claves agregadas y a las quitadas.
+
+    Lo que la proyección sigue habilitando en el probe de paridad:
+    ``verification.schema.schema_of`` reduce cualquier cosa que no sea ``dict``
+    ni ``list`` al **nombre de su tipo**, así que sin este adaptador el probe
+    compararía ``"Cotizacion" == "Cotizacion"``: siempre igual, PASS habiendo
+    perdido todo su poder discriminante.
+
+    **Qué prueba —y qué NO prueba— un PASS de paridad (WR-07).** Los dos lados
+    son proyecciones de la *misma* clase, así que el conjunto de claves es
+    idéntico por construcción y los tipos de las hojas no-opcionales también:
+    esas dos clases de drift el probe **no puede** detectarlas. Lo que sí
+    discrimina es la presencia de campos ``Optional`` (``None`` vs valor) y la
+    cardinalidad de las listas. Un PASS acá no es evidencia de que sync y async
+    hayan recibido el mismo wire; es evidencia de que produjeron modelos con la
+    misma forma poblada. Un lector futuro no debe tomarlo por más de eso.
+
+    La salida alimenta ``schema_of`` y **nada más**: esa función emite claves y
+    nombres de tipo, jamás valores, y por eso es libre de datos personales por
+    construcción. Ningún llamador la escribe a un archivo de findings ni
+    directamente a un snapshot.
+    """
+    if isinstance(value, list):
+        return [_as_wire(v) for v in value]
+    return value.to_dict() if hasattr(value, "to_dict") else value
+
+
+def _redacted_exc(exc: BaseException) -> str:
+    """Única función del driver autorizada a convertir una excepción en texto de reporte.
+
+    **Por qué existe (T-30-09-01, extiende T-30-08-01 a todo el archivo).**
+    ``_core.raise_for_response`` construye ``IOLAuthError`` / ``IOLRateLimitError``
+    / ``IOLAPIError`` con ``resp.text`` como mensaje: el body de error upstream
+    completo queda adentro de la excepción, puesto ahí para beneficio del
+    **consumidor** que debe debuggearlo, no para el reporte. Un finding, en
+    cambio, es un artefacto durable versionado en git
+    (``.planning/verification/iol-client-findings.md``), y contra una API de
+    brokerage autenticada ese body lleva plausiblemente identificadores de cuenta
+    y de instrumento. Este helper es la frontera donde esa diferencia se hace
+    valer, y es **uno solo** (AD-30-09-01): con 32 sitios de reporte, una
+    expresión inline sería 32 decisiones independientes que derivan — que es
+    exactamente cómo nació este gap.
+
+    **Qué se conserva y por qué.** El status code sobrevive porque es el único
+    hecho que discrimina falla de auth, de rate limit, de error de servidor y de
+    transporte sin ser un valor del wire: sin él, un finding OPEN durable no es
+    triageable.
+
+    **Por qué está type-guardeado.** 11 de los 32 handlers del driver son
+    ``except Exception``, así que acá llegan tipos de ``iol_client``, de ``httpx``
+    y de la stdlib, presentes y futuros. Nada obliga a que un objeto que expone
+    ``status_code`` exponga un ``int``, y formatear un valor arbitrario sería una
+    fuga a través de la mismísima expresión escrita para evitar fugas
+    (30-REVIEW.md WR-06). Cualquier valor que no sea ``int`` se descarta.
+
+    **Por qué ``IOLDecodeError`` está exento** (30-REVIEW.md WR-03): sus cuatro
+    atributos ya están certificados por ``exceptions.py`` como "tipos y rutas,
+    **jamás** un valor del wire" (T-29-36). Redactarlos no compraría nada y le
+    costaría al operador cualquier forma de reproducir o cerrar el finding —
+    sobre-redactar es su propio modo de falla (T-30-09-03).
+
+    Nunca lee ``Exception.args`` ni ``.message``, y nunca vuelca el objeto
+    excepción.
+    """
+    if isinstance(exc, IOLDecodeError):
+        return (
+            f"IOLDecodeError model={exc.model} path={exc.field_path} "
+            f"declared={exc.declared_type} observed={exc.observed_type}"
+        )
+    raw_status = getattr(exc, "status_code", None)
+    status_code = raw_status if isinstance(raw_status, int) else None
+    return f"{type(exc).__name__} status_code={status_code!r}"
+
+
+def _shape_probe_result(probe_name: str, surface: str, detail: str) -> ProbeResult:
+    """Traduce un ``IOLDecodeError`` ya renderizado al ``ProbeResult`` canónico (P-4).
+
+    **Por qué la interceptación va acá y no en el decorador.** A diferencia de
+    higyrus y de matriz, los probes de este driver terminan en un
+    ``except Exception`` propio, que atrapa el ``IOLDecodeError`` ANTES de que
+    pueda llegar a ``probe_context``. Un ``decode_error=`` / ``on_decode_error=``
+    sobre el decorador sería código muerto en este archivo — por eso no se pasan
+    (esta nota está escrita una sola vez, acá, para que un lector futuro no
+    "arregle" la omisión aparente en los 15 sitios de decorador).
+
+    **Qué cambia respecto del ``except Exception``.** Ese handler mintea un
+    finding ``ERROR-MAP`` cuyo título lleva el nombre del probe, así que dos
+    probes que golpean la MISMA divergencia ``(model, field_path, kind)``
+    producen dos títulos distintos y el ``idempotent_by_title`` del lock 10 no
+    puede colapsarlos: cada corrida viva ensucia el censo con fids nuevos. Esta
+    rama devuelve un detail derivado ÚNICAMENTE de la excepción —jamás del
+    nombre del probe—, así que es idéntico entre probes para la misma
+    divergencia.
+
+    **NO escribe un finding**, y eso es deliberado (33-01-SUMMARY.md, contrato
+    de ``on_decode_error``): el ``SHAPE`` ya lo escribió
+    :class:`verification.divergences.DivergenceHandler` a partir del record que
+    ``_decode`` emitió justo antes de levantar, bajo el título determinístico de
+    la convención lockeada ``surface-in-title-write-new``. Mintear otro acá
+    duplicaría la divergencia bajo un segundo título y rompería el mismísimo
+    ``idempotent_by_title`` que esta rama existe para habilitar.
+
+    **Recibe texto ya renderizado, NO la excepción**, y eso es load-bearing:
+    es exactamente el mismo contrato que :func:`_emit_crash_report` documenta
+    desde 30-12. Un helper que tomara la excepción se volvería un **segundo**
+    renderer bajo el censo de AD-30-09-01
+    (``test_the_driver_declares_exactly_one_exception_renderer``), y además cada
+    ``except`` que se la pasara sería una delegación no sancionada bajo
+    ``test_no_except_handler_in_the_driver_renders_its_exception_raw``. Los 12
+    sitios de llamada renderizan con :func:`_redacted_exc` —el único renderer
+    sancionado— y le entregan el ``str``. Para un ``IOLDecodeError`` ese renderer
+    emite exactamente ``model`` / ``field_path`` / ``declared_type`` /
+    ``observed_type``: los cuatro atributos certificados type-and-path-only por
+    T-29-36, y nada más.
+    """
+    return ProbeResult(probe_name.removeprefix("probe_"), "FINDING", f"SHAPE [{surface}] {detail}")
+
+
+def _shape_probe_result_pair(
+    probe_name: str, surface: str, detail: str
+) -> tuple[ProbeResult, None]:
+    """Variante 2-tuple de :func:`_shape_probe_result` para los probes con payload.
+
+    ``main_iol.py`` tiene DOS formas canónicas de retorno de probe, no una: los 8
+    probes que alimentan el batch de paridad (quote, historical, instruments,
+    by_type — sync y async) devuelven ``(ProbeResult, payload | None)``, mientras
+    que login, parity, field_type_map, schema_snapshot, refresh_token y auth_401
+    devuelven un ``ProbeResult`` pelado. Un único fallback con forma de 2-tuple
+    haría que ``results.append(probe_auth_401(client))`` metiera una tupla en una
+    ``list[ProbeResult]`` y el ``r.name`` del loop de impresión reventara con
+    ``AttributeError`` — bajo modo estricto, exactamente el crash que este plan
+    existe para eliminar. Mismo par de helpers que ``main_matriz.py`` y
+    ``main_higyrus.py`` (33-04 lee los tres).
+    """
+    return (_shape_probe_result(probe_name, surface, detail), None)
+
+
+def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], list[str]]:
+    """Captura el body CRUDO de los 4 endpoints, una vez cada uno (CR-01).
+
+    Devuelve ``(raw_by_endpoint, capture_fids)``. Las claves de
+    ``raw_by_endpoint`` son las 4 de ``_SCHEMA_FILES``. Un endpoint cuya captura
+    levantó queda **ausente** del dict — ausente, no ``None``, para que aguas
+    abajo no se pueda confundir "no capturado" con "capturado como null".
+
+    **Por qué existe (CR-01 / 30-VERIFICATION.md truth 6):** los wrappers
+    públicos devuelven modelos. Para cuando un modelo existe, el walker de la
+    Phase 29 ya coercionó cada campo no-opcional a su tipo declarado y descartó
+    cada clave que ningún campo declara, así que ``schema_of`` sobre la
+    proyección del modelo es función de la **declaración**, no del wire: un
+    ``float→str``, una clave agregada y una clave quitada son las tres
+    invisibles. Los probes de drift deben volver a ser función de lo que la API
+    efectivamente devolvió.
+
+    Esto generaliza —no inventa— la excepción ya razonada como "la ÚNICA HTTP
+    call duplicada permitida (Pitfall 2)": el mismo argumento, descubierto
+    aplicable a tres endpoints más. Costo: 3 GET autenticados extra por corrida
+    viva, sobre un token ya cacheado por la disciplina auth-once.
+
+    Los ``RequestSpec`` se construyen con los **builders de ``_core``**, no con
+    paths hardcodeados: así el body capturado es el body que el wrapper habría
+    recibido, y un drift en el builder mismo no puede quedar enmascarado por una
+    captura que reproduce un path viejo.
+
+    Discipline de datos (T-30-06-01 + T-30-08-01): el body crudo alimenta
+    ``schema_of`` y nada más. Ningún argumento de ``append_finding`` recibe un
+    body — tampoco en la rama de falla. La excepción que llega al ``except``
+    de abajo lleva el body de error upstream adentro de su propio mensaje,
+    porque ``_core.raise_for_response`` lo puso ahí para el consumidor, no
+    para el reporte; por eso el handler reporta sólo la clase de la excepción
+    y su status code, y se detiene ahí. Esto satisface T-29-36
+    (``exceptions.py``: "tipos y rutas, jamás un valor del wire") en la rama
+    de falla tal como ya valía en la de éxito.
+    """
+    if _auth_failed:
+        # D-IOL-3: los probes 12 y 13 conservan sus propias ramas SKIPPED por
+        # _auth_failed, así que la cascada no cambia.
+        return ({}, [])
+
+    base_url = client._state.base_url
+    hasta = _last_business_day(today)
+    desde = hasta - dt.timedelta(days=7)
+    # Parámetros idénticos a los que manda el wrapper público e idénticos a los
+    # que el probe 13 documenta en ``sample_params``.
+    specs: list[tuple[str, _core.RequestSpec]] = [
+        (
+            "get_quote",
+            _core.build_get_quote_request(
+                client._state, _SAMPLE_SYMBOL, mercado="bcba", plazo="t2"
+            ),
+        ),
+        (
+            "get_historical_quotes",
+            _core.build_get_historical_quotes_request(
+                client._state,
+                _SAMPLE_SYMBOL,
+                desde,
+                hasta,
+                mercado="bcba",
+                ajustada="sinAjustar",
+            ),
+        ),
+        (
+            "get_instruments",
+            _core.build_get_instruments_request(client._state, "argentina"),
+        ),
+        (
+            "get_instruments_by_type",
+            _core.build_get_instruments_by_type_request(
+                client._state, _SAMPLE_INSTRUMENT_TYPE, pais="argentina"
+            ),
+        ),
+    ]
+
+    raw_by_endpoint: dict[str, Any] = {}
+    capture_fids: list[str] = []
+    for func_name, spec in specs:
+        try:
+            # Phase 33 (P-5): este helper toca CUATRO endpoints en una sola
+            # llamada, y es el único sitio del driver que lo hace. Sin este
+            # re-binding las cuatro capturas quedarían atribuidas al endpoint
+            # que el probe llamador tenga bindeado —o a ``"-"``, que es el caso
+            # real: ``main()`` lo invoca fuera de todo ``probe_*``.
+            with endpoint_scope(_ENDPOINT_TEMPLATES[func_name]):
+                # WR-08 (fuera de scope de este cierre): cada uno de estos
+                # ``_request`` bindea un ``DecodeScope`` que ningún parser
+                # decorado retira, porque acá no corre ningún parser. Sigue
+                # inalcanzable SÓLO porque entre esta captura y el próximo
+                # ``_request`` (probe 14) no hay ningún ``from_api`` suelto: los
+                # probes 12 y 13 no decodifican. Un reordenamiento futuro del
+                # driver debe revisarlo.
+                resp = client._request(spec)
+                # ``Client._request`` (D-03) devuelve el response crudo sin
+                # levantar; replicamos el raise-on-error del shim module-level
+                # legacy.
+                if resp.is_error:
+                    _raise_for_response(resp)
+                raw_by_endpoint[func_name] = resp.json()
+        except IOLDecodeError:
+            # Rama de decode ADELANTE del handler amplio, por uniformidad con
+            # los 11 sitios de probe. Hoy es INALCANZABLE y se declara como tal:
+            # este helper no corre ningún parser decorado, así que ningún
+            # ``walk_model`` puede levantar acá. Existe para que el hazard WR-08
+            # que el docstring de arriba ya nombra —un reordenamiento que meta un
+            # ``from_api`` bajo este ``DecodeScope``— aterrice como divergencia
+            # de forma y no como un ``ERROR-MAP`` con título único por endpoint.
+            # El finding ``SHAPE`` lo escribe el ``DivergenceHandler``; acá el
+            # endpoint queda AUSENTE del dict, que es exactamente lo que el
+            # docstring define como "no capturado".
+            continue
+        except Exception as exc:
+            # Un endpoint que falla no aborta los otros tres: se registra y sigue.
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="ERROR-MAP",
+                surface="sync",
+                status="OPEN",
+                title=f"captura de wire crudo falló en {func_name}",
+                expected=f"200 OK con el body crudo de {func_name} para schema_of",
+                actual=_redacted_exc(exc),
+                diff=f"type={type(exc).__name__}",
+                base_url=base_url,
+            )
+            capture_fids.append(fid)
+    return (raw_by_endpoint, capture_fids)
+
+
+# ---------------------------------------------------------------------------
 # Probes — orden D-IOL-5 (probe_auth_401 último, D-IOL-4)
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_LOGIN_ENDPOINT, surface="sync")
 def probe_login_sync(client: Client) -> ProbeResult:
     """Probe 1: ``iol_client.login()`` (IOL-01).
 
@@ -195,7 +575,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
         client.login()
     except IOLAuthError as exc:
         _auth_failed = True
-        _auth_failure_reason = f"sync login: {exc}"
+        _auth_failure_reason = f"sync login: {_redacted_exc(exc)}"
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -205,7 +585,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
             status="OPEN",
             title="login() sync falló",
             expected="login succeeds + cached token",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -218,6 +598,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
     )
 
 
+@probe_context(endpoint=_LOGIN_ENDPOINT, surface="async")
 async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     """Probe 2: ``await aclient.login()`` (IOL-01).
 
@@ -230,7 +611,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
         await aclient.login()
     except IOLAuthError as exc:
         _auth_failed = True
-        _auth_failure_reason = f"async login: {exc}"
+        _auth_failure_reason = f"async login: {_redacted_exc(exc)}"
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -240,7 +621,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
             status="OPEN",
             title="login() async falló",
             expected="login succeeds + cached token",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -253,7 +634,8 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
-def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_quote"], surface="sync")
+def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None]:
     """Probe 3: ``client.get_quote(GGAL)`` (IOL-02).
 
     WR-03: single HTTP call por probe. WR-01: ``exc.status_code`` typed directo.
@@ -277,7 +659,7 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | 
             status="OPEN",
             title="get_quote_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -292,11 +674,17 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | 
             status="OPEN",
             title="get_quote_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
         return (ProbeResult("get_quote_sync", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_quote_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -306,15 +694,22 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | 
             surface="sync",
             status="OPEN",
             title=f"get_quote_sync unexpected {type(exc).__name__}",
-            expected="200 OK + dict",
-            actual=repr(exc),
+            expected="200 OK + Cotizacion",
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
         return (ProbeResult("get_quote_sync", "FINDING", f"{fid} (OPEN)"), None)
     # Plausibility check del precio (Discretion).
-    ultimo = quote.get("ultimoPrecio")
-    if isinstance(ultimo, int | float) and not (_PRICE_MIN < float(ultimo) < _PRICE_MAX):
+    # TYP-01: acceso por atributo tipado. El guard de tipo que envolvía esta
+    # comparación desapareció por ser código muerto demostrable — ``ultimoPrecio``
+    # está declarado ``float`` en ``Cotizacion`` y el walker garantiza que un
+    # decimal llega al atributo (sustituye el typed-zero y reporta si el wire
+    # diverge). Dejarlo puesto implicaría no creerle al tipo que esta fase
+    # entrega. El guard de **ausencia** sobre ``quote`` sí se conserva: el probe
+    # sigue recibiendo un valor opcional.
+    ultimo = quote.ultimoPrecio
+    if not (_PRICE_MIN < ultimo < _PRICE_MAX):
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -335,9 +730,10 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, dict[str, Any] | 
     return (ProbeResult("get_quote_sync", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_quote"], surface="async")
 async def probe_get_quote_async(
     aclient: AsyncClient,
-) -> tuple[ProbeResult, dict[str, Any] | None]:
+) -> tuple[ProbeResult, Cotizacion | None]:
     """Probe 4: ``await aclient.get_quote(GGAL)`` (IOL-02). Espejo async del probe 3."""
     if _auth_failed:
         return (
@@ -357,7 +753,7 @@ async def probe_get_quote_async(
             status="OPEN",
             title="get_quote_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -372,11 +768,17 @@ async def probe_get_quote_async(
             status="OPEN",
             title="get_quote_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
         return (ProbeResult("get_quote_async", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_quote_async", "async", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -386,20 +788,22 @@ async def probe_get_quote_async(
             surface="async",
             status="OPEN",
             title=f"get_quote_async unexpected {type(exc).__name__}",
-            expected="200 OK + dict",
-            actual=repr(exc),
+            expected="200 OK + Cotizacion",
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
         return (ProbeResult("get_quote_async", "FINDING", f"{fid} (OPEN)"), None)
-    ultimo = quote.get("ultimoPrecio")
+    # TYP-01: acceso por atributo tipado (espejo async del sitio sync).
+    ultimo = quote.ultimoPrecio
     return (ProbeResult("get_quote_async", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_historical_quotes"], surface="sync")
 def probe_get_historical_quotes_sync(
     client: Client,
     today: dt.date,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Cotizacion] | None]:
     """Probe 5: serie histórica de GGAL (IOL-02, D-IOL-19)."""
     if _auth_failed:
         return (
@@ -426,7 +830,7 @@ def probe_get_historical_quotes_sync(
             status="OPEN",
             title="get_historical_quotes_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -444,7 +848,7 @@ def probe_get_historical_quotes_sync(
             status="OPEN",
             title="get_historical_quotes_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -452,6 +856,12 @@ def probe_get_historical_quotes_sync(
             ProbeResult("get_historical_quotes_sync", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_historical_quotes_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -462,7 +872,7 @@ def probe_get_historical_quotes_sync(
             status="OPEN",
             title=f"get_historical_quotes_sync unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -476,10 +886,11 @@ def probe_get_historical_quotes_sync(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_historical_quotes"], surface="async")
 async def probe_get_historical_quotes_async(
     aclient: AsyncClient,
     today: dt.date,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Cotizacion] | None]:
     """Probe 6: serie histórica de GGAL — espejo async (IOL-02, D-IOL-19)."""
     if _auth_failed:
         return (
@@ -505,7 +916,7 @@ async def probe_get_historical_quotes_async(
             status="OPEN",
             title="get_historical_quotes_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -523,7 +934,7 @@ async def probe_get_historical_quotes_async(
             status="OPEN",
             title="get_historical_quotes_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -531,6 +942,12 @@ async def probe_get_historical_quotes_async(
             ProbeResult("get_historical_quotes_async", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_historical_quotes_async", "async", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -541,7 +958,7 @@ async def probe_get_historical_quotes_async(
             status="OPEN",
             title=f"get_historical_quotes_async unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -555,7 +972,8 @@ async def probe_get_historical_quotes_async(
     )
 
 
-def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="sync")
+def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instrumento] | None]:
     """Probe 7: ``client.get_instruments("argentina")`` (IOL-02)."""
     if _auth_failed:
         return (
@@ -575,7 +993,7 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
             status="OPEN",
             title="get_instruments_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -590,11 +1008,17 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
             status="OPEN",
             title="get_instruments_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
         return (ProbeResult("get_instruments_sync", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_instruments_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -605,7 +1029,7 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
             status="OPEN",
             title=f"get_instruments_sync unexpected {type(exc).__name__}",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -616,7 +1040,10 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, Any]:
     )
 
 
-async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult, Any]:
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="async")
+async def probe_get_instruments_async(
+    aclient: AsyncClient,
+) -> tuple[ProbeResult, list[Instrumento] | None]:
     """Probe 8: ``await aclient.get_instruments("argentina")`` (IOL-02). Espejo async."""
     if _auth_failed:
         return (
@@ -636,7 +1063,7 @@ async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult
             status="OPEN",
             title="get_instruments_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -651,11 +1078,17 @@ async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult
             status="OPEN",
             title="get_instruments_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
         return (ProbeResult("get_instruments_async", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_instruments_async", "async", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -666,7 +1099,7 @@ async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult
             status="OPEN",
             title=f"get_instruments_async unexpected {type(exc).__name__}",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -677,9 +1110,10 @@ async def probe_get_instruments_async(aclient: AsyncClient) -> tuple[ProbeResult
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_type"], surface="sync")
 def probe_get_instruments_by_type_sync(
     client: Client,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Titulo] | None]:
     """Probe 9: ``client.get_instruments_by_type("acciones")`` + sanity 6 (IOL-02/17).
 
     Discretion: el sanity check de los 6 ``InstrumentType`` (type-only assertion)
@@ -713,7 +1147,7 @@ def probe_get_instruments_by_type_sync(
             status="OPEN",
             title="get_instruments_by_type_sync recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -731,7 +1165,7 @@ def probe_get_instruments_by_type_sync(
             status="OPEN",
             title="get_instruments_by_type_sync recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -739,6 +1173,12 @@ def probe_get_instruments_by_type_sync(
             ProbeResult("get_instruments_by_type_sync", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_instruments_by_type_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -749,7 +1189,7 @@ def probe_get_instruments_by_type_sync(
             status="OPEN",
             title=f"get_instruments_by_type_sync unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -763,13 +1203,34 @@ def probe_get_instruments_by_type_sync(
     for itype in _ALL_INSTRUMENT_TYPES:
         try:
             titulos = client.get_instruments_by_type(itype)
+        # Rama de decode ADELANTE del handler amplio (P-4). En este loop el
+        # handler amplio registra ``<type>: <NombreDeClase>``, que para una
+        # divergencia de forma seria siempre el mismo string opaco
+        # ``IOLDecodeError``. Se registra en cambio la divergencia
+        # renderizada por el unico renderer sancionado.
+        except IOLDecodeError as exc:
+            bad_types.append(f"{itype}: {_redacted_exc(exc)}")
+            continue
         except Exception as exc:
             # Sanity gate cubre cualquier excepción del cliente o transporte:
             # cualquiera de los 6 types que falle se registra para el finding.
             bad_types.append(f"{itype}: {type(exc).__name__}")
             continue
-        if not (isinstance(titulos, list) and titulos and isinstance(titulos[0], dict)):
+        # Phase 30: el wrapper devuelve ``list[Titulo]``, no ``list[dict]``. Sin
+        # migrar este chequeo, los 6 types caerían en ``bad_types`` y cada
+        # corrida viva emitiría un finding SHAPE espurio.
+        #
+        # WR-06: el chequeo discrimina **forma, no cardinalidad** — la misma
+        # regla que ``_core.py::parse_get_instruments_response`` ya enuncia en
+        # su docstring ("the guard discriminates shape, not cardinality"). Una
+        # lista vacía es legítima: ``cauciones`` o ``letras`` fuera de horario
+        # de mercado devuelven ``[]`` sin que nada esté roto. Lo que sí es
+        # defecto de forma: un no-list, o una lista no vacía cuyo elemento 0 no
+        # es un ``Titulo``.
+        if not isinstance(titulos, list):
             bad_types.append(f"{itype}: shape={type(titulos).__name__}")
+        elif titulos and not isinstance(titulos[0], Titulo):
+            bad_types.append(f"{itype}: shape=list[{type(titulos[0]).__name__}]")
     if bad_types:
         fid = _next_fid()
         append_finding(
@@ -779,9 +1240,9 @@ def probe_get_instruments_by_type_sync(
             surface="sync",
             status="OPEN",
             title="sanity check de InstrumentType: algún type devolvió shape inesperada",
-            expected="cada InstrumentType retorna list[dict] no vacía",
+            expected="cada InstrumentType retorna list[Titulo] (una lista vacía es válida)",
             actual=f"bad_types={bad_types!r}",
-            diff="shape !=list[dict] o lista vacía en algún type",
+            diff="shape != list[Titulo] en algún type",
             base_url=base_url,
         )
         return (
@@ -799,9 +1260,10 @@ def probe_get_instruments_by_type_sync(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_type"], surface="async")
 async def probe_get_instruments_by_type_async(
     aclient: AsyncClient,
-) -> tuple[ProbeResult, list[dict[str, Any]] | None]:
+) -> tuple[ProbeResult, list[Titulo] | None]:
     """Probe 10: espejo async (solo sample principal — sanity 6 vive en sync, probe 9)."""
     if _auth_failed:
         return (
@@ -825,7 +1287,7 @@ async def probe_get_instruments_by_type_async(
             status="OPEN",
             title="get_instruments_by_type_async recibió AuthError",
             expected="200 OK con token Bearer válido",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -843,13 +1305,21 @@ async def probe_get_instruments_by_type_async(
             status="OPEN",
             title="get_instruments_by_type_async recibió APIError inesperado",
             expected="200 OK",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
         return (
             ProbeResult("get_instruments_by_type_async", "FINDING", f"{fid} (OPEN)"),
             None,
+        )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair(
+            "get_instruments_by_type_async", "async", _redacted_exc(exc)
         )
     except Exception as exc:
         fid = _next_fid()
@@ -861,7 +1331,7 @@ async def probe_get_instruments_by_type_async(
             status="OPEN",
             title=f"get_instruments_by_type_async unexpected {type(exc).__name__}",
             expected="200 OK + list",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"type={type(exc).__name__}",
             base_url=base_url,
         )
@@ -884,16 +1354,17 @@ async def probe_get_instruments_by_type_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_parity_sync_async(
     client: Client,
-    quote_sync: dict[str, Any] | None,
-    quote_async: dict[str, Any] | None,
-    historical_sync: list[dict[str, Any]] | None,
-    historical_async: list[dict[str, Any]] | None,
-    instruments_sync: Any,
-    instruments_async: Any,
-    by_type_sync: list[dict[str, Any]] | None,
-    by_type_async: list[dict[str, Any]] | None,
+    quote_sync: Cotizacion | None,
+    quote_async: Cotizacion | None,
+    historical_sync: list[Cotizacion] | None,
+    historical_async: list[Cotizacion] | None,
+    instruments_sync: list[Instrumento] | None,
+    instruments_async: list[Instrumento] | None,
+    by_type_sync: list[Titulo] | None,
+    by_type_async: list[Titulo] | None,
 ) -> ProbeResult:
     """Probe 11: paridad estructural sync↔async (IOL-06, D-IOL-20).
 
@@ -915,8 +1386,15 @@ def probe_parity_sync_async(
         if sync_data is None or async_data is None:
             skipped.append(endpoint)
             continue
-        schema_sync = schema_of(sync_data)
-        schema_async = schema_of(async_data)
+        # D-07/D-08: los payloads llegan como modelos o listas de modelos, así
+        # que la normalización va acá, en la frontera. Sin ella este probe
+        # compararía dos veces el mismo nombre de clase y reportaría PASS
+        # habiendo perdido todo su poder discriminante. Alcance real del PASS
+        # (WR-07): ver el docstring de ``_as_wire`` — claves y tipos de hojas
+        # no-opcionales son idénticos por construcción; lo discriminante es la
+        # presencia de ``Optional`` y la cardinalidad de las listas.
+        schema_sync = schema_of(_as_wire(sync_data))
+        schema_async = schema_of(_as_wire(async_data))
         if schema_sync == schema_async:
             continue
         fid = _next_fid()
@@ -948,69 +1426,46 @@ def probe_parity_sync_async(
     )
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_field_type_map(
     client: Client,
-    quote: dict[str, Any] | None,
-    historical: list[dict[str, Any]] | None,
-    instruments_by_type_envelope: dict[str, Any] | None,
-) -> tuple[ProbeResult, dict[str, Any] | None]:
+    raw_wire: dict[str, Any],
+    capture_fids: list[str],
+) -> ProbeResult:
     """Probe 12: field→type map vs ``_ASSUMED_*`` (IOL-03 + IOL-04, D-IOL-13/15).
 
-    **Pitfall 2:** el envelope check de ``get_instruments_by_type`` requiere
-    capturar el payload CRUDO con ``_request`` directo — el wrapper público
-    silenciosamente devuelve ``[]`` si falta la clave ``"titulos"``, ocultando
-    el drift. Por eso este probe hace una HTTP call adicional al endpoint
-    by_type vía ``client._request(RequestSpec(...))``; el resultado es el ÚNICO
-    caso permitido de duplicación (documentado en Pitfall 2).
+    **Pitfall 2, generalizado por CR-01:** este probe lee el wire **crudo**
+    capturado por :func:`_capture_raw_wire`, nunca el retorno del wrapper. El
+    argumento original cubría un solo endpoint —el wrapper de by_type devuelve
+    ``[]`` en silencio si falta la clave ``"titulos"``, ocultando el drift— y
+    CR-01 lo encontró aplicable a tres más: desde la Phase 30 los wrappers
+    devuelven modelos, y ``schema_of`` sobre un modelo es función de su
+    **declaración**, no del wire. Un ``float→str``, una clave agregada y una
+    clave quitada son las tres invisibles aguas abajo del wrapper
+    (30-VERIFICATION.md truth 6). Las 4 HTTP calls duplicadas de la captura son
+    la versión ampliada de la excepción ya documentada en Pitfall 2.
 
-    Devuelve el envelope capturado además del ProbeResult, para que el probe 13
-    (schema_snapshot) lo reuse sin volver a llamar.
+    ``capture_fids`` siembra ``finding_fids``: si la captura de un endpoint
+    falló, este probe **no puede** reportar PASS. Un probe cuyo insumo nunca
+    llegó no atestigua nada.
     """
     if _auth_failed:
-        return (
-            ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}"),
-            instruments_by_type_envelope,
-        )
+        return ProbeResult("field_type_map", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     base_url = client._state.base_url
-    finding_fids: list[str] = []
-    envelope: dict[str, Any] | None = instruments_by_type_envelope
-
-    # --- Envelope check IOL-04 (Pitfall 2): _request directo, NO el wrapper. ---
-    if envelope is None:
-        try:
-            # ÚNICA HTTP call duplicada permitida (Pitfall 2): capturamos el
-            # payload crudo del wrapper de by_type para verificar la clave
-            # "titulos" sin que el wrapper la silencie. Usamos la instancia
-            # threaded ``client`` (D-03): construimos el ``RequestSpec`` y
-            # replicamos el raise-on-error del shim module-level legacy, ya que
-            # ``Client._request`` (D-03) devuelve el response crudo sin levantar.
-            resp = client._request(
-                RequestSpec(
-                    method="GET",
-                    path=f"/api/v2/Cotizaciones/{_SAMPLE_INSTRUMENT_TYPE}/argentina/Todos",
-                )
-            )
-            if resp.is_error:
-                _raise_for_response(resp)
-            envelope = resp.json()
-        except Exception as exc:
-            # Cualquier excepción del transporte o del cliente al pegarle al
-            # endpoint by_type cuenta como ERROR-MAP — el envelope check no
-            # puede continuar si _request falló.
-            fid = _next_fid()
-            append_finding(
-                _PKG,
-                fid=fid,
-                class_="ERROR-MAP",
-                surface="sync",
-                status="OPEN",
-                title="field_type_map: _request directo a by_type levantó excepción",
-                expected="200 OK con dict {'titulos': [...]}",
-                actual=repr(exc),
-                diff=f"type={type(exc).__name__}",
-                base_url=base_url,
-            )
-            finding_fids.append(fid)
+    # Anti-vacuidad (T-30-06-05): una captura fallida garantiza FINDING.
+    finding_fids: list[str] = list(capture_fids)
+    quote_raw = raw_wire.get("get_quote")
+    historical_raw = raw_wire.get("get_historical_quotes")
+    # CR-01 (mitad post-cierre): lo que decide cada chequeo de acá abajo es la
+    # **pertenencia de la clave**, nunca el valor. Una clave ausente significa que
+    # la captura levantó y que ``_capture_raw_wire`` ya emitió su ERROR-MAP, cuyo
+    # fid ya está en ``finding_fids``: no se re-reporta acá. Una clave presente
+    # significa que el endpoint contestó, y entonces su cuerpo —cualquiera sea, un
+    # nulo JSON incluido— es un insumo que llegó: si su forma cae fuera del
+    # contrato, es un defecto que se reporta, jamás un skip silencioso. Es también
+    # el mismo predicado que arma la lista ``checked`` del detalle del PASS, de
+    # modo que ese detalle es veraz por construcción y no por coincidencia.
+    envelope: Any = raw_wire.get("get_instruments_by_type")
 
     if isinstance(envelope, dict):
         if "titulos" not in envelope:
@@ -1045,7 +1500,7 @@ def probe_field_type_map(
                     base_url=base_url,
                 )
                 finding_fids.append(fid)
-    elif envelope is not None:
+    elif "get_instruments_by_type" in raw_wire:
         fid = _next_fid()
         append_finding(
             _PKG,
@@ -1062,9 +1517,28 @@ def probe_field_type_map(
         finding_fids.append(fid)
 
     # --- get_quote field→type map (D-IOL-14/15) ---
-    if quote is not None:
-        observed = schema_of(quote)
-        if isinstance(observed, dict):
+    if "get_quote" in raw_wire:
+        if not isinstance(quote_raw, dict):
+            # Un tipo top-level inesperado ES un defecto de forma, no un skip.
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="both",
+                status="OPEN",
+                title="get_quote devolvió tipo top-level no-dict",
+                expected="dict con los campos de la cotización",
+                actual=f"type={type(quote_raw).__name__}",
+                diff="el body crudo de get_quote cambió fuera del contrato dict",
+                base_url=base_url,
+            )
+            finding_fids.append(fid)
+        else:
+            # CR-01: ``schema_of`` sobre el WIRE CRUDO. Sobre la proyección del
+            # modelo la rama ``elif`` de type-drift de abajo es inalcanzable —
+            # el walker ya coercionó el campo a su tipo declarado.
+            observed = schema_of(quote_raw)
             for key, expected_type in _ASSUMED_QUOTE_FIELDS.items():
                 if key not in observed:
                     fid = _next_fid()
@@ -1098,9 +1572,41 @@ def probe_field_type_map(
                     finding_fids.append(fid)
 
     # --- get_historical_quotes field→type map (sobre el primer row) ---
-    if historical is not None and len(historical) >= 1:
-        observed_row = schema_of(historical[0])
-        if isinstance(observed_row, dict):
+    if "get_historical_quotes" in raw_wire:
+        if not isinstance(historical_raw, list):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="both",
+                status="OPEN",
+                title="get_historical_quotes devolvió tipo top-level no-list",
+                expected="list de rows de cotización",
+                actual=f"type={type(historical_raw).__name__}",
+                diff="el body crudo de get_historical_quotes cambió fuera del contrato list",
+                base_url=base_url,
+            )
+            finding_fids.append(fid)
+        elif historical_raw and not isinstance(historical_raw[0], dict):
+            fid = _next_fid()
+            append_finding(
+                _PKG,
+                fid=fid,
+                class_="SHAPE",
+                surface="both",
+                status="OPEN",
+                title="get_historical_quotes[0] no es dict",
+                expected="cada row es un dict de cotización",
+                actual=f"type={type(historical_raw[0]).__name__}",
+                diff="el elemento 0 de la serie cambió fuera del contrato dict",
+                base_url=base_url,
+            )
+            finding_fids.append(fid)
+        elif historical_raw:
+            # CR-01: ídem sobre la fila 0 del WIRE CRUDO. Una serie vacía es
+            # cardinalidad, no forma: no se reporta.
+            observed_row = schema_of(historical_raw[0])
             for key, expected_type in _ASSUMED_HISTORICAL_FIELDS.items():
                 if key not in observed_row:
                     fid = _next_fid()
@@ -1134,17 +1640,23 @@ def probe_field_type_map(
                     finding_fids.append(fid)
 
     if finding_fids:
-        return (
-            ProbeResult(
-                "field_type_map",
-                "FINDING",
-                f"{', '.join(finding_fids)} (OPEN)",
-            ),
-            envelope if isinstance(envelope, dict) else None,
+        return ProbeResult(
+            "field_type_map",
+            "FINDING",
+            f"{', '.join(finding_fids)} (OPEN)",
         )
-    return (
-        ProbeResult("field_type_map", "PASS", "3 endpoints checked, no drift"),
-        envelope if isinstance(envelope, dict) else None,
+    # El detalle reporta lo que efectivamente se miró, no un conteo fijo: un PASS
+    # que nombra tres endpoints habiendo llegado uno es exactamente el modo de
+    # falla que este plan existe para eliminar (T-30-06-05).
+    checked = [
+        name
+        for name in ("get_quote", "get_historical_quotes", "get_instruments_by_type")
+        if name in raw_wire
+    ]
+    return ProbeResult(
+        "field_type_map",
+        "PASS",
+        f"{len(checked)} endpoints checked ({', '.join(checked) or 'ninguno'}), no drift",
     )
 
 
@@ -1197,33 +1709,31 @@ def _write_or_check_schema(
     return ("FINDING", f"{fid}|{file_path.name}")
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_schema_snapshot(
     client: Client,
     today: dt.date,
-    quote: dict[str, Any] | None,
-    historical: list[dict[str, Any]] | None,
-    instruments: Any,
-    by_type_envelope: dict[str, Any] | None,
+    raw_wire: dict[str, Any],
 ) -> ProbeResult:
     """Probe 13: 4 schema snapshots con envelope D-21 + D-25 (DRIFT-01 mirror).
 
-    Para ``get_instruments_by_type`` snapshea el envelope CRUDO (con ``titulos``),
-    no el unwrapped list, para detectar drift de la envelope key.
+    Los 4 payloads vienen del WIRE CRUDO capturado por
+    :func:`_capture_raw_wire`. Para ``get_instruments_by_type`` eso incluye el
+    envelope completo (con ``titulos``), no el unwrapped list, para detectar
+    drift de la envelope key.
     """
     if _auth_failed:
         return ProbeResult("schema_snapshot", "SKIPPED", f"auth failed: {_auth_failure_reason}")
     base_url = client._state.base_url
     hasta = _last_business_day(today)
     desde = hasta - dt.timedelta(days=7)
-    targets: list[tuple[str, Any, dict[str, Any]]] = [
+    targets: list[tuple[str, dict[str, Any]]] = [
         (
             "get_quote",
-            quote,
             {"simbolo": _SAMPLE_SYMBOL, "mercado": "bcba", "plazo": "t2"},
         ),
         (
             "get_historical_quotes",
-            historical,
             {
                 "simbolo": _SAMPLE_SYMBOL,
                 "mercado": "bcba",
@@ -1234,12 +1744,10 @@ def probe_schema_snapshot(
         ),
         (
             "get_instruments",
-            instruments,
             {"pais": "argentina"},
         ),
         (
             "get_instruments_by_type",
-            by_type_envelope,
             {"instrument_type": _SAMPLE_INSTRUMENT_TYPE, "pais": "argentina"},
         ),
     ]
@@ -1247,14 +1755,29 @@ def probe_schema_snapshot(
     written: list[str] = []
     matched: list[str] = []
     skipped: list[str] = []
-    for func_name, payload, sample_params in targets:
-        if payload is None:
+    for func_name, sample_params in targets:
+        if func_name not in raw_wire:
+            # CR-01 (mitad post-cierre): decide la pertenencia de la clave, nunca
+            # el valor. Ausente del dict = la captura levantó; ``_capture_raw_wire``
+            # ya emitió su ERROR-MAP y el probe 12 lo convierte en FINDING.
             skipped.append(func_name)
             continue
+        # Clave presente = el endpoint contestó y su cuerpo llegó. Se compara
+        # contra el baseline tal cual, incluso si es un nulo JSON: la forma de un
+        # nulo difiere de la de todo baseline committeado, y reportar esa
+        # diferencia es exactamente para lo que este probe existe.
+        payload = raw_wire[func_name]
         status, detail = _write_or_check_schema(
             func_name,
             _ENDPOINT_TEMPLATES[func_name],
             sample_params,
+            # CR-01: el payload crudo va TAL CUAL. El snapshot compara
+            # ``schema_of(wire crudo)`` contra baselines que son ellos mismos
+            # documentos ``schema_of(wire crudo)`` — la única comparación
+            # like-for-like. La proyección del modelo que había acá antes hacía
+            # del snapshot una función de la declaración del modelo, ciega a
+            # type-drift, a claves agregadas y a claves quitadas
+            # (30-VERIFICATION.md truth 6).
             payload,
             base_url,
         )
@@ -1278,6 +1801,7 @@ def probe_schema_snapshot(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="sync")
 def probe_refresh_token(client: Client) -> ProbeResult:
     """Probe 14: verifica el fix IOL-07 in-vivo (D-IOL-11).
 
@@ -1323,7 +1847,7 @@ def probe_refresh_token(client: Client) -> ProbeResult:
             status="OPEN",
             title="refresh path no funciona en vivo: levantó AuthError",
             expected="renovación silenciosa vía refresh_token o fallback a password",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
@@ -1338,11 +1862,20 @@ def probe_refresh_token(client: Client) -> ProbeResult:
             status="OPEN",
             title="refresh path causó APIError inesperado",
             expected="200 OK tras refresh transparente",
-            actual=repr(exc),
+            actual=_redacted_exc(exc),
             diff=f"status_code={exc.status_code!r}",
             base_url=base_url,
         )
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
+    # Rama de decode al final de la escalera. Este probe NO tiene handler amplio,
+    # y ``IOLDecodeError`` es HERMANO de ``IOLAPIError`` (los dos cuelgan de
+    # ``IOLClientError``), así que ninguno de los dos brackets de arriba lo
+    # atrapa: bajo modo estricto una divergencia en ``get_instruments`` mataba el
+    # driver acá, en el probe 14 de 15, con los tres probes restantes sin correr.
+    # Es el único sitio ALCANZABLE del driver que no estaba cubierto por un
+    # handler amplio.
+    except IOLDecodeError as exc:
+        return _shape_probe_result("refresh_token", "sync", _redacted_exc(exc))
     token_after = client._state.token
     refresh_after = client._state.refresh_token
     expires_at_after = client._state.token_expires_at
@@ -1413,6 +1946,7 @@ def probe_refresh_token(client: Client) -> ProbeResult:
     )
 
 
+@probe_context(endpoint=_LOGIN_ENDPOINT, surface="sync")
 def probe_auth_401(client: Client) -> ProbeResult:
     """Probe 15: 401 con credenciales inválidas (IOL-05, D-IOL-1/2/4).
 
@@ -1483,6 +2017,12 @@ def probe_auth_401(client: Client) -> ProbeResult:
                 base_url=base_url,
             )
             return ProbeResult("auth_401", "FINDING", f"{fid} (OPEN)")
+        # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+        # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+        # el nombre del probe, y dos probes sobre la misma divergencia producen
+        # dos titulos que ``idempotent_by_title`` no puede colapsar.
+        except IOLDecodeError as exc:
+            return _shape_probe_result("auth_401", "sync", _redacted_exc(exc))
         except Exception as exc:
             fid = _next_fid()
             append_finding(
@@ -1493,7 +2033,7 @@ def probe_auth_401(client: Client) -> ProbeResult:
                 status="OPEN",
                 title="credenciales inválidas produjeron error inesperado",
                 expected="401 (IOLAuthError)",
-                actual=repr(exc),
+                actual=_redacted_exc(exc),
                 diff=f"type={type(exc).__name__}",
                 base_url=base_url,
             )
@@ -1533,13 +2073,13 @@ async def _async_main(
 ) -> tuple[
     ProbeResult,
     ProbeResult,
-    dict[str, Any] | None,
+    Cotizacion | None,
     ProbeResult,
-    list[dict[str, Any]] | None,
+    list[Cotizacion] | None,
     ProbeResult,
-    Any,
+    list[Instrumento] | None,
     ProbeResult,
-    list[dict[str, Any]] | None,
+    list[Titulo] | None,
 ]:
     """Compone los probes async (2/4/6/8/10) y cierra el AsyncClient.
 
@@ -1549,7 +2089,7 @@ async def _async_main(
     D-02 (Phase 15): construye UN único ``AsyncClient()`` y lo threadea como
     parámetro a los 5 probes async; cierra esa misma instancia en el ``finally``.
     """
-    aclient = AsyncClient()
+    aclient = AsyncClient(strict_decode=_STRICT)
     try:
         result_login_async = await probe_login_async(aclient)
         result_quote_async, quote_async = await probe_get_quote_async(aclient)
@@ -1590,93 +2130,100 @@ def main() -> None:
     # D-01 (Phase 15): construye UN único sync ``Client()`` y lo threadea como
     # parámetro a todos los probes sync. El async ``AsyncClient()`` se construye
     # dentro de ``_async_main`` (D-02, instancias separadas).
-    client = Client()
+    client = Client(strict_decode=_STRICT)
 
     # D-03 mirror: idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
 
+    # D-16/D-24: seedear el allocator DESPUÉS del bootstrap y ANTES del primer
+    # probe, para que cada fid emitido en este run caiga por encima de lo ya
+    # registrado y no pise ni sea tragado por un finding ya triageado.
+    _seed_fid_counter()
+
     results: list[ProbeResult] = []
 
-    # Probe 1: login sync (puede setear _auth_failed).
-    result_login_sync = probe_login_sync(client)
-    results.append(result_login_sync)
+    # Phase 33 (LIVE-TYP-01 / D-01): el handler de divergencias se instala
+    # alrededor del sweep entero — sube ``iol_client`` de NOTSET a INFO (sin eso
+    # los records de especie ``extra`` se descartan antes de llegar a ningún
+    # handler) y traduce cada record de seis claves a un finding ``SHAPE``.
+    # ``next_fid`` recibe el slug y lo descarta: el driver ya tiene UN allocator
+    # por proceso y compartirlo es lo que impide que el handler y el driver se
+    # pisen los fids.
+    with divergence_capture(("iol_client",), next_fid=lambda _slug: _next_fid()) as handler:
+        # Probe 1: login sync (puede setear _auth_failed).
+        result_login_sync = probe_login_sync(client)
+        results.append(result_login_sync)
 
-    # Probes 2 + 4 + 6 + 8 + 10: batch async en un único asyncio.run (D-IOL-6).
-    (
-        result_login_async,
-        result_quote_async,
-        quote_async,
-        result_historical_async,
-        historical_async,
-        result_instruments_async,
-        instruments_async,
-        result_by_type_async,
-        by_type_async,
-    ) = asyncio.run(_async_main(today))
-
-    # Probes 3 / 5 / 7 / 9 (sync); intercalamos con los async ya capturados
-    # respetando el orden D-IOL-5 (sync N seguido del async N+1).
-    result_quote_sync, quote_sync = probe_get_quote_sync(client)
-    results.append(result_login_async)
-    results.append(result_quote_sync)
-    results.append(result_quote_async)
-
-    result_historical_sync, historical_sync = probe_get_historical_quotes_sync(client, today)
-    results.append(result_historical_sync)
-    results.append(result_historical_async)
-
-    result_instruments_sync, instruments_sync = probe_get_instruments_sync(client)
-    results.append(result_instruments_sync)
-    results.append(result_instruments_async)
-
-    result_by_type_sync, by_type_sync = probe_get_instruments_by_type_sync(client)
-    results.append(result_by_type_sync)
-    results.append(result_by_type_async)
-
-    # Probe 11: paridad estructural sync↔async.
-    results.append(
-        probe_parity_sync_async(
-            client,
-            quote_sync,
+        # Probes 2 + 4 + 6 + 8 + 10: batch async en un único asyncio.run (D-IOL-6).
+        (
+            result_login_async,
+            result_quote_async,
             quote_async,
-            historical_sync,
+            result_historical_async,
             historical_async,
-            instruments_sync,
+            result_instruments_async,
             instruments_async,
-            by_type_sync,
+            result_by_type_async,
             by_type_async,
+        ) = asyncio.run(_async_main(today))
+
+        # Probes 3 / 5 / 7 / 9 (sync); intercalamos con los async ya capturados
+        # respetando el orden D-IOL-5 (sync N seguido del async N+1).
+        result_quote_sync, quote_sync = probe_get_quote_sync(client)
+        results.append(result_login_async)
+        results.append(result_quote_sync)
+        results.append(result_quote_async)
+
+        result_historical_sync, historical_sync = probe_get_historical_quotes_sync(client, today)
+        results.append(result_historical_sync)
+        results.append(result_historical_async)
+
+        result_instruments_sync, instruments_sync = probe_get_instruments_sync(client)
+        results.append(result_instruments_sync)
+        results.append(result_instruments_async)
+
+        result_by_type_sync, by_type_sync = probe_get_instruments_by_type_sync(client)
+        results.append(result_by_type_sync)
+        results.append(result_by_type_async)
+
+        # Probe 11: paridad estructural sync↔async.
+        results.append(
+            probe_parity_sync_async(
+                client,
+                quote_sync,
+                quote_async,
+                historical_sync,
+                historical_async,
+                instruments_sync,
+                instruments_async,
+                by_type_sync,
+                by_type_async,
+            )
         )
-    )
 
-    # Probe 12: field→type map + envelope check (captura by_type_envelope).
-    result_field_type_map, by_type_envelope = probe_field_type_map(
-        client, quote_sync, historical_sync, None
-    )
-    results.append(result_field_type_map)
+        # CR-01: captura del wire CRUDO de los 4 endpoints, una vez cada uno. Los
+        # probes 12 y 13 son funciones puras de este dict — no vuelven a pegarle a
+        # la API — y así el drift vuelve a ser función de lo que la API devolvió y
+        # no de lo que los modelos declaran.
+        raw_wire, capture_fids = _capture_raw_wire(client, today)
 
-    # Probe 13: schema snapshots (reusa by_type_envelope si fue capturado).
-    results.append(
-        probe_schema_snapshot(
-            client,
-            today,
-            quote_sync,
-            historical_sync,
-            instruments_sync,
-            by_type_envelope,
-        )
-    )
+        # Probe 12: field→type map + envelope check sobre el wire crudo.
+        results.append(probe_field_type_map(client, raw_wire, capture_fids))
 
-    # Probe 14: refresh_token in-vivo.
-    results.append(probe_refresh_token(client))
+        # Probe 13: schema snapshots sobre el mismo wire crudo (D-25 no-overwrite).
+        results.append(probe_schema_snapshot(client, today, raw_wire))
 
-    # CR-03: snapshot del _refresh_token cacheado ANTES de probe_auth_401, como
-    # defense-in-depth — el fix de CR-03 ya preserva el cached usando mutación
-    # directa en vez de configure(), pero capturar acá garantiza que aunque un
-    # futuro cambio rompa esa invariante, el secret sigue redactado.
-    captured_refresh_token = client._state.refresh_token
+        # Probe 14: refresh_token in-vivo.
+        results.append(probe_refresh_token(client))
 
-    # Probe 15: auth_401 ÚLTIMO (D-IOL-4) — opt-in, single-shot.
-    results.append(probe_auth_401(client))
+        # CR-03: snapshot del _refresh_token cacheado ANTES de probe_auth_401, como
+        # defense-in-depth — el fix de CR-03 ya preserva el cached usando mutación
+        # directa en vez de configure(), pero capturar acá garantiza que aunque un
+        # futuro cambio rompa esa invariante, el secret sigue redactado.
+        captured_refresh_token = client._state.refresh_token
+
+        # Probe 15: auth_401 ÚLTIMO (D-IOL-4) — opt-in, single-shot.
+        results.append(probe_auth_401(client))
 
     # safe_print con secrets dinámicos (D-IOL-7/22): el _refresh_token capturado
     # por login() se redacta vía snapshot capturado antes de probe_auth_401
@@ -1698,11 +2245,157 @@ def main() -> None:
     n_fail = sum(1 for r in results if r.status == "FAIL")
     n_skip = sum(1 for r in results if r.status == "SKIPPED")
     n_find = sum(1 for r in results if r.status == "FINDING")
+    # Phase 33 (P-3 / T-33-11): ``DIVERGENCES`` es ``len(handler.seen)`` — el
+    # conteo de triples distintos ``(slug, model, field_path, kind)``, LA unidad
+    # del censo y la única directamente comparable contra el piso de
+    # ``29-SIZING.md``. NO es el conteo de findings: con la superficie embebida
+    # en el título hay ~2 findings por triple, así que ni ``FINDING=N`` ni el
+    # conteo de bloques del archivo sirven para ese contraste. ``HANDLER_ERRORS``
+    # es el tally de fallas del sink: un pipeline de logging que puede fallar en
+    # silencio no sirve como registro de auditoría, así que el número se imprime
+    # siempre — un valor distinto de cero invalida el censo de esta corrida.
+    # Formato idéntico al de ``main_matriz.py`` y ``main_higyrus.py`` para que
+    # 33-04 parsee una sola forma de línea.
     safe_print(
-        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find}",
+        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
+        f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
     )
 
 
+# ---------------------------------------------------------------------------
+# Camino de crash — hook de excepciones no atrapadas (CR-02 / T-30-10-01)
+# ---------------------------------------------------------------------------
+
+
+# Texto de fallback cuando el propio renderer sancionado falla. Es una constante
+# ESTÁTICA a propósito, y la staticidad es el punto: en el camino de fallback la
+# maquinaria que normalmente decide qué es seguro mostrar ya falló, así que
+# cualquier valor derivado de ``exc`` acá —su clase, su status, su repr— sería
+# una fuga a través de la mismísima rama que existe para prevenir una.
+_HOOK_RENDER_FAILED = "el render de la excepción falló; detalle suprimido a propósito"
+
+
+def _emit_crash_report(detail: str, tb: TracebackType | None) -> None:
+    """Escribe el reporte de crash a stderr sin que ninguna falla del sink escape.
+
+    **Por qué existe (T-30-12-02/03).** El hook es el último frame antes del
+    fallback de CPython: si algo se escapa de él, CPython imprime un banner y
+    después renderiza la excepción original con el excepthook **default**, que
+    para ``IOLAPIError`` / ``IOLAuthError`` / ``IOLRateLimitError`` emite
+    ``[<status>] <body>``. Un stderr roto o cerrado —``... 2>&1 | head``, un
+    runner de CI con el pipe cerrado— convierte cualquiera de estas dos
+    escrituras en ``BrokenPipeError`` / ``ValueError``, y con stderr cerrado la
+    escritura del propio fallback también falla, así que CPython cae a su ruta
+    ``lost sys.stderr`` y vuelca el **repr** del objeto excepción directo al fd 2.
+    Ahí no queda nada que redactar: la única defensa es que nada se escape.
+
+    **Los dos guards son separados a propósito.** Un único ``with`` alrededor de
+    las dos escrituras —o un return temprano tras la primera falla— haría que
+    perder la línea de ABORT se llevara puestos también los frames, que son
+    contenido estático del repo y el único material de triage que le queda al
+    operador en ese escenario. Lo fija
+    ``test_the_hook_still_prints_frames_when_the_abort_line_fails``, con un stream
+    que falla sólo ante el prefijo del ABORT, más su espejo
+    ``test_the_hook_survives_a_failing_frame_printer``.
+
+    **Por qué ``contextlib.suppress`` y no ``try``/``except``/``pass``:** el rule
+    set ``SIM`` del ruff de la raíz rechaza la segunda forma (SIM105), incluso con
+    un comentario en el cuerpo del ``except``, y ``ruff check`` es un gate de CI.
+
+    **Por qué recibe texto ya renderizado y no la excepción.** Un helper que
+    tomara la excepción se volvería un **segundo** renderer bajo el censo de
+    AD-30-09-01, y haría que :func:`_redacted_excepthook` pasara a leerse como un
+    renderer que delega. Con ``str`` y ``TracebackType | None`` ambas funciones
+    quedan clasificadas como corresponde: el único renderer sigue siendo
+    :func:`_redacted_exc` y el hook sigue siendo un consumidor.
+
+    **Suprimir acá no se traga el crash (D-04).** El hook imprime y retorna;
+    CPython termina el proceso con código distinto de cero igual. Lo único que se
+    pierde ante un sink roto es el texto, que ya era ilegible por definición.
+    """
+    with contextlib.suppress(BaseException):
+        print(f"ABORT: {detail}", file=sys.stderr)
+    with contextlib.suppress(BaseException):
+        traceback.print_tb(tb)
+
+
+def _redacted_excepthook(
+    exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
+) -> None:
+    """Renderiza una excepción NO atrapada sin filtrar el body de error upstream.
+
+    **Qué filtraba el default.** Varios probes dejan escapar por diseño todo tipo
+    que caiga fuera de su ``except`` angosto — ``probe_login_sync`` sólo atrapa
+    ``IOLAuthError``, así que un 500 del endpoint de token escapa como
+    ``IOLAPIError``; ``probe_refresh_token`` no atrapa errores de transporte. Ese
+    escape llegaba al ``sys.excepthook`` default de CPython, que imprime el
+    **mensaje** de la excepción a stderr. Para ``IOLAPIError`` /
+    ``IOLAuthError`` / ``IOLRateLimitError`` ese mensaje es ``[<status>]
+    <body>``: el body de error upstream completo de una sesión de brokerage
+    autenticada. stderr lo captura CI, un sink que el threat model de esta fase
+    declara en scope (WR-02). Es la misma clase de vulnerabilidad que 30-08 y
+    30-09 cerraron en 32 sitios atrapados, dejada abierta en el camino no
+    atrapado.
+
+    **El crash se conserva (D-04).** Este hook imprime y retorna; CPython sigue
+    terminando el proceso con código distinto de cero. Un tipo inesperado debe
+    abortar el run, no degradarse a finding — lo único que cambia es el texto.
+
+    **Delega, no reimplementa (AD-30-09-01).** El único renderer sancionado del
+    driver es :func:`_redacted_exc`; un segundo renderer acá sería exactamente la
+    deriva que esa decisión existe para prevenir, y heredaría gratis el guard de
+    ``status_code`` no entero y la exención de ``IOLDecodeError``.
+
+    **La cadena de excepciones NO se renderiza, a propósito.** Se usa el helper
+    de la stdlib que toma el objeto traceback y por lo tanto imprime **sólo
+    frames** (archivo, línea, función y la línea de fuente, todo contenido
+    estático del repo). Los helpers que toman la excepción o el triple de
+    ``exc_info`` agregan la línea del mensaje y recorren ``__cause__`` /
+    ``__context__``, reintroduciendo la fuga que esta función existe para
+    eliminar. El costo es el mensaje de una causa encadenada: un costo de
+    triage, no una fuga.
+
+    **Falla CERRADO (T-30-12-01).** El contrato de CPython para un excepthook que
+    levanta (``PyErr_PrintEx``) es: imprimir un banner de error más el traceback
+    del propio hook, y después renderizar la excepción ORIGINAL con el excepthook
+    **default** — o sea ``str(exc)``, que para ``IOLAPIError`` / ``IOLAuthError``
+    / ``IOLRateLimitError`` es ``[<status>] <body>``. Un hook sin guard es por eso
+    estrictamente **peor** que no tener hook para esta amenaza: emite justo lo que
+    fue escrito para suprimir, y encima el operador cree que está cubierto. Tres
+    triggers alcanzables lo disparan (30-VERIFICATION.md, quinto ciclo): (a) un
+    ``RecursionError`` que llega con el stack casi agotado, donde el formateo o la
+    extracción de frames puede levantar; (b) un stderr roto o cerrado, que
+    convierte la escritura en ``BrokenPipeError``/``ValueError``; (c) un
+    ``IOLDecodeError`` que nunca asignó sus cuatro atributos type-only, que hace
+    levantar ``AttributeError`` adentro del renderer.
+
+    **Por qué ``BaseException`` y no ``Exception``.** Un ``MemoryError`` o un
+    ``KeyboardInterrupt`` que llegue a mitad del render tiene que quedar contenido
+    igual: el contrato no es "casi nada se escapa", es que **nada** se escapa.
+
+    **Por qué el texto de fallback es estático.** Ver :data:`_HOOK_RENDER_FAILED`:
+    en esa rama la maquinaria que filtra ya falló, así que nada derivado de la
+    excepción puede considerarse seguro ahí.
+    """
+    del exc_type  # El nombre de la clase ya viaja dentro de ``_redacted_exc``.
+    try:
+        detail = _redacted_exc(exc)
+    except BaseException:
+        detail = _HOOK_RENDER_FAILED
+    _emit_crash_report(detail, tb)
+
+
+def _install_redacted_excepthook() -> None:
+    """Arma :func:`_redacted_excepthook` como el hook de excepciones del proceso.
+
+    Existe como función nombrada —en vez de una asignación suelta en el guard—
+    para que el test de subproceso instale el hook *exactamente* como lo hace
+    producción en vez de duplicar el wiring.
+    """
+    sys.excepthook = _redacted_excepthook
+
+
 if __name__ == "__main__":
+    _install_redacted_excepthook()
     main()

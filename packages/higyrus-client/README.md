@@ -102,7 +102,7 @@ Convenciones de query params (manejadas internamente):
 
 Todas las respuestas se modelan con frozen dataclasses sobre `SafeModel.from_api()`, que tolera campos faltantes con defaults seguros (`""`, `0`, `0.0`, `False`, `[]`). Encadenamientos como `posicion.parking[0].diasParking` nunca lanzan: en el peor caso devuelven el default del tipo. Los nombres siguen el wire format (camelCase) verbatim.
 
-Modelos públicos: `Cuenta`, `Movimiento`, `Posicion`, `PosicionValuada`, `Parking`, `Administrador`, `Agente`, `CuentaBancaria`, `DisposicionesGenerales`, `Domicilio`, `MedioComunicacion`, `Operador`, `PersonaRelacionada`, `Sucursal`.
+Modelos públicos: `Cuenta`, `Health`, `Movimiento`, `Posicion`, `PosicionValuada`, `Parking`, `Administrador`, `Agente`, `CuentaBancaria`, `DisposicionesGenerales`, `Domicilio`, `MedioComunicacion`, `Operador`, `PersonaRelacionada`, `Sucursal`.
 
 ## Referencia de la API
 
@@ -125,3 +125,38 @@ uv run ruff format packages/higyrus-client
 # Type checking
 uv run mypy packages/higyrus-client/src
 ```
+
+## Changelog
+
+### v0.3.0 — sin publicar todavía
+
+El bump de `pyproject.toml` y el tag los hace la Phase 34; esta entrada existe
+para que la ruptura quede registrada en el momento en que se introduce y no en
+el momento en que se publica. **Cualquiera que compile desde HEAD obtiene una
+rueda cuya metadata dice `0.2.0` y cuya API es incompatible con la `0.2.0`
+publicada** — hasta el bump, esa es la advertencia operativa.
+
+**`get_health()` deja de devolver un diccionario y pasa a devolver un modelo
+tipado** (breaking, minor bump en línea 0.x — mismo criterio y misma forma que la
+ruptura dict→modelo de `iol-client` v0.3.0).
+
+| Función | Antes | Ahora |
+|---|---|---|
+| `get_health` | `dict[str, Any]` | `Health` |
+
+- Cambia en sus **dos superficies** (método de clase y shim de módulo) y en
+  **sync y async**: cuatro firmas.
+- El acceso pasa de `health["status"]` a `health.status`; un acceso por clave
+  sobre el resultado levanta `TypeError` (los modelos no son subscriptables).
+- **Flip de truthiness:** un dict vacío es falso, una instancia de dataclass es
+  verdadera siempre. Cualquier consumidor que ramifique sobre la verdad del
+  resultado cambia de comportamiento aunque el código compile y aunque mypy no
+  diga nada. Es la parte de la ruptura que más fácil pasa desapercibida.
+- **Modelo nuevo exportado:** `Health` (un solo campo, `status: str`), en el
+  `__all__` del paquete. Frozen + `slots`, construido vía `SafeModel.from_api()`.
+- **Escape hatch:** `health.to_dict()` reproyecta el modelo al dict plano. Sirve
+  para call sites de `len()` / `isinstance`; **no** es una entrada válida para un
+  snapshot de schema, porque el walker ya coercionó cada campo declarado y
+  descartó toda clave no declarada.
+- Un body vacío / `204` colapsa al `Health` zero-valued; bajo `strict_decode` esa
+  misma shape levanta `HigyrusDecodeError`.

@@ -50,7 +50,7 @@ from typing import Any, Literal, Self
 
 import httpx
 
-from iol_client import _atransport, _core, _token_cache
+from iol_client import _atransport, _core, _decode, _token_cache
 from iol_client._core import RequestSpec
 
 # B8 (D-04): import the shared, stateless helper from _core (NOT from
@@ -61,6 +61,7 @@ from iol_client._core import raise_for_response as _raise_for_response
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.client import InstrumentType, _validate_max_retries
 from iol_client.exceptions import IOLAuthError
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 # Suppress ruff F401 for the deliberate re-export alias (consumed by tests
 # via ``from iol_client.aio import _raise_for_response``).
@@ -106,6 +107,7 @@ class AsyncClient:
         token_cache_path: Path | None = None,
         max_retries: int = 2,
         http_client: httpx.AsyncClient | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early.
         _validate_max_retries(max_retries)
@@ -120,6 +122,11 @@ class AsyncClient:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 29 D-03 (sync mirror): ``None`` sentinel = "leave the state
+        # default"; the flag lands on the SHARED ``_state``, never on
+        # ``__slots__``, so a ``with_options`` view inherits it.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 14 BUG-03 (D-V3 sync mirror): seed in-memory refresh_token so a
         # cold instance can take the refresh path before any disk read (test
         # parity with the configure(refresh_token=...) surface).
@@ -442,7 +449,19 @@ class AsyncClient:
         with the refreshed Authorization header. Second 401 raises directly
         (Pitfall 1 — no infinite loop). All non-401 error statuses raise their
         typed exceptions directly without re-auth.
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response. Each
+        asyncio task carries its own copy of the context, so a concurrent task
+        running in the other mode cannot clobber this bind.
         """
+        # Phase 29 D-03 (sync mirror): bind the decode mode + a fresh decode
+        # scope. There is deliberately NO reset and no try/finally — this
+        # method returns the ``httpx.Response`` and the decode happens
+        # AFTERWARDS, in the parser, which holds no reference to this client.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         await self._aensure_token()
         lock = self._ensure_token_lock()
         async with lock:
@@ -521,7 +540,7 @@ class AsyncClient:
         *,
         mercado: str = "bcba",
         plazo: str = "t2",
-    ) -> dict[str, Any]:
+    ) -> Cotizacion:
         """Cotización actual de un título (async)."""
         spec = _core.build_get_quote_request(self._state, simbolo, mercado=mercado, plazo=plazo)
         resp = await self._request(spec)
@@ -535,7 +554,7 @@ class AsyncClient:
         *,
         mercado: str = "bcba",
         ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Cotizacion]:
         """Serie histórica de cotizaciones diarias (async)."""
         spec = _core.build_get_historical_quotes_request(
             self._state, simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
@@ -543,7 +562,7 @@ class AsyncClient:
         resp = await self._request(spec)
         return _core.parse_get_historical_quotes_response(resp)
 
-    async def get_instruments(self, pais: str = "argentina") -> Any:
+    async def get_instruments(self, pais: str = "argentina") -> list[Instrumento]:
         """Listado de instrumentos cotizando en ``pais`` (async)."""
         spec = _core.build_get_instruments_request(self._state, pais)
         resp = await self._request(spec)
@@ -554,7 +573,7 @@ class AsyncClient:
         instrument_type: InstrumentType,
         *,
         pais: str = "argentina",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Titulo]:
         """Listado de instrumentos por tipo y país (async)."""
         spec = _core.build_get_instruments_by_type_request(self._state, instrument_type, pais=pais)
         resp = await self._request(spec)
@@ -587,6 +606,7 @@ def configure(
     refresh_token: str | None = None,
     max_retries: int | None = None,
     http_client: httpx.AsyncClient | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL en runtime con semántica carry-forward.
 
@@ -601,6 +621,10 @@ def configure(
     so the prior client is dropped without ``aclose()`` — callers should
     call ``await aclose()`` BEFORE reconfiguring the http client to avoid
     leaking the prior connection pool.
+
+    Phase 29 D-03 mirror sync: ``strict_decode`` is a carry-forward kwarg —
+    the ``None`` sentinel means "no cambiar", so a later
+    ``configure(base_url=...)`` does NOT reset a previous strict opt-in.
     """
     # WR-06: validate max_retries (only when explicitly passed).
     if max_retries is not None:
@@ -621,6 +645,9 @@ def configure(
         client._state.token_expires_at = token_expires_at
     if refresh_token is not None:
         client._state.refresh_token = refresh_token
+    # Phase 29 D-03 (sync mirror): ``None`` = "no cambiar" (Pitfall 5).
+    if strict_decode is not None:
+        client._state.strict_decode = strict_decode
     # Phase 8 D-15: drop the cached httpx.AsyncClient when retry policy or the
     # caller-supplied client changes — next request will rebuild with the new
     # transport. Pitfall: configure() is sync; we cannot await prior.aclose()
@@ -669,7 +696,7 @@ async def get_quote(
     *,
     mercado: str = "bcba",
     plazo: str = "t2",
-) -> dict[str, Any]:
+) -> Cotizacion:
     return await _get_default().get_quote(simbolo, mercado=mercado, plazo=plazo)
 
 
@@ -680,13 +707,13 @@ async def get_historical_quotes(
     *,
     mercado: str = "bcba",
     ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-) -> list[dict[str, Any]]:
+) -> list[Cotizacion]:
     return await _get_default().get_historical_quotes(
         simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
     )
 
 
-async def get_instruments(pais: str = "argentina") -> Any:
+async def get_instruments(pais: str = "argentina") -> list[Instrumento]:
     return await _get_default().get_instruments(pais)
 
 
@@ -694,7 +721,7 @@ async def get_instruments_by_type(
     instrument_type: InstrumentType,
     *,
     pais: str = "argentina",
-) -> list[dict[str, Any]]:
+) -> list[Titulo]:
     return await _get_default().get_instruments_by_type(instrument_type, pais=pais)
 
 

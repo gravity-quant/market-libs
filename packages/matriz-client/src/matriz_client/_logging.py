@@ -37,6 +37,30 @@ LOG-02: ``RedactingFilter`` rewrites ``record.msg``, ``record.args``, AND
 string values in ``record.__dict__`` (covers ``extra={...}`` fields) BEFORE
 emission so credential substrings never reach downstream consumer handlers
 (Sentry, etc.). D-22 additionally splits the ``auth_basic`` tuple field.
+Phase 29 D-05 part (a): the ``record.__dict__`` scan now reaches string leaves
+nested inside ``dict`` / ``list`` / ``tuple`` values, bounded per
+``29-AGGREGATION-CONTRACT.md`` lock 12.
+
+**Ordering invariant (D-22 + Phase 29).** The ``auth_basic`` pre-scan runs
+BEFORE the generic ``record.__dict__`` scan and must keep running before it.
+The pre-scan turns a credential-bearing ``(user, password)`` TUPLE into two
+string fields; the generic scan only redacts string leaves. Reversing the two
+would leave the tuple untouched and leak the password. The generic scan lives
+inside the ``decode-intactness: generic-scan`` marker region — the unit Plan 09
+hashes across the five paquete copies — precisely so this package-specific
+pre-scan can sit legitimately OUTSIDE that region without breaking byte
+identity.
+
+**Phase 29 D-05 part (b) — marker anchoring is deliberately UNCHANGED.**
+``_redact`` is a chain of marker-anchored regexes (``Bearer <tok>``,
+``X-Auth-Token: <tok>``, ``Authorization: Basic <b64>``, ``"password":
+"<secret>"``). A bare credential carrying no marker matches none of them and
+ships intact to every downstream handler. **No change to this filter makes a
+wire value safe to log.** The guarantee for Phase 29's divergence record is
+carried by the record contract in ``29-AGGREGATION-CONTRACT.md`` (lock 1 +
+lock 11): flat, all-str, top level, type-not-value, never the wire value —
+there is no key in that schema in which a wire value can travel. The scan fix
+here is defense in depth for *other* callers' ``extra`` dicts, nothing more.
 
 NOT importable from ``verification/`` — each paquete duplicates this module by
 design (the "no shared internals between packages" constraint).
@@ -46,6 +70,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 __all__ = ["RedactingFilter", "attach"]
 
@@ -111,6 +136,10 @@ def _redact_auth_basic_tuple(value: object) -> dict[str, str] | None:
     ``auth_basic_password`` (redacted to ``"***"``). Returns ``None`` for any
     malformed input (non-tuple, wrong arity, non-string members) — defensive
     against accidental misuse so the filter never crashes a log emission.
+
+    ``None`` means "this value could not be split", NOT "this value is safe":
+    the caller redacts it wholesale (WR-05). A malformed ``auth_basic`` still
+    carries the password, and nothing downstream of the caller would redact it.
     """
     if not isinstance(value, tuple) or len(value) != 2:
         return None
@@ -118,6 +147,66 @@ def _redact_auth_basic_tuple(value: object) -> dict[str, str] | None:
     if not isinstance(user, str) or not isinstance(password, str):
         return None
     return {"auth_basic_user": user, "auth_basic_password": "***"}
+
+
+# --- decode-intactness: generic-scan begin ---
+# Phase 29 D-05 part (a) + ``29-AGGREGATION-CONTRACT.md`` lock 12.
+#
+# Both bounds are NAMED CONSTANTS and must stay that way — do not "clean up"
+# the magic numbers. A log filter runs on EVERY record, on the emitting
+# thread: an unbounded traversal is a latency amplifier on a hot path, and a
+# hostile (or merely enormous) payload sitting in some other caller's
+# ``extra`` dict turns it into a CPU sink. Beyond ``_MAX_SCAN_DEPTH`` a
+# container is left untouched; a container with more than
+# ``_MAX_SCAN_ENTRIES`` entries is skipped rather than walked. Neither bound
+# costs anything for the Phase 29 divergence record itself, which is flat by
+# lock 1 and therefore never recurses at all.
+_MAX_SCAN_DEPTH = 4
+_MAX_SCAN_ENTRIES = 64
+
+
+def _redact_nested(value: Any, depth: int) -> Any:
+    """Rebuild ``value`` with redacted string leaves, within the lock-12 bounds.
+
+    Container type is preserved (a ``tuple`` stays a ``tuple``, a ``list``
+    stays a ``list``) and ``dict`` keys are never touched — only values are
+    rebuilt. When nothing beneath ``value`` changed, the ORIGINAL object is
+    returned, so a record whose extras carry no marker keeps object identity
+    exactly as it did before this fix.
+    """
+    if isinstance(value, str):
+        return _redact(value) if any(m in value for m in _REDACTION_MARKERS) else value
+    if depth >= _MAX_SCAN_DEPTH:
+        return value
+    if isinstance(value, dict):
+        if len(value) > _MAX_SCAN_ENTRIES:
+            return value
+        rebuilt_map = {k: _redact_nested(v, depth + 1) for k, v in value.items()}
+        if all(rebuilt_map[k] is v for k, v in value.items()):
+            return value
+        return rebuilt_map
+    if isinstance(value, list | tuple):
+        if len(value) > _MAX_SCAN_ENTRIES:
+            return value
+        rebuilt_seq = [_redact_nested(v, depth + 1) for v in value]
+        if all(new is old for new, old in zip(rebuilt_seq, value, strict=True)):
+            return value
+        return tuple(rebuilt_seq) if isinstance(value, tuple) else rebuilt_seq
+    return value
+
+
+def _scan_record_dict(record: logging.LogRecord) -> None:
+    """Redact string leaves anywhere in ``record.__dict__`` (covers ``extra={...}``).
+
+    Before Phase 29 this loop inspected only values that were ALREADY strings,
+    so a string leaf nested inside a dict / list / tuple value was never
+    reached and shipped intact to every downstream handler.
+    """
+    for key, value in list(record.__dict__.items()):
+        record.__dict__[key] = _redact_nested(value, 0)
+
+
+# --- decode-intactness: generic-scan end ---
 
 
 class RedactingFilter(logging.Filter):
@@ -147,13 +236,24 @@ class RedactingFilter(logging.Filter):
         # non-string field and leak the password).
         if "auth_basic" in record.__dict__:
             split = _redact_auth_basic_tuple(record.__dict__["auth_basic"])
-            if split is not None:
-                del record.__dict__["auth_basic"]
-                record.__dict__.update(split)
+            del record.__dict__["auth_basic"]
+            # WR-05 (Phase 29 code review): FAIL CLOSED. ``_redact_auth_basic_tuple``
+            # returns ``None`` for every malformed shape — a ``list`` instead of a
+            # ``tuple``, the wrong arity, a ``bytes`` password — and the generic scan
+            # below cannot rescue it: ``_redact_nested`` only rewrites string leaves
+            # that already contain a redaction marker, and a bare password contains
+            # none. Leaving the original value in place therefore shipped the secret
+            # to every downstream handler, which is precisely the outcome the comment
+            # below claims this block prevents. An ``auth_basic`` key that cannot be
+            # split is now redacted wholesale.
+            record.__dict__.update(split if split is not None else {"auth_basic": "***"})
         # Scan record.__dict__ for sentinel substrings in extra= values.
-        for key, value in list(record.__dict__.items()):
-            if isinstance(value, str) and any(m in value for m in _REDACTION_MARKERS):
-                record.__dict__[key] = _redact(value)
+        # The D-22 ``auth_basic`` pre-scan above MUST stay ABOVE this call: it
+        # splits a credential-bearing TUPLE into redactable string fields, and
+        # running the generic scan first would leave the tuple in place as a
+        # non-string value and leak the password. The generic scan is therefore
+        # the last thing that touches ``record.__dict__``.
+        _scan_record_dict(record)
         return True
 
 

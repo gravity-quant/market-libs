@@ -104,7 +104,7 @@ def test_retry_after_honored_once_not_stacked_sync(
     )
     httpx_mock.add_response(url=f"{_BASE}/health", method="GET", json={"status": "ok"})
 
-    assert market_data_client.get_health() == {"status": "ok"}
+    assert market_data_client.get_health().status == "ok"
     assert sleeps == [3.0]
 
 

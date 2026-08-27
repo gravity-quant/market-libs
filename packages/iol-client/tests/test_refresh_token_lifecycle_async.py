@@ -68,7 +68,7 @@ async def test_async_refresh_token_success_path_rotates(httpx_mock: HTTPXMock) -
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")
@@ -115,7 +115,7 @@ async def test_async_refresh_401_falls_back_to_password(httpx_mock: HTTPXMock) -
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     # NO raise — el fallback silencioso vive dentro del lock (D-IOL-09).
@@ -149,7 +149,7 @@ async def test_async_refresh_preserves_token_when_server_omits_refresh_field(
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")
@@ -185,7 +185,7 @@ async def test_async_refresh_rotates_when_server_provides_new_field(
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")

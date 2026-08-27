@@ -8,10 +8,10 @@
 #
 AccountId : class : (id: 'str | None' = None) -> None
 AccountReport : class : (accountName: 'str | None' = None, marketMember: 'str | None' = None, marketMemberIdentity: 'str | None' = None, collateral: 'float | None' = None, margin: 'float | None' = None, availableToCollateral: 'float | None' = None, detailedAccountReports: 'dict[str, Any]' = <factory>, portfolio: 'dict[str, Any]' = <factory>, ordersMargin: 'float | None' = None, currentCash: 'float | None' = None, dailyDiff: 'float | None' = None, uncoveredMargin: 'float | None' = None) -> None
-AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
+AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 AuthenticationError : class : (status: 'str', description: 'str | None' = None, message: 'str | None' = None)
 CFICode : _LiteralGenericAlias :
-Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'
+Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 Currency : _LiteralGenericAlias :
 DEFAULT_MARKET_DATA_ENTRIES : tuple :
 DetailedPosition : class : (account: 'str | None' = None, totalDailyDiffPlain: 'float | None' = None, totalMarketValue: 'float | None' = None, report: 'dict[str, Any]' = <factory>, lastCalculation: 'str | None' = None) -> None
@@ -27,6 +27,7 @@ MarketDataLevel : class : (price: 'float | None' = None, size: 'int | None' = No
 MarketDataSnapshot : class : (BI: 'list[MarketDataLevel]' = <factory>, OF: 'list[MarketDataLevel]' = <factory>, LA: 'MarketDataEntryValue' = <factory>, SE: 'MarketDataEntryValue' = <factory>, OI: 'MarketDataEntryValue' = <factory>, CL: 'MarketDataEntryValue' = <factory>, OP: 'float | None' = None, HI: 'float | None' = None, LO: 'float | None' = None, TV: 'float | None' = None, IV: 'float | None' = None, EV: 'float | None' = None, NV: 'float | None' = None, ACP: 'float | None' = None) -> None
 MarketId : _LiteralGenericAlias :
 MatrizClientError : class :
+MatrizDecodeError : class : (field_path: 'str', declared_type: 'str', observed_type: 'str', model: 'str') -> 'None'
 NewOrderResponse : class : (clientId: 'str | None' = None, proprietary: 'str | None' = None) -> None
 Order : class : (orderId: 'str | None' = None, clOrdId: 'str | None' = None, proprietary: 'str | None' = None, execId: 'str | None' = None, accountId: 'str | None' = None, instrumentId: 'InstrumentId' = <factory>, price: 'float | None' = None, orderQty: 'float | None' = None, ordType: 'OrderType | None' = None, side: 'Side | None' = None, timeInForce: 'TimeInForce | None' = None, transactTime: 'str | None' = None, avgPx: 'float | None' = None, lastPx: 'float | None' = None, lastQty: 'float | None' = None, cumQty: 'float | None' = None, leavesQty: 'float | None' = None, status: 'OrderStatus | None' = None, text: 'str | None' = None) -> None
 OrderReport : class : (orderId: 'str | None' = None, clOrdId: 'str | None' = None, proprietary: 'str | None' = None, execId: 'str | None' = None, accountId: 'str | None' = None, instrumentId: 'InstrumentId' = <factory>, price: 'float | None' = None, orderQty: 'float | None' = None, ordType: 'OrderType | None' = None, side: 'Side | None' = None, timeInForce: 'TimeInForce | None' = None, transactTime: 'str | None' = None, avgPx: 'float | None' = None, lastPx: 'float | None' = None, lastQty: 'float | None' = None, cumQty: 'float | None' = None, leavesQty: 'float | None' = None, status: 'OrderStatus | None' = None, text: 'str | None' = None, wsClOrdId: 'str | None' = None) -> None
@@ -42,7 +43,7 @@ TimeInForce : _LiteralGenericAlias :
 Trade : class : (symbol: 'str | None' = None, servertime: 'int | None' = None, size: 'int | None' = None, price: 'float | None' = None, datetime: 'str | None' = None) -> None
 UnknownFrame : class : (type: 'str | None' = None, raw: 'dict[str, Any]' = <factory>) -> None
 cancel_order : function : (cl_ord_id: 'str', proprietary: 'str') -> 'NewOrderResponse'
-configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None) -> 'None'
+configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 get_account_report : function : (account_name: 'str') -> 'AccountReport'
 get_active_orders : function : (account_id: 'str') -> 'list[Order]'
 get_all_instruments : function : () -> 'list[Instrument]'

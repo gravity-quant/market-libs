@@ -23,14 +23,45 @@ configura para los otros tests del paquete.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import time
+from collections.abc import Iterator
 
 import httpx
 import pytest
 
-from iol_client import _core
+from iol_client import _core, _decode
 from iol_client._state import _TOKEN_TTL_BUFFER_SECONDS, _ClientState
 from iol_client.exceptions import IOLAPIError, IOLAuthError, IOLRateLimitError
+from iol_client.models import Cotizacion, Instrumento, Titulo
+
+_DIVERGENCE_MESSAGE = "decode divergence"
+
+
+@pytest.fixture(autouse=True)
+def _pristine_decode_context() -> Iterator[None]:
+    """Arrancar cada test con el scope y el modo de decode desligados.
+
+    Mismo razonamiento que ``test_decode.py`` y ``test_models.py``: un scope
+    ligado por un test previo colapsaría los registros que las aserciones de
+    deduplicación de este módulo cuentan, volviéndolas verdes por ORDEN de
+    ejecución en vez de por el comportamiento del parser.
+    """
+    mode = _decode.STRICT_DECODE.get()
+    scope = _decode.DECODE_SCOPE.get()
+    _decode.STRICT_DECODE.set(False)
+    _decode.DECODE_SCOPE.set(None)
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.set(mode)
+        _decode.DECODE_SCOPE.set(scope)
+
+
+def _divergences(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Los registros de divergencia capturados, en orden de emisión."""
+    return [r for r in caplog.records if r.getMessage() == _DIVERGENCE_MESSAGE]
+
 
 # ----------------------------------------------------------------------
 # RequestSpec shape
@@ -332,10 +363,18 @@ def test_build_get_instruments_by_type_request_correct_path() -> None:
 # ----------------------------------------------------------------------
 
 
-def test_parse_get_quote_response_returns_json_dict() -> None:
-    resp = httpx.Response(200, content=b'{"simbolo": "GGAL", "precio": 1234.5}')
+def test_parse_get_quote_response_returns_a_cotizacion() -> None:
+    """Plan 30-01: the parser now builds a model, not a dict.
+
+    The previous form asserted equality against ``{"simbolo": ..., "precio":
+    ...}`` — neither key is a field of :class:`Cotizacion` and neither appears
+    in the committed ``get-quote.json`` corpus, so the payload is rewritten
+    with a real corpus key.
+    """
+    resp = httpx.Response(200, content=b'{"ultimoPrecio": 1234.5}')
     data = _core.parse_get_quote_response(resp)
-    assert data == {"simbolo": "GGAL", "precio": 1234.5}
+    assert isinstance(data, Cotizacion)
+    assert data.ultimoPrecio == 1234.5
 
 
 def test_parse_get_quote_response_propagates_429() -> None:
@@ -344,28 +383,164 @@ def test_parse_get_quote_response_propagates_429() -> None:
         _core.parse_get_quote_response(resp)
 
 
-def test_parse_get_historical_quotes_response_returns_list() -> None:
-    resp = httpx.Response(200, content=b'[{"fecha": "2026-01-02"}, {"fecha": "2026-01-03"}]')
+def test_parse_get_historical_quotes_response_returns_cotizaciones() -> None:
+    """Plan 30-02: cada fila de la serie es una :class:`Cotizacion`."""
+    resp = httpx.Response(
+        200,
+        content=b'[{"ultimoPrecio": 111.5}, {"ultimoPrecio": 222.5}]',
+    )
     data = _core.parse_get_historical_quotes_response(resp)
-    assert data == [{"fecha": "2026-01-02"}, {"fecha": "2026-01-03"}]
+    assert len(data) == 2
+    assert all(isinstance(row, Cotizacion) for row in data)
+    assert data[0].ultimoPrecio == 111.5
+    assert data[1].ultimoPrecio == 222.5
 
 
-def test_parse_get_instruments_response_passthrough() -> None:
-    resp = httpx.Response(200, content=b'{"instrumentos": [{"simbolo": "GGAL"}]}')
+def test_parse_get_historical_quotes_response_raises_on_non_list_body() -> None:
+    """D-06 / T-30-06: una forma inesperada **levanta**, no degrada a ``[]``.
+
+    Degradar en silencio enmascararía un upstream cambiado o comprometido, que
+    es exactamente la regresión del vacío silencioso que este milestone existe
+    para eliminar.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": []}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_historical_quotes_response(resp)
+    assert "dict" in str(excinfo.value)
+
+
+def test_parse_list_or_raise_emite_un_registro_por_campo_no_uno_por_fila(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-30-07 / lock 5: el parser es dueño de UN ``DecodeScope`` por respuesta.
+
+    Tres filas a las que les falta la **misma** clave producen **un** registro
+    para ese campo, no tres. Sin esto, una respuesta de N filas saturaría el
+    pipeline de salida del consumidor con N registros por campo.
+    """
+    resp = httpx.Response(
+        200,
+        content=b'[{"ultimoPrecio": 1.0}, {"ultimoPrecio": 2.0}, {"ultimoPrecio": 3.0}]',
+    )
+    with caplog.at_level(logging.DEBUG, logger="iol_client"):
+        data = _core.parse_get_historical_quotes_response(resp)
+
+    assert len(data) == 3
+    moneda = [r for r in _divergences(caplog) if getattr(r, "field_path", None) == ".moneda"]
+    assert len(moneda) == 1
+
+
+def test_parse_get_instruments_response_devuelve_instrumentos() -> None:
+    """El body es la lista top-level que el schema committeado demuestra (D-06)."""
+    resp = httpx.Response(
+        200,
+        content=(
+            b'[{"instrumento": "acciones", "pais": "argentina"},'
+            b' {"instrumento": "cedears", "pais": "argentina"}]'
+        ),
+    )
     data = _core.parse_get_instruments_response(resp)
-    assert data == {"instrumentos": [{"simbolo": "GGAL"}]}
+    assert len(data) == 2
+    assert all(isinstance(i, Instrumento) for i in data)
+    assert data[0].instrumento == "acciones"
+    assert data[0].pais == "argentina"
+    assert [i.instrumento for i in data] == ["acciones", "cedears"]
+
+
+def test_parse_get_instruments_response_raises_on_non_list_body() -> None:
+    """D-06 / T-30-08: el envelope que la suite asumía **levanta**, no degrada.
+
+    Éste es el test que fija la decisión: una respuesta que no es una lista al
+    tope produce ``IOLAPIError`` nombrando el tipo recibido. Devolver ``[]`` acá
+    reintroduciría el vacío silencioso que este milestone existe para eliminar,
+    y enmascararía un upstream cambiado o comprometido (ASVS V5).
+    """
+    resp = httpx.Response(200, content=b'{"instrumentos": []}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_response(resp)
+    assert "dict" in str(excinfo.value)
+
+
+def test_parse_get_instruments_response_lista_vacia_no_levanta() -> None:
+    """El guard discrimina **forma**, no cardinalidad: ``[]`` es una lista válida."""
+    resp = httpx.Response(200, content=b"[]")
+    assert _core.parse_get_instruments_response(resp) == []
 
 
 def test_parse_get_instruments_by_type_response_extracts_titulos_key() -> None:
+    """Plan 30-02: el envelope se desenvuelve crudo y cada fila es un ``Titulo``."""
     resp = httpx.Response(
         200,
         content=b'{"titulos": [{"simbolo": "GGAL"}, {"simbolo": "YPFD"}]}',
     )
     data = _core.parse_get_instruments_by_type_response(resp)
-    assert data == [{"simbolo": "GGAL"}, {"simbolo": "YPFD"}]
+    assert len(data) == 2
+    assert all(isinstance(t, Titulo) for t in data)
+    assert [t.simbolo for t in data] == ["GGAL", "YPFD"]
 
 
 def test_parse_get_instruments_by_type_response_returns_empty_list_when_missing() -> None:
+    """El envelope sin la clave ``titulos`` sigue dando ``[]`` — D-06 lo preserva.
+
+    No es el guard de forma: acá el body **sí** tiene la forma esperada (un
+    dict envelope), sólo que sin la clave. El caso que levanta es el de la
+    serie histórica, cuyo body top-level debe ser una lista.
+    """
     resp = httpx.Response(200, content=b"{}")
     data = _core.parse_get_instruments_by_type_response(resp)
     assert data == []
+
+
+def test_parse_get_instruments_by_type_response_raises_on_top_level_list_body() -> None:
+    """CR-02 / D-06 / ASVS V5: un body lista al tope **levanta** ``IOLAPIError``.
+
+    Antes del guard, ``resp.json()`` devolvía una lista y el ``.get("titulos")``
+    siguiente reventaba con un ``AttributeError`` crudo que escapaba la
+    jerarquía ``IOLClientError`` — la única jerarquía que el README y las
+    escaleras ``except IOLAPIError`` del driver documentan atrapar. Un upstream
+    cambiado dejaba de ser un error de forma reportable y pasaba a ser un crash.
+    """
+    resp = httpx.Response(200, content=b'[{"simbolo": "GGAL"}]')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_by_type_response(resp)
+    assert "list" in str(excinfo.value)
+
+
+def test_parse_get_instruments_by_type_response_raises_on_string_titulos() -> None:
+    """CR-02 / D-06 / ASVS V5: un ``titulos`` string **levanta**, no fabrica filas.
+
+    Antes del guard, ``"GGAL"`` se iteraba carácter por carácter y salían cuatro
+    ``Titulo`` con todos los campos en su default — filas financieras sintéticas
+    que el llamador no puede distinguir de instrumentos reales. Ésa es la
+    degradación silenciosa que enmascara un upstream cambiado o comprometido.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": "GGAL"}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_by_type_response(resp)
+    assert "str" in str(excinfo.value)
+
+
+def test_parse_get_instruments_by_type_response_raises_on_dict_titulos() -> None:
+    """CR-02 / D-06 / ASVS V5: un ``titulos`` dict **levanta**, no fabrica filas.
+
+    Mismo mecanismo que el caso string: iterar un dict recorre sus claves, así
+    que ``{"a": 1, "b": 2}`` producía dos ``Titulo`` all-default. El guard
+    nombra el tipo recibido para que un operator leyendo un traceback en vivo
+    sepa qué forma llegó.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": {"a": 1, "b": 2}}')
+    with pytest.raises(IOLAPIError) as excinfo:
+        _core.parse_get_instruments_by_type_response(resp)
+    assert "dict" in str(excinfo.value)
+
+
+def test_parse_get_instruments_by_type_response_empty_titulos_list_no_levanta() -> None:
+    """CR-02: el guard discrimina **forma**, no cardinalidad — ``[]`` es válido.
+
+    El lock de regresión del par cardinalidad-vs-forma: un envelope con la clave
+    presente y la lista vacía es una respuesta legítima del upstream (no hay
+    títulos de ese tipo) y jamás debe levantar. Junto con el test de la clave
+    ausente de arriba, fija las dos rutas que el guard **no** toca.
+    """
+    resp = httpx.Response(200, content=b'{"titulos": []}')
+    assert _core.parse_get_instruments_by_type_response(resp) == []

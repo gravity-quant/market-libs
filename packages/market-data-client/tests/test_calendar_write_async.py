@@ -4,8 +4,10 @@ Mismo contrato observable de wire sobre el default ``AsyncClient``: gate abierto
 despacha método/URL/body con el Bearer; ``confirm`` viaja en ``false`` por
 default y en ``true`` con el opt-in explícito; los dos ``DELETE`` salen sin body
 ni ``Content-Type``; el trío de config parsea a ``CalendarConfig`` tolerante y un
-``422`` levanta ``MarketDataAPIError``; y el par de feriados retorna ``dict``
-passthrough tolerante.
+``422`` levanta ``MarketDataAPIError``; y el par de feriados retorna
+``AddHolidaysResult`` / ``DeleteHolidayResult`` (Phase 31 TYP-02), degradando a
+la instancia zero-valued ante un ``200`` vacío — la tolerancia T-26-13
+preservada, ahora expresada a través del tipo.
 
 Y —agregado por el Plan 04— el espejo async de la matriz adversarial: refusal
 end-to-end de los CINCO métodos con el gate OFF por default y el token
@@ -24,7 +26,15 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from market_data_client import MarketDataAPIError, MarketDataMutationNotAllowedError, aio
-from market_data_client.models import CalendarConfig, HolidayIn, HolidaysIn, MarketHoursIn
+from market_data_client.models import (
+    AddHolidaysResult,
+    CalendarConfig,
+    CalendarConfigPreview,
+    DeleteHolidayResult,
+    HolidayIn,
+    HolidaysIn,
+    MarketHoursIn,
+)
 
 _BASE = "https://market-data-develop.test/api"
 _TOKEN_URL = "https://auth.test/oauth/token"
@@ -45,6 +55,29 @@ _CONFIG_200: dict[str, Any] = {
     "warnings": ["mercado abierto fuera de la ventana habitual"],
     "updated_at": None,
 }
+
+# Formas de wire REALES capturadas en
+# .planning/verification/schemas/market-data-client/add-holidays-async-response.json
+# y delete-holiday-async-response.json (LIVE-MUT-01, 2026-08-01). Son
+# BYTE-IDÉNTICAS a las capturas sync — esa identidad es, en sí misma, la
+# evidencia de paridad de superficie. Los mocks de Phase 26 asertaban
+# ``{"created": 1}`` y ``{"deleted": 1}`` (entero); ninguna de las dos formas
+# existe en el wire, y la corrección va del lado del TEST (precedente 30-03).
+_ADD_HOLIDAYS_200: dict[str, Any] = {
+    "days": [
+        {
+            "day": "2026-12-25",
+            "closed": True,
+            "description": "",
+            "open_time": None,
+            "close_time": None,
+        }
+    ],
+    "note": "upsert ok",
+    "saved": 1,
+}
+
+_DELETE_HOLIDAY_200: dict[str, Any] = {"day": "2026-12-25", "deleted": True}
 
 # El body que ROADMAP SC#2 pinea en el wire para los defaults de MarketHoursIn.
 _HOURS_BODY: dict[str, Any] = {
@@ -197,7 +230,11 @@ async def test_preview_calendar_config_posts_same_body(httpx_mock: HTTPXMock) ->
     assert req.url.path == "/api/calendar/config/preview"
     assert req.headers["Authorization"] == "Bearer test-token"
     assert _json.loads(req.content) == _HOURS_BODY
-    assert isinstance(cfg, CalendarConfig)
+    # Phase 33 S-2: el REQUEST no se movió — el cambio es RESPONSE-ONLY. El tipo
+    # de retorno pasó de ``CalendarConfig`` a ``CalendarConfigPreview`` porque el
+    # sobre de veredicto no comparte una sola clave con una configuración; ver
+    # ``test_preview_calendar_config_envelope.py``.
+    assert isinstance(cfg, CalendarConfigPreview)
 
 
 async def test_preview_calendar_config_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
@@ -241,7 +278,7 @@ async def test_config_trio_module_shims_dispatch(httpx_mock: HTTPXMock) -> None:
 async def test_add_holidays_sends_nested_body_without_null_hours(httpx_mock: HTTPXMock) -> None:
     """``add_holidays`` async POSTea sin las horas ``None`` (ROADMAP SC#3)."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={"created": 1})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
 
     await aio._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
 
@@ -257,7 +294,7 @@ async def test_add_holidays_sends_nested_body_without_null_hours(httpx_mock: HTT
 async def test_add_holidays_emits_hours_when_present(httpx_mock: HTTPXMock) -> None:
     """Un ``HolidayIn`` con horas emite ambas claves en su elemento."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
 
     await aio._get_default().add_holidays(
         HolidaysIn(
@@ -286,25 +323,32 @@ async def test_add_holidays_emits_hours_when_present(httpx_mock: HTTPXMock) -> N
     }
 
 
-async def test_add_holidays_returns_body_passthrough(httpx_mock: HTTPXMock) -> None:
-    """``add_holidays`` async devuelve el dict del ``200`` tal cual (D-06)."""
+async def test_add_holidays_returns_the_typed_result(httpx_mock: HTTPXMock) -> None:
+    """``add_holidays`` async devuelve un ``AddHolidaysResult`` poblado (Phase 31 TYP-02)."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={"created": 1, "skipped": 0})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
 
     out = await aio._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
 
-    assert isinstance(out, dict)
-    assert out == {"created": 1, "skipped": 0}
+    assert isinstance(out, AddHolidaysResult)
+    assert out.saved == 1
+    assert out.note == "upsert ok"
+    assert out.days[0].day == "2026-12-25"
+    assert out.days[0].closed is True
 
 
-async def test_add_holidays_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
-    """Un ``200`` con body vacío degrada a ``{}`` (D-07 visto desde el shell)."""
+async def test_add_holidays_empty_body_returns_the_zero_valued_result(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """T-26-13 async: un ``200`` vacío degrada al modelo zero-valued, nunca levanta (G-4)."""
     _open_gate()
     httpx_mock.add_response(method="POST", status_code=200, content=b"")
 
     out = await aio._get_default().add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
 
-    assert out == {}
+    assert out == AddHolidaysResult.from_api(None)
+    assert out.days == []
+    assert out.saved == 0
 
 
 async def test_add_holidays_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
@@ -324,7 +368,7 @@ async def test_add_holidays_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
 async def test_delete_holiday_interpolates_day_and_sends_no_body(httpx_mock: HTTPXMock) -> None:
     """``delete_holiday`` async DELETEa el día interpolado, sin body ni ``Content-Type``."""
     _open_gate()
-    httpx_mock.add_response(method="DELETE", status_code=200, json={"deleted": 1})
+    httpx_mock.add_response(method="DELETE", status_code=200, json=_DELETE_HOLIDAY_200)
 
     out = await aio._get_default().delete_holiday("2026-12-25")
 
@@ -334,18 +378,25 @@ async def test_delete_holiday_interpolates_day_and_sends_no_body(httpx_mock: HTT
     assert req.headers["Authorization"] == "Bearer test-token"
     assert req.content == b""
     assert "content-type" not in req.headers
-    assert isinstance(out, dict)
-    assert out == {"deleted": 1}
+    assert isinstance(out, DeleteHolidayResult)
+    assert out.day == "2026-12-25"
+    # El wire manda un BOOLEANO. El mock de Phase 26 mandaba el entero ``1``; la
+    # captura en vivo lo desmiente y la corrección va del lado del test.
+    assert out.deleted is True
 
 
-async def test_delete_holiday_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
-    """Un ``200`` con body vacío degrada a ``{}`` también en el borrado."""
+async def test_delete_holiday_empty_body_returns_the_zero_valued_result(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """T-26-13 async en el borrado: un ``200`` vacío degrada al modelo zero-valued."""
     _open_gate()
     httpx_mock.add_response(method="DELETE", status_code=200, content=b"")
 
     out = await aio._get_default().delete_holiday("2026-12-25")
 
-    assert out == {}
+    assert out == DeleteHolidayResult.from_api(None)
+    assert out.day == ""
+    assert out.deleted is False
 
 
 async def test_delete_holiday_422_raises_api_error(httpx_mock: HTTPXMock) -> None:
@@ -365,8 +416,8 @@ async def test_delete_holiday_422_raises_api_error(httpx_mock: HTTPXMock) -> Non
 async def test_holiday_pair_module_shims_dispatch(httpx_mock: HTTPXMock) -> None:
     """Los dos shims async module-level del par de feriados delegan al default."""
     _open_gate()
-    httpx_mock.add_response(method="POST", status_code=200, json={})
-    httpx_mock.add_response(method="DELETE", status_code=200, json={})
+    httpx_mock.add_response(method="POST", status_code=200, json=_ADD_HOLIDAYS_200)
+    httpx_mock.add_response(method="DELETE", status_code=200, json=_DELETE_HOLIDAY_200)
 
     await aio.add_holidays(HolidaysIn([HolidayIn("2026-12-25")]))
     await aio.delete_holiday("2026-12-25")

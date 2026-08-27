@@ -9,6 +9,7 @@ from pytest_httpx import HTTPXMock
 
 import iol_client
 from iol_client import IOLAuthError, IOLRateLimitError
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 
 def test_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -58,7 +59,8 @@ def test_get_quote_arma_url_y_params(httpx_mock: HTTPXMock) -> None:
         json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
     )
     quote = iol_client.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
 
 
 def test_get_quote_acepta_mercado_custom(httpx_mock: HTTPXMock) -> None:
@@ -67,7 +69,8 @@ def test_get_quote_acepta_mercado_custom(httpx_mock: HTTPXMock) -> None:
         json={"ultimoPrecio": 60.1},
     )
     quote = iol_client.get_quote("KO", mercado="nyse", plazo="t1")
-    assert quote["ultimoPrecio"] == 60.1
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 60.1
 
 
 def test_get_historical_quotes_arma_path(httpx_mock: HTTPXMock) -> None:
@@ -78,16 +81,31 @@ def test_get_historical_quotes_arma_path(httpx_mock: HTTPXMock) -> None:
         json=[{"fechaHora": "2026-04-04T17:00:00", "ultimoPrecio": 999.9}],
     )
     serie = iol_client.get_historical_quotes("GGAL", desde, hasta)
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert len(serie) == 1
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
+    assert serie[-1].fechaHora == "2026-04-04T17:00:00"
 
 
 def test_get_instruments_devuelve_payload(httpx_mock: HTTPXMock) -> None:
+    """El wire es una **lista top-level**, no el envelope que este mock asumía.
+
+    La captura 2026-06-06 (``get-instruments.json``) registra
+    ``[{"instrumento": …, "pais": …}]`` al tope. El payload viejo describía un
+    mundo que el endpoint no devuelve (D-06, Plan 30-03).
+    """
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": ["acciones", "cedears"]},
+        json=[
+            {"instrumento": "acciones", "pais": "argentina"},
+            {"instrumento": "cedears", "pais": "argentina"},
+        ],
     )
     payload = iol_client.get_instruments()
-    assert payload == {"instrumentos": ["acciones", "cedears"]}
+    assert len(payload) == 2
+    assert all(isinstance(i, Instrumento) for i in payload)
+    assert [i.instrumento for i in payload] == ["acciones", "cedears"]
+    assert [i.pais for i in payload] == ["argentina", "argentina"]
 
 
 def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
@@ -96,22 +114,32 @@ def test_get_instruments_by_type_extrae_titulos(httpx_mock: HTTPXMock) -> None:
         json={"titulos": [{"simbolo": "GGAL"}, {"simbolo": "PAMP"}]},
     )
     titulos = iol_client.get_instruments_by_type("acciones")
-    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+    assert len(titulos) == 2
+    assert all(isinstance(t, Titulo) for t in titulos)
+    assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
 
 
 # ------ Verified live (Phase 3) ------
 
 
 def test_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
-    """Phase 3: locking URL exacta de get_quote + ultimoPrecio numeric (IOL-02 + IOL-04)."""
+    """Phase 3: locking URL exacta de get_quote + ultimoPrecio numeric (IOL-02 + IOL-04).
+
+    Plan 30-01: the assertion on the ``simbolo`` key was **removed**, not
+    migrated — ``simbolo`` is not among the 20 keys the live corpus
+    records for this endpoint (``get-quote.json``, captured 2026-06-06), so it
+    is not a field of :class:`Cotizacion` and the mock key now decodes as an
+    ``extra`` divergence. The key stays in the mock precisely to exercise that
+    tolerance.
+    """
     httpx_mock.add_response(
         url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
         json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
     )
     quote = iol_client.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
-    assert isinstance(quote["ultimoPrecio"], int | float)
-    assert quote["simbolo"] == "GGAL"
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
+    assert isinstance(quote.ultimoPrecio, int | float)
 
 
 def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
@@ -119,6 +147,11 @@ def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
 
     Si el wire deja de emitir 'titulos', el cliente devuelve [] silenciosamente —
     drift detectado por probe_field_type_map in-vivo (Pitfall 2), no por este test.
+
+    Plan 30-02: el unwrap sobrevive intacto y sigue siendo un paso raw-dict, pero
+    lo que sale de él son ahora filas :class:`Titulo`. La aserción de forma pasó
+    de ``isinstance(t, dict)`` a ``isinstance(t, Titulo)`` — estrictamente más
+    fuerte, porque nombra la clase en vez del contenedor.
     """
     httpx_mock.add_response(
         url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
@@ -127,8 +160,8 @@ def test_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
     titulos = iol_client.get_instruments_by_type("acciones")
     assert isinstance(titulos, list)
     assert len(titulos) == 2
-    assert all(isinstance(t, dict) for t in titulos)
-    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+    assert all(isinstance(t, Titulo) for t in titulos)
+    assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
 
 
 def test_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
@@ -145,7 +178,8 @@ def test_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
     serie = iol_client.get_historical_quotes("GGAL", desde, hasta)
     assert isinstance(serie, list)
     assert len(serie) >= 1
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
 
 
 # ------ Regressions ------
@@ -177,7 +211,7 @@ def test_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
@@ -214,7 +248,7 @@ def test_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     iol_client.get_instruments("argentina")
@@ -552,8 +586,9 @@ def test_with_options_view_401_triggers_reauth_via_shared_refresh_token(
 
     quote = view.get_quote("GGAL")
 
-    # The returned quote is the success body.
-    assert quote == {"ultimoPrecio": 123.45}
+    # The returned quote is the success body, now decoded as a model.
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 123.45
     # Parent's state updated by view's re-auth path — SHARED _state semantics.
     assert client._state.token == "new-token"
     assert client._state.refresh_token == "new-refresh"

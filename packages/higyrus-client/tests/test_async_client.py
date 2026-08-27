@@ -11,6 +11,7 @@ from pytest_httpx import HTTPXMock
 
 from higyrus_client import (
     Cuenta,
+    Health,
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
@@ -62,7 +63,9 @@ async def test_async_get_health(httpx_mock: HTTPXMock) -> None:
         url="https://api.test/api/health",
         json={"status": "ok"},
     )
-    assert await aio.get_health() == {"status": "ok"}
+    result = await aio.get_health()
+    assert isinstance(result, Health)
+    assert result.status == "ok"
 
 
 async def test_async_get_movimientos_serializa_fechas(httpx_mock: HTTPXMock) -> None:

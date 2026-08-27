@@ -18,13 +18,35 @@ worst case is a final ``None`` or a zero-valued primitive.
 Field names follow the wire format (camelCase) verbatim so JSON parsing
 can stay declarative. This module is exempt from the ``N815`` naming rule
 (see ``[tool.ruff.lint.per-file-ignores]`` in ``pyproject.toml``).
+
+Phase 29 (DEC-01): the per-field coercion now lives in
+:mod:`higyrus_client._decode`, the canonical walker shared in verbatim copies
+across the paquetes. **The substitution behaviour above is unchanged** — every
+default listed is still the default, and :meth:`SafeModel.from_api` still takes
+exactly one positional argument and returns the same instance it always did.
+What is new is *reporting*: each substitution now emits a structured divergence
+record on the ``higyrus_client`` logger, and an undeclared wire key — which
+``_coerce`` structurally could not see, since it never received the payload's
+own key set — is reported too.
+
+Phase 31 (D-03): :meth:`SafeModel.to_dict` is the Phase 30 D-08 escape hatch,
+carried into higyrus by a **verbatim copy** of iol's method — never a
+cross-package import (C-2: this monorepo has no shared internal package by
+design). It is also the adapter the verification harness feeds to
+``verification.schema.schema_of``, with one caveat that Phase 30 CR-01 pins: a
+``schema_of`` fed from ``to_dict()`` is a function of the DECLARATION rather
+than of the wire — the walker has already coerced every non-optional field to
+its declared type and dropped every undeclared key — so it is **not** the right
+input at a drift-detection site.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
-from types import NoneType, UnionType
-from typing import Any, Self, Union, cast, get_args, get_origin, get_type_hints
+import dataclasses
+from dataclasses import dataclass
+from typing import Any, Self, cast
+
+from higyrus_client import _decode
 
 
 class SafeModel:
@@ -37,56 +59,76 @@ class SafeModel:
     @classmethod
     def from_api(cls, payload: Any) -> Self:
         """Build an instance from an API payload, with safe defaults."""
-        data: dict[str, Any] = payload if isinstance(payload, dict) else {}
-        hints = get_type_hints(cls)
-        kwargs: dict[str, Any] = {}
-        for field in fields(cast(Any, cls)):
-            kwargs[field.name] = _coerce(data.get(field.name), hints[field.name])
+        kwargs = _decode.walk_model(
+            cls, payload, policy=_decode.POLICY, sink=_decode.current_sink()
+        )
         return cls(**kwargs)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Re-project the model as the plain wire dict (D-08).
+
+        Escape hatch for the dict -> model break of Phase 30: use it for
+        ``len()`` / ``isinstance`` call sites ONLY. It is **NOT** a valid input
+        to ``verification.schema.schema_of`` (WR-04). The walker has already
+        coerced every non-optional field to its declared type and dropped every
+        undeclared key, so a type change, an added key and a removed key are all
+        three invisible in this projection (Phase 30 CR-01) — every driver
+        schema-snapshot site must keep feeding RAW WIRE, as the module docstring
+        above spells out. Nested models are flattened to dicts; ``None`` keys are
+        **kept** — a response model must reproduce the declared shape, holes
+        included.
+
+        ``cast(Any, self)`` follows ``_decode.py``'s existing mypy-strict
+        discipline: :class:`SafeModel` itself is not a dataclass — every
+        concrete subclass is — so ``asdict``'s ``DataclassInstance`` overload
+        cannot be satisfied by the base's ``self``.
+        """
+        wire: dict[str, Any] = dataclasses.asdict(cast(Any, self))
+        return wire
 
 
 def _coerce(value: Any, hint: Any) -> Any:
-    """Coerce ``value`` to match ``hint``, substituting safe defaults for ``None``."""
-    origin = get_origin(hint)
-    args = get_args(hint)
+    """Coerce ``value`` to match ``hint``, substituting safe defaults for ``None``.
 
-    # Optional[T] / T | None: explicit opt-in to nullable — a missing value
-    # stays None instead of collapsing to a typed zero.
-    if origin is Union or origin is UnionType:
-        if value is None:
-            return None
-        non_none = [a for a in args if a is not NoneType]
-        if len(non_none) == 1:
-            return _coerce(value, non_none[0])
-        return value
+    Back-compat shim over :func:`higyrus_client._decode.walk_field`. Kept with
+    its original two-positional-argument signature and identical return values
+    so any existing caller keeps working; new code should reach for the walker.
+    """
+    return _decode.walk_field(
+        value,
+        hint,
+        path="",
+        model="",
+        policy=_decode.POLICY,
+        sink=_decode.DecodeScope(),
+    )
 
-    if origin is list:
-        if not isinstance(value, list):
-            return []
-        inner = args[0] if args else Any
-        return [_coerce(item, inner) for item in value]
 
-    if isinstance(hint, type) and issubclass(hint, SafeModel):
-        return hint.from_api(value)
+# ---------------------------------------------------------------------------
+# /api/health
+# ---------------------------------------------------------------------------
 
-    if hint is str:
-        return value if isinstance(value, str) else ""
-    if hint is bool:
-        return value if isinstance(value, bool) else False
-    if hint is int:
-        # bool is a subclass of int in Python — exclude it so bool payloads
-        # don't collapse into "cantidad=True".
-        if isinstance(value, bool):
-            return 0
-        return value if isinstance(value, int) else 0
-    if hint is float:
-        if isinstance(value, bool):
-            return 0.0
-        if isinstance(value, int | float):
-            return float(value)
-        return 0.0
 
-    return value
+@dataclass(frozen=True, slots=True)
+class Health(SafeModel):
+    """Liveness payload returned by ``GET /api/health`` (Phase 31 D-01).
+
+    Reconciled against the committed live capture
+    ``.planning/verification/schemas/higyrus-client/get-health.json``, captured
+    2026-06-08 against ``https://becerra.aunesa.com/Irmo``, whose entire content
+    is a single ``status`` string. That capture is the sole source of truth for
+    the field set: nothing else is declared here.
+
+    ``status`` is declared ``str``, deliberately **not** ``str | None`` (D-02).
+    The capture shows a populated string, and an over-declared Optional would
+    cost observability: ``walk_field``'s union-with-``None`` branch returns
+    ``None`` WITHOUT emitting a divergence record, so a genuine null arriving on
+    the wire would be absorbed silently — erasing exactly the signal this
+    milestone exists to surface. It also carries no ``received_at``: health is a
+    liveness answer, not a snapshot, and has no staleness dimension.
+    """
+
+    status: str
 
 
 @dataclass(frozen=True, slots=True)

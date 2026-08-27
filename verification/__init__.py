@@ -18,6 +18,10 @@ contra las APIs reales de forma segura:
 - :mod:`verification.findings` — ``new_findings`` / ``write_findings`` /
   ``append_finding``: plantilla de hallazgos + append idempotente por fid,
   preservando status humano CONFIRMED/FIXED/EXPECTED/NO-FIX (HARN-05/D-10).
+- :mod:`verification.divergences` — ``DivergenceHandler`` / ``divergence_capture``
+  / ``probe_context`` / ``endpoint_scope``: puente del record de decode de seis
+  claves a un finding ``SHAPE``, con el endpoint y la superficie que el record no
+  lleva viajando por ``ContextVar`` (LIVE-TYP-01, D-01/D-02).
 
 No es un miembro del workspace uv ni un paquete publicable: vive en la raíz del
 repo y se importa porque la raíz está en ``sys.path`` (Patrón 1). No tiene
@@ -28,6 +32,12 @@ from __future__ import annotations
 
 from verification.anonymize import Denylist, anonymize
 from verification.capture import capture
+from verification.divergences import (
+    DivergenceHandler,
+    divergence_capture,
+    endpoint_scope,
+    probe_context,
+)
 from verification.env_gate import require_env
 from verification.findings import append_finding, new_findings, write_findings
 from verification.mutation_gate import mutating_allowed
@@ -37,12 +47,16 @@ from verification.schema import schema_of
 
 __all__ = [
     "Denylist",
+    "DivergenceHandler",
     "anonymize",
     "append_finding",
     "capture",
     "diff_safemodel_bidirectional",
+    "divergence_capture",
+    "endpoint_scope",
     "mutating_allowed",
     "new_findings",
+    "probe_context",
     "redact",
     "require_env",
     "safe_print",

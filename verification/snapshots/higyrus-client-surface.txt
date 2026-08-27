@@ -8,16 +8,18 @@
 #
 Administrador : class : (agente: 'Agente', operador: 'Operador', sucursal: 'Sucursal') -> None
 Agente : class : (codigo: 'str', denominacion: 'str') -> None
-AsyncClient : class : (*, base_url: 'str | None' = None, client_id: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None) -> 'None'
-Client : class : (*, base_url: 'str | None' = None, client_id: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None) -> 'None'
+AsyncClient : class : (*, base_url: 'str | None' = None, client_id: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None, strict_decode: 'bool | None' = None) -> 'None'
+Client : class : (*, base_url: 'str | None' = None, client_id: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 Cuenta : class : (id: 'str', tipo: 'str', cartera: 'str', categoria: 'str', clase: 'str', fechaAlta: 'str', denominacion: 'str', alias: 'str', titular: 'str', tipoTitular: 'str', estado: 'str', nota: 'str', disposicionesGenerales: 'DisposicionesGenerales', domicilios: 'list[Domicilio]', personasRelacionadas: 'list[PersonaRelacionada]', mediosComunicacion: 'list[MedioComunicacion]', cuentasBancarias: 'list[CuentaBancaria]', administrador: 'Administrador') -> None
 CuentaBancaria : class : (cbu: 'str', banco: 'str', moneda: 'str', vigenteDesde: 'str', vigenteHasta: 'str') -> None
 DisposicionesGenerales : class : (vigenciaDesde: 'str', vigenciaHasta: 'str', condicionesGenerales: 'str', autorizacionGeneral: 'str', fondosDisponibles: 'str', cuentaFCI: 'str', derivacionBYMA: 'str', instruccionesFondos: 'str', tipoCliente: 'str', horizonteInversion: 'str', perfilInversion: 'str', actividadEsperada: 'str', operatoria: 'str', vinculacionAgente: 'str', derivacionMAV: 'str') -> None
 Domicilio : class : (uso: 'str', pais: 'str', provincia: 'str', codigoPostal: 'str', ciudad: 'str', direccion: 'str') -> None
+Health : class : (status: 'str') -> None
 HigyrusAPIError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 HigyrusAuthError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 HigyrusAuthorizationError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 HigyrusClientError : class :
+HigyrusDecodeError : class : (field_path: 'str', declared_type: 'str', observed_type: 'str', model: 'str') -> 'None'
 HigyrusRateLimitError : class : (status_code: 'int', errors: 'list[dict[str, Any]] | None' = None, timestamp: 'str | None' = None) -> 'None'
 MedioComunicacion : class : (tipo: 'str', medio: 'str', vigenciaDesde: 'str', vigenciaHasta: 'str', uso: 'str', principal: 'str', notas: 'str') -> None
 Movimiento : class : (cuenta: 'str', fechaDesde: 'str', fechaHasta: 'str', fechaConcertacion: 'str', tipoTitulo: 'str', tipoTituloAgente: 'str', especie: 'str', simboloLocal: 'str', lugar: 'str', estado: 'str', fecha: 'str', tipoOperacion: 'str', comprobante: 'str', informacion: 'str', subCuenta: 'str', cantidad: 'float', tipoEspecie: 'str', movimiento: 'str', valuacion: 'float', factorizacion: 'str', concepto: 'str', idMovimientos: 'list[int]') -> None
@@ -28,8 +30,8 @@ Posicion : class : (cuenta: 'str', fecha: 'str', tipoTitulo: 'str', tipoTituloAg
 PosicionValuada : class : (cuenta: 'str', operador: 'str', unidad: 'str', lugar: 'str', estado: 'str', uso: 'str', fecha: 'str', comprobante: 'str', informacion: 'str', cantidad: 'float', fechaCotizacion: 'str', precio: 'float', valuacion: 'float', administrador: 'str', cartera: 'str', mercado: 'str', segmento: 'str', sesion: 'str', tipoTitulo: 'str', monedaCotizacion: 'str', idMovimiento: 'str') -> None
 SafeModel : class : ()
 Sucursal : class : (codigo: 'str', denominacion: 'str') -> None
-configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, client_id: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None) -> 'None'
-get_health : function : () -> 'dict[str, Any]'
+configure : function : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, client_id: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int | None' = None, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
+get_health : function : () -> 'Health'
 get_listado_cuentas : function : (*, id_cuenta: 'list[str] | None' = None, tipo_cuenta: 'str | None' = None, estado: 'str | None' = None, fecha_desde: 'dt.date | None' = None, fecha_hasta: 'dt.date | None' = None) -> 'list[Cuenta]'
 get_movimientos : function : (id_cuenta: 'str', fecha_desde: 'dt.date', fecha_hasta: 'dt.date', *, especie: 'str | None' = None, tipo_titulo: 'str | None' = None, tipo_titulo_agente: 'str | None' = None, movimiento: 'str | None' = None) -> 'list[Movimiento]'
 get_posicion_valuada : function : (id_cuenta: 'str', tipo_cuenta: 'str', nivel: 'str', desde: 'dt.date', hasta: 'dt.date', *, lugar: 'str | None' = None, estado: 'str | None' = None, tipo_titulo: 'str | None' = None, extracto: 'str | None' = None, ocultar_cerradas: 'bool | None' = None, especie: 'str | None' = None, concertacion: 'bool | None' = None, actualizar: 'bool | None' = None) -> 'list[PosicionValuada]'

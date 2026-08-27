@@ -43,6 +43,23 @@ from typing import Any
 
 import pytest
 
+# Four entries, and four is deliberate (Phase 32 D-11, criterion 4 of D-16).
+# ``market_data_client`` and ``wallets_client`` are absent by decision, not by
+# oversight, and the omission is not a gap to be closed by regenerating a fifth
+# and sixth snapshot here:
+#
+# - market-data's real export-surface net already exists in-package at
+#   ``packages/market-data-client/tests/test_public_surface_market_data.py``,
+#   which states the reciprocal half of this note. That file DOES execute in the
+#   6x2 CI matrix; this one does not (see below), so it is the stronger net of
+#   the two.
+# - ``verification/`` has never executed in CI. The ``test`` job invokes pytest
+#   with an explicit ``packages/${{ matrix.package }}`` path on the command
+#   line, which overrides ``testpaths`` in ``pyproject.toml``. A snapshot added
+#   here would therefore go red-INVISIBLE after the first surface change: it
+#   would be a net that reports nothing whether or not the surface drifted,
+#   which is worse than a documented gap. Same risk 30-CONTEXT.md D-09 already
+#   identified for iol.
 _PACKAGES = [
     "ambito_financiero_client",
     "iol_client",

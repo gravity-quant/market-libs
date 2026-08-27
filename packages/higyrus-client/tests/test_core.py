@@ -13,21 +13,25 @@ en la quirk URL-encoding ANTES de que llegue a un wire request real.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import logging
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
 
-from higyrus_client import _core
+from higyrus_client import _core, _decode
 from higyrus_client._state import _TOKEN_TTL_SECONDS, _ClientState
 from higyrus_client.exceptions import (
     HigyrusAPIError,
     HigyrusAuthError,
     HigyrusAuthorizationError,
+    HigyrusDecodeError,
     HigyrusRateLimitError,
 )
-from higyrus_client.models import Cuenta, Movimiento, Posicion, PosicionValuada
+from higyrus_client.models import Cuenta, Health, Movimiento, Posicion, PosicionValuada
 
 # ---------------------------------------------------------------------------
 # RequestSpec dataclass shape
@@ -403,10 +407,12 @@ def test_parse_get_posiciones_response_returns_list_of_posiciones() -> None:
     assert result[0].cuenta == "CTA-001"
 
 
-def test_parse_get_health_response_returns_dict() -> None:
+def test_parse_get_health_response_returns_health() -> None:
+    """Phase 31 TYP-02: el parser devuelve ``Health``, no un mapping."""
     resp = httpx.Response(200, json={"status": "ok"})
     result = _core.parse_get_health_response(resp)
-    assert result == {"status": "ok"}
+    assert result == Health(status="ok")
+    assert result.status == "ok"
 
 
 def test_parse_get_health_response_raises_on_non_dict() -> None:
@@ -415,21 +421,209 @@ def test_parse_get_health_response_raises_on_non_dict() -> None:
         _core.parse_get_health_response(resp)
 
 
-def test_parse_get_health_response_handles_204() -> None:
-    """204 No Content → ``{}``. Sin body = healthy, NO levantar shape-mismatch.
+def test_parse_get_health_response_non_dict_guard_strings_are_exact() -> None:
+    """Los dos strings del guard están pinneados: nunca se aflojan por un re-mock.
+
+    T-31-13. El ``detail`` lleva el NOMBRE del tipo únicamente
+    (``type(raw).__name__``), jamás un valor del wire — regla T-29-36 / ASVS V7.
+    """
+    resp = httpx.Response(200, json=["unexpected", "list"])
+    with pytest.raises(HigyrusAPIError) as excinfo:
+        _core.parse_get_health_response(resp)
+    assert excinfo.value.status_code == 0
+    assert excinfo.value.errors == [
+        {"title": "shape mismatch", "detail": "expected dict, got list"}
+    ]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_parse_get_health_response_handles_204(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """204 No Content → ``Health.from_api(None)``. Sin body = healthy, NO shape-mismatch.
 
     Regression test para CR-02 Phase 7 review: el parser levantaba
     HigyrusAPIError(status_code=0, ...) en 204, rompiendo el contrato HTTP
-    (204 es una respuesta válida para health). Ahora colapsa a ``{}`` igual
-    que los list parsers colapsan 204 a ``[]``.
+    (204 es una respuesta válida para health). Sigue sin levantar: colapsa al
+    zero-valued ``Health`` igual que los list parsers colapsan 204 a ``[]``.
+
+    Phase 31 D-04 mide el efecto OBSERVABLE del carve-out bajo el walker: un
+    payload ``None`` es una divergencia ``non_dict``, así que un 204 legítimo
+    emite exactamente UN record en el logger ``higyrus_client``.
     """
-    resp = httpx.Response(204, content=b"")
-    result = _core.parse_get_health_response(resp)
-    assert result == {}
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        result = _core.parse_get_health_response(httpx.Response(204, content=b""))
+    assert result == Health(status="")
+    assert result.status == ""
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+    assert records[0].model == "Health"  # type: ignore[attr-defined]
 
 
-def test_parse_get_health_response_handles_empty_body_200() -> None:
-    """200 OK con body vacío → ``{}``. Mismo principio: sin body = healthy."""
-    resp = httpx.Response(200, content=b"")
-    result = _core.parse_get_health_response(resp)
-    assert result == {}
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_parse_get_health_response_handles_empty_body_200(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """200 OK con body vacío → zero-valued ``Health``. Mismo principio: sin body = healthy."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        result = _core.parse_get_health_response(httpx.Response(200, content=b""))
+    assert result == Health(status="")
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+@pytest.mark.parametrize(
+    "resp_factory",
+    [
+        lambda: httpx.Response(204, content=b""),
+        lambda: httpx.Response(200, content=b""),
+    ],
+    ids=["204", "empty-body-200"],
+)
+def test_parse_get_health_response_empty_body_raises_under_strict_decode(
+    resp_factory: Any,
+) -> None:
+    """MEASURED behaviour delta of the D-04 carve-out under ``strict_decode=True``.
+
+    ``non_dict`` is not an INFO kind, so strict mode raises
+    :class:`HigyrusDecodeError` instead of returning the zero-valued instance.
+    A legitimate 204 — the very case Phase 7 CR-02 introduced this branch to
+    stop raising on — therefore DOES raise in strict mode. Phase 33 runs the
+    drivers in strict mode; this test is what makes that a known contract
+    rather than a discovery.
+    """
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(HigyrusDecodeError) as excinfo:
+        _core.parse_get_health_response(resp_factory())
+    assert excinfo.value.model == "Health"
+    assert excinfo.value.field_path == ""
+    assert excinfo.value.declared_type == "Health"
+    assert excinfo.value.observed_type == "NoneType"
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_parse_get_health_response_full_payload_is_strict_clean() -> None:
+    """The healthy path emits nothing, so strict mode passes it through untouched."""
+    _decode.STRICT_DECODE.set(True)
+    resp = httpx.Response(200, json={"status": "ok"})
+    assert _core.parse_get_health_response(resp) == Health(status="ok")
+
+
+def test_parse_get_health_response_owns_its_decode_scope() -> None:
+    """The parser carries ``@_decode._response_parser`` like every model-building parser."""
+    assert _core.parse_get_health_response.__wrapped__ is not None  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Health model behaviour (Phase 31 TYP-02, D-01/D-02)
+#
+# The tracer model: one ``str`` field, every walker branch exercised once.
+# ---------------------------------------------------------------------------
+
+
+_DIVERGENCE_MESSAGE = "decode divergence"
+
+
+@pytest.fixture
+def _pristine_decode_context() -> Iterator[None]:
+    """Start with an unbound decode mode and scope (mirrors ``test_decode.py``).
+
+    Consequence of the Phase 29 D-03 ``.set()``-without-reset discipline: once
+    any test in the session drives a real ``_request``, the sync test context
+    keeps that request's ``DECODE_SCOPE`` bound, and a later bare
+    ``Model.from_api()`` would join the stale scope and get its divergence
+    deduped away purely on test ORDER.
+    """
+    mode = _decode.STRICT_DECODE.get()
+    scope = _decode.DECODE_SCOPE.get()
+    _decode.STRICT_DECODE.set(False)
+    _decode.DECODE_SCOPE.set(None)
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.set(mode)
+        _decode.DECODE_SCOPE.set(scope)
+
+
+def _health_divergences(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Every divergence record captured so far, in emission order."""
+    return [r for r in caplog.records if r.getMessage() == _DIVERGENCE_MESSAGE]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_full_payload_populates_status() -> None:
+    """The live capture's only key lands on the only declared field."""
+    assert Health.from_api({"status": "ok"}) == Health(status="ok")
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_empty_dict_zeroes_status_and_reports_missing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``{}`` is still a dict, so the per-field ``missing`` record is emitted."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        health = Health.from_api({})
+    assert health.status == ""
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [(".status", "missing")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_drops_undeclared_key_and_reports_extra(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An undeclared wire key is REPORTED and DROPPED — never silently carried."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        health = Health.from_api({"status": "ok", "uptime": 12})
+    assert health == Health(status="ok")
+    assert not hasattr(health, "uptime")
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [(".uptime", "extra")]  # type: ignore[attr-defined]
+    assert records[0].levelno == logging.INFO
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_from_api_none_is_a_non_dict_divergence(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``None`` yields the zero-valued instance plus ONE ``non_dict`` record.
+
+    This is the shape the 204 / empty-body carve-out now resolves to (D-04):
+    lock 8 suppresses the per-field ``missing`` records under a non-dict
+    payload, so exactly one record is emitted, at the model root.
+    """
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="higyrus_client"):
+        health = Health.from_api(None)
+    assert health == Health(status="")
+    records = _health_divergences(caplog)
+    assert [(r.field_path, r.divergence) for r in records] == [("", "non_dict")]  # type: ignore[attr-defined]
+    assert records[0].observed_type == "NoneType"  # type: ignore[attr-defined]
+    assert records[0].model == "Health"  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("_pristine_decode_context")
+def test_health_to_dict_round_trips_the_wire_shape() -> None:
+    """``to_dict()`` (D-03, carried from Phase 30 D-08) re-projects the wire dict."""
+    assert Health.from_api({"status": "ok"}).to_dict() == {"status": "ok"}
+
+
+def test_health_is_frozen_and_slotted() -> None:
+    """Frozen: attribute assignment raises. Slotted: no ``__dict__`` escape hatch."""
+    health = Health(status="ok")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        health.status = "degraded"  # type: ignore[misc]
+
+
+def test_health_does_not_override_from_api() -> None:
+    """Shape carve-outs belong in the parser, never in a model override.
+
+    The walker's nested-model branch builds with ``hint(**walk_model(...))`` and
+    never calls ``from_api``, so an override on a model is silently skipped.
+    """
+    assert "from_api" not in vars(Health)

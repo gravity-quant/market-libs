@@ -56,6 +56,7 @@ from matriz_client.client import (  # noqa: E402
 from matriz_client.exceptions import (  # noqa: E402
     AuthenticationError,
     MatrizClientError,
+    MatrizDecodeError,
     PrimaryAPIError,
 )
 from matriz_client.models import (  # noqa: E402
@@ -128,6 +129,7 @@ __all__ = [
     "MarketDataSnapshot",
     "MarketId",
     "MatrizClientError",
+    "MatrizDecodeError",
     "NewOrderResponse",
     "Order",
     "OrderReport",

@@ -7,7 +7,8 @@ import datetime as dt
 import pytest
 from pytest_httpx import HTTPXMock
 
-from iol_client import IOLAuthError, aio
+from iol_client import IOLAPIError, IOLAuthError, aio
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 
 async def test_async_login_obtiene_access_token(httpx_mock: HTTPXMock) -> None:
@@ -38,7 +39,8 @@ async def test_async_get_quote(httpx_mock: HTTPXMock) -> None:
         json={"ultimoPrecio": 1234.5},
     )
     quote = await aio.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
 
 
 async def test_async_get_historical_quotes(httpx_mock: HTTPXMock) -> None:
@@ -49,7 +51,9 @@ async def test_async_get_historical_quotes(httpx_mock: HTTPXMock) -> None:
         json=[{"ultimoPrecio": 999.9}],
     )
     serie = await aio.get_historical_quotes("GGAL", desde, hasta)
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert len(serie) == 1
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
 
 
 async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
@@ -58,22 +62,50 @@ async def test_async_get_instruments_by_type(httpx_mock: HTTPXMock) -> None:
         json={"titulos": [{"simbolo": "AAPL"}]},
     )
     titulos = await aio.get_instruments_by_type("cedears")
-    assert titulos[0]["simbolo"] == "AAPL"
+    assert len(titulos) == 1
+    assert isinstance(titulos[0], Titulo)
+    assert titulos[0].simbolo == "AAPL"
+
+
+async def test_async_get_instruments_devuelve_instrumentos(httpx_mock: HTTPXMock) -> None:
+    """Paridad sync/async del último endpoint migrado (Plan 30-03).
+
+    El espejo exacto de ``test_get_instruments_devuelve_payload``: la misma
+    lista top-level entra y salen las mismas dos clases por las dos superficies.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
+        json=[
+            {"instrumento": "acciones", "pais": "argentina"},
+            {"instrumento": "cedears", "pais": "argentina"},
+        ],
+    )
+    payload = await aio.get_instruments()
+    assert len(payload) == 2
+    assert all(isinstance(i, Instrumento) for i in payload)
+    assert [i.instrumento for i in payload] == ["acciones", "cedears"]
+    assert [i.pais for i in payload] == ["argentina", "argentina"]
 
 
 # ------ Verified live (Phase 3) ------
 
 
 async def test_async_get_quote_url_exacta_con_query_string(httpx_mock: HTTPXMock) -> None:
-    """Phase 3: locking URL exacta de aio.get_quote + ultimoPrecio numeric (IOL-02 + IOL-04)."""
+    """Phase 3: locking URL exacta de aio.get_quote + ultimoPrecio numeric (IOL-02 + IOL-04).
+
+    Plan 30-01: the assertion on the ``simbolo`` key was **removed**, not
+    migrated — same reason as the sync twin: ``simbolo`` is not one of the
+    20 keys ``get-quote.json`` records, so it is not a field of
+    :class:`Cotizacion`.
+    """
     httpx_mock.add_response(
         url="https://api.test/api/v2/bcba/Titulos/GGAL/Cotizacion?model.mercado=bcba&model.simbolo=GGAL&model.plazo=t2",
         json={"ultimoPrecio": 1234.5, "simbolo": "GGAL"},
     )
     quote = await aio.get_quote("GGAL")
-    assert quote["ultimoPrecio"] == 1234.5
-    assert isinstance(quote["ultimoPrecio"], int | float)
-    assert quote["simbolo"] == "GGAL"
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 1234.5
+    assert isinstance(quote.ultimoPrecio, int | float)
 
 
 async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMock) -> None:
@@ -81,6 +113,10 @@ async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMo
 
     Espejo del sync — si el wire deja de emitir 'titulos', el cliente devuelve []
     silenciosamente; drift detectado por probe_field_type_map in-vivo (Pitfall 2).
+
+    Plan 30-02: el unwrap sobrevive intacto como paso raw-dict y lo que sale de
+    él son filas :class:`Titulo`; la aserción de forma pasó de nombrar el
+    contenedor a nombrar la clase.
     """
     httpx_mock.add_response(
         url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
@@ -89,8 +125,42 @@ async def test_async_get_instruments_by_type_unwraps_titulos(httpx_mock: HTTPXMo
     titulos = await aio.get_instruments_by_type("acciones")
     assert isinstance(titulos, list)
     assert len(titulos) == 2
-    assert all(isinstance(t, dict) for t in titulos)
-    assert [t["simbolo"] for t in titulos] == ["GGAL", "PAMP"]
+    assert all(isinstance(t, Titulo) for t in titulos)
+    assert [t.simbolo for t in titulos] == ["GGAL", "PAMP"]
+
+
+async def test_async_get_instruments_by_type_raises_on_malformed_titulos(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """CR-02: la superficie async hereda el guard de forma, no lo duplica.
+
+    CLAUDE.md registra la duplicación sync/async de ``client.py`` y ``aio.py``
+    como deuda conocida; para **este** parser no la hay — las dos superficies
+    despachan a la misma función de ``_core``. Este test convierte esa afirmación
+    de algo que un lector deduce leyendo dos archivos en una aserción ejecutable:
+    si alguien reintroduce una copia por-superficie de la lógica de parseo, el
+    guard deja de alcanzar a ``aio`` y este test falla.
+
+    El envelope malformado levanta el mismo ``IOLAPIError`` nombrando ``str`` que
+    la superficie sync, y el happy path sigue devolviendo un ``Titulo`` real —
+    el guard no es daño colateral sobre la ruta buena.
+    """
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
+        json={"titulos": "GGAL"},
+    )
+    with pytest.raises(IOLAPIError) as excinfo:
+        await aio.get_instruments_by_type("acciones")
+    assert "str" in str(excinfo.value)
+
+    httpx_mock.add_response(
+        url="https://api.test/api/v2/Cotizaciones/acciones/argentina/Todos",
+        json={"titulos": [{"simbolo": "GGAL"}]},
+    )
+    titulos = await aio.get_instruments_by_type("acciones")
+    assert len(titulos) == 1
+    assert isinstance(titulos[0], Titulo)
+    assert titulos[0].simbolo == "GGAL"
 
 
 async def test_async_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) -> None:
@@ -107,7 +177,8 @@ async def test_async_get_historical_quotes_url_dia_gt_12(httpx_mock: HTTPXMock) 
     serie = await aio.get_historical_quotes("GGAL", desde, hasta)
     assert isinstance(serie, list)
     assert len(serie) >= 1
-    assert serie[-1]["ultimoPrecio"] == 999.9
+    assert all(isinstance(row, Cotizacion) for row in serie)
+    assert serie[-1].ultimoPrecio == 999.9
 
 
 # ------ Regressions ------
@@ -139,7 +210,7 @@ async def test_async_refresh_token_success_path(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")
@@ -174,7 +245,7 @@ async def test_async_refresh_fails_falls_back_to_password(httpx_mock: HTTPXMock)
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     await aio.get_instruments("argentina")
@@ -340,7 +411,8 @@ async def test_concurrent_401_triggers_exactly_one_reauth(httpx_mock: HTTPXMock)
         aio.get_quote("GGAL"),
         aio.get_quote("GGAL"),
     )
-    assert all(r["ultimoPrecio"] == 999.9 for r in results)
+    assert all(isinstance(r, Cotizacion) for r in results)
+    assert all(r.ultimoPrecio == 999.9 for r in results)
 
     # Assert exactly ONE login wire request (deduplication via token_lock).
     login_requests = [
@@ -540,7 +612,8 @@ async def test_with_options_async_view_401_triggers_reauth_via_shared_refresh_to
 
     quote = await view.get_quote("GGAL")
 
-    assert quote == {"ultimoPrecio": 123.45}
+    assert isinstance(quote, Cotizacion)
+    assert quote.ultimoPrecio == 123.45
     # Parent's state updated by view's re-auth path — SHARED _state semantics.
     assert client._state.token == "new-token"
     assert client._state.refresh_token == "new-refresh"

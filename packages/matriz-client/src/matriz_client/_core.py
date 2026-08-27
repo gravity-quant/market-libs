@@ -47,6 +47,7 @@ from typing import Any, get_args
 
 import httpx
 
+from matriz_client import _decode
 from matriz_client._state import _TOKEN_TTL, _ClientState
 from matriz_client.exceptions import AuthenticationError, PrimaryAPIError
 from matriz_client.models import (
@@ -365,6 +366,7 @@ def build_get_segments_request(state: _ClientState) -> RequestSpec:
     )
 
 
+@_decode._response_parser
 def parse_get_segments_response(resp: httpx.Response) -> list[Segment]:
     """Parse envelope ``{segments: [...]}`` → ``list[Segment]``."""
     path = "/rest/segment/all"
@@ -385,6 +387,7 @@ def build_get_all_instruments_request(state: _ClientState) -> RequestSpec:
     )
 
 
+@_decode._response_parser
 def parse_get_all_instruments_response(resp: httpx.Response) -> list[Instrument]:
     """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
     path = "/rest/instruments/all"
@@ -402,6 +405,7 @@ def build_get_instruments_details_request(state: _ClientState) -> RequestSpec:
     )
 
 
+@_decode._response_parser
 def parse_get_instruments_details_response(resp: httpx.Response) -> list[InstrumentDetail]:
     """Parse envelope ``{instruments: [...]}`` → ``list[InstrumentDetail]``."""
     path = "/rest/instruments/details"
@@ -424,6 +428,7 @@ def build_get_instrument_detail_request(
     )
 
 
+@_decode._response_parser
 def parse_get_instrument_detail_response(resp: httpx.Response) -> InstrumentDetail:
     """Parse envelope ``{instrument: {...}}`` → ``InstrumentDetail``."""
     path = "/rest/instruments/detail"
@@ -484,6 +489,7 @@ def build_get_instruments_by_cfi_request(
     )
 
 
+@_decode._response_parser
 def parse_get_instruments_by_cfi_response(resp: httpx.Response) -> list[Instrument]:
     """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
     path = "/rest/instruments/byCFICode"
@@ -506,6 +512,7 @@ def build_get_instruments_by_segment_request(
     )
 
 
+@_decode._response_parser
 def parse_get_instruments_by_segment_response(resp: httpx.Response) -> list[Instrument]:
     """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
     path = "/rest/instruments/bySegment"
@@ -563,6 +570,7 @@ def build_new_order_request(
     )
 
 
+@_decode._response_parser
 def parse_new_order_response(resp: httpx.Response) -> NewOrderResponse:
     """Parse envelope ``{order: {clientId, proprietary}}`` → ``NewOrderResponse``."""
     path = "/rest/order/newSingleOrder"
@@ -596,6 +604,7 @@ def build_replace_order_request(
     )
 
 
+@_decode._response_parser
 def parse_replace_order_response(resp: httpx.Response) -> NewOrderResponse:
     """Parse envelope ``{order: {...}}`` → ``NewOrderResponse``."""
     path = "/rest/order/replaceById"
@@ -624,6 +633,7 @@ def build_cancel_order_request(
     )
 
 
+@_decode._response_parser
 def parse_cancel_order_response(resp: httpx.Response) -> NewOrderResponse:
     """Parse envelope ``{order: {...}}`` → ``NewOrderResponse``."""
     path = "/rest/order/cancelById"
@@ -646,6 +656,7 @@ def build_get_order_status_request(
     )
 
 
+@_decode._response_parser
 def parse_get_order_status_response(resp: httpx.Response) -> Order:
     """Parse envelope ``{order: {...}}`` → ``Order``."""
     path = "/rest/order/id"
@@ -668,6 +679,7 @@ def build_get_order_history_request(
     )
 
 
+@_decode._response_parser
 def parse_get_order_history_response(resp: httpx.Response) -> list[Order]:
     """Parse envelope ``{orders: [...]}`` → ``list[Order]``."""
     path = "/rest/order/allById"
@@ -690,6 +702,7 @@ def build_get_active_orders_request(
     )
 
 
+@_decode._response_parser
 def parse_get_active_orders_response(resp: httpx.Response) -> list[Order]:
     """Parse envelope ``{orders: [...]}`` → ``list[Order]``."""
     path = "/rest/order/actives"
@@ -712,6 +725,7 @@ def build_get_filled_orders_request(
     )
 
 
+@_decode._response_parser
 def parse_get_filled_orders_response(resp: httpx.Response) -> list[Order]:
     """Parse envelope ``{orders: [...]}`` → ``list[Order]``."""
     path = "/rest/order/filleds"
@@ -734,6 +748,7 @@ def build_get_all_orders_request(
     )
 
 
+@_decode._response_parser
 def parse_get_all_orders_response(resp: httpx.Response) -> list[Order]:
     """Parse envelope ``{orders: [...]}`` → ``list[Order]``."""
     path = "/rest/order/all"
@@ -755,6 +770,7 @@ def build_get_order_by_exec_id_request(
     )
 
 
+@_decode._response_parser
 def parse_get_order_by_exec_id_response(resp: httpx.Response) -> Order:
     """Parse envelope ``{order: {...}}`` → ``Order``."""
     path = "/rest/order/byExecId"
@@ -790,6 +806,7 @@ def build_get_market_data_request(
     )
 
 
+@_decode._response_parser
 def parse_get_market_data_response(resp: httpx.Response) -> MarketDataSnapshot:
     """Parse envelope ``{marketData: {...}}`` → ``MarketDataSnapshot``."""
     path = "/rest/marketdata/get"
@@ -829,6 +846,7 @@ def build_get_trades_request(
     )
 
 
+@_decode._response_parser
 def parse_get_trades_response(resp: httpx.Response) -> list[Trade]:
     """Parse envelope ``{trades: [...]}`` → ``list[Trade]``."""
     path = "/rest/data/getTrades"
@@ -863,6 +881,7 @@ def build_get_positions_request(
     )
 
 
+@_decode._response_parser
 def parse_get_positions_response(resp: httpx.Response, account_name: str) -> list[Position]:
     """Parse envelope ``{positions: [...]}`` → ``list[Position]``."""
     path = f"/rest/risk/position/getPositions/{account_name}"
@@ -889,6 +908,7 @@ def build_get_detailed_positions_request(
     )
 
 
+@_decode._response_parser
 def parse_get_detailed_positions_response(
     resp: httpx.Response, account_name: str
 ) -> DetailedPosition:
@@ -917,6 +937,7 @@ def build_get_account_report_request(
     )
 
 
+@_decode._response_parser
 def parse_get_account_report_response(resp: httpx.Response, account_name: str) -> AccountReport:
     """Parse risk payload raíz (NO envelope key, D-07) → ``AccountReport``."""
     path = f"/rest/risk/accountReport/{account_name}"

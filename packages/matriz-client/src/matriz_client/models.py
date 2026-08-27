@@ -11,14 +11,34 @@ Construct an instance from a raw dict via ``Model.from_api(payload)``;
 ``Model.empty()`` builds a default instance with all attributes at their
 safe defaults. Instances are frozen to discourage mutation of API
 responses.
+
+Phase 29 (DEC-01): the per-field coercion now runs inside
+:mod:`matriz_client._decode`, which returns **exactly the same values** and
+additionally reports every substituted default as a structured record on the
+``matriz_client`` logger. Nothing a caller observes changes; what changes is
+that the divergences this module used to swallow are now visible.
+
+matriz's decode semantics are **not** the other paquetes' semantics, and that
+is deliberate — every difference is a declared axis of
+``29-SEMANTICS-MATRIX.md`` row 5, carried by :data:`matriz_client._decode.POLICY`
+(``missing_* = None``, ``non_dict_model = "empty_classmethod"``,
+``scalar_passthrough = True``), never a bug to be harmonized away. Two things
+the policy constant cannot express live here instead:
+
+- the **mapping axis** — a ``dict``-declared field falls back to ``{}``. The
+  canonical walker has no ``dict`` branch because higyrus and market-data
+  declare no mapping fields; see :func:`_apply_mapping_policy`.
+- **UnknownFrame**, which is not a :class:`_SafeModel` at all and is exempt
+  from extra-key reporting (matrix Section 3(c)).
 """
 
 from __future__ import annotations
 
 import types
 from dataclasses import dataclass, field, fields
-from typing import Any, ClassVar, Self, Union, get_args, get_origin, get_type_hints
+from typing import Any, ClassVar, Self, Union, cast, get_args, get_origin
 
+from matriz_client import _decode
 from matriz_client.types import (
     CFICode,
     Currency,
@@ -71,25 +91,97 @@ def _is_model(tp: Any) -> bool:
     return isinstance(tp, type) and issubclass(tp, _SafeModel)
 
 
+def _is_mapping(tp: Any) -> bool:
+    """True for a ``dict[...]``-declared field, ``Optional`` unwrapped first."""
+    return get_origin(_strip_optional(tp)) is dict
+
+
+def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeScope) -> Any:
+    """matriz's mapping axis: a non-mapping wire value falls back to ``{}``.
+
+    The canonical walker has **no** ``dict`` branch, so ``walk_field`` lands such
+    a value on its bare pass-through and would hand back ``None``. matriz declares four mapping
+    fields (``InstrumentDetail.tickPriceRanges``, ``DetailedPosition.report``,
+    ``AccountReport.detailedAccountReports`` / ``.portfolio``) whose documented
+    contract is "missing dicts become ``{}``".
+
+    The axis lives here rather than in ``_decode.py`` because that file is a
+    byte-verbatim copy across five paquetes (D-02) and Plan 09 hashes it; a
+    per-paquete branch there would be the first crack in that invariant. This
+    mirrors the mechanism ``29-SEMANTICS-MATRIX.md`` Section 3 already blesses
+    for market-data's two model-level exemptions: the call site normalizes, the
+    walker stays untouched.
+
+    Phase 29 code review, CR-03: the axis is **not** matriz-only. market-data
+    declares a mapping field too (``MarketDataSnapshot.market_data``) and never
+    received the compensating pass, so its flagship model carried a completely
+    invisible divergence. ``market_data_client.models`` now carries a verbatim
+    copy of this function and of :func:`_apply_mapping_policy`; the two must stay
+    identical.
+
+    Reporting matches what the walker would emit for any other substituted
+    default — ``missing`` when the payload carried nothing, ``type`` otherwise
+    — so strict mode is fatal here exactly as it is on every other axis.
+    """
+    if isinstance(value, dict):
+        return value
+    sink(model, path, "missing" if value is None else "type", "dict", type(value).__name__)
+    return {}
+
+
+def _apply_mapping_policy(
+    cls: type[Any], kwargs: dict[str, Any], *, sink: _decode.DecodeScope
+) -> None:
+    """Apply :func:`_mapping_value` to every mapping-declared field of ``cls``.
+
+    Runs after :func:`matriz_client._decode.walk_model` and mutates its kwargs
+    in place. It reaches TOP-LEVEL fields only: ``walk_field`` recurses into a
+    nested model through ``walk_model`` directly, so a mapping field on a model
+    reached as another model's field type would be missed. No shipped matriz
+    model that declares a mapping field is ever another model's field type —
+    ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` pins that
+    precondition, and fails loudly if a future plan nests one.
+    """
+    # ``cast(Any, cls)`` is the walker's own mypy-strict discipline for
+    # ``get_type_hints``-driven code: mypy rejects ``type[Any]`` against
+    # ``lru_cache``'s ``Hashable`` parameter. No ``type: ignore`` is introduced.
+    target = cast(Any, cls)
+    hints = _decode.hints_for(target)
+    model = cls.__name__
+    for f in fields(target):
+        hint = hints[f.name]
+        if _is_mapping(hint):
+            kwargs[f.name] = _mapping_value(
+                kwargs[f.name], path=f".{f.name}", model=model, sink=sink
+            )
+
+
 def _convert(tp: Any, value: Any) -> Any:
-    """Coerce ``value`` to the shape declared by ``tp``, applying safe defaults."""
-    inner = _strip_optional(tp)
-    origin = get_origin(inner)
+    """Coerce ``value`` to the shape declared by ``tp``, applying safe defaults.
 
-    if origin is list:
-        items = value if isinstance(value, list) else []
-        (item_tp,) = get_args(inner)
-        if _is_model(item_tp):
-            return [item_tp.from_api(v) for v in items]
-        return list(items)
+    Back-compat shim over :func:`matriz_client._decode.walk_field`. The
+    argument order — type hint FIRST, value second — is **reversed** relative
+    to higyrus's and market-data's ``_coerce`` and is kept exactly as it was:
+    swapping it would be a silent break for anything that already imports this
+    helper. The mapping branch stays here because it is matriz's own axis (see
+    :func:`_mapping_value`).
 
-    if origin is dict:
-        return value if isinstance(value, dict) else {}
-
-    if _is_model(inner):
-        return inner.from_api(value) if isinstance(value, dict) else inner.empty()
-
-    return value
+    The throwaway sink is a fresh :class:`~matriz_client._decode.DecodeScope`,
+    not the silent one, so a legacy caller reaching for the shim gets the same
+    observability as a caller going through ``from_api`` — and never shares
+    dedupe state with a surrounding request scope.
+    """
+    sink = _decode.DecodeScope()
+    if _is_mapping(tp):
+        return _mapping_value(value, path="", model="", sink=sink)
+    return _decode.walk_field(
+        value,
+        tp,
+        path="",
+        model="",
+        policy=_decode.POLICY,
+        sink=sink,
+    )
 
 
 # ----------------------------------------------------------------------
@@ -105,15 +197,57 @@ class _SafeModel:
 
     @classmethod
     def from_api(cls, data: Any) -> Self:
-        if not isinstance(data, dict):
+        """Build an instance from an API payload, with matriz's safe defaults.
+
+        Phase 29 code review, WR-01. The previous docstring claimed that
+        ``POLICY``'s ``non_dict_model = "empty_classmethod"`` "makes the walker"
+        take matriz's non-dict fallback. It does not, and never did: the walker
+        runs the identical ``data = {}`` substitution for all five paquetes and
+        reads that field nowhere. A docstring attributing behaviour to an unread
+        constant is worse than no docstring, and it also falsified
+        ``29-SEMANTICS-MATRIX.md``'s central safety argument ("there is no
+        unparameterized path in the walker").
+
+        The axis is made load-bearing here instead, which is where matrix row 5
+        always said it lived: the walker implements ``"from_api_none"``
+        unconditionally, and a paquete whose policy declares
+        ``"empty_classmethod"`` applies it at its own call site. The walker still
+        emits the single terminal ``non_dict`` record first (lock 8), so the
+        branch below changes the construction path, not the reporting.
+
+        ``test_non_dict_returns_empty`` asserts the resulting equality, which is
+        now true by construction rather than by coincidence.
+        """
+        sink = _decode.current_sink()
+        kwargs = _decode.walk_model(cls, data, policy=_decode.POLICY, sink=sink)
+        if _decode.POLICY.non_dict_model == "empty_classmethod" and not isinstance(data, dict):
+            # Matrix row 5, now actually READ: matriz's non-dict fallback is the
+            # ``empty()`` classmethod. Flipping the constant to ``"from_api_none"``
+            # changes this line's behaviour, which is the property the matrix
+            # claims for every cell in it.
             return cls.empty()
-        hints = get_type_hints(cls)
-        return cls(**{f.name: _convert(hints[f.name], data.get(f.name)) for f in fields(cls)})
+        # Lock 8 again: under a non-dict payload the walker already swapped its
+        # field sink to ``SILENT_SINK``, so the mapping pass must be silent too
+        # — otherwise a 204 body would emit one extra record per mapping field
+        # on top of the terminal ``non_dict`` one.
+        _apply_mapping_policy(
+            cls, kwargs, sink=sink if isinstance(data, dict) else _decode.SILENT_SINK
+        )
+        return cls(**kwargs)
 
     @classmethod
     def empty(cls) -> Self:
-        hints = get_type_hints(cls)
-        return cls(**{f.name: _convert(hints[f.name], None) for f in fields(cls)})
+        """Build an all-defaults instance. Emits nothing (T-29-33).
+
+        ``empty()`` does not decode wire data: it is the nested-model default,
+        the ``default_factory`` of several shipped fields, and the shape a
+        non-dict payload converges on. Routing it through an emitting sink
+        would produce one spurious ``missing`` record per field on every one of
+        those calls and would break the terminal-``non_dict`` rule.
+        """
+        kwargs = _decode.walk_model(cls, {}, policy=_decode.POLICY, sink=_decode.SILENT_SINK)
+        _apply_mapping_policy(cls, kwargs, sink=_decode.SILENT_SINK)
+        return cls(**kwargs)
 
 
 # ----------------------------------------------------------------------
@@ -375,6 +509,11 @@ class UnknownFrame:
     forward-compatible fields without losing information. Implements the
     ``from_api``/``empty`` duck-typed contract so the WS dispatcher can
     treat it like any other frame model.
+
+    Phase 29: exempt from the walker entirely per ``29-SEMANTICS-MATRIX.md``
+    Section 3(c) — under a naive extra-key rule every key of every unknown
+    frame would be "extra", but those keys are a deliberate catch-all, not a
+    modelling gap. Both methods below stay hand-written and untouched.
     """
 
     type: str | None = None

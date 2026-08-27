@@ -78,7 +78,7 @@ def test_token_literal_never_appears_in_log_records(
         caplog.set_level(logging.DEBUG, logger=pkg_name)
         httpx_mock.add_response(
             url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-            json={"instrumentos": []},
+            json=[],
         )
         pkg.get_instruments("argentina")
     elif pkg_name == "higyrus_client":

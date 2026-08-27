@@ -8,21 +8,22 @@ Sync (API a nivel módulo — delega al default Client)::
 
     import market_data_client
 
-    health = market_data_client.get_health()
+    health = market_data_client.get_health()   # -> Health
+    print(health.status)                       # atributo, no health["status"]
 
 Sync (API basada en clase)::
 
     from market_data_client import Client
 
     with Client() as client:
-        health = client.get_health()
+        health = client.get_health()           # -> Health; health.status
 
 Async::
 
     from market_data_client import aio
 
     async with aio.AsyncClient() as client:
-        health = await client.get_health()
+        health = await client.get_health()     # -> Health; health.status
 """
 
 # Phase 20 CORE-MD-01 / LOG-01: attach NullHandler + RedactingFilter to the
@@ -63,13 +64,23 @@ from market_data_client.client import (  # noqa: E402
 from market_data_client.exceptions import (  # noqa: E402
     MarketDataAPIError,
     MarketDataAuthError,
+    MarketDataDecodeError,
     MarketDataError,
     MarketDataMutationNotAllowedError,
     MarketDataRateLimitError,
 )
 from market_data_client.models import (  # noqa: E402
+    AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
+    DeleteHolidayResult,
+    FeedIngestor,
+    FeedMarket,
+    FeedPipeline,
+    Health,
+    HealthAuth,
+    HealthFeed,
     HolidayIn,
     HolidaysIn,
     Instrument,
@@ -78,6 +89,7 @@ from market_data_client.models import (  # noqa: E402
     MarketHoursIn,
     NewSymbol,
     NewSymbols,
+    PreviewMarket,
     Segment,
     Symbol,
     SymbolPatch,
@@ -87,16 +99,26 @@ from market_data_client.models import (  # noqa: E402
 # underscore — NOT in ``__all__``) so tests and helpers can access it via
 # ``market_data_client._get_default()`` without reaching into ``.client``.
 __all__ = [
+    "AddHolidaysResult",
     "AsyncClient",
     "CalendarConfig",
+    "CalendarConfigPreview",
     "CalendarDay",
     "Client",
+    "DeleteHolidayResult",
+    "FeedIngestor",
+    "FeedMarket",
+    "FeedPipeline",
+    "Health",
+    "HealthAuth",
+    "HealthFeed",
     "HolidayIn",
     "HolidaysIn",
     "Instrument",
     "LatestRequest",
     "MarketDataAPIError",
     "MarketDataAuthError",
+    "MarketDataDecodeError",
     "MarketDataError",
     "MarketDataMutationNotAllowedError",
     "MarketDataRateLimitError",
@@ -104,6 +126,7 @@ __all__ = [
     "MarketHoursIn",
     "NewSymbol",
     "NewSymbols",
+    "PreviewMarket",
     "Segment",
     "Symbol",
     "SymbolPatch",
@@ -131,4 +154,4 @@ __all__ = [
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

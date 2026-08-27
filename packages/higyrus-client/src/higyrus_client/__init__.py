@@ -50,6 +50,7 @@ from higyrus_client.exceptions import (  # noqa: E402
     HigyrusAuthError,
     HigyrusAuthorizationError,
     HigyrusClientError,
+    HigyrusDecodeError,
     HigyrusRateLimitError,
 )
 from higyrus_client.models import (  # noqa: E402
@@ -59,6 +60,7 @@ from higyrus_client.models import (  # noqa: E402
     CuentaBancaria,
     DisposicionesGenerales,
     Domicilio,
+    Health,
     MedioComunicacion,
     Movimiento,
     Operador,
@@ -79,10 +81,12 @@ __all__ = [
     "CuentaBancaria",
     "DisposicionesGenerales",
     "Domicilio",
+    "Health",
     "HigyrusAPIError",
     "HigyrusAuthError",
     "HigyrusAuthorizationError",
     "HigyrusClientError",
+    "HigyrusDecodeError",
     "HigyrusRateLimitError",
     "MedioComunicacion",
     "Movimiento",

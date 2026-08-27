@@ -54,10 +54,11 @@ from typing import Any, Literal, Self
 import httpx
 from dotenv import load_dotenv
 
-from iol_client import _core, _token_cache, _transport
+from iol_client import _core, _decode, _token_cache, _transport
 from iol_client._core import RequestSpec
 from iol_client._state import _REQUEST_TIMEOUT, _ClientState
 from iol_client.exceptions import IOLAuthError
+from iol_client.models import Cotizacion, Instrumento, Titulo
 
 InstrumentType = Literal[
     "obligacionesNegociables",
@@ -139,6 +140,7 @@ class Client:
         token_cache_path: Path | None = None,
         max_retries: int = 2,
         http_client: httpx.Client | None = None,
+        strict_decode: bool | None = None,
     ) -> None:
         # WR-06: validate max_retries early.
         _validate_max_retries(max_retries)
@@ -153,6 +155,11 @@ class Client:
             self._state.token = token
         if token_expires_at is not None:
             self._state.token_expires_at = token_expires_at
+        # Phase 29 D-03: ``None`` sentinel = "leave the state default"; the
+        # flag lands on the SHARED ``_state``, never on ``__slots__``, so a
+        # ``with_options`` view inherits it.
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
         # Phase 14 BUG-03: seed in-memory refresh_token so a cold instance can
         # take the refresh path before any disk read (test parity with the
         # configure(refresh_token=...) surface).
@@ -441,7 +448,18 @@ class Client:
         on the second response re-raises IOLAuthError — NO recursion, NO
         infinite loop (Pitfall 1 prevention). All non-401 error statuses
         (429, 5xx, etc.) raise their typed exceptions directly without re-auth.
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this method returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in the parser,
+        # which holds no reference to this Client. A reset in a ``finally``
+        # would unbind the mode before the decoder ever reads it.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         self._ensure_token()
         assert self._state.token is not None
 
@@ -500,7 +518,7 @@ class Client:
         *,
         mercado: str = "bcba",
         plazo: str = "t2",
-    ) -> dict[str, Any]:
+    ) -> Cotizacion:
         """Cotización actual de un título.
 
         Endpoint: ``GET /api/v2/{mercado}/Titulos/{simbolo}/Cotizacion``.
@@ -517,7 +535,7 @@ class Client:
         *,
         mercado: str = "bcba",
         ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Cotizacion]:
         """Serie histórica de cotizaciones diarias para ``[desde, hasta]``.
 
         Endpoint:
@@ -529,7 +547,7 @@ class Client:
         resp = self._request(spec)
         return _core.parse_get_historical_quotes_response(resp)
 
-    def get_instruments(self, pais: str = "argentina") -> Any:
+    def get_instruments(self, pais: str = "argentina") -> list[Instrumento]:
         """Listado de instrumentos cotizando en ``pais``.
 
         Endpoint: ``GET /api/v2/{pais}/Titulos/Cotizacion/Instrumentos``.
@@ -543,7 +561,7 @@ class Client:
         instrument_type: InstrumentType,
         *,
         pais: str = "argentina",
-    ) -> list[dict[str, Any]]:
+    ) -> list[Titulo]:
         """Listado de instrumentos filtrado por tipo y país.
 
         Endpoint: ``GET /api/v2/Cotizaciones/{instrument_type}/{pais}/Todos``.
@@ -580,6 +598,7 @@ def configure(
     refresh_token: str | None = None,
     max_retries: int | None = None,
     http_client: httpx.Client | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URL en runtime con semántica carry-forward.
 
@@ -602,6 +621,10 @@ def configure(
     kwargs. Mutating ``max_retries`` or ``http_client`` closes the prior
     cached ``httpx.Client`` so the next request re-creates it with the
     new transport.
+
+    Phase 29 D-03: ``strict_decode`` is a carry-forward kwarg too — the
+    ``None`` sentinel means "no cambiar", so a later ``configure(base_url=...)``
+    does NOT silently reset a previous strict opt-in.
     """
     # WR-06: validate max_retries (only when explicitly passed).
     if max_retries is not None:
@@ -623,6 +646,10 @@ def configure(
         client._state.token_expires_at = token_expires_at
     if refresh_token is not None:
         client._state.refresh_token = refresh_token
+    # Phase 29 D-03: ``None`` = "no cambiar" (Pitfall 5) — an unrelated
+    # configure(base_url=...) must not silently reset a previous strict opt-in.
+    if strict_decode is not None:
+        client._state.strict_decode = strict_decode
     # Phase 8 D-15: rebuild the cached httpx.Client when retry policy changes
     # so the new max_attempts takes effect on the next request.
     if max_retries is not None:
@@ -649,7 +676,7 @@ def get_quote(
     *,
     mercado: str = "bcba",
     plazo: str = "t2",
-) -> dict[str, Any]:
+) -> Cotizacion:
     """Top-level shim: delega al default Client."""
     return _get_default().get_quote(simbolo, mercado=mercado, plazo=plazo)
 
@@ -661,14 +688,14 @@ def get_historical_quotes(
     *,
     mercado: str = "bcba",
     ajustada: Literal["ajustada", "sinAjustar"] = "sinAjustar",
-) -> list[dict[str, Any]]:
+) -> list[Cotizacion]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_historical_quotes(
         simbolo, desde, hasta, mercado=mercado, ajustada=ajustada
     )
 
 
-def get_instruments(pais: str = "argentina") -> Any:
+def get_instruments(pais: str = "argentina") -> list[Instrumento]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_instruments(pais)
 
@@ -677,7 +704,7 @@ def get_instruments_by_type(
     instrument_type: InstrumentType,
     *,
     pais: str = "argentina",
-) -> list[dict[str, Any]]:
+) -> list[Titulo]:
     """Top-level shim: delega al default Client."""
     return _get_default().get_instruments_by_type(instrument_type, pais=pais)
 

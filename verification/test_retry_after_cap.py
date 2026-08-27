@@ -57,7 +57,7 @@ def test_retry_after_capped_at_60s(httpx_mock: HTTPXMock) -> None:
     )
     httpx_mock.add_response(
         url="https://api.test/api/v2/argentina/Titulos/Cotizacion/Instrumentos",
-        json={"instrumentos": []},
+        json=[],
     )
 
     t0 = time.monotonic()

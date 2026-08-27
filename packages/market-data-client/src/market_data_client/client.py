@@ -5,13 +5,13 @@ API basada en clase (Phase 20+)::
     from market_data_client import Client
 
     with Client() as client:
-        health = client.get_health()
+        health = client.get_health()  # -> Health; health.status
 
 API a nivel módulo (delegación al default Client)::
 
     import market_data_client
 
-    health = market_data_client.get_health()
+    health = market_data_client.get_health()  # -> Health; health.status
 
 Este paquete usa Auth0 con el grant ``client_credentials`` (machine-to-machine):
 un ``POST`` al ``auth0_token_url`` ABSOLUTO con
@@ -43,21 +43,33 @@ un host distinto (Auth0) que la API de market data.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Self
+from typing import Self
 from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
 
-from market_data_client import _core, _transport
+from market_data_client import _core, _decode, _transport
+
+# Fase 32 WR-02: `aio.py` importaba `RequestSpec` por nombre y `client.py` lo
+# usaba como `_core.RequestSpec`, así que el nombre estaba SÓLO en la superficie
+# de módulo async. El filtro `__module__` del gate de paridad tapaba la deriva.
+# Se alinea el lado sync con el async (y con iol/higyrus/matriz, que lo importan
+# por nombre en ambas superficies).
+from market_data_client._core import RequestSpec
 from market_data_client._state import _REQUEST_TIMEOUT, _ClientState
 from market_data_client.exceptions import (
     MarketDataAuthError,
     MarketDataMutationNotAllowedError,
 )
 from market_data_client.models import (
+    AddHolidaysResult,
     CalendarConfig,
+    CalendarConfigPreview,
     CalendarDay,
+    DeleteHolidayResult,
+    Health,
+    HealthFeed,
     HolidaysIn,
     Instrument,
     LatestRequest,
@@ -131,12 +143,26 @@ class Client:
         client_secret: str | None = None,
         audience: str | None = None,
         auth0_token_url: str | None = None,
+        token: str | None = None,
+        token_expires_at: float | None = None,
+        http_client: httpx.Client | None = None,
         mutating_allowed: bool | None = None,
         expected_host: str | None = None,
+        strict_decode: bool | None = None,
         max_retries: int = 2,
     ) -> None:
         # WR-06: validate max_retries early (before any state mutation).
         _validate_max_retries(max_retries)
+        # Fase 32 CR-02: `token`, `token_expires_at` y `http_client` existían
+        # SÓLO en `AsyncClient.__init__` y en el `configure()` de este módulo.
+        # El eje de clase del gate de paridad no comparaba `__init__` (lo tapaba
+        # el filtro de underscore), así que la divergencia pasaba verde y un
+        # consumidor que escribía código sync/async simétrico se comía un
+        # `TypeError: unexpected keyword argument 'http_client'` del lado sync.
+        if http_client is not None and not isinstance(http_client, httpx.Client):
+            raise TypeError(
+                f"http_client must be an httpx.Client, got {type(http_client).__name__}"
+            )
         self._state = _ClientState()
         if base_url is not None:
             self._state.base_url = base_url.rstrip("/")
@@ -155,6 +181,21 @@ class Client:
             self._state.mutating_allowed = mutating_allowed
         if expected_host is not None:
             self._state.expected_host = expected_host
+        # Fase 29 D-03: mismo sentinel ``None`` = "no cambiar". El modo de
+        # decode es un opt-in de seguridad, así que un kwarg omitido nunca lo
+        # resetea (Pitfall 5, igual que el gate de mutaciones).
+        if strict_decode is not None:
+            self._state.strict_decode = strict_decode
+        # Espeja verbatim `AsyncClient.__init__`: un `_ClientState` recién
+        # construido tiene token=None / token_expires_at=0.0 / http_client=None,
+        # así que estas tres asignaciones sólo siembran, nunca pisan nada que
+        # haya que cerrar (a diferencia de `configure()`, que sí puede).
+        if token is not None:
+            self._state.token = token
+        if token_expires_at is not None:
+            self._state.token_expires_at = token_expires_at
+        if http_client is not None:
+            self._state.http_client = http_client
         # D-08: max_retries=N → max_attempts=N+1 (1 initial + N retries).
         self._max_retries = max_retries
         # D-08: normally-constructed Clients are NOT views; with_options sets
@@ -284,7 +325,7 @@ class Client:
                 f"Mutación rechazada: host de base_url {actual!r} != expected_host {expected!r}."
             )
 
-    def _send_auth_request(self, spec: _core.RequestSpec) -> httpx.Response:
+    def _send_auth_request(self, spec: RequestSpec) -> httpx.Response:
         """Dispatch the Auth0 grant to the ABSOLUTE ``auth0_token_url``.
 
         Pitfall 1 (T-20-02, CRITICAL): the token grant POSTs to
@@ -336,7 +377,7 @@ class Client:
             return
         self._authenticate()
 
-    def _request(self, spec: _core.RequestSpec) -> httpx.Response:
+    def _request(self, spec: RequestSpec) -> httpx.Response:
         """Dispatch a request against ``base_url`` with per-spec auth branching.
 
         Two branches gated on ``spec.authenticated`` (D-08/D-09, Pitfall 4):
@@ -353,7 +394,24 @@ class Client:
         Body-consume-then-raise (Phase 7 D-06): ``resp.read()`` precedes every
         ``_raise_for_response`` in the re-auth carve-out so the surfacing error
         already has a fully-consumed body (HTTP/2-safe).
+
+        Phase 29 D-03 + aggregation-contract lock 6: the first two statements
+        bind the decode mode and a fresh decode scope for this response.
         """
+        # Phase 29 D-03: bind the decode mode + a fresh decode scope. There is
+        # deliberately NO reset and no try/finally — this method returns the
+        # ``httpx.Response`` and the decode happens AFTERWARDS, in the parser,
+        # which holds no reference to this Client. A reset in a ``finally``
+        # would unbind the mode before the decoder ever reads it.
+        #
+        # The re-auth carve-out below re-sends the SAME request, so a response
+        # object can be replaced mid-method. That is exactly why the divergence
+        # collector is scoped to the decode ENTRY through ``open_request_scope``
+        # rather than tied to the response object: only the final response ever
+        # reaches a parser, and it decodes under the scope bound here.
+        _decode.STRICT_DECODE.set(self._state.strict_decode)
+        _decode.open_request_scope()
+
         headers = dict(spec.headers or {})
         if spec.authenticated:
             self._ensure_token()
@@ -399,17 +457,17 @@ class Client:
     # Public endpoint methods — health (anonymous, CORE-MD-01)
     # ------------------------------------------------------------------
 
-    def get_health(self) -> dict[str, Any]:
+    def get_health(self) -> Health:
         """Reach ``GET {base_url}/health`` anonymously via the retry transport."""
         spec = _core.build_health_request(self._state)
         resp = self._request(spec)
         return _core.parse_health_response(resp)
 
-    def get_health_feed(self) -> dict[str, Any]:
+    def get_health_feed(self) -> HealthFeed:
         """Reach ``GET {base_url}/health/feed`` anonymously via the retry transport."""
         spec = _core.build_health_feed_request(self._state)
         resp = self._request(spec)
-        return _core.parse_health_response(resp)
+        return _core.parse_health_feed_response(resp)
 
     # ------------------------------------------------------------------
     # Public endpoint methods — market-data reads (authenticated, D-06)
@@ -635,8 +693,8 @@ class Client:
         resp = self._request(spec)
         return _core.parse_calendar_config_response(resp)
 
-    def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfig:
-        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfig``.
+    def preview_calendar_config(self, config: MarketHoursIn) -> CalendarConfigPreview:
+        """Gated ``POST {base_url}/calendar/config/preview`` → ``CalendarConfigPreview``.
 
         Compute-only dry run: it persists NOTHING server-side, so it is read-safe
         in effect. That exception is DOCUMENTED here, NOT implemented as a gate
@@ -645,41 +703,65 @@ class Client:
         convenience. ``_ensure_mutation_allowed()`` therefore stays the literal
         first statement, exactly as in the two persisting methods.
 
-        Same serialized ``MarketHoursIn`` body as
-        :meth:`set_calendar_config` (``confirm`` included) and the same
-        ``_core.parse_calendar_config_response`` (D-05); read ``warnings`` off the
-        returned config to decide whether the real write needs ``confirm=True``.
+        Same serialized ``MarketHoursIn`` body as :meth:`set_calendar_config`
+        (``confirm`` included) — the REQUEST is byte-unchanged from v0.4.0 and
+        ``tests/test_preview_calendar_config_envelope.py`` pins that.
+
+        **BREAKING since 0.5.0 (Phase 33, S-2).** This used to be declared
+        ``-> CalendarConfig`` and decoded through
+        ``_core.parse_calendar_config_response``. The wire returns a VERDICT
+        envelope — ``{market_after, requires_confirmation, valid, warnings}`` —
+        that shares not one key with a configuration, so the old path
+        manufactured an all-typed-zero ``CalendarConfig`` and discarded all three
+        answers. The 33-05 live run measured exactly the nine ``missing`` +
+        three ``extra`` divergences ``29-SIZING.md`` predicted as S-2.
+
+        The flow is unchanged: preview → inspect
+        :attr:`~market_data_client.models.CalendarConfigPreview.warnings` →
+        re-issue :meth:`set_calendar_config` with ``confirm=True``. Callers that
+        only read ``warnings`` need no edit; callers annotating the result, or
+        reading any other attribute, do.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_preview_calendar_config_request(self._state, config.to_dict())
         resp = self._request(spec)
-        return _core.parse_calendar_config_response(resp)
+        return _core.parse_preview_calendar_config_response(resp)
 
-    def add_holidays(self, holidays: HolidaysIn) -> dict[str, Any]:
-        """Gated ``POST {base_url}/calendar/holidays`` → tolerant ``dict`` (MUT-MD-02).
+    def add_holidays(self, holidays: HolidaysIn) -> AddHolidaysResult:
+        """Gated ``POST {base_url}/calendar/holidays`` → ``AddHolidaysResult`` (MUT-MD-02).
 
-        Gate-first (D-14). The builder marks this spec ``idempotent=False`` — the
-        ONLY such spec in the package (DM-03 / D-04) — so ``RetryTransport`` does
-        NOT retry it: appending holidays is not replay-safe and a retried append
-        would duplicate the days. The 1-500 batch bound already cut client-side in
-        ``HolidaysIn.__post_init__``, before this method ran.
+        Gate-first (D-14). The builder marks this spec ``idempotent=True``, so
+        ``RetryTransport`` DOES retry it on a transient failure. That flag was
+        corrected from ``False`` in Phase 27 on live measurement (D-20): the
+        LIVE-MUT-01 armed run counted ROWS rather than status codes and found that
+        two identical POSTs leave exactly one row per date on both surfaces
+        (F-49 / F-59) — the endpoint upserts by date. No builder in this package
+        carries ``idempotent=False`` any more. The 1-500 batch bound already cut
+        client-side in ``HolidaysIn.__post_init__``, before this method ran.
 
-        Returns the ``200`` body verbatim as a ``dict`` via
-        ``_core.parse_calendar_write_response`` (D-06): the live OpenAPI declares
-        this ``200`` as a bare ``object`` with no schema, so there is nothing to
-        type against until Phase 27 captures the real shape. The calendar-read
-        model and ``parse_calendar_response`` are deliberately NOT used — that read
-        pair is broken against the real wire (D-16), a bug this phase records
-        rather than fixes. An absent body degrades to ``{}`` (D-07); a ``422``
+        Returns the ``200`` body as a typed :class:`AddHolidaysResult` via
+        ``_core.parse_add_holidays_response`` (Phase 31 TYP-02 / D-05). The live
+        OpenAPI declares this ``200`` as a bare schema-less ``object``; the model
+        is built from Phase 27's committed live capture instead. ``days[]`` reuses
+        the shipped :class:`CalendarDay`; the calendar-read PARSER
+        (``parse_calendar_response``) is still deliberately NOT used — that read
+        pair is broken against the real wire (D-16). An absent, ``null``, list or
+        scalar body degrades to the zero-valued result (D-07 / T-26-13 tolerance,
+        preserved) **in either decode mode**: the parser silences the strict
+        disposition of that one terminal ``non_dict`` divergence so a published
+        mutation never answers an anomalous acknowledgement with an exception
+        raised AFTER the write already committed (CR-02). The divergence is still
+        recorded on the ``market_data_client`` logger, and a well-shaped ``dict``
+        body whose FIELDS diverge still raises under ``strict_decode``. A ``422``
         flows through the existing ``_core.raise_for_response``.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_add_holidays_request(self._state, holidays.to_dict())
         resp = self._request(spec)
-        return _core.parse_calendar_write_response(resp)
+        return _core.parse_add_holidays_response(resp)
 
-    def delete_holiday(self, day: str) -> dict[str, Any]:
-        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → tolerant ``dict``.
+    def delete_holiday(self, day: str) -> DeleteHolidayResult:
+        """Gated ``DELETE {base_url}/calendar/holidays/{day}`` → ``DeleteHolidayResult``.
 
         Gate-first (D-14). ``day`` is an ISO ``YYYY-MM-DD`` date (the OpenAPI
         declares the path param as ``format: date``). The builder applies the D-18
@@ -692,13 +774,18 @@ class Client:
 
         The builder omits ``json_body``, so the DELETE goes out with
         ``content == b""`` and no ``Content-Type`` (D-02). Returns the body as a
-        ``dict`` via ``_core.parse_calendar_write_response`` (D-06 / D-16), ``{}``
-        when the body is absent.
+        typed :class:`DeleteHolidayResult` via
+        ``_core.parse_delete_holiday_response`` (Phase 31 TYP-02 / D-05), and the
+        zero-valued result when the body is absent, ``null``, a list or a scalar
+        (T-26-13 tolerance, preserved) — in either decode mode, for the same
+        after-the-write-committed reason spelled out on :meth:`add_holidays`
+        (CR-02). The divergence is still recorded on the ``market_data_client``
+        logger.
         """
         self._ensure_mutation_allowed()
         spec = _core.build_delete_holiday_request(self._state, day)
         resp = self._request(spec)
-        return _core.parse_calendar_write_response(resp)
+        return _core.parse_delete_holiday_response(resp)
 
 
 # ----------------------------------------------------------------------
@@ -729,6 +816,7 @@ def configure(
     http_client: httpx.Client | None = None,
     mutating_allowed: bool | None = None,
     expected_host: str | None = None,
+    strict_decode: bool | None = None,
 ) -> None:
     """Sobrescribe credenciales/URLs en runtime con semántica carry-forward.
 
@@ -742,6 +830,10 @@ def configure(
 
     ``http_client`` se usa AS-IS (sin auto-wrap con ``RetryTransport``); el
     cliente cacheado previo se cierra antes de reemplazarlo.
+
+    Fase 29 D-03: ``strict_decode`` es config puro con el mismo sentinel
+    ``None`` = "no cambiar", así que un ``configure(base_url=...)`` posterior NO
+    resetea un opt-in estricto previo.
     """
     client = _get_default()
     state = client._state
@@ -771,6 +863,13 @@ def configure(
     if token_expires_at is not None:
         state.token_expires_at = token_expires_at
     if http_client is not None:
+        # Fase 32 WR-07: espeja la validación de `aio.configure`. El único chequeo
+        # de tipo sobre el transporte inyectado era un `assert isinstance`, que
+        # desaparece bajo `python -O`.
+        if not isinstance(http_client, httpx.Client):
+            raise TypeError(
+                f"http_client must be an httpx.Client, got {type(http_client).__name__}"
+            )
         if state.http_client is not None:
             assert isinstance(state.http_client, httpx.Client)
             state.http_client.close()
@@ -782,14 +881,17 @@ def configure(
         state.mutating_allowed = mutating_allowed
     if expected_host is not None:
         state.expected_host = expected_host
+    # Fase 29 D-03: modo de decode, config puro con el mismo sentinel.
+    if strict_decode is not None:
+        state.strict_decode = strict_decode
 
 
-def get_health() -> dict[str, Any]:
+def get_health() -> Health:
     """Top-level shim: delega al default Client."""
     return _get_default().get_health()
 
 
-def get_health_feed() -> dict[str, Any]:
+def get_health_feed() -> HealthFeed:
     """Top-level shim: delega al default Client."""
     return _get_default().get_health_feed()
 
@@ -911,16 +1013,16 @@ def delete_calendar_config() -> CalendarConfig:
     return _get_default().delete_calendar_config()
 
 
-def preview_calendar_config(config: MarketHoursIn) -> CalendarConfig:
+def preview_calendar_config(config: MarketHoursIn) -> CalendarConfigPreview:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().preview_calendar_config(config)
 
 
-def add_holidays(holidays: HolidaysIn) -> dict[str, Any]:
+def add_holidays(holidays: HolidaysIn) -> AddHolidaysResult:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().add_holidays(holidays)
 
 
-def delete_holiday(day: str) -> dict[str, Any]:
+def delete_holiday(day: str) -> DeleteHolidayResult:
     """Top-level shim: delega al default Client (gated)."""
     return _get_default().delete_holiday(day)
