@@ -90,7 +90,15 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
-from verification import require_env, safe_print, schema_of, write_findings
+from verification import (
+    divergence_capture,
+    endpoint_scope,
+    probe_context,
+    require_env,
+    safe_print,
+    schema_of,
+    write_findings,
+)
 from verification.findings import append_finding, max_existing_fid
 
 import iol_client
@@ -171,6 +179,27 @@ _ENDPOINT_TEMPLATES: dict[str, str] = {
     "get_instruments": "/api/v2/{pais}/Titulos/Cotizacion/Instrumentos",
     "get_instruments_by_type": "/api/v2/Cotizaciones/{instrument_type}/{pais}/Todos",
 }
+
+# El endpoint del password grant / refresh grant (``_core.build_login_request``).
+# Vive aparte de ``_ENDPOINT_TEMPLATES`` porque ese dict indexa los 4 endpoints
+# que tienen schema snapshot, y ``/token`` no tiene ninguno.
+_LOGIN_ENDPOINT = "/token"
+
+# Endpoint bindeado por los probes que NO hacen ninguna llamada en vivo (11, 12 y
+# 13: paridad, field→type map y snapshots operan sobre modelos y wire ya
+# capturados). ``"-"`` es el default del ``ContextVar`` de
+# ``verification.divergences`` y significa exactamente "ningún endpoint
+# bindeado"; inventarles uno atribuiría una divergencia a un endpoint que ese
+# probe nunca tocó.
+_NO_ENDPOINT = "-"
+
+# Phase 33 (LIVE-TYP-01): flag del segundo pase. El runner de dos pases corre el
+# driver una vez en modo observable (censo completo) y otra con
+# ``MARKET_LIBS_STRICT_DECODE=1``, que prueba que el raise de modo estricto
+# efectivamente dispara. Viaja como kwarg del constructor para NO agregar un
+# segundo sitio de construcción: ``test_main_iol_uses_single_client_instance``
+# asserta ``1 <= ctor_calls <= 2`` por AST.
+_STRICT: bool = os.getenv("MARKET_LIBS_STRICT_DECODE") == "1"
 
 # Contador module-level para asignar fids deterministicamente F-01, F-02, ...
 # NO arranca en 0 en el run real: ``_seed_fid_counter()`` lo sube al máximo fid
@@ -333,6 +362,69 @@ def _redacted_exc(exc: BaseException) -> str:
     return f"{type(exc).__name__} status_code={status_code!r}"
 
 
+def _shape_probe_result(probe_name: str, surface: str, detail: str) -> ProbeResult:
+    """Traduce un ``IOLDecodeError`` ya renderizado al ``ProbeResult`` canónico (P-4).
+
+    **Por qué la interceptación va acá y no en el decorador.** A diferencia de
+    higyrus y de matriz, los probes de este driver terminan en un
+    ``except Exception`` propio, que atrapa el ``IOLDecodeError`` ANTES de que
+    pueda llegar a ``probe_context``. Un ``decode_error=`` / ``on_decode_error=``
+    sobre el decorador sería código muerto en este archivo — por eso no se pasan
+    (esta nota está escrita una sola vez, acá, para que un lector futuro no
+    "arregle" la omisión aparente en los 15 sitios de decorador).
+
+    **Qué cambia respecto del ``except Exception``.** Ese handler mintea un
+    finding ``ERROR-MAP`` cuyo título lleva el nombre del probe, así que dos
+    probes que golpean la MISMA divergencia ``(model, field_path, kind)``
+    producen dos títulos distintos y el ``idempotent_by_title`` del lock 10 no
+    puede colapsarlos: cada corrida viva ensucia el censo con fids nuevos. Esta
+    rama devuelve un detail derivado ÚNICAMENTE de la excepción —jamás del
+    nombre del probe—, así que es idéntico entre probes para la misma
+    divergencia.
+
+    **NO escribe un finding**, y eso es deliberado (33-01-SUMMARY.md, contrato
+    de ``on_decode_error``): el ``SHAPE`` ya lo escribió
+    :class:`verification.divergences.DivergenceHandler` a partir del record que
+    ``_decode`` emitió justo antes de levantar, bajo el título determinístico de
+    la convención lockeada ``surface-in-title-write-new``. Mintear otro acá
+    duplicaría la divergencia bajo un segundo título y rompería el mismísimo
+    ``idempotent_by_title`` que esta rama existe para habilitar.
+
+    **Recibe texto ya renderizado, NO la excepción**, y eso es load-bearing:
+    es exactamente el mismo contrato que :func:`_emit_crash_report` documenta
+    desde 30-12. Un helper que tomara la excepción se volvería un **segundo**
+    renderer bajo el censo de AD-30-09-01
+    (``test_the_driver_declares_exactly_one_exception_renderer``), y además cada
+    ``except`` que se la pasara sería una delegación no sancionada bajo
+    ``test_no_except_handler_in_the_driver_renders_its_exception_raw``. Los 12
+    sitios de llamada renderizan con :func:`_redacted_exc` —el único renderer
+    sancionado— y le entregan el ``str``. Para un ``IOLDecodeError`` ese renderer
+    emite exactamente ``model`` / ``field_path`` / ``declared_type`` /
+    ``observed_type``: los cuatro atributos certificados type-and-path-only por
+    T-29-36, y nada más.
+    """
+    return ProbeResult(probe_name.removeprefix("probe_"), "FINDING", f"SHAPE [{surface}] {detail}")
+
+
+def _shape_probe_result_pair(
+    probe_name: str, surface: str, detail: str
+) -> tuple[ProbeResult, None]:
+    """Variante 2-tuple de :func:`_shape_probe_result` para los probes con payload.
+
+    ``main_iol.py`` tiene DOS formas canónicas de retorno de probe, no una: los 8
+    probes que alimentan el batch de paridad (quote, historical, instruments,
+    by_type — sync y async) devuelven ``(ProbeResult, payload | None)``, mientras
+    que login, parity, field_type_map, schema_snapshot, refresh_token y auth_401
+    devuelven un ``ProbeResult`` pelado. Un único fallback con forma de 2-tuple
+    haría que ``results.append(probe_auth_401(client))`` metiera una tupla en una
+    ``list[ProbeResult]`` y el ``r.name`` del loop de impresión reventara con
+    ``AttributeError`` — bajo modo estricto, exactamente el crash que este plan
+    existe para eliminar. Mismo par de helpers que ``main_matriz.py`` y
+    ``main_higyrus.py`` (33-04 lee los tres).
+    """
+    return (_shape_probe_result(probe_name, surface, detail), None)
+
+
 def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], list[str]]:
     """Captura el body CRUDO de los 4 endpoints, una vez cada uno (CR-01).
 
@@ -414,18 +506,38 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
     capture_fids: list[str] = []
     for func_name, spec in specs:
         try:
-            # WR-08 (fuera de scope de este cierre): cada uno de estos
-            # ``_request`` bindea un ``DecodeScope`` que ningún parser decorado
-            # retira, porque acá no corre ningún parser. Sigue inalcanzable
-            # SÓLO porque entre esta captura y el próximo ``_request`` (probe
-            # 14) no hay ningún ``from_api`` suelto: los probes 12 y 13 no
-            # decodifican. Un reordenamiento futuro del driver debe revisarlo.
-            resp = client._request(spec)
-            # ``Client._request`` (D-03) devuelve el response crudo sin levantar;
-            # replicamos el raise-on-error del shim module-level legacy.
-            if resp.is_error:
-                _raise_for_response(resp)
-            raw_by_endpoint[func_name] = resp.json()
+            # Phase 33 (P-5): este helper toca CUATRO endpoints en una sola
+            # llamada, y es el único sitio del driver que lo hace. Sin este
+            # re-binding las cuatro capturas quedarían atribuidas al endpoint
+            # que el probe llamador tenga bindeado —o a ``"-"``, que es el caso
+            # real: ``main()`` lo invoca fuera de todo ``probe_*``.
+            with endpoint_scope(_ENDPOINT_TEMPLATES[func_name]):
+                # WR-08 (fuera de scope de este cierre): cada uno de estos
+                # ``_request`` bindea un ``DecodeScope`` que ningún parser
+                # decorado retira, porque acá no corre ningún parser. Sigue
+                # inalcanzable SÓLO porque entre esta captura y el próximo
+                # ``_request`` (probe 14) no hay ningún ``from_api`` suelto: los
+                # probes 12 y 13 no decodifican. Un reordenamiento futuro del
+                # driver debe revisarlo.
+                resp = client._request(spec)
+                # ``Client._request`` (D-03) devuelve el response crudo sin
+                # levantar; replicamos el raise-on-error del shim module-level
+                # legacy.
+                if resp.is_error:
+                    _raise_for_response(resp)
+                raw_by_endpoint[func_name] = resp.json()
+        except IOLDecodeError:
+            # Rama de decode ADELANTE del handler amplio, por uniformidad con
+            # los 11 sitios de probe. Hoy es INALCANZABLE y se declara como tal:
+            # este helper no corre ningún parser decorado, así que ningún
+            # ``walk_model`` puede levantar acá. Existe para que el hazard WR-08
+            # que el docstring de arriba ya nombra —un reordenamiento que meta un
+            # ``from_api`` bajo este ``DecodeScope``— aterrice como divergencia
+            # de forma y no como un ``ERROR-MAP`` con título único por endpoint.
+            # El finding ``SHAPE`` lo escribe el ``DivergenceHandler``; acá el
+            # endpoint queda AUSENTE del dict, que es exactamente lo que el
+            # docstring define como "no capturado".
+            continue
         except Exception as exc:
             # Un endpoint que falla no aborta los otros tres: se registra y sigue.
             fid = _next_fid()
@@ -450,6 +562,7 @@ def _capture_raw_wire(client: Client, today: dt.date) -> tuple[dict[str, Any], l
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_LOGIN_ENDPOINT, surface="sync")
 def probe_login_sync(client: Client) -> ProbeResult:
     """Probe 1: ``iol_client.login()`` (IOL-01).
 
@@ -485,6 +598,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
     )
 
 
+@probe_context(endpoint=_LOGIN_ENDPOINT, surface="async")
 async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     """Probe 2: ``await aclient.login()`` (IOL-01).
 
@@ -520,6 +634,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_quote"], surface="sync")
 def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None]:
     """Probe 3: ``client.get_quote(GGAL)`` (IOL-02).
 
@@ -564,6 +679,12 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
             base_url=base_url,
         )
         return (ProbeResult("get_quote_sync", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_quote_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -609,6 +730,7 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
     return (ProbeResult("get_quote_sync", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_quote"], surface="async")
 async def probe_get_quote_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, Cotizacion | None]:
@@ -651,6 +773,12 @@ async def probe_get_quote_async(
             base_url=base_url,
         )
         return (ProbeResult("get_quote_async", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_quote_async", "async", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -671,6 +799,7 @@ async def probe_get_quote_async(
     return (ProbeResult("get_quote_async", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_historical_quotes"], surface="sync")
 def probe_get_historical_quotes_sync(
     client: Client,
     today: dt.date,
@@ -727,6 +856,12 @@ def probe_get_historical_quotes_sync(
             ProbeResult("get_historical_quotes_sync", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_historical_quotes_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -751,6 +886,7 @@ def probe_get_historical_quotes_sync(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_historical_quotes"], surface="async")
 async def probe_get_historical_quotes_async(
     aclient: AsyncClient,
     today: dt.date,
@@ -806,6 +942,12 @@ async def probe_get_historical_quotes_async(
             ProbeResult("get_historical_quotes_async", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_historical_quotes_async", "async", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -830,6 +972,7 @@ async def probe_get_historical_quotes_async(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="sync")
 def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instrumento] | None]:
     """Probe 7: ``client.get_instruments("argentina")`` (IOL-02)."""
     if _auth_failed:
@@ -870,6 +1013,12 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instru
             base_url=base_url,
         )
         return (ProbeResult("get_instruments_sync", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_instruments_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -891,6 +1040,7 @@ def probe_get_instruments_sync(client: Client) -> tuple[ProbeResult, list[Instru
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="async")
 async def probe_get_instruments_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, list[Instrumento] | None]:
@@ -933,6 +1083,12 @@ async def probe_get_instruments_async(
             base_url=base_url,
         )
         return (ProbeResult("get_instruments_async", "FINDING", f"{fid} (OPEN)"), None)
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_instruments_async", "async", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -954,6 +1110,7 @@ async def probe_get_instruments_async(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_type"], surface="sync")
 def probe_get_instruments_by_type_sync(
     client: Client,
 ) -> tuple[ProbeResult, list[Titulo] | None]:
@@ -1016,6 +1173,12 @@ def probe_get_instruments_by_type_sync(
             ProbeResult("get_instruments_by_type_sync", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair("get_instruments_by_type_sync", "sync", _redacted_exc(exc))
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -1040,6 +1203,14 @@ def probe_get_instruments_by_type_sync(
     for itype in _ALL_INSTRUMENT_TYPES:
         try:
             titulos = client.get_instruments_by_type(itype)
+        # Rama de decode ADELANTE del handler amplio (P-4). En este loop el
+        # handler amplio registra ``<type>: <NombreDeClase>``, que para una
+        # divergencia de forma seria siempre el mismo string opaco
+        # ``IOLDecodeError``. Se registra en cambio la divergencia
+        # renderizada por el unico renderer sancionado.
+        except IOLDecodeError as exc:
+            bad_types.append(f"{itype}: {_redacted_exc(exc)}")
+            continue
         except Exception as exc:
             # Sanity gate cubre cualquier excepción del cliente o transporte:
             # cualquiera de los 6 types que falle se registra para el finding.
@@ -1089,6 +1260,7 @@ def probe_get_instruments_by_type_sync(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments_by_type"], surface="async")
 async def probe_get_instruments_by_type_async(
     aclient: AsyncClient,
 ) -> tuple[ProbeResult, list[Titulo] | None]:
@@ -1141,6 +1313,14 @@ async def probe_get_instruments_by_type_async(
             ProbeResult("get_instruments_by_type_async", "FINDING", f"{fid} (OPEN)"),
             None,
         )
+    # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+    # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+    # el nombre del probe, y dos probes sobre la misma divergencia producen
+    # dos titulos que ``idempotent_by_title`` no puede colapsar.
+    except IOLDecodeError as exc:
+        return _shape_probe_result_pair(
+            "get_instruments_by_type_async", "async", _redacted_exc(exc)
+        )
     except Exception as exc:
         fid = _next_fid()
         append_finding(
@@ -1174,6 +1354,7 @@ async def probe_get_instruments_by_type_async(
 # ---------------------------------------------------------------------------
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_parity_sync_async(
     client: Client,
     quote_sync: Cotizacion | None,
@@ -1245,6 +1426,7 @@ def probe_parity_sync_async(
     )
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_field_type_map(
     client: Client,
     raw_wire: dict[str, Any],
@@ -1527,6 +1709,7 @@ def _write_or_check_schema(
     return ("FINDING", f"{fid}|{file_path.name}")
 
 
+@probe_context(endpoint=_NO_ENDPOINT, surface="sync")
 def probe_schema_snapshot(
     client: Client,
     today: dt.date,
@@ -1618,6 +1801,7 @@ def probe_schema_snapshot(
     )
 
 
+@probe_context(endpoint=_ENDPOINT_TEMPLATES["get_instruments"], surface="sync")
 def probe_refresh_token(client: Client) -> ProbeResult:
     """Probe 14: verifica el fix IOL-07 in-vivo (D-IOL-11).
 
@@ -1683,6 +1867,15 @@ def probe_refresh_token(client: Client) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("refresh_token", "FINDING", f"{fid} (OPEN)")
+    # Rama de decode al final de la escalera. Este probe NO tiene handler amplio,
+    # y ``IOLDecodeError`` es HERMANO de ``IOLAPIError`` (los dos cuelgan de
+    # ``IOLClientError``), así que ninguno de los dos brackets de arriba lo
+    # atrapa: bajo modo estricto una divergencia en ``get_instruments`` mataba el
+    # driver acá, en el probe 14 de 15, con los tres probes restantes sin correr.
+    # Es el único sitio ALCANZABLE del driver que no estaba cubierto por un
+    # handler amplio.
+    except IOLDecodeError as exc:
+        return _shape_probe_result("refresh_token", "sync", _redacted_exc(exc))
     token_after = client._state.token
     refresh_after = client._state.refresh_token
     expires_at_after = client._state.token_expires_at
@@ -1753,6 +1946,7 @@ def probe_refresh_token(client: Client) -> ProbeResult:
     )
 
 
+@probe_context(endpoint=_LOGIN_ENDPOINT, surface="sync")
 def probe_auth_401(client: Client) -> ProbeResult:
     """Probe 15: 401 con credenciales inválidas (IOL-05, D-IOL-1/2/4).
 
@@ -1823,6 +2017,12 @@ def probe_auth_401(client: Client) -> ProbeResult:
                 base_url=base_url,
             )
             return ProbeResult("auth_401", "FINDING", f"{fid} (OPEN)")
+        # Rama de decode ADELANTE del handler amplio (P-4). Sin ella el
+        # ``except Exception`` de abajo mintea un ``ERROR-MAP`` cuyo titulo lleva
+        # el nombre del probe, y dos probes sobre la misma divergencia producen
+        # dos titulos que ``idempotent_by_title`` no puede colapsar.
+        except IOLDecodeError as exc:
+            return _shape_probe_result("auth_401", "sync", _redacted_exc(exc))
         except Exception as exc:
             fid = _next_fid()
             append_finding(
@@ -1889,7 +2089,7 @@ async def _async_main(
     D-02 (Phase 15): construye UN único ``AsyncClient()`` y lo threadea como
     parámetro a los 5 probes async; cierra esa misma instancia en el ``finally``.
     """
-    aclient = AsyncClient()
+    aclient = AsyncClient(strict_decode=_STRICT)
     try:
         result_login_async = await probe_login_async(aclient)
         result_quote_async, quote_async = await probe_get_quote_async(aclient)
@@ -1930,7 +2130,7 @@ def main() -> None:
     # D-01 (Phase 15): construye UN único sync ``Client()`` y lo threadea como
     # parámetro a todos los probes sync. El async ``AsyncClient()`` se construye
     # dentro de ``_async_main`` (D-02, instancias separadas).
-    client = Client()
+    client = Client(strict_decode=_STRICT)
 
     # D-03 mirror: idempotente — no-op si el archivo ya existe.
     write_findings(_PKG)
@@ -1942,80 +2142,88 @@ def main() -> None:
 
     results: list[ProbeResult] = []
 
-    # Probe 1: login sync (puede setear _auth_failed).
-    result_login_sync = probe_login_sync(client)
-    results.append(result_login_sync)
+    # Phase 33 (LIVE-TYP-01 / D-01): el handler de divergencias se instala
+    # alrededor del sweep entero — sube ``iol_client`` de NOTSET a INFO (sin eso
+    # los records de especie ``extra`` se descartan antes de llegar a ningún
+    # handler) y traduce cada record de seis claves a un finding ``SHAPE``.
+    # ``next_fid`` recibe el slug y lo descarta: el driver ya tiene UN allocator
+    # por proceso y compartirlo es lo que impide que el handler y el driver se
+    # pisen los fids.
+    with divergence_capture(("iol_client",), next_fid=lambda _slug: _next_fid()) as handler:
+        # Probe 1: login sync (puede setear _auth_failed).
+        result_login_sync = probe_login_sync(client)
+        results.append(result_login_sync)
 
-    # Probes 2 + 4 + 6 + 8 + 10: batch async en un único asyncio.run (D-IOL-6).
-    (
-        result_login_async,
-        result_quote_async,
-        quote_async,
-        result_historical_async,
-        historical_async,
-        result_instruments_async,
-        instruments_async,
-        result_by_type_async,
-        by_type_async,
-    ) = asyncio.run(_async_main(today))
-
-    # Probes 3 / 5 / 7 / 9 (sync); intercalamos con los async ya capturados
-    # respetando el orden D-IOL-5 (sync N seguido del async N+1).
-    result_quote_sync, quote_sync = probe_get_quote_sync(client)
-    results.append(result_login_async)
-    results.append(result_quote_sync)
-    results.append(result_quote_async)
-
-    result_historical_sync, historical_sync = probe_get_historical_quotes_sync(client, today)
-    results.append(result_historical_sync)
-    results.append(result_historical_async)
-
-    result_instruments_sync, instruments_sync = probe_get_instruments_sync(client)
-    results.append(result_instruments_sync)
-    results.append(result_instruments_async)
-
-    result_by_type_sync, by_type_sync = probe_get_instruments_by_type_sync(client)
-    results.append(result_by_type_sync)
-    results.append(result_by_type_async)
-
-    # Probe 11: paridad estructural sync↔async.
-    results.append(
-        probe_parity_sync_async(
-            client,
-            quote_sync,
+        # Probes 2 + 4 + 6 + 8 + 10: batch async en un único asyncio.run (D-IOL-6).
+        (
+            result_login_async,
+            result_quote_async,
             quote_async,
-            historical_sync,
+            result_historical_async,
             historical_async,
-            instruments_sync,
+            result_instruments_async,
             instruments_async,
-            by_type_sync,
+            result_by_type_async,
             by_type_async,
+        ) = asyncio.run(_async_main(today))
+
+        # Probes 3 / 5 / 7 / 9 (sync); intercalamos con los async ya capturados
+        # respetando el orden D-IOL-5 (sync N seguido del async N+1).
+        result_quote_sync, quote_sync = probe_get_quote_sync(client)
+        results.append(result_login_async)
+        results.append(result_quote_sync)
+        results.append(result_quote_async)
+
+        result_historical_sync, historical_sync = probe_get_historical_quotes_sync(client, today)
+        results.append(result_historical_sync)
+        results.append(result_historical_async)
+
+        result_instruments_sync, instruments_sync = probe_get_instruments_sync(client)
+        results.append(result_instruments_sync)
+        results.append(result_instruments_async)
+
+        result_by_type_sync, by_type_sync = probe_get_instruments_by_type_sync(client)
+        results.append(result_by_type_sync)
+        results.append(result_by_type_async)
+
+        # Probe 11: paridad estructural sync↔async.
+        results.append(
+            probe_parity_sync_async(
+                client,
+                quote_sync,
+                quote_async,
+                historical_sync,
+                historical_async,
+                instruments_sync,
+                instruments_async,
+                by_type_sync,
+                by_type_async,
+            )
         )
-    )
 
-    # CR-01: captura del wire CRUDO de los 4 endpoints, una vez cada uno. Los
-    # probes 12 y 13 son funciones puras de este dict — no vuelven a pegarle a
-    # la API — y así el drift vuelve a ser función de lo que la API devolvió y
-    # no de lo que los modelos declaran.
-    raw_wire, capture_fids = _capture_raw_wire(client, today)
+        # CR-01: captura del wire CRUDO de los 4 endpoints, una vez cada uno. Los
+        # probes 12 y 13 son funciones puras de este dict — no vuelven a pegarle a
+        # la API — y así el drift vuelve a ser función de lo que la API devolvió y
+        # no de lo que los modelos declaran.
+        raw_wire, capture_fids = _capture_raw_wire(client, today)
 
-    # Probe 12: field→type map + envelope check sobre el wire crudo.
-    results.append(probe_field_type_map(client, raw_wire, capture_fids))
+        # Probe 12: field→type map + envelope check sobre el wire crudo.
+        results.append(probe_field_type_map(client, raw_wire, capture_fids))
 
-    # Probe 13: schema snapshots sobre el mismo wire crudo (D-25 no-overwrite).
-    results.append(probe_schema_snapshot(client, today, raw_wire))
+        # Probe 13: schema snapshots sobre el mismo wire crudo (D-25 no-overwrite).
+        results.append(probe_schema_snapshot(client, today, raw_wire))
 
-    # Probe 14: refresh_token in-vivo.
-    results.append(probe_refresh_token(client))
+        # Probe 14: refresh_token in-vivo.
+        results.append(probe_refresh_token(client))
 
-    # CR-03: snapshot del _refresh_token cacheado ANTES de probe_auth_401, como
-    # defense-in-depth — el fix de CR-03 ya preserva el cached usando mutación
-    # directa en vez de configure(), pero capturar acá garantiza que aunque un
-    # futuro cambio rompa esa invariante, el secret sigue redactado.
-    captured_refresh_token = client._state.refresh_token
+        # CR-03: snapshot del _refresh_token cacheado ANTES de probe_auth_401, como
+        # defense-in-depth — el fix de CR-03 ya preserva el cached usando mutación
+        # directa en vez de configure(), pero capturar acá garantiza que aunque un
+        # futuro cambio rompa esa invariante, el secret sigue redactado.
+        captured_refresh_token = client._state.refresh_token
 
-    # Probe 15: auth_401 ÚLTIMO (D-IOL-4) — opt-in, single-shot.
-    results.append(probe_auth_401(client))
+        # Probe 15: auth_401 ÚLTIMO (D-IOL-4) — opt-in, single-shot.
+        results.append(probe_auth_401(client))
 
     # safe_print con secrets dinámicos (D-IOL-7/22): el _refresh_token capturado
     # por login() se redacta vía snapshot capturado antes de probe_auth_401
@@ -2037,8 +2245,20 @@ def main() -> None:
     n_fail = sum(1 for r in results if r.status == "FAIL")
     n_skip = sum(1 for r in results if r.status == "SKIPPED")
     n_find = sum(1 for r in results if r.status == "FINDING")
+    # Phase 33 (P-3 / T-33-11): ``DIVERGENCES`` es ``len(handler.seen)`` — el
+    # conteo de triples distintos ``(slug, model, field_path, kind)``, LA unidad
+    # del censo y la única directamente comparable contra el piso de
+    # ``29-SIZING.md``. NO es el conteo de findings: con la superficie embebida
+    # en el título hay ~2 findings por triple, así que ni ``FINDING=N`` ni el
+    # conteo de bloques del archivo sirven para ese contraste. ``HANDLER_ERRORS``
+    # es el tally de fallas del sink: un pipeline de logging que puede fallar en
+    # silencio no sirve como registro de auditoría, así que el número se imprime
+    # siempre — un valor distinto de cero invalida el censo de esta corrida.
+    # Formato idéntico al de ``main_matriz.py`` y ``main_higyrus.py`` para que
+    # 33-04 parsee una sola forma de línea.
     safe_print(
-        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find}",
+        f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
+        f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
     )
 
