@@ -147,9 +147,7 @@ def test_a_wrong_typed_value_is_still_a_divergence(httpx_mock: HTTPXMock) -> Non
     as a ``str`` is still a real divergence and must still raise, otherwise the
     fix would have traded one silent substitution for another.
     """
-    httpx_mock.add_response(
-        method="GET", json=[{**_NO_DATA_ROW, "entries": "not-a-list"}]
-    )
+    httpx_mock.add_response(method="GET", json=[{**_NO_DATA_ROW, "entries": "not-a-list"}])
 
     with (
         market_data_client.Client(

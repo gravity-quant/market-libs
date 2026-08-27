@@ -813,7 +813,12 @@ def test_snapshot_other_fields_still_report(caplog: pytest.LogCaptureFixture) ->
 
     paths = [path for path, _ in _tuples(records)]
     assert ".symbol" in paths
-    assert ".staleness_seconds" in paths
+    # Phase 33 SC-2 widened ``.staleness_seconds`` to ``float | None``, so it no
+    # longer reports on an absent key. ``.active`` is still declared
+    # non-Optional and carries the same evidence: the exemption is scoped to
+    # ``received_at`` and every OTHER declared field still walks and still
+    # reports.
+    assert ".active" in paths
     assert ".received_at" not in paths
 
 
@@ -1171,20 +1176,58 @@ def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
 # ---------------------------------------------------------------------------
 
 
-def test_absent_mapping_field_reports_missing_and_substitutes_the_empty_dict(
+@dataclass(frozen=True, slots=True)
+class _RequiredMapping(SafeModel):
+    """Module-local carrier for CR-03's REQUIRED-mapping property (Phase 33 SC-2).
+
+    CR-03's contract — a ``dict[...]``-declared field is never a silent ``None``:
+    it substitutes ``{}`` and REPORTS — used to be pinned against
+    ``MarketDataSnapshot.market_data``. Phase 33 SC-2 widened that field to
+    ``dict[str, Any] | None`` because the vendor sends ``null`` legitimately on
+    the no-data row, which left no shipped model declaring a required mapping.
+
+    The property is unchanged; only its carrier moved. Restating it here keeps
+    the mapping pass under test the day a future model declares a required
+    mapping again — the alternative, deleting the rows, would have retired a
+    live contract because its example changed.
+    """
+
+    payload: dict[str, Any]
+
+
+def test_absent_required_mapping_field_reports_missing_and_substitutes_the_empty_dict(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """CR-03: ``MarketDataSnapshot.market_data`` is no longer a silent ``None``."""
+    """CR-03: a REQUIRED ``dict[...]`` field is never a silent ``None``."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        obj = _RequiredMapping.from_api({})
+
+    assert obj.payload == {}
+    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".payload", "missing") in kinds
+
+
+def test_optional_mapping_field_keeps_none_and_reports_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Phase 33 SC-2: under ``dict[...] | None`` a ``null`` is the declared shape.
+
+    The mapping pass unwraps ``Optional`` to decide whether a field is a mapping
+    at all, so without an explicit guard it kept substituting ``{}`` and kept
+    reporting ``missing`` one line after the walker had correctly honoured the
+    ``| None``. This is the row that fails if that guard is removed.
+    """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
         snap = MarketDataSnapshot.from_api(
-            {"symbol": "GGAL", "market_id": "M", "active": True, "entries": []},
+            {"symbol": "GGAL", "market_id": "M", "active": True, "market_data": None},
             received_at=1.0,
         )
 
-    assert snap.market_data == {}
-    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
-    assert (".market_data", "missing") in kinds
+    assert snap.market_data is None
+    paths = {r.field_path for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert ".market_data" not in paths
 
 
 def test_wrong_typed_mapping_field_reports_type_and_substitutes_the_empty_dict(
@@ -1210,26 +1253,36 @@ def test_wrong_typed_mapping_field_reports_type_and_substitutes_the_empty_dict(
     assert (".market_data", "type") in kinds
 
 
-def test_strict_mode_raises_on_an_absent_mapping_field() -> None:
+def test_strict_mode_raises_on_an_absent_required_mapping_field() -> None:
     """CR-03: lock 4 applies to the mapping axis exactly as to every other axis."""
     token = _decode.STRICT_DECODE.set(True)
     try:
         with pytest.raises(MarketDataDecodeError) as excinfo:
-            MarketDataSnapshot.from_api(
-                {
-                    "symbol": "GGAL",
-                    "market_id": "M",
-                    "active": True,
-                    "entries": [],
-                    "staleness_seconds": 0.0,
-                },
-                received_at=1.0,
-            )
+            _RequiredMapping.from_api({})
     finally:
         _decode.STRICT_DECODE.reset(token)
 
-    assert excinfo.value.field_path == ".market_data"
+    assert excinfo.value.field_path == ".payload"
     assert excinfo.value.declared_type == "dict"
+
+
+def test_strict_mode_does_not_raise_on_a_null_optional_mapping_field() -> None:
+    """Phase 33 SC-2: the strict raise the 33-05 run measured stops firing.
+
+    This is the arm with teeth — the fix's whole point is that a legitimate
+    vendor ``null`` is not fatal, while a wrong-typed value still is (see
+    ``test_snapshot_no_data_row.py``).
+    """
+    token = _decode.STRICT_DECODE.set(True)
+    try:
+        snap = MarketDataSnapshot.from_api(
+            {"symbol": "GGAL", "market_id": "M", "active": True, "market_data": None},
+            received_at=1.0,
+        )
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+    assert snap.market_data is None
 
 
 def test_mapping_pass_is_silent_under_a_non_dict_payload(
@@ -1240,7 +1293,10 @@ def test_mapping_pass_is_silent_under_a_non_dict_payload(
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
         snap = MarketDataSnapshot.from_api(None, received_at=1.0)
 
-    assert snap.market_data == {}
+    # Phase 33 SC-2: the VALUE is now ``None`` (the field is ``| None``), but the
+    # property under test is the RECORD SET — lock 8 says ``non_dict`` is
+    # terminal and the mapping pass adds no second record. That is unchanged.
+    assert snap.market_data is None
     kinds = [(r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert kinds == [("", "non_dict")]
 

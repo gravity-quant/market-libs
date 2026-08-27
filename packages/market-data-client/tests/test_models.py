@@ -40,14 +40,19 @@ def test_from_api_empty_dict_typed_zero_defaults() -> None:
     snap = MarketDataSnapshot.from_api({})
     assert snap.symbol == ""
     assert snap.market_id == ""
-    assert snap.entries == []
     assert snap.active is False
     assert snap.note is None
+    # Phase 33 SC-2: ``entries`` widened to ``list[str] | None``, so an absent
+    # key now stays ``None`` instead of collapsing to ``[]``. The typed-zero
+    # property this test exists for is unchanged for every field that is still
+    # declared non-Optional — it simply no longer applies to this one.
+    assert snap.entries is None
 
 
 def test_from_api_none_does_not_raise() -> None:
     snap = MarketDataSnapshot.from_api(None)
-    assert snap.entries == []
+    # Phase 33 SC-2: ``entries`` is ``list[str] | None`` now.
+    assert snap.entries is None
     assert snap.received_at == 0.0
 
 
@@ -56,7 +61,8 @@ def test_from_api_extra_keys_ignored() -> None:
         {"symbol": "GGAL", "unknown_key": 123, "another": {"nested": True}}
     )
     assert snap.symbol == "GGAL"
-    assert snap.entries == []
+    # Phase 33 SC-2: ``entries`` is ``list[str] | None`` now.
+    assert snap.entries is None
 
 
 def test_received_at_injected_wins_over_decoy_payload_key() -> None:
@@ -76,8 +82,10 @@ def test_received_at_defaults_to_zero_without_kwarg() -> None:
 
 
 def test_entries_wrong_type_tolerated_as_empty_list() -> None:
-    # entries is now a plain list[str] of entry-type codes — a non-list wire value
-    # collapses to [] (SafeModel tolerance), never a raise.
+    # entries is a list[str] of entry-type codes — a non-list, non-None wire
+    # value collapses to [] (SafeModel tolerance), never a raise. Phase 33 SC-2
+    # widened the annotation to admit ``None`` and NOTHING else, so this arm is
+    # untouched: a ``str`` is still a divergence and still substitutes.
     snap = MarketDataSnapshot.from_api({"entries": "not-a-list"}, received_at=1.0)
     assert snap.entries == []
 
@@ -151,16 +159,20 @@ def test_from_api_latest_nodata_item() -> None:
     assert snap.symbol == "GGAL"
     assert snap.note == "no data"
     assert snap.active is False
-    # Phase 29 code review, CR-03: a null ``market_data`` used to survive as
-    # ``None`` under a ``dict[str, Any]`` annotation, with no divergence record
-    # and no strict raise. It now collapses to the mapping zero-value ``{}`` the
-    # way every other declared field collapses to its own typed zero, and the
-    # substitution is reported. This is the ONLY behavioural change the review
-    # fixes make to a value a caller can observe.
-    assert snap.market_data == {}
+    # Phase 33 SC-2: this row is the REASON the three fields widened. Phase 29's
+    # CR-03 made a null ``market_data`` collapse to ``{}`` and report ``missing``,
+    # on the reading that the annotation was right and the wire was wrong. The
+    # 33-05 live run settled it the other way: ``GET /marketdata/latest`` answers
+    # for an undelivered symbol with exactly this row, so the null is the
+    # legitimate shape and the annotation was over-declared. The three now stay
+    # ``None`` and emit NO divergence. CR-03's property — a mapping field that is
+    # declared REQUIRED still reports and still substitutes — is unchanged and is
+    # pinned in ``test_decode.py`` against a model that declares it that way.
+    assert snap.market_data is None
+    assert snap.staleness_seconds is None
+    assert snap.entries is None
+    # ``market_id`` stays non-Optional and still collapses to its typed zero.
     assert snap.market_id == ""
-    assert snap.entries == []
-    assert snap.staleness_seconds == 0.0
     assert snap.received_at == 7.0
 
 

@@ -168,6 +168,24 @@ def _apply_mapping_policy(
     market-data model that declares a mapping field is ever another model's field
     type — ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` pins
     that precondition, and fails loudly if a future plan nests one.
+
+    **``None`` under an OPTIONAL mapping hint is left alone (Phase 33, SC-2).**
+    :func:`_is_mapping` unwraps ``Optional`` before testing the origin — it has
+    to, or a ``dict[...] | None`` field would skip the pass entirely and go back
+    to holding whatever the payload had. But that unwrap made the pass blind to
+    the very distinction the annotation encodes, so once
+    :attr:`MarketDataSnapshot.market_data` widened to ``dict[str, Any] | None``
+    the pass kept substituting ``{}`` and kept emitting a ``missing`` record for
+    a ``null`` the vendor sends legitimately — silently undoing the widening one
+    line after the walker honoured it. The guard restores the walker's own
+    contract at this call site: under ``T | None`` a ``None`` "stays ``None``
+    instead of collapsing to a typed zero, and is NOT a divergence"
+    (``_decode.walk_field``). A NON-optional mapping field is untouched by the
+    guard, so an absent ``market_data`` on a model that declares it required is
+    still reported exactly as before (CR-03), and a WRONG-TYPED value under
+    either annotation still routes through :func:`_mapping_value` and is still
+    reported. The guard admits ``None`` under an explicit ``| None`` and nothing
+    else.
     """
     # ``cast(Any, cls)`` is the walker's own mypy-strict discipline for
     # ``get_type_hints``-driven code. No ``type: ignore`` is introduced.
@@ -176,10 +194,11 @@ def _apply_mapping_policy(
     model = cls.__name__
     for f in fields(target):
         hint = hints[f.name]
-        if _is_mapping(hint):
-            kwargs[f.name] = _mapping_value(
-                kwargs[f.name], path=f".{f.name}", model=model, sink=sink
-            )
+        if not _is_mapping(hint):
+            continue
+        if kwargs[f.name] is None and _strip_optional(hint) is not hint:
+            continue
+        kwargs[f.name] = _mapping_value(kwargs[f.name], path=f".{f.name}", model=model, sink=sink)
 
 
 class SafeModel:
@@ -255,14 +274,37 @@ class MarketDataSnapshot(SafeModel):
     no-data rows — a ``note`` string. ``received_at`` is a first-class,
     CLIENT-STAMPED field (D-01): it is injected by :meth:`from_api` as a keyword
     and never coerced from the payload (a wire/decoy ``received_at`` never wins).
+
+    **BREAKING since 0.5.0 (Phase 33, SC-2).** :attr:`entries`,
+    :attr:`market_data` and :attr:`staleness_seconds` were declared
+    non-``Optional`` and are now ``| None``. ``GET /marketdata/latest`` answers
+    for a symbol the feed has never delivered with a row carrying ``symbol`` +
+    ``note`` and ``null`` everywhere else (committed baseline
+    ``.planning/verification/schemas/market-data-client/get-latest.json``), so the
+    three fields were simply over-declared. The 33-05 live run measured all three
+    as ``missing`` divergences on both surfaces (``F-72``/``F-73``/``F-75`` and
+    ``F-92``/``F-93``/``F-95``), and the strict pass raised on two of them.
+
+    The widening — not a parser-side substitution — is the honest fix, and the
+    operator selected it at the 33-07 Task 1 checkpoint (``fix-shape-now``).
+    Manufacturing ``0.0`` / ``[]`` / ``{}`` for a value the vendor legitimately
+    sends as ``null`` would have re-introduced the silent typed zero this
+    milestone exists to remove. The widening admits ``None`` and nothing else: a
+    wrong-TYPED value is still a divergence and still fatal under
+    ``strict_decode``, pinned by
+    ``tests/test_snapshot_no_data_row.py::test_a_wrong_typed_value_is_still_a_divergence``.
+
+    All three keep their positional slot and stay REQUIRED constructor
+    arguments — only the annotation widens, so no field order moves and no
+    default masks an absent key.
     """
 
     symbol: str
     market_id: str
     active: bool
-    entries: list[str]
-    market_data: dict[str, Any]
-    staleness_seconds: float
+    entries: list[str] | None
+    market_data: dict[str, Any] | None
+    staleness_seconds: float | None
     received_at: float
     note: str | None = None
 
