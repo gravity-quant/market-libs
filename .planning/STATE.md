@@ -6,14 +6,14 @@ current_phase: 33
 current_phase_name: verificaci-n-en-vivo-en-modo-estricto-fixes
 status: executing
 stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-08-27T00:20:32.816Z"
+last_updated: "2026-08-27T00:41:28.079Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 41
-  completed_plans: 37
+  completed_plans: 38
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 33 (verificaci-n-en-vivo-en-modo-estricto-fixes) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 33 execution started
 
@@ -151,6 +151,7 @@ Last activity: 2026-08-26 — Phase 33 execution started
 | Phase 33 P01 | 28min | 3 tasks | 7 files |
 | Phase 33 P02 | 15min | 2 tasks | 2 files |
 | Phase 33 P03 | 14min | 2 tasks | 2 files |
+| Phase 33 P04 | 15 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -315,6 +316,8 @@ Recent decisions affecting current work:
 - [Phase 33]: 33-03: ninguna rama de decode mintea un finding — el SHAPE ya lo escribió el DivergenceHandler bajo el título lockeado — El <action> del plan pedía append_finding(class_=SHAPE) dentro de _shape_probe_result. _decode emite el record y DESPUÉS levanta, así que para cuando la rama corre el handler ya escribió el SHAPE. Un segundo write produciría dos findings por divergencia bajo dos títulos distintos, rompiendo el idempotent_by_title que la rama existe para habilitar (contrato de on_decode_error, 33-01-SUMMARY.md; mismo comportamiento que los helpers homónimos de matriz y higyrus).
 - [Phase 33]: 33-03: probe_refresh_token recibe la doceava rama de decode aunque no tiene handler amplio — IOLDecodeError es HERMANO de IOLAPIError bajo IOLClientError, no subclase, así que la escalera AuthError->APIError de ese probe lo dejaba propagar. Llama get_instruments, cuyo parser SÍ está decorado: bajo modo estricto el driver moría en el probe 14 de 15 y perdía el probe 15 más la línea SUMMARY entera. Era el único sitio ALCANZABLE del driver sin cubrir, y el plan no lo enumeraba porque enumera por handler amplio.
 - [Phase 33]: 33-03: 12 ramas de decode escritas en main_iol.py, 10 alcanzables — los dos números se reportan por separado — probe_auth_401 sólo llama login() y parse_login_response no está decorado con @_decode._response_parser; _capture_raw_wire corre _request + resp.json() sin ningún parser. Ambas ramas están declaradas inalcanzables en comentarios en el propio código. Reportar 12 como cobertura sería la señal que no inspecciona nada que P-02 prohíbe.
+- [Phase 33]: La rama de decode de main_market_data.py NO escribe un finding — _decode emite el record de seis claves ANTES de levantar, asi que el DivergenceHandler ya escribio el SHAPE bajo el titulo lockeado; un segundo append_finding duplicaria la divergencia y romperia idempotent_by_title. Ademas el titulo que el plan especifica no es componible: MarketDataDecodeError no guarda la especie de divergencia.
+- [Phase 33]: Los 34 sitios de _write_schema_snapshot consumen _ENDPOINT_TEMPLATES — Dejar el literal inlineado al lado del dict con el mismo valor es la duplicacion drift-prone que D-03 manda evitar; cada string renderizado es byte-identico al que reemplaza, asi que ningun baseline write-once se mueve.
 
 ### Pending Todos
 
@@ -396,7 +399,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T00:20:13.128Z
+Last session: 2026-08-27T00:41:14.252Z
 Stopped at: Completed 33-02-PLAN.md
 Resume file: None
 
