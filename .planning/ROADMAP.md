@@ -306,7 +306,7 @@ Plans:
 | 31. Endpoints de ops + estructura uniforme                  | v1.6      | 5/5 | Complete    | 2026-08-25 |
 | 32. Gates de homogeneidad + D-16                            | v1.6      | 6/6 | Complete    | 2026-08-25 |
 | 33. Verificación en vivo en modo estricto + fixes           | v1.6      | 7/7 | Complete    | 2026-08-27 |
-| 34. Releases por paquete                                    | v1.6      | 3/3 | Complete   | 2026-08-27 |
+| 34. Releases por paquete                                    | v1.6      | 3/3 | Complete    | 2026-08-27 |
 
 ## Backlog
 
