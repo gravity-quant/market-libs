@@ -131,6 +131,35 @@ class _Mapping(_SafeModel):
 
 
 @dataclass(frozen=True)
+class _TickLike(_SafeModel):
+    """Element model for the typed-mapping fixtures (Phase 37).
+
+    Mirrors the shape of the live ``tickPriceRanges`` entry without depending on
+    the shipped ``TickPriceRange`` class, so a shipped-model field change cannot
+    turn an axis regression green.
+    """
+
+    lowerLimit: float | None = None
+    upperLimit: float | None = None
+    tick: float | None = None
+
+
+@dataclass(frozen=True)
+class _TypedMapping(_SafeModel):
+    """One level of open keys: ``dict[str, Model]`` — the ``tickPriceRanges`` shape."""
+
+    ranges: dict[str, _TickLike] = field(default_factory=dict)
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class _NestedMapping(_SafeModel):
+    """Two levels of open keys — the shape Plan 37-03's ``report`` field needs."""
+
+    report: dict[str, dict[str, _TickLike]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class _Nested(_SafeModel):
     """Nested model + list-of-model, matriz's ``empty()``-flavoured defaults."""
 
@@ -517,7 +546,171 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
                 ):
                     nested_types.add(candidate.__name__)
 
+    # Phase 37, F-11 — a MEASURED blind spot, recorded rather than papered over.
+    # The ``__args__`` walk above is exactly ONE level deep, so a model nested at
+    # depth 2 (``dict[str, dict[str, Model]]`` — the shape Plan 37-03 gives
+    # ``DetailedPosition.report``) never enters ``nested_types`` and would not be
+    # caught here if it became a mapping carrier. The phase's answer is (a) from
+    # F-11's two options: every inner model introduced in Phase 37
+    # (``TickPriceRange`` and 37-03's report/account-report leaves) is kept
+    # mapping-FREE, so no carrier can reach depth 2 in the first place. Deepening
+    # the walk is option (b) and is only needed the day that rule is broken.
     assert carriers & nested_types == set()
+
+
+# ---------------------------------------------------------------------------
+# Mapping axis, Phase 37 — element typing + recursion (D-05 / D-06)
+# ---------------------------------------------------------------------------
+
+
+def test_typed_mapping_values_decode_into_models(caplog: pytest.LogCaptureFixture) -> None:
+    """A ``dict[str, Model]`` field yields model instances, not raw dicts.
+
+    The inversion of the bug: before Phase 37 the axis returned the incoming dict
+    verbatim, so every value arrived as the raw payload dict — the walker has no
+    ``dict`` branch to decode them for it (D-06).
+    """
+    payload = {"ranges": {"0": {"lowerLimit": 0, "tick": 0.1, "upperLimit": None}}, "label": "x"}
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _TypedMapping.from_api(payload)
+
+    assert isinstance(obj.ranges["0"], _TickLike)
+    # Silently widened ``int`` -> ``float`` by the walker's float arm, which
+    # widens BEFORE consulting ``scalar_passthrough`` — no divergence.
+    assert obj.ranges["0"].lowerLimit == 0.0
+    assert isinstance(obj.ranges["0"].lowerLimit, float)
+    assert obj.ranges["0"].tick == 0.1
+    assert obj.ranges["0"].upperLimit is None
+    assert obj.label == "x"
+    assert _divergences(caplog) == []
+
+
+def test_typed_mapping_recurses_on_a_nested_mapping_hint(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``dict[str, dict[str, Model]]`` decodes to models at depth 2 (Plan 37-03's shape)."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _NestedMapping.from_api({"report": {"OUTER": {"0": {"tick": 0.05}}}})
+
+    inner = obj.report["OUTER"]
+    assert isinstance(inner, dict)
+    assert isinstance(inner["0"], _TickLike)
+    assert inner["0"].tick == 0.05
+    assert _divergences(caplog) == []
+
+
+def test_nested_mapping_divergence_path_reads_through_both_keys(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A divergence two levels down is locatable in the payload by its path."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        _NestedMapping.from_api({"report": {"OUTER": {"0": {"tick": "nope"}}}})
+
+    paths = [p for p, _ in _pairs(caplog)]
+    assert ".report.OUTER.0.tick" in paths
+
+
+def test_the_axis_emits_through_the_sink_it_was_handed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-37-10: the axis never reaches for ``current_sink()``.
+
+    A bound, EMITTING scope is in place; the axis is handed ``SILENT_SINK``
+    instead. If it resolved its own sink the divergence below would be reported.
+    """
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        out = models._mapping_value(
+            {"0": {"tick": "nope"}},
+            _TickLike,
+            path=".ranges",
+            model="_TypedMapping",
+            sink=_decode.SILENT_SINK,
+        )
+
+    assert isinstance(out["0"], _TickLike)
+    assert out["0"].tick == "nope"  # scalar_passthrough=True keeps the wire value
+    assert _divergences(caplog) == []
+
+
+def test_the_axis_helpers_never_reference_current_sink() -> None:
+    """T-37-10, stated structurally: ``current_sink`` belongs to ``from_api`` alone."""
+    tree = ast.parse(pathlib.Path(models.__file__).read_text(encoding="utf-8"))
+    total = sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "current_sink"
+    )
+    owners = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(sub, ast.Attribute) and sub.attr == "current_sink" for sub in ast.walk(node)
+        )
+    }
+    assert owners == {"from_api"}
+    assert total == 1
+
+
+def test_typed_mapping_dedupes_within_one_scope(caplog: pytest.LogCaptureFixture) -> None:
+    """Lock 5 still fires through the axis: one scope, one record for one triple."""
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    payload = {"ranges": {"0": {"tick": "nope"}}}
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        _TypedMapping.from_api(payload)
+        first = len(_divergences(caplog))
+        _TypedMapping.from_api(payload)
+        second = len(_divergences(caplog))
+
+    assert first == 1
+    assert second == first, "the second decode joined the same scope and deduped"
+
+
+def test_non_dict_payload_on_a_mapping_carrier_emits_one_terminal_record(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Lock 8 survives the retype: no per-field record on top of ``non_dict``."""
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _TypedMapping.from_api(None)
+
+    assert [kind for _, kind in _pairs(caplog)] == ["non_dict"]
+    assert obj == _TypedMapping.empty()
+    assert obj.ranges == {}
+
+
+def test_typed_mapping_non_dict_value_still_substitutes_and_reports(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The preserved container contract, now on an element-TYPED field."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _TypedMapping.from_api({"ranges": "not-a-mapping"})
+
+    assert obj.ranges == {}
+    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    observed = {r.field_path: r.observed_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".ranges", "type") in _pairs(caplog)
+    assert declared[".ranges"] == "dict"
+    assert observed[".ranges"] == "str"
+
+
+def test_typed_mapping_non_dict_value_is_fatal_under_strict_mode() -> None:
+    """Strict mode is still fatal on the container record, as on every other axis."""
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MatrizDecodeError):
+        _TypedMapping.from_api({"ranges": "not-a-mapping"})
+
+
+def test_convert_shim_inherits_the_element_routing(caplog: pytest.LogCaptureFixture) -> None:
+    """F-17: the shim gets the new routing rather than bypassing it."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        out = models._convert(dict[str, _TickLike], {"0": {"tick": 0.1}})
+
+    assert isinstance(out["0"], _TickLike)
+    assert out["0"].tick == 0.1
+    # And the legacy bare hint still answers ``{}`` for ``None`` (test_convert_shim_still_coerces).
+    assert models._convert(dict[str, Any], None) == {}
 
 
 # ---------------------------------------------------------------------------
