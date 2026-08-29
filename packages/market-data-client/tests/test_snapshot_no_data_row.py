@@ -80,15 +80,23 @@ _POPULATED_ROW: dict[str, Any] = {
 }
 
 
-def test_no_data_row_keeps_its_full_expressive_power(httpx_mock: HTTPXMock) -> None:
-    """The row still says "nothing here" — now without a single ``None`` on a link.
+def test_no_data_row_keeps_its_nulls(httpx_mock: HTTPXMock) -> None:
+    """The row still says "nothing here" — now without a ``None`` on either link.
 
-    The LEAF keeps its ``None``: ``staleness_seconds`` has nothing to point at
-    and manufacturing ``0.0`` for it would be the silent typed zero this
-    milestone exists to remove. The two LINKS answer the same question through
-    emptiness instead — ``entries == []`` and a falsy ``market_data`` — and the
-    chain through the falsy container stays walkable, which is the whole point
-    of the Null Object.
+    **This test's NAME is load-bearing and must not be renamed.** It is the
+    ``Regression:`` anchor of findings ``F-72`` / ``F-73`` / ``F-75`` in the
+    append-only ledger ``.planning/verification/market-data-client-findings.md``,
+    and ``verification/test_cycle_closure_market_data.py`` resolves that bullet
+    to a real ``def <test>(``. Renaming it turns six CONFIRMED findings into
+    dangling links and reddens the cycle-closure gate.
+
+    What the name still means after the Phase 36 revocation: the LEAF keeps its
+    ``None`` — ``staleness_seconds`` has nothing to point at, and manufacturing
+    ``0.0`` for it would be the silent typed zero this milestone exists to
+    remove. The two LINKS answer the same "nothing here" through emptiness
+    instead — ``entries == []`` and a falsy ``market_data`` — and the chain
+    through the falsy container stays walkable, which is the whole point of the
+    Null Object. No substitution was ever manufactured for any of the three.
     """
     httpx_mock.add_response(method="GET", json=[_NO_DATA_ROW])
 
@@ -107,8 +115,12 @@ def test_no_data_row_keeps_its_full_expressive_power(httpx_mock: HTTPXMock) -> N
     assert row.note == "sin datos para el simbolo"
 
 
-async def test_no_data_row_keeps_its_full_expressive_power_async(httpx_mock: HTTPXMock) -> None:
-    """Async twin of :func:`test_no_data_row_keeps_its_full_expressive_power` (C-3)."""
+async def test_no_data_row_keeps_its_nulls_async(httpx_mock: HTTPXMock) -> None:
+    """Async twin of :func:`test_no_data_row_keeps_its_nulls` (C-3).
+
+    Its NAME is load-bearing for the same reason as its sync twin's: it is the
+    ``Regression:`` anchor of ``F-92`` / ``F-93`` / ``F-95``.
+    """
     httpx_mock.add_response(method="GET", json=[_NO_DATA_ROW])
 
     rows = await aio._get_default().get_latest(symbol="AAA1")
