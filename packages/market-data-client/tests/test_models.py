@@ -13,20 +13,31 @@ Pins the D-01/D-04/D-05 behaviors:
   item shape and the ``/marketdata/latest`` no-data shape without raising.
 - ``LatestRequest(...).to_dict()`` drops ``None``-valued optionals and keeps
   supplied values (D-05).
+
+Phase 36 (NOBJ-MD-01 / NOBJ-MD-02) revokes the Phase 33 widening on the two
+CHAIN LINKS: ``entries`` is ``list[str]`` again and ``market_data`` is the typed
+Null Object ``MarketDataEntries``, so the assertions below read ``== []`` and a
+chained attribute where they read ``is None`` and a subscript. The two LEAVES,
+``staleness_seconds`` and ``note``, keep their ``| None`` and their assertions
+are untouched. ``LatestRequest.entries`` follows the link (D-06): it defaults to
+``[]`` and ``to_dict`` omits the key on an EMPTY list, not merely on ``None``.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from typing import Any, cast
 
 import pytest
 
+from market_data_client import _decode
 from market_data_client import models as models_module
 from market_data_client.exceptions import MarketDataError
 from market_data_client.models import (
     HolidayIn,
     HolidaysIn,
     LatestRequest,
+    MarketDataEntries,
     MarketDataSnapshot,
     MarketHoursIn,
     NewSymbol,
@@ -42,17 +53,18 @@ def test_from_api_empty_dict_typed_zero_defaults() -> None:
     assert snap.market_id == ""
     assert snap.active is False
     assert snap.note is None
-    # Phase 33 SC-2: ``entries`` widened to ``list[str] | None``, so an absent
-    # key now stays ``None`` instead of collapsing to ``[]``. The typed-zero
-    # property this test exists for is unchanged for every field that is still
-    # declared non-Optional — it simply no longer applies to this one.
-    assert snap.entries is None
+    # Phase 36 (D-04) REVOKES the Phase 33 widening on this link: ``entries`` is
+    # ``list[str]`` again, so an absent key collapses to ``[]`` and the typed-zero
+    # property this test exists for applies to it once more. The revocation is by
+    # field ROLE — the two leaves (``staleness_seconds``, ``note``) keep ``| None``.
+    assert snap.entries == []
 
 
 def test_from_api_none_does_not_raise() -> None:
     snap = MarketDataSnapshot.from_api(None)
-    # Phase 33 SC-2: ``entries`` is ``list[str] | None`` now.
-    assert snap.entries is None
+    # Phase 36 (D-04): the Phase 33 widening is revoked on this link — ``entries``
+    # is ``list[str]`` again and never holds ``None``.
+    assert snap.entries == []
     assert snap.received_at == 0.0
 
 
@@ -61,8 +73,8 @@ def test_from_api_extra_keys_ignored() -> None:
         {"symbol": "GGAL", "unknown_key": 123, "another": {"nested": True}}
     )
     assert snap.symbol == "GGAL"
-    # Phase 33 SC-2: ``entries`` is ``list[str] | None`` now.
-    assert snap.entries is None
+    # Phase 36 (D-04): the Phase 33 widening is revoked on this link.
+    assert snap.entries == []
 
 
 def test_received_at_injected_wins_over_decoy_payload_key() -> None:
@@ -83,9 +95,10 @@ def test_received_at_defaults_to_zero_without_kwarg() -> None:
 
 def test_entries_wrong_type_tolerated_as_empty_list() -> None:
     # entries is a list[str] of entry-type codes — a non-list, non-None wire
-    # value collapses to [] (SafeModel tolerance), never a raise. Phase 33 SC-2
-    # widened the annotation to admit ``None`` and NOTHING else, so this arm is
-    # untouched: a ``str`` is still a divergence and still substitutes.
+    # value collapses to [] (SafeModel tolerance), never a raise. This arm has
+    # now survived BOTH the Phase 33 widening (which admitted ``None`` and
+    # nothing else) and the Phase 36 revocation (which took ``None`` back out):
+    # a ``str`` is still a divergence and still substitutes, either way.
     snap = MarketDataSnapshot.from_api({"entries": "not-a-list"}, received_at=1.0)
     assert snap.entries == []
 
@@ -114,12 +127,18 @@ def test_from_api_marketdata_item_parses_new_fields() -> None:
     assert snap.market_id == "BCBA"
     assert snap.active is True
     assert snap.entries == ["BI", "OF"]
-    # market_data is a dict passthrough — nested rows are preserved verbatim.
-    # Desde 0.5.0 (Phase 33, SC-2) el campo es ``dict[str, Any] | None``: este payload lo
-    # trae poblado, así que el narrowing es además una aserción real sobre el parseo.
-    assert snap.market_data is not None
-    assert snap.market_data["BI"][0]["price"] == 1
-    assert snap.market_data["OI"] is None
+    # Phase 36 (NOBJ-MD-01): ``market_data`` is the typed Null Object
+    # :class:`MarketDataEntries`, so the row reads by CHAINED ATTRIBUTE rather
+    # than by subscript. Two consequences are asserted verbatim here:
+    #   * the wire ``int`` price arrives WIDENED to ``float`` (``1`` -> ``1.0``),
+    #     silently — ``walk_field``'s float arm widens before consulting
+    #     ``scalar_passthrough`` (36-RESEARCH F-3);
+    #   * a ``null`` entry is the EMPTY EntryValue, never ``None``, so the
+    #     question "did this entry carry anything?" is a truthiness question.
+    assert bool(snap.market_data) is True
+    assert snap.market_data.bids[0].price == 1.0
+    assert bool(snap.market_data.open_interest) is False
+    assert snap.market_data.open_interest.price is None
     assert snap.staleness_seconds == 1.5
     assert snap.received_at == 42.0
     assert snap.note is None
@@ -143,6 +162,17 @@ def test_marketdata_snapshot_field_set_matches_reconciled_wire() -> None:
     }
     assert not hasattr(MarketDataSnapshot.from_api({}), "marketId")
 
+    # Phase 36 (D-04): the field SET is unchanged by the revocation — what
+    # changed is two ANNOTATIONS, and only an assertion on the hints can catch a
+    # future re-widening. The hint cache is the walker's own view of the class,
+    # so this reads exactly what the decoder reads.
+    hints = _decode.hints_for(cast(Any, MarketDataSnapshot))
+    assert hints["entries"] == list[str]
+    assert hints["market_data"] is MarketDataEntries
+    # The two LEAVES keep their ``| None`` — the revocation is by field role.
+    assert hints["staleness_seconds"] == (float | None)
+    assert hints["note"] == (str | None)
+
 
 def test_from_api_latest_nodata_item() -> None:
     # Mirrors get-latest.json: a /marketdata/latest no-data row collapses the null
@@ -162,18 +192,21 @@ def test_from_api_latest_nodata_item() -> None:
     assert snap.symbol == "GGAL"
     assert snap.note == "no data"
     assert snap.active is False
-    # Phase 33 SC-2: this row is the REASON the three fields widened. Phase 29's
-    # CR-03 made a null ``market_data`` collapse to ``{}`` and report ``missing``,
-    # on the reading that the annotation was right and the wire was wrong. The
-    # 33-05 live run settled it the other way: ``GET /marketdata/latest`` answers
-    # for an undelivered symbol with exactly this row, so the null is the
-    # legitimate shape and the annotation was over-declared. The three now stay
-    # ``None`` and emit NO divergence. CR-03's property — a mapping field that is
-    # declared REQUIRED still reports and still substitutes — is unchanged and is
-    # pinned in ``test_decode.py`` against a model that declares it that way.
-    assert snap.market_data is None
+    # Phase 33 SC-2: this row is the REASON the three fields widened. The 33-05
+    # live run measured all three as ``missing`` divergences, so the null was
+    # ruled the legitimate shape and the annotation over-declared.
+    #
+    # Phase 36 (D-04) revokes that widening BY FIELD ROLE. ``market_data`` and
+    # ``entries`` are CHAIN LINKS and go back to required: a Null Object never
+    # needs ``None``, and the NOBJ-02 policy (Phase 35) collapses their null to
+    # the empty instance / ``[]`` with NO divergence — so the loud shape the
+    # widening was fixing cannot come back. ``staleness_seconds`` is a LEAF and
+    # keeps its ``| None`` untouched.
+    assert bool(snap.market_data) is False
+    assert snap.market_data == MarketDataEntries.empty()
+    assert snap.market_data.last.price is None
     assert snap.staleness_seconds is None
-    assert snap.entries is None
+    assert snap.entries == []
     # ``market_id`` stays non-Optional and still collapses to its typed zero.
     assert snap.market_id == ""
     assert snap.received_at == 7.0
@@ -191,6 +224,69 @@ def test_latest_request_to_dict_keeps_supplied_optionals() -> None:
         "marketId": "BCBA",
         "entries": ["BID", "OFFER"],
     }
+
+
+def test_latest_request_to_dict_omits_an_explicitly_empty_entries_list() -> None:
+    # Phase 36 (D-06): ``entries`` is ``list[str]`` defaulting to ``[]`` now, so
+    # the ``is not None`` guard would have started emitting a literal
+    # ``{"entries": []}`` on EVERY request. The guard tests truthiness instead:
+    # the wire semantics "key absent = every entry type" is preserved, and there
+    # is no evidence in this repo that the server distinguishes an explicit
+    # empty list from absence. This is the boundary that pins the distinction.
+    assert LatestRequest(symbols=["GGAL"], entries=[]).to_dict() == {"symbols": ["GGAL"]}
+
+
+def test_the_mapping_machinery_left_the_module_without_taking_anything_else() -> None:
+    """SC-5 / D-05: the four mapping helpers are gone — asserted NON-VACUOUSLY.
+
+    ``not hasattr(models, "_mapping_value")`` on its own is a vacuous green: it
+    would pass just as happily against an empty module, against a typo'd import,
+    or against a module that failed to define anything at all. Following the
+    33-07 criterio-4 precedent — a zero floor is declared by STRUCTURAL PROPERTY,
+    never by a ``>= 0`` — the absence is paired here with three positive
+    assertions that only a live, complete ``models`` can satisfy:
+
+    1. ``MarketDataSnapshot.from_api`` still stamps the client-side
+       ``received_at`` over a decoy payload key. That injection sits one line
+       below the call site this plan deleted and is the single easiest thing in
+       the phase to destroy by accident (36-RESEARCH Pitfall 5).
+    2. ``MarketDataEntries`` declares exactly its ten-key roster (D-02).
+    3. The ``SafeModel`` roster reachable by introspection is exactly nineteen —
+       the sixteen measured pre-phase plus the three this plan adds.
+    """
+    machinery = ("_mapping_value", "_apply_mapping_policy", "_is_mapping", "_strip_optional")
+    assert [name for name in machinery if hasattr(models_module, name)] == []
+
+    # (1) the adjacent survivor
+    assert (
+        MarketDataSnapshot.from_api({"received_at": "decoy"}, received_at=42.0).received_at == 42.0
+    )
+
+    # (2) the container roster
+    assert {f.name for f in dataclasses.fields(MarketDataEntries)} == {
+        "BI",
+        "CL",
+        "HI",
+        "LA",
+        "LO",
+        "OF",
+        "OI",
+        "OP",
+        "SE",
+        "TV",
+    }
+
+    # (3) the module still ships its whole model roster
+    roster = {
+        name
+        for name, obj in vars(models_module).items()
+        if isinstance(obj, type)
+        and dataclasses.is_dataclass(obj)
+        and issubclass(obj, SafeModel)
+        and obj.__module__ == models_module.__name__
+    }
+    assert len(roster) == 19, sorted(roster)
+    assert {"BookLevel", "EntryValue", "MarketDataEntries"} <= roster
 
 
 # ----------------------------------------------------------------------

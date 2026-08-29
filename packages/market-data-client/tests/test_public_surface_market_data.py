@@ -61,6 +61,13 @@ _NEW_PUBLIC_NAMES = (
     # Phase 33 — preview envelope split (LIVE-TYP-01 / S-2)
     "CalendarConfigPreview",
     "PreviewMarket",
+    # Phase 36 — market_data tipado (NOBJ-MD-01). Without the barrel re-export a
+    # consumer cannot NAME the type ``snapshot.market_data`` returns, which is
+    # the ergonomics half of the requirement; enrolling the three here makes the
+    # re-export enforced rather than merely recommended.
+    "BookLevel",
+    "EntryValue",
+    "MarketDataEntries",
 )
 
 _MUTATION_METHODS = (

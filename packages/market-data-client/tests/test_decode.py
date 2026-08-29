@@ -1218,20 +1218,23 @@ def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
 # dead code alive in a shipped module purely to assert against.
 #
 # The four rows below survive the retirement. They are ``MarketDataSnapshot``
-# rows, not mapping-machinery rows, and Plan 36-02 migrates them when
-# ``market_data`` becomes a model — including the lock-8 row, whose measured
-# record set does not change and which is only retitled there.
+# rows, not mapping-machinery rows, and Plan 36-02 migrated them when
+# ``market_data`` became the typed Null Object ``MarketDataEntries`` — including
+# the lock-8 row, whose measured record set did NOT change and which is only
+# retitled here.
 
 
-def test_optional_mapping_field_keeps_none_and_reports_nothing(
+def test_a_null_market_data_keeps_the_empty_container_and_reports_nothing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Phase 33 SC-2: under ``dict[...] | None`` a ``null`` is the declared shape.
+    """A ``null`` link collapses to the empty container, silently (NOBJ-02).
 
-    The mapping pass unwraps ``Optional`` to decide whether a field is a mapping
-    at all, so without an explicit guard it kept substituting ``{}`` and kept
-    reporting ``missing`` one line after the walker had correctly honoured the
-    ``| None``. This is the row that fails if that guard is removed.
+    Phase 33 reached this green through the ``| None`` annotation plus an
+    explicit guard in the mapping pass. Phase 36 reaches the SAME green
+    structurally: the field is a non-optional nested model now, and the walker's
+    nested-model branch collapses a ``null`` to the empty instance without
+    emitting anything. The "no record at this path" half of the assertion is
+    unchanged, verbatim — what changed is that nothing has to guard for it.
     """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
@@ -1240,40 +1243,63 @@ def test_optional_mapping_field_keeps_none_and_reports_nothing(
             received_at=1.0,
         )
 
-    assert snap.market_data is None
+    assert bool(snap.market_data) is False
+    assert snap.market_data == models.MarketDataEntries.empty()
     paths = {r.field_path for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert ".market_data" not in paths
 
 
-def test_wrong_typed_mapping_field_reports_type_and_substitutes_the_empty_dict(
+def test_wrong_typed_market_data_reports_non_dict_against_the_container(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """CR-03: a non-mapping wire value is a ``type`` divergence, not a pass-through."""
+    """A non-object wire value still diverges — the KIND and the ATTRIBUTION moved.
+
+    This row is the one real semantic change of the Phase 36 migration, and it
+    is recorded rather than smoothed over. The retired ``_mapping_value``
+    classified with ``_kind_of`` and reported ``type`` against
+    ``MarketDataSnapshot``; the walker's nested-model branch delegates to
+    ``walk_model``, which reports ``non_dict`` against ``MarketDataEntries``.
+
+    The property that matters is PRESERVED: ``non_dict`` is not in
+    ``_INFO_KINDS``, so a wrong-typed ``market_data`` is still fatal under
+    ``strict_decode`` — asserted below rather than argued.
+    """
+    payload = {
+        "symbol": "GGAL",
+        "market_id": "M",
+        "active": True,
+        "entries": [],
+        "market_data": ["not", "a", "mapping"],
+        "staleness_seconds": 0.0,
+    }
+
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
-        snap = MarketDataSnapshot.from_api(
-            {
-                "symbol": "GGAL",
-                "market_id": "M",
-                "active": True,
-                "entries": [],
-                "market_data": ["not", "a", "mapping"],
-                "staleness_seconds": 0.0,
-            },
-            received_at=1.0,
-        )
+        snap = MarketDataSnapshot.from_api(payload, received_at=1.0)
 
-    assert snap.market_data == {}
-    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
-    assert (".market_data", "type") in kinds
+    assert bool(snap.market_data) is False
+    kinds = {
+        (r.model, r.field_path, r.divergence)  # type: ignore[attr-defined]
+        for r in _divergences(caplog)
+    }
+    assert ("MarketDataEntries", ".market_data", "non_dict") in kinds
+
+    # Still fatal in strict mode — the kind moved, the disposition did not.
+    token = _decode.STRICT_DECODE.set(True)
+    try:
+        with pytest.raises(MarketDataDecodeError):
+            MarketDataSnapshot.from_api(payload, received_at=1.0)
+    finally:
+        _decode.STRICT_DECODE.reset(token)
 
 
-def test_strict_mode_does_not_raise_on_a_null_optional_mapping_field() -> None:
-    """Phase 33 SC-2: the strict raise the 33-05 run measured stops firing.
+def test_strict_mode_does_not_raise_on_a_null_market_data() -> None:
+    """The strict raise the 33-05 run measured stays retired.
 
-    This is the arm with teeth — the fix's whole point is that a legitimate
-    vendor ``null`` is not fatal, while a wrong-typed value still is (see
-    ``test_snapshot_no_data_row.py``).
+    This is the arm with teeth — a legitimate vendor ``null`` is not fatal,
+    while a wrong-typed value still is (see the row above and
+    ``test_snapshot_no_data_row.py``). Phase 33 bought this with an annotation;
+    Phase 36 keeps it with a policy, and the verdict is identical.
     """
     token = _decode.STRICT_DECODE.set(True)
     try:
@@ -1284,21 +1310,26 @@ def test_strict_mode_does_not_raise_on_a_null_optional_mapping_field() -> None:
     finally:
         _decode.STRICT_DECODE.reset(token)
 
-    assert snap.market_data is None
+    assert bool(snap.market_data) is False
 
 
-def test_mapping_pass_is_silent_under_a_non_dict_payload(
+def test_a_non_dict_payload_emits_exactly_one_terminal_record(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Lock 8: ``non_dict`` stays terminal — the mapping pass adds no second record."""
+    """Lock 8: ``non_dict`` is terminal — nothing downstream adds a second record.
+
+    Retitled in Phase 36: the row used to name the mapping pass as the thing
+    that had to stay silent, and that pass no longer exists. The property it
+    measures is unchanged and so is its measured record set — a ``None`` payload
+    produces exactly ``[("", "non_dict")]``, one record for the envelope and not
+    one per declared field. What guarantees it now is the walker's own
+    ``SILENT_SINK`` swap rather than a conditional at this call site.
+    """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
         snap = MarketDataSnapshot.from_api(None, received_at=1.0)
 
-    # Phase 33 SC-2: the VALUE is now ``None`` (the field is ``| None``), but the
-    # property under test is the RECORD SET — lock 8 says ``non_dict`` is
-    # terminal and the mapping pass adds no second record. That is unchanged.
-    assert snap.market_data is None
+    assert bool(snap.market_data) is False
     kinds = [(r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert kinds == [("", "non_dict")]
 
