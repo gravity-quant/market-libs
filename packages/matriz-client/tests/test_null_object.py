@@ -235,12 +235,36 @@ class _AliasFree(_SafeModel):
 def test_the_model_roster_is_not_vacuous() -> None:
     """An empty roster would make every parametrized test below pass vacuously.
 
-    ``>= 17`` rather than ``== 17``: 17 is the count measured for this paquete
-    in ``35-RESEARCH.md`` F-1, and phases 36-38 may legitimately add classes.
-    Every class is also asserted individually, so the guard only has to catch
-    the catastrophic case where introspection returns nothing at all.
+    ``>= 20`` rather than ``== 20``, and it stays an inequality forever: later
+    phases may legitimately add classes, and every class is ALSO asserted
+    individually by the three parametrized cases below, so this guard only has
+    to catch the catastrophic case where introspection returns nothing at all.
+    Turning it into an equality would convert a harmless addition into a red
+    build for no gain.
+
+    Provenance of the number, so it is never re-guessed:
+
+    * ``17`` — the count measured for this paquete in ``35-RESEARCH.md`` F-1,
+      the value this assertion shipped with in Phase 35.
+    * ``+1`` — :class:`~matriz_client.models.TickPriceRange`, added by Phase 37
+      plan 37-02 (``InstrumentDetail.tickPriceRanges`` retyped to
+      ``dict[str, TickPriceRange]``, D-05).
+    * ``+2`` — :class:`~matriz_client.models.InstrumentPositionReport` and
+      :class:`~matriz_client.models.DetailedAccountReport`, added by Phase 37
+      plan 37-03 for the two Risk-endpoint mappings (D-04a provenance
+      ``vendor-documented, UNMEASURED``).
+
+    ``= 20``, which is the count 37-03-SUMMARY.md recorded and the count this
+    plan (37-05) re-measured in-process before raising the bound. Phase 37's
+    own alias work adds no class — six ``@property`` aliases on
+    :class:`~matriz_client.models.MarketDataSnapshot` are invisible to this
+    roster for the same reason they are invisible to the walker.
+
+    :class:`~matriz_client.models.UnknownFrame` is deliberately NOT counted: it
+    does not inherit the base, and the comment further down explains why that
+    exclusion is correct rather than a bug in the filter.
     """
-    assert len(_safemodel_classes()) >= 17
+    assert len(_safemodel_classes()) >= 20
 
 
 @pytest.mark.parametrize("cls", _safemodel_classes(), ids=lambda c: c.__name__)
