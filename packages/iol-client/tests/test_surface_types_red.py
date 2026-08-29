@@ -90,6 +90,14 @@ def test_gate_is_green_on_the_real_tree() -> None:
     or a newly exported model must not falsely redden the suite. Floors still
     catch the failure that matters here -- a scan that collapses to nothing and
     reports green anyway.
+
+    The ``fields`` floor is the second dimension's half of that proof and is what
+    makes "green AND non-vacuous on the real tree" executable rather than a
+    SUMMARY claim. The committed tree scans 442 fields (RESEARCH F-6, cross-checked
+    against the gate's own ``442 fields scanned`` line), so 400 is a floor with
+    headroom that still catches a field scan collapsing to nothing -- the exact
+    state this file's gate was in before Phase 37, when it reported green with
+    five untyped mapping fields on an exported surface.
     """
     summary = check_surface_types()
     assert "0 violation" in summary
@@ -98,6 +106,7 @@ def test_gate_is_green_on_the_real_tree() -> None:
     assert result.violations == ()
     assert result.packages >= 6
     assert result.definitions >= 300
+    assert result.fields >= 400
     assert result.exempted >= 20
 
 
@@ -408,3 +417,142 @@ def test_empty_and_unresolvable_trees_are_failures_not_greens(tmp_path: Path) ->
     )
     with pytest.raises(CheckFailure, match="__all__"):
         scan_surface_types(no_all)
+
+
+# ----------------------------------------------------------------------
+# The OPTIONAL-MODEL-LINK field predicate (Phase 38, D-11)
+#
+# One redden-side bound and two spare-side bounds. The pair is the point: a
+# predicate proven only to redden can be over-eager, and a predicate proven only
+# to spare can be vacuous. Both halves were measured over all six packages before
+# either was written (RESEARCH F-6).
+# ----------------------------------------------------------------------
+
+
+def test_an_optional_model_field_is_caught(tmp_path: Path) -> None:
+    """Lower bound for D-11: an optional model link on an exported field reddens.
+
+    Two shapes on one class, because the ratchet owes both. ``Thing.link``
+    reproduces ``Titulo.puntas`` -- the bare ``Punta | None`` form -- and
+    ``Thing.links`` reproduces ``Cotizacion.puntas`` -- the
+    ``list[Punta] | None`` form. Those are the two fields plan 38-01 flipped to
+    Null Objects, and they are the ONLY two sites the widened predicate reddens:
+    the discriminator was implemented and executed over all six packages during
+    research and reported exactly 2 hits, both in ``iol-client``, with zero
+    collateral anywhere else (F-6).
+
+    Both shapes are asserted, not just the bare one. Catching ``Punta | None``
+    and missing ``list[Punta] | None`` would leave half the regression this gate
+    exists to stop wide open -- and the list form is the one that shipped first.
+
+    ``Leaf`` is deliberately NOT in ``__all__``. The classifier walks every
+    ``.py`` under the package's import root rather than resolving through the
+    exported surface, so an internal model is still a model; resolving through
+    ``__all__`` would have spared this exact fixture.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source="from fake_client.client import Thing\n\n__all__ = ['Thing']\n",
+        client_source=(
+            "from dataclasses import dataclass\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class Leaf:\n"
+            "    price: float = 0.0\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class Thing:\n"
+            "    link: Leaf | None = None\n"
+            "    links: list[Leaf] | None = None\n"
+        ),
+    )
+
+    with pytest.raises(CheckFailure, match=r"Thing\.link"):
+        check_surface_types(root=tmp_path)
+
+    result = scan_surface_types(tmp_path)
+
+    assert len(result.violations) == 2
+
+
+def test_an_optional_literal_alias_field_is_spared(tmp_path: Path) -> None:
+    """Narrowness pin: a ``Literal`` alias is not a model, so ``Mode | None`` stays green.
+
+    This is what keeps ``matriz-client`` -- a package this phase declared
+    disjoint -- outside the widened predicate's blast radius. Ten exported fields
+    there carry an optional module-level ``Literal`` alias, at
+    ``packages/matriz-client/src/matriz_client/models.py`` lines 532, 552, 553,
+    561, 607, 619, 660, 661, 662 and 669. The count is **10**, not the 11 that
+    ``38-CONTEXT.md``'s D-11 records: RESEARCH F-9/A1 re-ran both the grep and the
+    AST scan and both contradict the CONTEXT figure.
+
+    Those leaves are legal by policy, not by oversight. D-NO-03 permits a
+    scalar-set leaf -- ``T | None`` where ``T`` is an enum-like alias -- to stay
+    optional; the Null Object rule governs MODEL links. The discriminator
+    separates the two structurally rather than by roster: ``Mode`` is bound by a
+    module-level ``Assign`` and ``Leaf`` by a ``class`` statement, and only the
+    latter is in the ``ClassDef``-name set.
+
+    Ratchet discipline, restated because this is the test that enforces it: an
+    out-of-scope red is resolved by NARROWING the predicate, never by exempting
+    the foreign field and never by editing the foreign package.
+
+    The field is asserted COUNTED as well as spared. A spare that disappeared
+    from the census would be indistinguishable from a blind scan.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source="from fake_client.client import Thing\n\n__all__ = ['Thing']\n",
+        client_source=(
+            "from dataclasses import dataclass\n"
+            "from typing import Literal\n"
+            "\n"
+            "Mode = Literal['a', 'b']\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class Thing:\n"
+            "    mode: Mode | None = None\n"
+        ),
+    )
+
+    result = scan_surface_types(tmp_path)
+
+    assert result.violations == ()
+    assert result.fields == 1
+
+
+def test_an_optional_list_of_any_field_is_spared(tmp_path: Path) -> None:
+    """RESEARCH F-6 note 4: ``list[Any] | None`` must still be green after the widening.
+
+    ``Any`` is bound by no ``class`` statement, so the discriminator spares this
+    shape structurally rather than by special case: ``_base_name`` answers
+    ``None`` for a subscript, and the ``list[...]`` arm only matches when its own
+    slice names a class. "Structurally" is a claim, though, and the fields it
+    protects sit in a package this phase does not own -- ``CalendarConfig.warnings``
+    and ``CalendarConfigPreview.warnings`` in ``market-data-client``, both
+    annotated ``list[Any]`` and both put out of scope by Phase 37's D-01b. So the
+    claim is pinned here rather than left to a red CI run on a foreign package.
+
+    Counted as well as spared, for the reason the ``Literal`` pin states.
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source="from fake_client.client import Thing\n\n__all__ = ['Thing']\n",
+        client_source=(
+            "from dataclasses import dataclass\n"
+            "from typing import Any\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class Thing:\n"
+            "    warnings: list[Any] | None = None\n"
+        ),
+    )
+
+    result = scan_surface_types(tmp_path)
+
+    assert result.violations == ()
+    assert result.fields == 1
