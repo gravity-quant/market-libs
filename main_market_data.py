@@ -924,6 +924,23 @@ def probe_latest_sync(client: Client) -> ProbeResult:
             )
             for s in latest
         ]
+        # WR-06: ``batch`` es una SEGUNDA coleccion de ``MarketDataSnapshot`` (el
+        # body del POST) y hasta la review se consumia solo con ``len()`` — el
+        # patron exacto que el lock de deep-chain existe para prohibir. El guard
+        # contaba dereferencias por FUNCION y no por coleccion traida, asi que
+        # reportaba el probe como cubierto con la mitad del decode sin ejercer.
+        chained_batch = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in batch
+        ]
         raw = _raw_via_request_sync(
             client, _core.build_latest_request(client._state, symbol=_SAMPLE_SYMBOLS[0])
         )
@@ -941,7 +958,8 @@ def probe_latest_sync(client: Client) -> ProbeResult:
         return ProbeResult(
             name,
             "PASS",
-            f"latest={len(latest)} batch={len(batch)} with_last={_with_last(chained)}",
+            f"latest={len(latest)} batch={len(batch)} "
+            f"with_last={_with_last(chained)} batch_with_last={_with_last(chained_batch)}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
@@ -1269,6 +1287,23 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
             )
             for s in latest
         ]
+        # WR-06: ``batch`` es una SEGUNDA coleccion de ``MarketDataSnapshot`` (el
+        # body del POST) y hasta la review se consumia solo con ``len()`` — el
+        # patron exacto que el lock de deep-chain existe para prohibir. El guard
+        # contaba dereferencias por FUNCION y no por coleccion traida, asi que
+        # reportaba el probe como cubierto con la mitad del decode sin ejercer.
+        chained_batch = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in batch
+        ]
         raw = await _raw_via_request_async(
             aclient, _core.build_latest_request(aclient._state, symbol=_SAMPLE_SYMBOLS[0])
         )
@@ -1286,7 +1321,8 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
         return ProbeResult(
             name,
             "PASS",
-            f"latest={len(latest)} batch={len(batch)} with_last={_with_last(chained)}",
+            f"latest={len(latest)} batch={len(batch)} "
+            f"with_last={_with_last(chained)} batch_with_last={_with_last(chained_batch)}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)

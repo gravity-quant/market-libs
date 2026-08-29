@@ -53,12 +53,39 @@ _READ_PROBES = frozenset(
     }
 )
 
-# Non-vacuity floor: each of the four probes dereferences six aliases off
+# Non-vacuity floor, PER PROBE. Each probe dereferences the six aliases off
 # ``market_data`` (``last``, ``bids``, ``offers``, ``settlement``, ``close``,
-# ``open_interest``) => 4 x 6 = 24. A count below this means the consumption was
-# thinned out, and the gate would start passing on a token dereference -- fail RED
-# instead.
-_MIN_CHAINED_ACCESSES = 24
+# ``open_interest``) ONCE PER FETCHED COLLECTION. The two ``latest`` probes fetch
+# TWO independent collections of ``MarketDataSnapshot`` -- ``latest`` (GET) and
+# ``batch`` (the POST body) -- so they are held to 12, not 6.
+#
+# Phase 36 code review, WR-06: the floor used to be a single repo-wide 24 and the
+# guard counted accesses per FUNCTION, not per fetched collection. ``batch`` was
+# consumed by ``len()`` alone -- precisely the pattern this module's docstring
+# forbids -- while the guard reported the probe as covered, because ``latest``'s
+# six dereferences were enough to satisfy a function-scoped count. A per-probe
+# floor plus ``test_every_fetched_snapshot_collection_is_chained`` below closes
+# that: a second collection cannot be added and left unexercised.
+_MIN_CHAINED_ACCESSES_BY_PROBE = {
+    "probe_market_data_sync": 6,
+    "probe_latest_sync": 12,
+    "probe_market_data_async": 6,
+    "probe_latest_async": 12,
+}
+
+# Kept as the aggregate the original SC-5 lock stated, derived rather than
+# re-typed so the two can never disagree.
+_MIN_CHAINED_ACCESSES = sum(_MIN_CHAINED_ACCESSES_BY_PROBE.values())
+
+# How many independent ``MarketDataSnapshot`` collections each probe fetches, and
+# therefore how many distinct comprehension iterables must carry a chained
+# access. Names are the driver's own locals.
+_CHAINED_COLLECTIONS_BY_PROBE = {
+    "probe_market_data_sync": {"snapshots"},
+    "probe_latest_sync": {"latest", "batch"},
+    "probe_market_data_async": {"snapshots"},
+    "probe_latest_async": {"latest", "batch"},
+}
 
 
 def _protected_node_ids(func: ast.FunctionDef | ast.AsyncFunctionDef) -> set[int]:
@@ -175,6 +202,67 @@ def test_the_deep_chain_lock_is_not_vacuous() -> None:
 
     assert total >= _MIN_CHAINED_ACCESSES, (
         f"{_DRIVER}: found only {total} deep-chain access(es) across the four read probes "
-        f"(expected >= {_MIN_CHAINED_ACCESSES}, i.e. all six aliases at each of the four "
-        f"sites). The consumption was thinned out -- this guard is non-vacuous by design."
+        f"(expected >= {_MIN_CHAINED_ACCESSES}, i.e. all six aliases once per fetched "
+        f"collection). The consumption was thinned out -- this guard is non-vacuous by design."
+    )
+
+
+def test_each_probe_meets_its_own_floor() -> None:
+    """WR-06: the aggregate can be met while ONE probe carries almost nothing.
+
+    24 accesses spread 18/2/2/2 satisfies the repo-wide sum and leaves three
+    probes effectively unexercised. The per-probe floor is what makes the count
+    a statement about each site.
+    """
+    found = _probe_functions(_driver_ast())
+
+    short = {
+        name: (len(_chained_accesses(func)), _MIN_CHAINED_ACCESSES_BY_PROBE[name])
+        for name, func in found.items()
+        if len(_chained_accesses(func)) < _MIN_CHAINED_ACCESSES_BY_PROBE[name]
+    }
+
+    assert not short, (
+        f"{_DRIVER}: probe(s) below their own deep-chain floor (got, expected): {short}. "
+        f"A ``latest`` probe is held to 12 because it fetches TWO independent collections "
+        f"of MarketDataSnapshot -- ``latest`` (GET) and ``batch`` (POST body)."
+    )
+
+
+def test_every_fetched_snapshot_collection_is_chained() -> None:
+    """WR-06: a second fetched collection may not be consumed by ``len()`` alone.
+
+    The counting guards above are function-scoped, so a probe that fetches two
+    collections and chains only one still reaches its numeric floor. This asserts
+    the structural fact instead: for EVERY collection the probe fetches, some
+    comprehension iterating it must carry a ``market_data.<alias>`` dereference.
+    """
+    found = _probe_functions(_driver_ast())
+
+    unchained: list[tuple[str, str]] = []
+    for name, func in found.items():
+        chained_over: set[str] = set()
+        for comp in ast.walk(func):
+            if not isinstance(comp, ast.ListComp | ast.SetComp | ast.GeneratorExp):
+                continue
+            if not any(
+                isinstance(node, ast.Attribute)
+                and node.attr in _ALIAS_NAMES
+                and _chain_reaches(node.value, "market_data")
+                for node in ast.walk(comp)
+            ):
+                continue
+            for generator in comp.generators:
+                if isinstance(generator.iter, ast.Name):
+                    chained_over.add(generator.iter.id)
+        unchained.extend(
+            (name, collection)
+            for collection in sorted(_CHAINED_COLLECTIONS_BY_PROBE[name] - chained_over)
+        )
+
+    assert not unchained, (
+        f"{_DRIVER}: fetched MarketDataSnapshot collection(s) with NO deep-chain access "
+        f"{unchained}. A collection consumed by ``len()`` alone ships its whole decode path "
+        f"unexercised while the probe still reports PASS -- WR-06, the exact defect this "
+        f"module's docstring describes, one level up from a single probe."
     )
