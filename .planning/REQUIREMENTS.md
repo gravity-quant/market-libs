@@ -16,8 +16,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### market-data-client
 
-- [ ] **NOBJ-MD-01**: `snapshot.market_data.last.price` compila bajo mypy strict y nunca lanza con ningún payload real ni `None` — `market_data` pasa de `dict[str, Any] | None` a modelo tipado (campos wire `BI`/`OF: list[BookLevel]`, `LA`/`SE`/`CL`/`OI: EntryValue` Null Object, `OP`/`HI`/`LO`/`TV/...: float | None`) con propiedades alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`
-- [ ] **NOBJ-MD-02**: `MarketDataSnapshot.entries` vuelve a `list[str]` default `[]` (revierte el widening F33) y `LatestRequest.entries` se alinea; la fila no-data de `/marketdata/latest` expone `market_data` vacío falsy + `note` poblado; se elimina la maquinaria `_mapping_value`/`_apply_mapping_policy` y sus tests de precondición
+- [x] **NOBJ-MD-01**: `snapshot.market_data.last.price` compila bajo mypy strict y nunca lanza con ningún payload real ni `None` — `market_data` pasa de `dict[str, Any] | None` a modelo tipado (campos wire `BI`/`OF: list[BookLevel]`, `LA`/`SE`/`CL`/`OI: EntryValue` Null Object, `OP`/`HI`/`LO`/`TV/...: float | None`) con propiedades alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`
+- [x] **NOBJ-MD-02**: `MarketDataSnapshot.entries` vuelve a `list[str]` default `[]` (revierte el widening F33) y `LatestRequest.entries` se alinea; la fila no-data de `/marketdata/latest` expone `market_data` vacío falsy + `note` poblado; se elimina la maquinaria `_mapping_value`/`_apply_mapping_policy` y sus tests de precondición
 
 ### iol-client
 
@@ -64,8 +64,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | NOBJ-01 | Phase 35 | Complete |
 | NOBJ-02 | Phase 35 | Complete |
-| NOBJ-MD-01 | Phase 36 | Pending |
-| NOBJ-MD-02 | Phase 36 | Pending |
+| NOBJ-MD-01 | Phase 36 | Complete |
+| NOBJ-MD-02 | Phase 36 | Complete |
 | NOBJ-IOL-01 | Phase 38 | Pending |
 | NOBJ-MTZ-01 | Phase 37 | Pending |
 | NOBJ-MTZ-02 | Phase 37 | Pending |
