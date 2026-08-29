@@ -25,7 +25,7 @@ is deliberate — every difference is a declared axis of
 ``scalar_passthrough = True``), never a bug to be harmonized away. Two things
 the policy constant cannot express live here instead:
 
-- the **mapping axis** — a ``dict``-declared field falls back to ``{}``, and
+- the **mapping axis** — a mapping-declared field falls back to ``{}``, and
   (Phase 37) its VALUES are decoded against the declared element type, with
   recursion for a nested mapping hint. The canonical walker has no ``dict``
   branch because higyrus and market-data declare no mapping fields, so both
@@ -36,6 +36,7 @@ the policy constant cannot express live here instead:
 
 from __future__ import annotations
 
+import collections.abc
 import types
 from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar, Self, Union, cast, get_args, get_origin
@@ -96,24 +97,86 @@ def _is_model(tp: Any) -> bool:
     return isinstance(tp, type) and issubclass(tp, _SafeModel)
 
 
+def _is_mapping_base(obj: Any) -> bool:
+    """Whether ``obj`` is a class that IS a mapping — the axis's vocabulary.
+
+    Expressed as a subclass test against :class:`collections.abc.Mapping` rather
+    than as a hardcoded tuple, so it answers the same thing
+    ``tools/check_surface_types.py``'s ``_MAPPING_BASES`` does *by construction*
+    instead of by two lists happening to be kept in step. ``dict``,
+    ``collections.abc.Mapping``/``MutableMapping``, ``defaultdict`` and
+    ``OrderedDict`` all qualify;
+    ``test_the_runtime_mapping_vocabulary_covers_the_gates`` pins the agreement.
+    """
+    return isinstance(obj, type) and issubclass(obj, collections.abc.Mapping)
+
+
 def _is_mapping(tp: Any) -> bool:
-    """True for a ``dict[...]``-declared field, ``Optional`` unwrapped first."""
-    return get_origin(_strip_optional(tp)) is dict
+    """True for a mapping-declared field, ``Optional`` unwrapped first.
+
+    Three shapes answer True and are then handled IDENTICALLY by
+    :func:`_apply_mapping_policy` and :func:`_mapping_value`: the parameterised
+    ``dict[str, X]``, its blessed aliases (``Mapping[str, X]``,
+    ``MutableMapping[str, X]``, ``defaultdict[str, X]``, ...), and the
+    unparameterised base (bare ``dict``, bare ``Mapping``).
+
+    Both widenings past bare ``dict[...]`` came from the Phase 37 code review:
+
+    - **WR-01.** The axis tested ``get_origin(...) is dict`` and nothing else,
+      while the surface gate blesses ``Mapping``/``MutableMapping`` *specifically*
+      so "the ratchet cannot be bypassed by spelling the same untyped mapping as
+      ``Mapping[str, Any]``". The disagreement was a TRAP, not a passive gap: an
+      author whose ``Mapping[str, Any]`` field is reddened by the gate naturally
+      "fixes" it to ``Mapping[str, Model]``, which turns the gate green and the
+      runtime broken — ``get_origin`` answers ``collections.abc.Mapping``, the
+      axis skipped the field, and the values reached the caller as RAW payload
+      dicts under a model annotation. That is the exact type lie
+      :func:`_mapping_value` exists to remove. Widening here rather than
+      narrowing the gate: the gate's wider vocabulary is the correct one, and
+      narrowing it would reopen the bypass it was written to close.
+    - **WR-02.** ``get_origin(dict)`` is ``None``, so a field annotated with a
+      bare ``dict`` was invisible to the axis — skipping the ``{}`` fallback, the
+      element decode and the divergence report, passing garbage through verbatim
+      and answering ``None`` for an absent key — in the spelling that states the
+      LEAST.
+
+    Neither widening changes the behaviour of any SHIPPED model: matriz declares
+    four mapping fields and all four are parameterised ``dict[...]``, which is
+    why the review filed them as warnings rather than blockers. What they change
+    is the answer for the NEXT field, and ``Mapping[str, X]`` is one the surface
+    gate actively steers an author toward.
+
+    ``get_origin`` is consulted FIRST: on Python 3.12 ``isinstance(dict[str, X],
+    type)`` is ``False``, but it was ``True`` on 3.9/3.10, and ordering the two
+    checks this way makes the function's answer independent of that history.
+    """
+    stripped = _strip_optional(tp)
+    origin = get_origin(stripped)
+    if origin is not None:
+        return _is_mapping_base(origin)
+    return _is_mapping_base(stripped)
 
 
 def _element_hint(tp: Any) -> Any:
-    """The declared VALUE type of a ``dict[...]`` annotation; ``Any`` when unparameterised.
+    """The declared VALUE type of a mapping annotation; ``Any`` when unparameterised.
 
     ``Optional`` is stripped first via :func:`_strip_optional`, so
     ``dict[str, X] | None`` answers ``X`` exactly as the bare form does — the
     same normalization :func:`_is_mapping` already performs, reused rather than
     re-derived.
 
-    A legacy bare ``dict[str, Any]`` and an unparameterised ``dict`` both answer
+    A legacy ``dict[str, Any]`` and an unparameterised ``dict`` both answer
     ``Any``, which :func:`_decode.walk_field` lands on its bare pass-through:
     the value is returned verbatim. That is the correct behaviour for an untyped
     mapping and it is what keeps ``test_convert_shim_still_coerces`` green (F-17)
     without a special case that skips the walker.
+
+    Phase 37 code review, WR-02: the unparameterised half of that sentence used
+    to be a lie. ``_is_mapping(dict)`` answered ``False``, so
+    ``_apply_mapping_policy`` never visited such a field and this function was
+    never called for it — the docstring documented a code path that could not be
+    reached. WR-02's widening of :func:`_is_mapping` is what makes the claim true
+    rather than aspirational, which is why the two fixes had to land together.
     """
     args = get_args(_strip_optional(tp))
     return args[1] if len(args) == 2 else Any

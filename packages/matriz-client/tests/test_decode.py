@@ -35,11 +35,12 @@ are *about* a shipped class's contract (``UnknownFrame``, the nine
 from __future__ import annotations
 
 import ast
+import collections
 import dataclasses
 import inspect
 import logging
 import pathlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, get_args
 
@@ -159,6 +160,42 @@ class _NestedMapping(_SafeModel):
     """Two levels of open keys — the shape Plan 37-03's ``report`` field needs."""
 
     report: dict[str, dict[str, _TickLike]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _AbcMapping(_SafeModel):
+    """``Mapping[str, Model]`` — the alias the SURFACE GATE steers authors toward.
+
+    Phase 37 code review, WR-01. ``tools/check_surface_types.py`` blesses
+    ``Mapping`` and ``MutableMapping`` as mapping bases so the ratchet cannot be
+    bypassed by respelling ``dict[str, Any]``; the runtime axis recognised only
+    ``dict``. The combination was a trap, not a gap: reddening
+    ``Mapping[str, Any]`` at the gate invites the "fix" to ``Mapping[str, Model]``,
+    which turned the gate green while the runtime handed back raw payload dicts.
+    """
+
+    m: Mapping[str, _TickLike] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _MutableAbcMapping(_SafeModel):
+    """``MutableMapping[str, Model]`` — the second blessed alias (WR-01)."""
+
+    m: MutableMapping[str, _TickLike] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _BareMapping(_SafeModel):
+    """An UNPARAMETERISED ``dict`` annotation (WR-02).
+
+    ``get_origin(dict)`` is ``None``, so this field was invisible to the axis
+    while stating strictly LESS than the ``dict[str, Any]`` the axis did handle.
+    The ``type: ignore`` is the point of the fixture rather than an accident:
+    mypy discourages the annotation, which is exactly why nobody noticed the
+    runtime hole behind it, and the gate now reddens the spelling too (CR-02).
+    """
+
+    meta: dict = field(default_factory=dict)  # type: ignore[type-arg]
 
 
 @dataclass(frozen=True)
@@ -491,6 +528,110 @@ def test_dict_hint_present_mapping_is_returned_verbatim(
 
     assert obj.meta == payload_meta
     assert [p for p, _ in _pairs(caplog)] == []
+
+
+def test_abc_mapping_aliases_decode_their_values_like_dict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-01: ``Mapping``/``MutableMapping`` are handled IDENTICALLY to ``dict``.
+
+    Measured before the fix::
+
+        AbcMap.from_api({"m": {"0": {"tick": 1}}})  ->  AbcMap(m={'0': {'tick': 1}})
+
+    — raw payload dicts under a ``Mapping[str, _TickLike]`` annotation, the exact
+    type lie ``_mapping_value`` exists to remove.
+    """
+    for cls in (_AbcMapping, _MutableAbcMapping):
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            obj = cls.from_api({"m": {"0": {"tick": 0.1, "lowerLimit": 2.0}}})
+
+        assert obj.m["0"] == _TickLike(lowerLimit=2.0, upperLimit=None, tick=0.1)
+        assert isinstance(obj.m["0"], _TickLike), f"{cls.__name__} handed back a raw dict"
+
+
+def test_abc_mapping_absent_key_falls_back_to_empty_dict_not_none(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-01: the module docstring's "missing dicts become ``{}``" holds for aliases.
+
+    Measured before the fix: ``AbcMap.from_api({}) -> AbcMap(m=None)``, which
+    breaks every ``.items()`` / ``.values()`` chain the safe-access contract
+    promises will never raise.
+    """
+    for cls in (_AbcMapping, _MutableAbcMapping):
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            obj = cls.from_api({})
+
+        assert obj.m == {}
+        assert (".m", "missing") in _pairs(caplog)
+
+
+def test_a_bare_dict_annotation_gets_the_full_mapping_axis(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-02: an unparameterised ``dict`` no longer bypasses the axis.
+
+    Measured before the fix::
+
+        models._is_mapping(dict)            -> False
+        Bare.from_api({"meta": "garbage"})  -> Bare(meta='garbage')
+        Bare.from_api({})                   -> Bare(meta=None)
+
+    Three of the four guarantees the module docstring makes for a mapping field
+    were void for this spelling: no ``{}`` fallback, no divergence report, and
+    garbage passed through verbatim.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        garbage = _BareMapping.from_api({"meta": "garbage"})
+    assert garbage.meta == {}
+    assert (".meta", "type") in _pairs(caplog)
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        absent = _BareMapping.from_api({})
+    assert absent.meta == {}
+    assert (".meta", "missing") in _pairs(caplog)
+
+    # The element hint of an unparameterised base is ``Any``, so a present
+    # mapping still passes through verbatim — the documented behaviour for an
+    # untyped mapping, now actually reachable.
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        present = _BareMapping.from_api({"meta": {"a": 1}})
+    assert present.meta == {"a": 1}
+
+
+def test_the_runtime_mapping_vocabulary_covers_the_gates() -> None:
+    """WR-01: gate and runtime agree on what a mapping IS, not merely by accident.
+
+    ``tools/check_surface_types.py`` and ``models._is_mapping`` are two
+    independent answers to the same question; the review found them disagreeing.
+    Every base the gate recognises must be a base the axis recognises, or the
+    gate is steering authors into a runtime hole.
+    """
+    from tools.check_surface_types import _MAPPING_BASES
+
+    unhandled = []
+    for base in sorted(_MAPPING_BASES):
+        resolved = {
+            "dict": dict,
+            "Dict": dict,
+            "Mapping": Mapping,
+            "MutableMapping": MutableMapping,
+            "defaultdict": collections.defaultdict,
+            "DefaultDict": collections.defaultdict,
+            "OrderedDict": collections.OrderedDict,
+        }[base]
+        if not models._is_mapping(resolved[str, _TickLike]):
+            unhandled.append(base)
+    assert unhandled == [], (
+        f"the surface gate blesses {unhandled} as mapping bases but "
+        "`models._is_mapping` does not recognise them — a green gate would be "
+        "steering authors into a runtime type lie (WR-01)."
+    )
 
 
 def test_tickPriceRanges_undeclared_inner_key_is_one_non_fatal_extra(
