@@ -5,15 +5,15 @@ milestone_name: API tipada con Null Objects
 current_phase: 35
 current_phase_name: Fundación Null Object — __bool__ + política del walker
 status: executing
-stopped_at: Completed 35-02-PLAN.md
-last_updated: "2026-08-29T02:36:43.487Z"
+stopped_at: Completed 35-04-PLAN.md
+last_updated: "2026-08-29T02:48:26.382Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 35 (Fundación Null Object — __bool__ + política del walker) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 35 execution started
 
@@ -172,6 +172,7 @@ Last activity: 2026-08-29 — Phase 35 execution started
 | Phase 35 P01 | 7min | 3 tasks | 3 files |
 | Phase 35 P02 | 18min | 2 tasks | 1 files |
 | Phase 35 P03 | 14min | 2 tasks | 6 files |
+| Phase 35 P04 | 15 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -370,6 +371,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 35-01: canonical digest UNCHANGED (ac14868282ad0a5c) — no byte of any _decode.py moved; all 4 v1.6 gates green, surface snapshots byte-identical, 1810 workspace tests passing.
 - [Phase ?]: [Phase 35 / 35-02]: 29-SIZING.md's corpus run predates WR-02 (36b79e2 is not a descendant of 2c31790), so its non_dict labels for matriz's five model-link records differ from today's walker in BOTH the model and kind components of the 4-tuple — Phase 39 must match on (slug, field_path) and read kind from 35-RETIRED-TRIPLES.md
 - [Phase ?]: [Phase 35 / 35-02]: 'triples retired' is the INTERSECTION of the 35-field roster with a measured census, never the row count — only 7 of 35 rows intersect a ratified floor (higyrus 2, matriz 5); matriz's answer is column-dependent (6 records vs 5 distinct triples)
+- [Phase ?]: 35-04: matriz's base declares __dataclass_fields__ as a ClassVar, so get_type_hints reports one name dataclasses.fields omits — the criterio-5 hint assertion pins that single extra as an equality rather than relaxing to a subset check
+- [Phase ?]: 35-04: a zero roster is asserted as a positive structural property (AST class count, empty __all__, import discipline, absent walker) in ambito and wallets — never a >= 0 bound, never an empty parametrize pytest would skip
+- [Phase ?]: 35-04: matriz needed __bool__ only; its Phase-29 empty() was verified against the plan and left byte-unchanged (one removed source line total, the UnknownFrame docstring method count)
 
 ### Pending Todos
 
@@ -453,7 +457,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T02:36:43.482Z
+Last session: 2026-08-29T02:48:13.538Z
 Stopped at: Completed 35-02-PLAN.md
 Resume file: None
 
