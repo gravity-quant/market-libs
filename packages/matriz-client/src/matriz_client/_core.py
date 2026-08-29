@@ -222,20 +222,56 @@ def raise_for_response(resp: httpx.Response) -> None:
 
 
 def unwrap(data: dict[str, Any], key: str, endpoint: str) -> Any:
-    """Return ``data[key]`` or raise ``PrimaryAPIError`` if missing.
+    """Return ``data[key]``, o levanta ``PrimaryAPIError`` si falta o es ``null``.
 
     Surface a typed ``PrimaryAPIError`` (status ``"ERROR"``) cuando la
     Primary API response no trae el envelope key que el wrapper espera. Sin
     este guard, el caller vería un ``KeyError`` opaco fuera del contrato
     de excepciones del cliente (D-MATZ-9).
+
+    **El mensaje lista las keys que el body SÍ traía (Phase 37 code review,
+    WR-05).** El cambio a ``strict-unwrap`` de 37-01 se apoya enteramente en el
+    vendor doc: los dos endpoints Risk no tienen NINGUNA captura viva en
+    ``.planning/verification/schemas/matriz-client/`` y no puede producirse
+    ninguna mientras ``LIVE-MATZ-33`` esté en pie. Si el nombre de la key
+    resultara ser otro, el operator necesita exactamente un dato para distinguir
+    "el vendor usa otra key" de "el vendor cambió la forma" — y es el key set
+    observado. Emitirlo acá es lo que hace que una corrida en vivo sea
+    auto-diagnosticable en el primer intento en vez del segundo.
+
+    **``null`` es una violación de forma igual que una key ausente (WR-05).** El
+    review midió que ``{"status":"OK","detailedPosition": null}`` pasaba este
+    guard y producía un modelo all-defaults en silencio — reintroduciendo
+    exactamente el modo de falla que ``strict-unwrap`` se adoptó para eliminar
+    ("la cuenta no tiene nada"). Para los envelopes de lista el ``None`` tampoco
+    era benigno: reventaba con un ``TypeError`` crudo en la comprehension del
+    caller, fuera del contrato de excepciones. Las dos disposiciones convergen en
+    la misma respuesta, y la excepción tipada es la correcta para ambas.
+
+    Los dos casos llevan mensajes distintos a propósito: en un log en vivo
+    "ausente" y "presente pero null" apuntan a causas distintas del lado del
+    vendor.
     """
     if key not in data:
         raise PrimaryAPIError(
             status="ERROR",
-            description=f"missing envelope key '{key}' in response from {endpoint}",
+            description=(
+                f"missing envelope key '{key}' in response from {endpoint} "
+                f"(body carried: {sorted(data)})"
+            ),
             message=None,
         )
-    return data[key]
+    value = data[key]
+    if value is None:
+        raise PrimaryAPIError(
+            status="ERROR",
+            description=(
+                f"envelope key '{key}' is null in response from {endpoint} "
+                f"(body carried: {sorted(data)})"
+            ),
+            message=None,
+        )
+    return value
 
 
 def parse_envelope_response(resp: httpx.Response, endpoint: str) -> dict[str, Any]:
