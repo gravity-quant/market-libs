@@ -22,6 +22,19 @@ Direction semantics (mirror Phase 4 D-HIGY-5):
 
 Recursion follows nested SafeModel-like dataclasses and ``list[SafeModel-like]``
 (sampling the first element, consistent with :func:`verification.schema.schema_of`).
+
+**LINK vs LEAF (Phase 36 code review, CR-01).** ``'model-only'`` is a false-pass
+signal only for a scalar LEAF, where the walker really does substitute a typed
+zero the caller cannot distinguish from data. A non-optional field whose declared
+type is a nested SafeModel-like or ``list[SafeModel-like]`` is a Null Object LINK,
+and Phase 35's NOBJ-02 policy makes its ``null``/absent value a legitimate payload
+shape that collapses to the empty instance / ``[]`` and emits NOTHING. Recursion
+turning on for such a field must therefore not manufacture a divergence the
+decoder itself declares not to be one -- otherwise the differ and the walker
+disagree about the same fact. This became load-bearing when
+``MarketDataSnapshot.market_data`` stopped being an opaque ``dict`` (which
+suppressed recursion by accident) and became the typed
+``MarketDataEntries``, six of whose ten roster fields are non-optional links.
 """
 
 from __future__ import annotations
@@ -103,7 +116,10 @@ def diff_safemodel_bidirectional(
     - ``'model-only'`` (FALSE PASS risk): key declared by the model but absent
       on the wire payload. ``SafeModel.from_api`` substitutes a typed default
       and never raises, so the driver should surface this as a ``SHAPE``
-      finding with the ``(FALSE PASS riesgo)`` prefix.
+      finding with the ``(FALSE PASS riesgo)`` prefix. Emitted for scalar
+      LEAVES only -- a non-optional Null Object LINK (nested SafeModel-like or
+      ``list[SafeModel-like]``) is skipped, per NOBJ-02; see the module
+      docstring.
     - ``'wire-only'`` (info): key present on the wire but absent from the
       model. Likely a new field added upstream.
 
@@ -133,6 +149,15 @@ def diff_safemodel_bidirectional(
         # Optional[T] / T | None es opt-in explicito a nullable; ausencia es la
         # representacion intencional. NO emitir direction A para opcionales.
         if _is_optional(hint):
+            continue
+        # NOBJ-02 (Phase 35): un LINK Null Object -- campo NO opcional cuyo tipo
+        # declarado es un SafeModel-like anidado o ``list[SafeModel-like]`` --
+        # colapsa a su instancia vacia / ``[]`` SIN emitir nada en el walker.
+        # Una ausencia ahi es una forma de payload legitima, no una divergencia,
+        # asi que reportarla seria un FALSE-PASS fabricado que contradice la
+        # politica que el propio decoder aplica. Solo las HOJAS escalares pueden
+        # ser un false pass: el walker SI les sustituye un cero tipado.
+        if _nested_safemodel_class(hint) is not None:
             continue
         yield (path, "model-only", key)
 
