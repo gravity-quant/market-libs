@@ -117,9 +117,17 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 37-01-PLAN.md — Envelope unwrap de los dos parsers Risk en `_core.py` (D-03, un solo sitio) + regresiones mockeadas; checkpoint de disposición del body plano
 - [ ] 37-02-PLAN.md — Tracer: axis de mapping con tipo de elemento y recursión (D-06) + `TickPriceRange` con procedencia `baseline` (D-04c/D-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 37-03-PLAN.md — `report` a dos niveles, `detailedAccountReports` a uno, `portfolio` a escalar (D-02/D-07) con procedencia `vendor-documented, UNMEASURED` + filas en el ledger
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 37-04-PLAN.md — Dimensión de campos en `tools/check_surface_types.py` (D-01a/b/c) + fixture RED de no-vacuidad (D-01d)
 - [ ] 37-05-PLAN.md — Seis `@property` alias sobre `MarketDataSnapshot` (NOBJ-MTZ-02), compartidas por REST y frames WS
 

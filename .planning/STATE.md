@@ -4,9 +4,9 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 37
 current_phase_name: `matriz-client` — dicts residuales tipados + alias
-status: verifying
+status: executing
 stopped_at: Phase 37 context gathered (assumptions mode)
-last_updated: "2026-08-29T14:46:09.795Z"
+last_updated: "2026-08-29T15:23:44.552Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 36 complete, transitioned to Phase 37
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 37 — `matriz-client` — dicts residuales tipados + alias
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-08-29 — Phase 36 complete, transitioned to Phase 37
 
 ## Performance Metrics
