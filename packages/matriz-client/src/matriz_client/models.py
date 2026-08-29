@@ -60,6 +60,7 @@ __all__ = [
     "Instrument",
     "InstrumentDetail",
     "InstrumentId",
+    "InstrumentPositionReport",
     "MarketDataEntryValue",
     "MarketDataFrame",
     "MarketDataLevel",
@@ -607,13 +608,81 @@ class Position(_SafeModel):
 
 
 @dataclass(frozen=True)
+class InstrumentPositionReport(_SafeModel):
+    """One ``report[contractType][symbol]`` entry of :class:`DetailedPosition` (§9.2).
+
+    **Provenance: vendor-documented, UNMEASURED (D-04a's third class).** The
+    field set is transcribed from ``documentation/Primary-API.md:1745-1747``
+    (repeated identically at ``:1785-1787``) inside the
+    ``GET /rest/risk/detailedPosition/REM7374`` sample at ``:1701-1791``. This
+    is **not** a capture and must never be cited as one: *no live observation of
+    this payload exists anywhere in this repo*, and none can be produced while
+    ``LIVE-MATZ-33`` stands — ``main_matriz.py`` asserts the remarkets hostname
+    (D-MATZ-33) and that assert is not bypassed. Nobody has seen this shape on
+    the wire. Real verification is deferred to Phase 39 / ``LIVE-NOBJ-01``,
+    which is where this roster gets confirmed or corrected.
+
+    Contrast with :class:`TickPriceRange` one screen up, whose provenance class
+    is ``baseline``: that one cites a committed live capture with a date and an
+    environment. The distinction is deliberate and load-bearing (SC-1).
+
+    **The deferred subtree, named so it stays discoverable.** The sample's entry
+    also carries a ``detailedPositions`` array (``:1710-1744``, ~21 fields per
+    element) whose elements each carry a ``detailedDailyDiff`` object
+    (``:1733-1742``, 8 fields). D-07 defers **both** rather than modelling a
+    two-deep tree nobody has measured; shipping them would present an invented
+    model as observed. Destination: Phase 39 / ``LIVE-NOBJ-01``.
+
+    **The cost of the closed roster, disclosed (T-37-12).** ``report`` used to be
+    a ``dict[str, Any]`` passthrough where every key the vendor sent was
+    readable. It is a closed dataclass now, so ``detailedPositions`` — and any
+    key the vendor adds later — is DISCARDED: its value never reaches the
+    caller. Detection is not silent: the walker emits a non-fatal ``extra``
+    divergence for each one (reported, never raised, not even under
+    ``strict_decode``), and the artifact where a real run's divergences land is
+    the append-only ``.planning/verification/matriz-client-findings.md``, where
+    Phase 37 also filed this roster as declared-but-unobserved. Widening the
+    roster is the right answer once a live run MEASURES one of those keys.
+
+    Every field is a nullable scalar and **no field is a mapping** — F-11
+    measured that ``test_no_mapping_carrying_model_is_ever_a_nested_field_type``
+    walks a single level of ``__args__``, so a mapping declared on a model
+    nested at depth 2 (which this class is) would be invisible to that guard.
+    Keeping the model mapping-free is the phase's answer; deepening the guard is
+    option (b) and is not in scope.
+
+    The wire carries ``int`` for all three sizes; they are declared
+    ``float | None`` because ``_decode.walk_field``'s ``float`` arm widens
+    ``int`` BEFORE consulting ``scalar_passthrough``, so the widening is silent
+    and fabricates no divergence — same reasoning as ``TickPriceRange``'s
+    ``lowerLimit``. Do not "fix" them to ``int``.
+    """
+
+    instrumentInitialSize: float | None = None
+    instrumentFilledSize: float | None = None
+    instrumentCurrentSize: float | None = None
+
+
+@dataclass(frozen=True)
 class DetailedPosition(_SafeModel):
     """Detailed position aggregated per account (§9.2)."""
 
     account: str | None = None
     totalDailyDiffPlain: float | None = None
     totalMarketValue: float | None = None
-    report: dict[str, Any] = field(default_factory=dict)
+    # TWO levels of vendor-open keys — ``contractType`` then ``symbol``
+    # (``Primary-API.md:1707-1790``) — decoded by the self-recursing mapping
+    # axis (D-06/D-07). Neither level is enumerable, so this is the only honest
+    # shape: flattening it would fabricate an enum of contract types, and
+    # forcing it to share a container shape with
+    # ``AccountReport.detailedAccountReports`` would be wrong in the other
+    # direction — that field is genuinely ONE level (37-RESEARCH F-7/F-8).
+    #
+    # NAMING SLIP, recorded so a later verification pass does not chase a ghost:
+    # ``REQUIREMENTS.md`` and ``ROADMAP.md`` both say "AccountReport.report".
+    # ``AccountReport`` has no ``report`` field and never did — the field is
+    # ``DetailedPosition.report``, right here.
+    report: dict[str, dict[str, InstrumentPositionReport]] = field(default_factory=dict)
     lastCalculation: str | None = None
 
 
