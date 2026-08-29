@@ -254,37 +254,20 @@ def parse_envelope_response(resp: httpx.Response, endpoint: str) -> dict[str, An
     ``httpx.Client(http2=True)`` introduce stream leak en el connection
     pool. Tests/test_core.py ``test_parse_envelope_consumes_body_before_raise``
     es el guard.
+
+    Historia (Phase 37, D-03): matriz llevaba una SEGUNDA copia de este parser,
+    ``_parse_risk_response``, byte-idéntica salvo por la llamada a ``unwrap``
+    que le faltaba. Existía porque se creía que los endpoints Risk
+    (``detailedPosition`` / ``accountReport``) respondían con el payload en la
+    raíz — una creencia que el propio vendor doc committeado en el paquete
+    falsifica: ``documentation/Primary-API.md:1701-1703`` y ``:1817-1819``
+    muestran ambos bodies envueltos. Corregido el unwrap bajo la opción
+    ratificada ``strict-unwrap``, la copia quedó sin diferencia y sin callers,
+    y se eliminó. Los dos parsers Risk usan esta función. Si vuelve a aparecer
+    la tentación de una variante sin unwrap, la evidencia contraria está en las
+    dos líneas de vendor doc citadas arriba.
     """
     # CR-03 FIX (D-06): consume body EXPLICITLY antes de cualquier raise.
-    resp.read()
-    raise_for_response(resp)
-    raw = resp.json()
-    if not isinstance(raw, dict):
-        raise PrimaryAPIError(
-            status="ERROR",
-            description=f"expected JSON object body at {endpoint}, got {type(raw).__name__}",
-            message=None,
-        )
-    data: dict[str, Any] = raw
-    if data.get("status") == "ERROR":
-        raise PrimaryAPIError(
-            status="ERROR",
-            description=data.get("description"),
-            message=data.get("message"),
-        )
-    return data
-
-
-def _parse_risk_response(resp: httpx.Response, endpoint: str) -> dict[str, Any]:
-    """DEPRECATED — copia sin unwrap de ``parse_envelope_response``; ya sin callers.
-
-    Existía porque se creía que los endpoints Risk respondían con el payload en
-    la raíz. El vendor doc falsifica esa creencia:
-    ``documentation/Primary-API.md:1701-1703`` y ``:1817-1819`` muestran los
-    bodies envueltos en ``detailedPosition`` / ``accountData``. Phase 37 (D-03,
-    ``strict-unwrap``) reapuntó ambos parsers Risk a
-    ``parse_envelope_response`` + ``unwrap``, dejando esta función sin uso.
-    """
     resp.read()
     raise_for_response(resp)
     raw = resp.json()
