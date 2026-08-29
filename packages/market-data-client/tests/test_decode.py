@@ -26,9 +26,10 @@ import dataclasses
 import inspect
 import logging
 import pathlib
+import types
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal, Union, cast, get_args, get_origin
 
 import pytest
 from pytest_httpx import HTTPXMock
@@ -43,6 +44,30 @@ from market_data_client.models import MarketDataSnapshot, SafeModel, Symbol
 
 _MESSAGE = "decode divergence"
 _BASE = "https://market-data-develop.test/api"
+
+
+def _strip_optional(tp: Any) -> Any:
+    """Return ``T`` from ``T | None`` / ``Optional[T]``; pass through otherwise.
+
+    **Module-local copy on purpose** (Phase 36, D-05). The WR-03 lock below
+    borrowed ``models._strip_optional``, which was never a mapping helper — it
+    was the generic Optional detector that ``_is_mapping`` happened to sit on top
+    of. Phase 36 retires this paquete's mapping machinery outright, so the
+    detector loses its home in ``models.py`` and the one lock that only ever
+    wanted the detector gets its own six-line copy instead of keeping dead code
+    alive in a shipped module to import from.
+
+    The copy must NOT be replaced by an import from another paquete nor from the
+    repo-root harness: this monorepo has no shared internal package by design
+    (DT-03), the same rationale ``test_null_object.py`` states for its own
+    module-local helpers.
+    """
+    if get_origin(tp) in (Union, types.UnionType):
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return tp
+
 
 # Phase 31 (TYP-02): ``get_health`` is used below as a THROWAWAY endpoint whose
 # only job is to drive a real ``_request`` and prove the mode is bound from the
@@ -669,13 +694,19 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
 
     ``walk_field`` walks a nested model through ``walk_model`` directly rather
     than ``hint.from_api(value)``, so that a nested path stays dotted from the
-    decode root. The consequence is that any CALL-SITE-EXEMPT behaviour — a
-    ``from_api`` OVERRIDE, or ``models._apply_mapping_policy``'s post-walk pass
-    over a ``dict[...]``-declaring model — would be BYPASSED for a model reached
-    as another model's field type. This test asserts the precondition that makes
-    the bypass moot: no model carrying such an exemption is ever declared as
-    another model's field type. If a future plan nests one, this test fails and
-    the walker needs an explicit hook.
+    decode root. The consequence is that any CALL-SITE-EXEMPT behaviour — after
+    Phase 36 that means a ``from_api`` OVERRIDE, and nothing else — would be
+    BYPASSED for a model reached as another model's field type. This test
+    asserts the precondition that makes the bypass moot: no model carrying such
+    an exemption is ever declared as another model's field type. If a future
+    plan nests one, this test fails and the walker needs an explicit hook.
+
+    **Phase 36 (NOBJ-MD-02) NARROWING.** Exemption used to have a second source:
+    ``models._apply_mapping_policy``'s post-walk pass over a ``dict[...]``-declaring
+    model. Phase 36 retires this paquete's mapping machinery outright (D-05) —
+    ``market_data`` becomes a nested model rather than a mapping, so the walker's
+    own ``_is_model`` branch takes it over — and the disjunct goes with it. The
+    guard is narrowed to the exemption that still exists, NOT relaxed.
 
     **Phase 31 (TYP-02) NARROWING.** Until Phase 31 this was stated as the blanket
     "no shipped ``SafeModel`` is EVER a nested field type", because at the time no
@@ -687,11 +718,12 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
     :class:`~market_data_client.models.FeedIngestor`) legitimately ARE nested
     field types — and none of them carries an exemption, so nothing is bypassed.
     The guard is therefore narrowed to the invariant it actually protects, NOT
-    relaxed: the two companion tests below
-    (``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` and
-    ``test_models_with_a_from_api_override_are_never_a_nested_field_type``) pin
-    the same two exemption sets independently, so a regression on either axis
-    still fails in three places.
+    relaxed: the companion test below
+    (``test_models_with_a_from_api_override_are_never_a_nested_field_type``) pins
+    the surviving exemption set independently, so a regression on that axis still
+    fails in two places. Its mapping counterpart
+    (``test_no_mapping_carrying_model_is_ever_a_nested_field_type``) was retired
+    with the axis in Phase 36.
     """
     shipped = [
         obj
@@ -699,16 +731,10 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
         if isinstance(obj, type) and issubclass(obj, SafeModel) and obj is not SafeModel
     ]
     assert shipped, "no shipped SafeModel subclasses found — the guard would be vacuous"
-    exempt = [
-        obj
-        for obj in shipped
-        if obj.__dict__.get("from_api") is not None
-        or any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, obj)).values())
-    ]
+    exempt = [obj for obj in shipped if obj.__dict__.get("from_api") is not None]
     assert exempt, "no call-site-exempt model found — the guard would be vacuous"
     for cls in shipped:
-        # ``cast(Any, cls)`` mirrors the ``exempt`` comprehension four lines
-        # above and ``_decode.py``'s own discipline: ``hints_for`` is
+        # ``cast(Any, cls)`` mirrors ``_decode.py``'s own discipline: ``hints_for`` is
         # ``lru_cache``-wrapped, so its parameter is ``Hashable``, which
         # ``type[SafeModel]``'s inherited ``__hash__`` signature does not satisfy.
         hints = _decode.hints_for(cast(Any, cls))
@@ -1370,7 +1396,7 @@ def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None
     nested_types: set[str] = set()
     for cls in shipped:
         for hint in _decode.hints_for(cast(Any, cls)).values():
-            inner = models._strip_optional(hint)
+            inner = _strip_optional(hint)
             for candidate in (inner, *getattr(inner, "__args__", ())):
                 if (
                     isinstance(candidate, type)
