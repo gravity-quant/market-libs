@@ -112,10 +112,11 @@ def _perturb(empty: Any) -> Any:
     (deviation 1): a nested-model field's empty value in these paquetes is
     a nested empty INSTANCE rather than ``None``, so a class whose only fields
     are nested models offers nothing the earlier branches can dispatch on. No
-    shipped iol class is that shape today — ``Titulo.puntas`` is ``Punta | None``
-    and answers on the first branch — but the branch is kept so the helper stays
-    the same helper across the six paquetes and survives Phase 38 turning
-    ``puntas`` non-Optional.
+    shipped iol class is that shape today — ``Titulo`` declares the nested
+    ``puntas: Punta`` non-Optional since NOBJ-IOL-01, but its first declared
+    field is ``apertura: float``, so dispatch answers on the numeric branch and
+    never reaches this one — and the branch is kept so the helper stays the same
+    helper across the six paquetes.
 
     Falling off the end raises rather than returning ``empty`` unchanged: a
     class this helper cannot perturb must fail loudly instead of silently
