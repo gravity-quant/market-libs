@@ -249,6 +249,16 @@ class _SafeModel:
         _apply_mapping_policy(cls, kwargs, sink=_decode.SILENT_SINK)
         return cls(**kwargs)
 
+    def __bool__(self) -> bool:
+        """A model carrying nothing is falsy (Phase 35, NOBJ-01).
+
+        Emptiness is decided field by field against ``empty()``, so ``if
+        snapshot:`` answers "did the wire carry anything for this shape" and
+        never "did the request succeed". A field that is meaningful on its own
+        should still be asked directly.
+        """
+        return self != type(self).empty()
+
 
 # ----------------------------------------------------------------------
 # Identifiers
@@ -513,7 +523,12 @@ class UnknownFrame:
     Phase 29: exempt from the walker entirely per ``29-SEMANTICS-MATRIX.md``
     Section 3(c) — under a naive extra-key rule every key of every unknown
     frame would be "extra", but those keys are a deliberate catch-all, not a
-    modelling gap. Both methods below stay hand-written and untouched.
+    modelling gap. All three methods below stay hand-written and untouched.
+
+    Phase 35 (D-08): the third of them is ``__bool__``. This class does not
+    inherit :class:`_SafeModel`, but it IS a member of the public
+    ``PrimaryWsMessage`` union, so ``if frame:`` has to read the same for every
+    variant a caller can receive.
     """
 
     type: str | None = None
@@ -528,6 +543,9 @@ class UnknownFrame:
     @classmethod
     def empty(cls) -> Self:
         return cls()
+
+    def __bool__(self) -> bool:
+        return self != type(self).empty()
 
 
 PrimaryWsMessage = MarketDataFrame | ExecutionReportFrame | UnknownFrame
