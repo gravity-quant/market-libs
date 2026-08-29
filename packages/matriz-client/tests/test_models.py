@@ -356,8 +356,39 @@ def test_account_report_accepts_partial_payload() -> None:
         {"accountName": "REM6771", "collateral": 1000.0, "margin": 250.0}
     )
     assert parsed.accountName == "REM6771"
-    assert parsed.portfolio == {}
+    # Phase 37 D-02: ``portfolio`` is a ``float | None`` scalar leaf now, not a
+    # mapping. An absent scalar answers ``None``; this assertion FLIPPED.
+    assert parsed.portfolio is None
+    # Unchanged: still a mapping, so an absent one is still ``{}``.
     assert parsed.detailedAccountReports == {}
+
+
+def test_DetailedAccountReport_is_on_the_exported_surface() -> None:
+    assert "DetailedAccountReport" in matriz_client.__all__
+    assert matriz_client.DetailedAccountReport is models.DetailedAccountReport
+
+
+def test_DetailedAccountReport_declares_only_the_vendor_documented_scalar() -> None:
+    """D-07's MINIMAL disposition for the one-level container.
+
+    The roster is the single scalar of ``Primary-API.md:1888``. The two nested
+    open-keyed objects the same sample shows (``currencyBalance`` at
+    ``:1828-1859`` and ``availableToOperate`` at ``:1860-1887``) are DEFERRED —
+    modelling them would present an unobserved tree as observed (SC-1).
+    """
+    names = [f.name for f in dataclasses.fields(models.DetailedAccountReport)]
+    assert names == ["settlementDate"]
+    hints = get_type_hints(models.DetailedAccountReport)
+    assert hints["settlementDate"] == (int | None)
+    # F-11, same constraint as InstrumentPositionReport: mapping-free.
+    assert [n for n, t in hints.items() if get_origin(t) is dict] == []
+
+
+def test_DetailedAccountReport_empty_is_falsy_and_chain_safe() -> None:
+    empty = models.DetailedAccountReport.empty()
+    assert not empty
+    assert empty.settlementDate is None
+    assert models.DetailedAccountReport.from_api({"settlementDate": 1})
 
 
 # ----------------------------------------------------------------------

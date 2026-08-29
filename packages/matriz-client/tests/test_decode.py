@@ -519,11 +519,18 @@ def test_tickPriceRanges_undeclared_inner_key_is_one_non_fatal_extra(
 
 
 def test_shipped_mapping_fields_still_default_to_empty_dict() -> None:
-    """The four shipped mapping fields — the ones ``test_models.py`` pins."""
+    """The THREE shipped mapping fields — the ones ``test_models.py`` pins.
+
+    Was four until Phase 37 D-02 demoted ``AccountReport.portfolio`` to a
+    ``float | None`` scalar; its assertion is kept here, inverted, because this
+    is where the old ``{}`` claim lived and an inverted assertion records the
+    change better than a deleted one.
+    """
     assert models.InstrumentDetail.from_api({}).tickPriceRanges == {}
     assert models.DetailedPosition.from_api({"account": "x"}).report == {}
     report = models.AccountReport.from_api({"accountName": "x"})
-    assert report.portfolio == {}
+    # D-02: NOT ``{}`` any more — an absent scalar leaf answers ``None``.
+    assert report.portfolio is None
     assert report.detailedAccountReports == {}
 
 
@@ -884,6 +891,152 @@ def test_report_chain_over_two_open_key_levels_never_raises() -> None:
                 assert leaf.instrumentCurrentSize is None or isinstance(
                     leaf.instrumentCurrentSize, float
                 )
+
+
+# ---------------------------------------------------------------------------
+# Risk mapping — ``AccountReport`` at ONE level + ``portfolio`` as a scalar
+# (Phase 37, D-02 / D-07)
+# ---------------------------------------------------------------------------
+
+# PROVENANCE: **vendor-documented, UNMEASURED**, exactly as for ``report``
+# above. Transcribed from ``documentation/Primary-API.md:1817-1895`` (the
+# ``GET /rest/risk/accountReport/REM7374`` sample). No live capture of this
+# endpoint exists and none can be produced while ``LIVE-MATZ-33`` stands.
+# Destination for real verification: Phase 39 / ``LIVE-NOBJ-01``.
+#
+# ``detailedAccountReports`` is ONE level of open keys (``:1826-1890``), NOT
+# two — the asymmetry with ``report`` is measured (37-RESEARCH F-7/F-8) and must
+# not be collapsed in either direction.
+_VENDOR_ACCOUNT_ENTRY: dict[str, Any] = {
+    # Deferred per D-07: two nested open-keyed objects, ``:1828-1859`` and
+    # ``:1860-1887``. They must arrive as non-fatal ``extra`` divergences.
+    "currencyBalance": {"detailedCurrencyBalance": {"ARS": {"consumed": 0, "available": 1}}},
+    "availableToOperate": {"cash": {"totalCash": 103250600}, "movements": 0, "credit": None},
+    # The declared roster — ``Primary-API.md:1888``.
+    "settlementDate": 1669950000000,
+}
+
+_VENDOR_ACCOUNT_DATA: dict[str, Any] = {
+    "accountName": "REM7374",
+    "marketMember": "PrimaryVenture",
+    "marketMemberIdentity": "PMYVTR",
+    "collateral": 0,
+    "margin": 2923811.299985,
+    "availableToCollateral": 100202251.700015,
+    "detailedAccountReports": {"0": _VENDOR_ACCOUNT_ENTRY},
+    # D-02 evidence: a NUMBER at ``:1894``, not an object — and the same value
+    # appears as ``totalMarketValue`` for the same account in the
+    # detailed-position sample (``:1706``), which is what makes "account market
+    # value" the reading rather than "an object we failed to model".
+    "portfolio": 60240,
+    "ordersMargin": 0,
+    "currentCash": 103065823,
+    "dailyDiff": -184777,
+    "uncoveredMargin": 0,
+    # ``hasError`` / ``errorDetail`` / ``lastCalculation`` (``:1891-1893``) are
+    # DELIBERATELY omitted: none is a declared ``AccountReport`` field, so each
+    # would add an ``extra`` record at the OUTER model and blur the inner-extra
+    # count the strict-mode test below asserts. Their absence is not a claim
+    # that the vendor omits them.
+}
+
+
+def test_account_report_detailedAccountReports_decodes_the_vendor_sample_at_one_level() -> None:
+    """ONE level of open keys: the entry is a model, not a mapping of models (F-7)."""
+    obj = models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    assert set(obj.detailedAccountReports) == {"0"}
+    entry = obj.detailedAccountReports["0"]
+    assert isinstance(entry, models.DetailedAccountReport)
+    assert not isinstance(entry, dict)
+    assert entry.settlementDate == 1669950000000
+
+
+def test_detailedAccountReports_deferred_objects_are_non_fatal_extras(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-07 / T-37-12: the two deferred nested objects are reported, never raised."""
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    entry = obj.detailedAccountReports["0"]
+    assert not hasattr(entry, "currencyBalance")
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    assert {r.field_path for r in extras} == {  # type: ignore[attr-defined]
+        ".detailedAccountReports.0.currencyBalance",
+        ".detailedAccountReports.0.availableToOperate",
+    }
+    assert {r.model for r in extras} == {"DetailedAccountReport"}  # type: ignore[attr-defined]
+
+
+def test_account_report_portfolio_decodes_as_a_float_scalar(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-02: ``60240`` is an account market value, silently widened to ``60240.0``."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    assert obj.portfolio == 60240.0
+    assert isinstance(obj.portfolio, float)
+    assert ".portfolio" not in [p for p, _ in _pairs(caplog)]
+
+
+def test_account_report_portfolio_absent_is_none_not_an_empty_mapping() -> None:
+    """The inversion D-02 causes: an absent scalar leaf is ``None``, never ``{}``."""
+    assert models.AccountReport.from_api({"accountName": "x"}).portfolio is None
+
+
+def test_portfolio_non_numeric_reports_a_type_divergence_and_is_fatal_under_strict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-37-14: a malformed amount is now REPORTED instead of silently becoming ``{}``."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        models.AccountReport.from_api({"accountName": "x", "portfolio": "not-a-number"})
+
+    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".portfolio", "type") in _pairs(caplog)
+    assert declared[".portfolio"] == "float"
+
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MatrizDecodeError):
+        models.AccountReport.from_api({"accountName": "x", "portfolio": "not-a-number"})
+
+
+def test_the_mapping_axis_touches_exactly_one_field_on_account_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-02, stated executably: ``portfolio`` LEFT the mapping axis.
+
+    This is what stops a future reader from re-adding it. If ``portfolio`` were
+    still ``dict``-declared, the axis would visit two fields here.
+    """
+    seen: list[str] = []
+    real = models._mapping_value
+
+    def spy(value: Any, element: Any, *, path: str, model: str, sink: Any) -> Any:
+        seen.append(path)
+        return real(value, element, path=path, model=model, sink=sink)
+
+    monkeypatch.setattr(models, "_mapping_value", spy)
+    models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    assert seen == [".detailedAccountReports"]
+
+
+def test_account_report_chain_never_raises_for_any_payload_shape() -> None:
+    """T-37-13 for the one-level container."""
+    for payload in (
+        {"accountName": "x"},
+        {"detailedAccountReports": None},
+        {"detailedAccountReports": "not-a-mapping"},
+        {"detailedAccountReports": {"0": None}},
+        _VENDOR_ACCOUNT_DATA,
+    ):
+        obj = models.AccountReport.from_api(payload)
+        for entry in obj.detailedAccountReports.values():
+            assert entry.settlementDate is None or isinstance(entry.settlementDate, int)
 
 
 # ---------------------------------------------------------------------------
