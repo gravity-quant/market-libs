@@ -6,7 +6,15 @@ are auto-fixed; pre-existing failures in files the plan does not own are recorde
 
 ---
 
-## DEF-37-01 — `mypy packages/matriz-client/tests` is red on four pre-existing errors
+## DEF-37-01 — `mypy packages/matriz-client/tests` is red on four pre-existing errors — RESOLVED
+
+**Resolution:** commit `2e28672`, applied by the orchestrator before Wave 3's second plan
+(37-05) dispatched, per the "Suggested route" below. Fixed exactly as diagnosed: explicit
+`# type: ignore[comparison-overlap]` on the two `scalar_passthrough` assertions
+(`lastCalculation`, `tick`), and the misplaced `# type: ignore[attr-defined]` comment moved one
+line down onto the actual attribute access. No model annotation was widened. Verified:
+`uv run mypy packages/matriz-client/tests` and the repo-global `uv run mypy` both report zero
+errors; `uv run --package matriz-client pytest packages/matriz-client/tests -q` → 547 passed.
 
 **Found during:** plan 37-04, Task 1 acceptance sweep
 **Owner:** plans 37-01 / 37-02 / 37-03 (the retypes that made these assertions non-overlapping)
