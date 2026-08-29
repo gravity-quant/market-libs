@@ -4,6 +4,35 @@ Cliente HTTP (sync y async) para la API de market data (primary-extractor,
 `https://market-data-develop.bbsa.com.ar/api`), con autenticación **Auth0
 client-credentials** (grant `client_credentials`, token cacheado y refrescado por TTL).
 
+## Unreleased — BREAKING
+
+> **`main` NO es el `0.5.0` publicado.** El tag `market-data-client-v0.5.0` se cortó
+> antes de la Fase 36; desde entonces `main` cambió la superficie de lectura sin
+> bumpear la versión, porque el bump breaking coordinado de los seis paquetes lo
+> hace la Fase 40 en una sola pasada (refresca `uv.lock` **exactamente una vez**).
+> Si instalás desde `main`, esto es lo que cambió respecto del `0.5.0` tageado.
+
+| Antes (0.5.0 publicado) | Ahora (`main`, pendiente de bump) |
+|---|---|
+| `snapshot.market_data["LA"]["price"]` | `snapshot.market_data.last.price` |
+| `snapshot.market_data["BI"]` | `snapshot.market_data.bids` (`list[BookLevel]`) |
+| `if snapshot.market_data is None:` | `if not snapshot.market_data:` |
+| `snapshot.entries is None` | `snapshot.entries == []` (nunca `None`) |
+| `LatestRequest(entries=None)` | `LatestRequest(entries=[])` (default; la clave `entries` sigue sin viajar cuando la lista está vacía) |
+
+`market_data` pasó de `dict[str, Any] | None` al Null Object tipado
+`MarketDataEntries` (con `BookLevel` / `EntryValue` y los alias `bids`, `offers`,
+`last`, `settlement`, `close`, `open_interest`), así que la indexación por clave
+levanta `TypeError: 'MarketDataEntries' object is not subscriptable`. `entries` —
+tanto en `MarketDataSnapshot` como en `LatestRequest` — perdió su `| None`.
+
+Divergencia medida y **no** corregida todavía: sobre la fila no-data de
+`GET /marketdata/latest`, `market_id` y `active` llegan `null` y siguen declarados
+no-`Optional`, así que el walker sustituye `""` / `False` y `strict_decode`
+levanta en `.market_id`. Está documentada en
+`.planning/phases/36-.../36-DEFERRED-market-data-leaves.md` y espera checkpoint
+del operador.
+
 ## Instalación
 
 > **Este paquete NO está publicado en PyPI.** El pipeline de release sólo crea GitHub Releases

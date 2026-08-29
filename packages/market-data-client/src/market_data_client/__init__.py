@@ -160,4 +160,19 @@ __all__ = [
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
+# NO BUMPEAR ACÁ (Phase 36 code review, WR-04). ``main`` carries a SECOND,
+# source-incompatible ``0.5.0``: the tag ``market-data-client-v0.5.0`` was cut
+# with ``MarketDataSnapshot.market_data`` declared ``dict[str, Any] | None``, and
+# Phase 36 changed it to the typed ``MarketDataEntries`` — so
+# ``snapshot.market_data["LA"]["price"]`` now raises ``TypeError: 'MarketDataEntries'
+# object is not subscriptable``. ``MarketDataSnapshot.entries`` and
+# ``LatestRequest.entries`` also lost their ``| None``, and
+# ``LatestRequest(entries=[]).to_dict()`` stopped emitting the ``entries`` key.
+#
+# The deferral is DELIBERATE, not an oversight: Phase 40 (PUB-NOBJ-01) owns the
+# coordinated breaking bump for every paquete whose surface moved, and its SC-2
+# requires the global ``uv.lock`` to be refreshed EXACTLY ONCE for all of them —
+# a marker version here would refresh it twice and redden that criterion. The
+# migration table lives in this package's README under "Unreleased — BREAKING",
+# which is the marker the artifact itself carries in the meantime.
 __version__ = "0.5.0"
