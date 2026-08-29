@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 37
-current_phase_name: `matriz-client` — dicts residuales tipados + alias
+current_phase_name: matriz-client-dicts-residuales-tipados-alias
 status: executing
 stopped_at: Phase 37 context gathered (assumptions mode)
-last_updated: "2026-08-29T15:23:44.552Z"
+last_updated: "2026-08-29T15:37:58.741Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 36 complete, transitioned to Phase 37
+last_activity_desc: Phase 37 execution started
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 13
+  completed_plans: 9
   percent: 33
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 36 — market-data-client — market_data tipado + revocación de la Fase 33
+**Current focus:** Phase 37 — matriz-client-dicts-residuales-tipados-alias
 
 ## Current Position
 
-Phase: 37 — `matriz-client` — dicts residuales tipados + alias
-Plan: Not started
+Phase: 37 (matriz-client-dicts-residuales-tipados-alias) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-08-29 — Phase 36 complete, transitioned to Phase 37
+Last activity: 2026-08-29 — Phase 37 execution started
 
 ## Performance Metrics
 
@@ -177,6 +177,7 @@ Last activity: 2026-08-29 — Phase 36 complete, transitioned to Phase 37
 | Phase 36 P01 | 15min | 3 tasks | 2 files |
 | Phase 36 P02 | 55min | 3 tasks | 7 files |
 | Phase 36 P03 | 18min | 3 tasks | 3 files |
+| Phase 37 P01 | 10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -390,6 +391,7 @@ Recent decisions affecting current work:
 - [Phase 36]: consecuencia semver para la Phase 40 — 3 nombres públicos ADITIVOS (BookLevel, EntryValue, MarketDataEntries) MÁS un cambio SOURCE-BREAKING (market_data: dict|None -> MarketDataEntries; subíndice -> cadena de atributos, con int ensanchado a float). Sin bump en esta fase (D-09)
 - [Phase ?]: 36-03: _ENDPOINT_OPTIONAL stays unchanged — measured evidence (Pitfall 7 / F-6) shows removing 'entries' would manufacture a false model-only SHAPE finding on every /marketdata/latest run; CONTEXT's open discretion item is RESOLVED
 - [Phase ?]: 36-03: SC-5 driver consumption locked structurally by AST (verification/test_main_market_data_deep_chain.py, 4 tests, non-vacuity floor 24) — a row-counting probe passes green with every chain link broken
+- [Phase ?]: [Phase 37-01]: D-03 ratificado strict-unwrap por el operator — un body Risk SIN envelope key levanta PrimaryAPIError en vez de decodificar a all-defaults; la forma ENVUELTA queda canonica para los payloads de test de 37-02/37-03
 
 ### Pending Todos
 
@@ -473,7 +475,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T14:46:09.789Z
+Last session: 2026-08-29T15:37:49.663Z
 Stopped at: Phase 37 context gathered (assumptions mode)
 Resume file: .planning/phases/37-matriz-client-dicts-residuales-tipados-alias/37-CONTEXT.md
 
