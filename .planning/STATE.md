@@ -5,15 +5,15 @@ milestone_name: API tipada con Null Objects
 current_phase: 35
 current_phase_name: Fundación Null Object — __bool__ + política del walker
 status: executing
-stopped_at: Completed 35-01-PLAN.md
-last_updated: "2026-08-29T02:14:57.037Z"
+stopped_at: Completed 35-02-PLAN.md
+last_updated: "2026-08-29T02:25:39.160Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 35 (Fundación Null Object — __bool__ + política del walker) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 35 execution started
 
@@ -170,6 +170,7 @@ Last activity: 2026-08-29 — Phase 35 execution started
 | 39    | ?     | Not started | LIVE-NOBJ-01 | Cadenas profundas reales en sync + async por los drivers `main_*.py`. **Arranca con dos bloqueos heredados**: `LIVE-HIGY-33` (DNS) y `LIVE-MATZ-33` (política) → se registran `SKIPPED` con causa medida y destino nombrado, nunca cero. Divergencias corregidas in-cycle con espejo + regresión mockeada; censo contrastado contra el de la Fase 33 declarando cuántas divergencias bajaron **por la política Null Object** y cuántas por corrección. Depende de 36 + 37 + 38. |
 | 40    | ?     | Not started | PUB-NOBJ-01 | Releases sólo de los paquetes cuya superficie cambió, bump breaking + callout + **tabla de migración vieja→nueva**; `uv.lock` refrescado una sola vez; CI asertado por conteo; merge commit real (nunca squash); tags anotados; verificación post-publicación instalando desde el wheel público. **Doble gate humano independiente** (D-08/D-18), nunca colapsado ni auto-aprobado pese a `auto_advance: true` + `mode: yolo`. Depende de 39. |
 | Phase 35 P01 | 7min | 3 tasks | 3 files |
+| Phase 35 P02 | 18min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -366,6 +367,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 35-01: _perturb needs a seventh nested-SafeModel branch that RESEARCH Pitfall 3 omits — in higyrus a nested-model default is an empty INSTANCE, not None, so Administrador (3 nested fields, 0 scalars) falls through every declared branch; 35-03/35-04 fan-out must copy that branch.
 - [Phase ?]: 35-01: the criterio-5 alias-vs-twin equality is asserted on (field_path, divergence, declared_type, observed_type) and EXCLUDES the model key — the two fixture classes necessarily disagree on their own class name and on nothing else.
 - [Phase ?]: 35-01: canonical digest UNCHANGED (ac14868282ad0a5c) — no byte of any _decode.py moved; all 4 v1.6 gates green, surface snapshots byte-identical, 1810 workspace tests passing.
+- [Phase ?]: [Phase 35 / 35-02]: 29-SIZING.md's corpus run predates WR-02 (36b79e2 is not a descendant of 2c31790), so its non_dict labels for matriz's five model-link records differ from today's walker in BOTH the model and kind components of the 4-tuple — Phase 39 must match on (slug, field_path) and read kind from 35-RETIRED-TRIPLES.md
+- [Phase ?]: [Phase 35 / 35-02]: 'triples retired' is the INTERSECTION of the 35-field roster with a measured census, never the row count — only 7 of 35 rows intersect a ratified floor (higyrus 2, matriz 5); matriz's answer is column-dependent (6 records vs 5 distinct triples)
 
 ### Pending Todos
 
@@ -449,8 +452,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T02:14:47.842Z
-Stopped at: Completed 35-01-PLAN.md
+Last session: 2026-08-29T02:25:39.155Z
+Stopped at: Completed 35-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
