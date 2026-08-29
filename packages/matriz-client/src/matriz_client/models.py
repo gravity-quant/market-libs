@@ -112,12 +112,25 @@ def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeSco
     for market-data's two model-level exemptions: the call site normalizes, the
     walker stays untouched.
 
-    Phase 29 code review, CR-03: the axis is **not** matriz-only. market-data
-    declares a mapping field too (``MarketDataSnapshot.market_data``) and never
+    Phase 29 code review, CR-03: the axis was **not** matriz-only. market-data
+    declared a mapping field too (``MarketDataSnapshot.market_data``) and never
     received the compensating pass, so its flagship model carried a completely
-    invisible divergence. ``market_data_client.models`` now carries a verbatim
-    copy of this function and of :func:`_apply_mapping_policy`; the two must stay
-    identical.
+    invisible divergence. ``market_data_client.models`` was given a verbatim copy
+    of this function and of :func:`_apply_mapping_policy`, and the two had to
+    stay identical.
+
+    **That obligation ENDED with Phase 36 (NOBJ-MD-01, D-05).** market-data's
+    ``market_data`` is no longer a mapping: it is the typed Null Object
+    ``MarketDataEntries``, so the walker's own nested-model branch owns it and the
+    compensating pass had nothing left to compensate for. Both helpers were
+    DELETED from ``market_data_client.models`` in that phase — there is no second
+    copy to keep in sync any more, and this axis is matriz-only again. Do not
+    re-create a copy over there to restore the symmetry: per-paquete ``from_api``
+    differences are declared policy axes (``29-SEMANTICS-MATRIX.md``, "never
+    harmonize"), and market-data is form A of D-07 (a bare walk) on purpose.
+    Recorded by the Phase 36 code review (WR-03), which found this paragraph
+    still instructing a maintainer to synchronize a function that no longer
+    exists.
 
     Reporting matches what the walker would emit for any other substituted
     default — ``missing`` when the payload carried nothing, ``type`` otherwise

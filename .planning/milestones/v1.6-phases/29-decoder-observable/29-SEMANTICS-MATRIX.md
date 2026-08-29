@@ -249,6 +249,22 @@ declares two fields and copies the payload wholesale.
 `_apply_mapping_policy`) and, since the review, a **verbatim copy** of the same pair in
 `packages/market-data-client/src/market_data_client/models.py`.
 
+> **SUPERSEDED IN PART BY PHASE 36 (NOBJ-MD-01, D-05) — 2026-08-29.** The
+> market-data half of this subsection is HISTORICAL. `MarketDataSnapshot.market_data`
+> is no longer a `dict[...]`-declared field: it is the typed Null Object
+> `MarketDataEntries`, owned by the walker's own nested-model branch, and BOTH
+> `_mapping_value` and `_apply_mapping_policy` were deleted from
+> `market_data_client.models`. The `market-data-client` row of the table below and
+> the citation into that file are therefore dangling as of Phase 36 — read them as
+> a record of what Phase 29 decided, not as a live contract. The axis is
+> **matriz-only** again, and market-data is form A of D-07 (a bare walk) on
+> purpose: a no-op copy must not be re-created there to restore symmetry.
+> The "Known consequence" paragraph below is resolved by the same change — a
+> `/marketdata/latest` row sending `"market_data": null` now collapses to the empty
+> container under NOBJ-02 (Phase 35) and emits nothing, so it is no longer fatal in
+> strict mode. Recorded by the Phase 36 code review, WR-03. Text kept verbatim
+> below: this file is an additive record of what each phase decided, not an erasure.
+
 The canonical walker has no `dict` branch — that is the sanctioned trade for keeping
 `_decode.py` byte-identical across five paquetes — so a `dict[...]`-declared field lands
 on `walk_field`'s bare pass-through and is returned untouched, `None` included. The
