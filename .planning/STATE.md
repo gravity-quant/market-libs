@@ -4,9 +4,9 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 36
 current_phase_name: `market-data-client` — `market_data` tipado + revocación de la Fase 33
-status: verifying
+status: executing
 stopped_at: Phase 36 context gathered (assumptions mode)
-last_updated: "2026-08-29T10:53:19.272Z"
+last_updated: "2026-08-29T11:40:25.004Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 35 complete, transitioned to Phase 36
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 36 — `market-data-client` — `market_data` tipado + revocación de la Fase 33
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-08-29 — Phase 35 complete, transitioned to Phase 36
 
 ## Performance Metrics
