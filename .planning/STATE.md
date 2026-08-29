@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 38
-current_phase_name: `iol-client` + auditoría de higyrus/ámbito/wallets
+current_phase_name: iol-client-auditor-a-de-higyrus-mbito-wallets
 status: executing
 stopped_at: Phase 38 context gathered (assumptions mode)
-last_updated: "2026-08-29T20:00:06.914Z"
+last_updated: "2026-08-29T20:10:18.352Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 37 complete, transitioned to Phase 38
+last_activity_desc: Phase 38 execution started
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 17
+  completed_plans: 14
   percent: 50
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 37 — matriz-client-dicts-residuales-tipados-alias
+**Current focus:** Phase 38 — iol-client-auditor-a-de-higyrus-mbito-wallets
 
 ## Current Position
 
-Phase: 38 — `iol-client` + auditoría de higyrus/ámbito/wallets
-Plan: Not started
+Phase: 38 (iol-client-auditor-a-de-higyrus-mbito-wallets) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-08-29 — Phase 37 complete, transitioned to Phase 38
+Last activity: 2026-08-29 — Phase 38 execution started
 
 ## Performance Metrics
 
@@ -182,6 +182,7 @@ Last activity: 2026-08-29 — Phase 37 complete, transitioned to Phase 38
 | Phase 37 P03 | ~22 min | 3 tasks | 6 files |
 | Phase 37 P04 | 34min | 2 tasks | 2 files |
 | Phase 37 P05 | ~8 min | 2 tasks | 2 files |
+| Phase 38 P01 | 6min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -408,6 +409,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 37-05: los seis alias de MarketDataSnapshot citan NOBJ-MTZ-02/D-16, no el D-03 de market-data — D-03 en matriz es el envelope unwrap de Risk
 - [Phase ?]: 37-05: la disjunción de nombres se argumenta como name shadowing silencioso (matriz no usa slots), no como colisión de slots
 - [Phase ?]: 37-05: sin tarea WS y sin tocar ws_client.py — MarketDataFrame.marketData ES un MarketDataSnapshot (F-12), ahora aseverado
+- [Phase ?]: 38-01: Cotizacion.puntas es list[Punta] y Titulo.puntas es Punta — no-Optional, sin default de dataclass; el colapso lo produce el walker NOBJ-02 congelado, no Python
+- [Phase ?]: 38-01: la deriva del round-trip se absorbe en el valor ESPERADO del test con la causa dicha; la captura live 2026-06-06 nunca se reescribe
+- [Phase ?]: 38-01: sin edit espejo en client.py/aio.py — ambas superficies delegan en _core.py; la obligación sync/async se descarga con surface_parity, no duplicando decode
 
 ### Pending Todos
 
@@ -492,7 +496,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T19:00:22.029Z
+Last session: 2026-08-29T20:09:59.821Z
 Stopped at: Phase 38 context gathered (assumptions mode)
 Resume file: .planning/phases/38-iol-client-auditor-a-de-higyrus-mbito-wallets/38-CONTEXT.md
 

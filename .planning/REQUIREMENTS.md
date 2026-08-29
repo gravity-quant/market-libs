@@ -21,7 +21,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### iol-client
 
-- [ ] **NOBJ-IOL-01**: `Cotizacion.puntas` es `list[Punta]` (nunca `None`) y `Titulo.puntas` es `Punta` Null Object — `titulo.puntas.precioCompra` siempre válido, espejado sync/async
+- [x] **NOBJ-IOL-01**: `Cotizacion.puntas` es `list[Punta]` (nunca `None`) y `Titulo.puntas` es `Punta` Null Object — `titulo.puntas.precioCompra` siempre válido, espejado sync/async
 
 ### matriz-client
 
@@ -66,7 +66,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOBJ-02 | Phase 35 | Complete |
 | NOBJ-MD-01 | Phase 36 | Complete |
 | NOBJ-MD-02 | Phase 36 | Complete |
-| NOBJ-IOL-01 | Phase 38 | Pending |
+| NOBJ-IOL-01 | Phase 38 | Complete |
 | NOBJ-MTZ-01 | Phase 37 | Complete |
 | NOBJ-MTZ-02 | Phase 37 | Complete |
 | NOBJ-AUD-01 | Phase 38 | Pending |

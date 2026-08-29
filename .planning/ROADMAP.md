@@ -143,11 +143,11 @@ Plans:
   3. El grep de cierre del plan fuente sobre `packages/*/src/*/models.py` devuelve **sólo** hojas escalares y `Literal` en los 6 paquetes, y ningún retorno de función pública expone `dict[str, Any]` / `list[dict[str, Any]]` fuera de los shims `_legacy` e internals (`_request`) — el resultado se reporta con el comando ejecutado y su salida, no como afirmación.
   4. Las suites de los cuatro paquetes quedan verdes con los 4 gates de v1.6 activos, y `surface_parity.py` asevera que cada cambio de lógica viajó a las dos superficies (D-NO-06); para `wallets-client` se registra explícitamente su condición de stub sin endpoints reales en vez de reportar un verde vacuo.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 **Wave 1**
 
-- [ ] 38-01-PLAN.md — TRACER: retipado Null Object de los 2 `puntas` de iol (RED: 7 aserciones migradas + rename + 3 docstrings de procedencia; GREEN: `models.py:213,301`; snapshot regenerado) — wave 1
+- [x] 38-01-PLAN.md — TRACER: retipado Null Object de los 2 `puntas` de iol (RED: 7 aserciones migradas + rename + 3 docstrings de procedencia; GREEN: `models.py:213,301`; snapshot regenerado) — wave 1
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -193,7 +193,7 @@ Plans:
 | 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
-| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |
+| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 1/4 | In Progress|  |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
