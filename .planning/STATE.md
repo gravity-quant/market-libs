@@ -6,14 +6,14 @@ current_phase: 36
 current_phase_name: market-data-client — market_data tipado + revocación de la Fase 33
 status: executing
 stopped_at: Phase 36 context gathered (assumptions mode)
-last_updated: "2026-08-29T11:58:48.807Z"
+last_updated: "2026-08-29T12:44:40.023Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 36 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 17
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 36 (market-data-client — market_data tipado + revocación de la Fase 33) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 36 execution started
 
@@ -175,6 +175,7 @@ Last activity: 2026-08-29 — Phase 36 execution started
 | Phase 35 P04 | 15 min | 3 tasks | 6 files |
 | Phase 35 P05 | 10min | 2 tasks | 13 files |
 | Phase 36 P01 | 15min | 3 tasks | 2 files |
+| Phase 36 P02 | 55min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -381,6 +382,11 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 35-05]: los docstrings de modulo de _decode.py NO estan hasheados (la regla 1 de normalizacion los strippea) — la revision manual x5 que exige D-10 encontro un bullet podrido y se enmendo byte-identico x5 sin mover el digest
 - [Phase ?]: [Phase 36-01]: CR-03 disposition = retire — la maquinaria de mapping se retira entera, así que conservar _RequiredMapping y sus dos tests habría exigido mantener _mapping_value vivo como código muerto en un módulo shipeado (contradice D-05 y hace SC-5 inalcanzable). Auto-resuelto bajo auto-mode (primera opción = recomendación de RESEARCH), no por veredicto humano; punto de revert = de7614a
 - [Phase ?]: [Phase 36-01]: _strip_optional copiado módulo-local en test_core.py y test_decode.py (DT-03 no-shared-code); _is_mapping no se copia a ningún lado. Las 3 locks que sólo pedían prestado el detector (T-31-17, mutation-result no-Optional, WR-03) sobreviven intactas — edición por censo per-call-site, nunca por rango de líneas (Pitfall 1). 663 → 660 tests; models.py intacto (dea0dec)
+- [Phase 36]: la revocación del widening de la Fase 33 es POR ROL DE CAMPO y ADITIVA — entries y market_data (eslabones) vuelven a required, staleness_seconds y note (hojas) se quedan | None, y el bloque de docstring de la Fase 33 se CONSERVA junto al nuevo en vez de borrarse
+- [Phase 36]: un market_data wrong-typed cambia de KIND (type -> non_dict) y de ATRIBUCIÓN (MarketDataSnapshot -> MarketDataEntries), pero NO de disposición — sigue siendo fatal en strict decode, ahora aseverado con pytest.raises en vez de argumentado en prosa
+- [Phase 36]: market-data-client pasa de form B a form A de D-07 (la maquinaria de mapping sale del paquete); el roster SafeModel va de 16 a 19 clases y el hash de _decode.py no se movió (a1f00c824348164c)
+- [Phase 36]: los nombres test_no_data_row_keeps_its_nulls / _async son anclas de trazabilidad load-bearing — sostienen los bullets Regression: de F-72/73/75 y F-92/93/95 en el ledger append-only; se migran las ASERCIONES, nunca el nombre
+- [Phase 36]: consecuencia semver para la Phase 40 — 3 nombres públicos ADITIVOS (BookLevel, EntryValue, MarketDataEntries) MÁS un cambio SOURCE-BREAKING (market_data: dict|None -> MarketDataEntries; subíndice -> cadena de atributos, con int ensanchado a float). Sin bump en esta fase (D-09)
 
 ### Pending Todos
 
@@ -464,7 +470,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T11:58:43.619Z
+Last session: 2026-08-29T12:44:07.632Z
 Stopped at: Phase 36 context gathered (assumptions mode)
 Resume file: .planning/phases/36-market-data-client-market-data-tipado-revocaci-n-de-la-fase-/36-CONTEXT.md
 
