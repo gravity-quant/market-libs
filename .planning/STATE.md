@@ -5,8 +5,8 @@ milestone_name: API tipada con Null Objects
 current_phase: 38
 current_phase_name: `iol-client` + auditoría de higyrus/ámbito/wallets
 status: verifying
-stopped_at: Completed 37-05-PLAN.md
-last_updated: "2026-08-29T18:07:21.569Z"
+stopped_at: Phase 38 context gathered (assumptions mode)
+last_updated: "2026-08-29T19:00:22.037Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 37 complete, transitioned to Phase 38
 progress:
@@ -492,9 +492,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T16:32:24.566Z
-Stopped at: Completed 37-05-PLAN.md
-Resume file: None
+Last session: 2026-08-29T19:00:22.029Z
+Stopped at: Phase 38 context gathered (assumptions mode)
+Resume file: .planning/phases/38-iol-client-auditor-a-de-higyrus-mbito-wallets/38-CONTEXT.md
 
 ## Operator Next Steps
 
