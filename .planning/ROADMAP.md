@@ -143,7 +143,20 @@ Plans:
   3. El grep de cierre del plan fuente sobre `packages/*/src/*/models.py` devuelve **sólo** hojas escalares y `Literal` en los 6 paquetes, y ningún retorno de función pública expone `dict[str, Any]` / `list[dict[str, Any]]` fuera de los shims `_legacy` e internals (`_request`) — el resultado se reporta con el comando ejecutado y su salida, no como afirmación.
   4. Las suites de los cuatro paquetes quedan verdes con los 4 gates de v1.6 activos, y `surface_parity.py` asevera que cada cambio de lógica viajó a las dos superficies (D-NO-06); para `wallets-client` se registra explícitamente su condición de stub sin endpoints reales en vez de reportar un verde vacuo.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+**Wave 1**
+
+- [ ] 38-01-PLAN.md — TRACER: retipado Null Object de los 2 `puntas` de iol (RED: 7 aserciones migradas + rename + 3 docstrings de procedencia; GREEN: `models.py:213,301`; snapshot regenerado) — wave 1
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 38-02-PLAN.md — Ratchet D-11: predicado de campo del gate ensanchado con discriminador `ClassDef` + 3 fixtures RED en iol, sin reenrojecer los 10 leaves `Literal` de matriz — wave 2
+- [ ] 38-03-PLAN.md — Callout `## Unreleased — BREAKING` en el README de iol (D-10) + corrección de refs y addendum de contabilidad Phase 38 en `35-RETIRED-TRIPLES.md` (D-12) — wave 2
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 38-04-PLAN.md — `38-CENSUS.md`: censo con disposición por campo de higyrus/ámbito/wallets, ceros por enumeración con la condición de stub de wallets, y la evidencia SC-3 como comando ejecutado con su salida — wave 3
 
 ### Phase 39: Verificación en vivo del encadenamiento profundo
 
