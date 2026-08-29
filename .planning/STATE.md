@@ -6,14 +6,14 @@ current_phase: 37
 current_phase_name: matriz-client-dicts-residuales-tipados-alias
 status: executing
 stopped_at: Completed 37-02-PLAN.md
-last_updated: "2026-08-29T15:53:12.859Z"
+last_updated: "2026-08-29T16:07:47.780Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 37 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 37 (matriz-client-dicts-residuales-tipados-alias) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 37 execution started
 
@@ -179,6 +179,7 @@ Last activity: 2026-08-29 — Phase 37 execution started
 | Phase 36 P03 | 18min | 3 tasks | 3 files |
 | Phase 37 P01 | 10min | 3 tasks | 3 files |
 | Phase 37 P02 | ~11 min | 2 tasks | 5 files |
+| Phase 37 P03 | ~22 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -396,6 +397,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 37-02: the mapping axis takes the element hint as its 2nd POSITIONAL parameter, mirroring _decode.walk_field(value, hint, *, ...)
 - [Phase ?]: 37-02: payload-supplied mapping keys are neutralized with _decode._safe_key before entering field_path (lock 11 extended to the axis)
 - [Phase ?]: 37-02: F-11 depth-2 blind spot answered with option (a) - every Phase 37 inner model is kept mapping-free; the __args__ walk is NOT deepened
+- [Phase ?]: 37-03: DetailedPosition.report typed at TWO levels and AccountReport.detailedAccountReports at ONE — the vendor samples show different depths (F-7/F-8); forcing a shared shape would fabricate a level of keys
+- [Phase ?]: 37-03: both new inner models declare D-04a's third provenance class 'vendor-documented, UNMEASURED' — no live capture exists, LIVE-MATZ-33 blocks producing one, destination Phase 39 LIVE-NOBJ-01 (ledger rows F-11/F-12)
+- [Phase ?]: 37-03: _safemodel_classes() is now 20; Plan 37-05 raises test_null_object.py's roster floor from 17 to it
 
 ### Pending Todos
 
@@ -479,7 +483,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T15:53:12.853Z
+Last session: 2026-08-29T16:07:34.119Z
 Stopped at: Completed 37-02-PLAN.md
 Resume file: None
 
