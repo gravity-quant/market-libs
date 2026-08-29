@@ -134,6 +134,38 @@ def test_a_leaf_absent_inside_the_nested_container_is_still_reported() -> None:
 
 
 # ---------------------------------------------------------------------------
+# WR-02 — an undeclared entry type is DROPPED from the read surface, but the
+# drop is not silent: it lands in the committed census
+# ---------------------------------------------------------------------------
+
+
+def test_an_undeclared_entry_type_is_reported_wire_only_at_the_nested_path() -> None:
+    """The closed ten-key roster discards an eleventh key — this is how we hear about it.
+
+    ``MarketDataEntries`` replaced a ``dict[str, Any]`` passthrough, so a key
+    outside the roster never reaches the caller. The package logger ships a
+    ``NullHandler``, so its ``extra`` record at INFO is invisible unless the
+    consumer configured handlers; what makes the drop DETECTABLE for this repo is
+    this direction of the differ, whose tuples ``_emit_shape`` writes into the
+    append-only, git-committed findings ledger.
+
+    Suppressing direction A for Null Object links (the CR-01 fix above) must NOT
+    take this with it: the two directions are independent, and losing this one
+    would turn a roster miss into exactly the silent data loss WR-02 names.
+    """
+    row = {
+        **_PARTIAL_MARKET_DATA_ROW,
+        "market_data": {**_PARTIAL_MARKET_DATA_ROW["market_data"], "IV": 7, "ZZ": 9},
+    }
+
+    wire_only = [
+        t for t in diff_safemodel_bidirectional(row, MarketDataSnapshot) if t[1] == "wire-only"
+    ]
+
+    assert wire_only == [(".market_data", "wire-only", "IV"), (".market_data", "wire-only", "ZZ")]
+
+
+# ---------------------------------------------------------------------------
 # Driver level — what actually reaches the committed findings ledger
 # ---------------------------------------------------------------------------
 

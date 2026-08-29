@@ -321,6 +321,36 @@ class MarketDataEntries(SafeModel):
     never raised, not even under ``strict_decode`` — and is corrected in-cycle
     when a live run finds one.
 
+    **The cost of that roster, recorded (Phase 36 code review, WR-02).** This
+    field used to be a ``dict[str, Any]`` passthrough where every key the vendor
+    sent was readable. It is a closed dataclass now, so an eleventh key is
+    DISCARDED: its value never reaches the caller. Two halves, with different
+    dispositions:
+
+    * *Detection is NOT silent* in this repo's pipeline, contrary to what the
+      ``NullHandler`` on the package logger (``__init__.py``) would suggest on
+      its own. The driver's SHAPE-diff recurses into this container and emits a
+      ``wire-only`` tuple at path ``.market_data`` for every undeclared key,
+      which ``main_market_data._emit_shape`` writes into the append-only
+      ``.planning/verification/market-data-client-findings.md`` — committed to
+      git, and the artifact the milestone's divergence census is measured from.
+      Pinned by ``verification/test_safemodel_diff_null_object_links.py``.
+    * *The data loss is real and is deferred*, not fixed. All three mitigations
+      the review proposed are blocked by signed decisions of this repo: widening
+      the roster to matriz's fourteen reverses D-02 and would type four keys this
+      paquete never measured (D-10 forbids retyping on another source's authority
+      alone); a captured-extras field plus an ``unknown`` property would put a
+      ``dict[str, Any]`` back on a model that IS a nested field type, which
+      ``tests/test_decode.py::test_no_mapping_carrying_model_is_ever_a_nested_field_type``
+      and ``tools/check_surface_types.py`` (Phase 32 GATE-TYP-01) both forbid and
+      which is the very mapping axis D-05 retired; and promoting ``extra`` from
+      INFO to WARNING means editing ``_decode.py``, whose five copies are locked
+      byte-identical by ``tools/check_decode_intactness.py`` and whose lock 3
+      ("an extra wire key is normal vendor growth, not a defect") is a signed
+      Phase 29 decision affecting all six paquetes. Widening the roster is the
+      right answer once a live run MEASURES one of the extra keys, which is
+      exactly what Phase 39 is for.
+
     Every field is a Null Object or a nullable leaf, so a chain such as
     ``snapshot.market_data.last.price`` answers a value or ``None`` and never
     raises, for every payload the vendor can produce.
