@@ -843,12 +843,23 @@ class InstrumentPositionReport(_SafeModel):
     a ``dict[str, Any]`` passthrough where every key the vendor sent was
     readable. It is a closed dataclass now, so ``detailedPositions`` — and any
     key the vendor adds later — is DISCARDED: its value never reaches the
-    caller. Detection is not silent: the walker emits a non-fatal ``extra``
-    divergence for each one (reported, never raised, not even under
-    ``strict_decode``), and the artifact where a real run's divergences land is
-    the append-only ``.planning/verification/matriz-client-findings.md``, where
-    Phase 37 also filed this roster as declared-but-unobserved. Widening the
-    roster is the right answer once a live run MEASURES one of those keys.
+    caller. Detection is not silent, and it now runs on BOTH the mechanisms this
+    repo has:
+
+    - the decoder emits a non-fatal ``extra`` divergence for each dropped key
+      (reported, never raised, not even under ``strict_decode``), on the
+      ``matriz_client`` logger;
+    - ``main_matriz.py``'s probe 20 diffs the wire payload against this roster
+      through ``verification/safemodel_diff.py`` and files a ``SHAPE`` finding in
+      the append-only ``.planning/verification/matriz-client-findings.md``.
+
+    The second half was NOT wired when this class shipped, and the sentence here
+    used to promise it anyway: the differ had no mapping branch, so every model
+    behind a mapping — all three this phase introduced — was structurally
+    invisible to it. The Phase 37 code review measured that (WR-06) and added the
+    branch, which is what makes the loop below real rather than aspirational.
+    Widening the roster is the right answer once a live run MEASURES one of those
+    keys.
 
     Every field is a nullable scalar and **no field is a mapping** — F-11
     measured that ``test_no_mapping_carrying_model_is_ever_a_nested_field_type``
@@ -917,12 +928,16 @@ class DetailedAccountReport(_SafeModel):
     ``detailedAccountReports`` used to be a ``dict[str, Any]`` passthrough where
     every key the vendor sent was readable. It is a closed dataclass now, so the
     two deferred objects — and any key the vendor adds later — are DISCARDED:
-    their values never reach the caller. Detection is not silent: the walker
-    emits a non-fatal ``extra`` divergence per key (reported, never raised, not
-    even under ``strict_decode``), and the artifact where a real run's
-    divergences land is the append-only
-    ``.planning/verification/matriz-client-findings.md``, where Phase 37 also
-    filed this roster as declared-but-unobserved.
+    their values never reach the caller. Detection is not silent, on both
+    mechanisms: the decoder emits a non-fatal ``extra`` divergence per key
+    (reported, never raised, not even under ``strict_decode``), and probe 20 of
+    ``main_matriz.py`` diffs the wire against this roster through
+    ``verification/safemodel_diff.py``, filing a ``SHAPE`` finding in the
+    append-only ``.planning/verification/matriz-client-findings.md`` — where
+    Phase 37 also filed this roster as declared-but-unobserved. The differ half
+    only became reachable when the Phase 37 code review gave that helper a
+    mapping branch (WR-06); before it, this class sat behind a shape the differ
+    could not descend.
 
     This entry sits under **ONE** level of vendor-open keys, unlike
     :class:`InstrumentPositionReport` which sits under two. The asymmetry is

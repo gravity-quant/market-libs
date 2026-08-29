@@ -80,7 +80,8 @@ jobs:
           uv run pytest -q \
             verification/test_main_market_data_deep_chain.py \
             verification/test_safemodel_diff_null_object_links.py \
-            verification/test_main_matriz_risk_envelope_keys.py
+            verification/test_main_matriz_risk_envelope_keys.py \
+            verification/test_safemodel_diff_mapping_recursion.py
 
   pre-commit:
     name: pre-commit hooks

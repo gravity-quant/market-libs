@@ -20,8 +20,19 @@ Direction semantics (mirror Phase 4 D-HIGY-5):
 - ``'wire-only'`` -- key present on the wire but absent from the model. Info
   only; the upstream API may have added a field.
 
-Recursion follows nested SafeModel-like dataclasses and ``list[SafeModel-like]``
-(sampling the first element, consistent with :func:`verification.schema.schema_of`).
+Recursion follows nested SafeModel-like dataclasses, ``list[SafeModel-like]`` and
+``Mapping[str, ...]`` -- including a mapping of mappings -- sampling one element
+per container, consistent with :func:`verification.schema.schema_of`.
+
+**The mapping arm was added by the Phase 37 code review (WR-06).** Without it
+``_nested_safemodel_class`` handled bare models, ``list[Model]`` and
+``Optional[...]`` and nothing else, so every model that phase introduced --
+``TickPriceRange``, ``InstrumentPositionReport``, ``DetailedAccountReport``, all
+three of them sitting behind a mapping -- was structurally invisible to this
+helper, and therefore to probe 20 of ``main_matriz.py``. Those models' own
+docstrings meanwhile pointed at a live run as the mechanism that would eventually
+MEASURE their deferred subtrees. This was the mechanism, and it could not see
+them.
 
 **LINK vs LEAF (Phase 36 code review, CR-01).** ``'model-only'`` is a false-pass
 signal only for a scalar LEAF, where the walker really does substitute a typed
@@ -40,7 +51,7 @@ suppressed recursion by accident) and became the typed
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from types import NoneType, UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
@@ -104,6 +115,84 @@ def _is_list_of_safemodel(hint: Any) -> bool:
     return get_origin(hint) is list and _nested_safemodel_class(hint) is not None
 
 
+def _strip_optional(hint: Any) -> Any:
+    """Return ``T`` from ``T | None`` / ``Optional[T]``; pass through otherwise."""
+    if _is_optional(hint):
+        args = [a for a in get_args(hint) if a is not NoneType]
+        if len(args) == 1:
+            return args[0]
+    return hint
+
+
+def _mapping_value_hint(hint: Any) -> Any | None:
+    """The declared VALUE hint of a mapping annotation, or ``None``.
+
+    Phase 37 code review, WR-06. ``_nested_safemodel_class`` handles bare models,
+    ``list[Model]`` and ``Optional[...]`` and had **no mapping branch**, so all
+    three models Phase 37 introduced -- ``TickPriceRange``,
+    ``InstrumentPositionReport`` and ``DetailedAccountReport``, every one of them
+    sitting behind a mapping -- were structurally invisible to
+    :func:`diff_safemodel_bidirectional`, i.e. to probe 20 of the live driver.
+    Their own docstrings meanwhile promised that "widening the roster is the
+    right answer once a live run MEASURES one of those keys": the differ was the
+    only mechanism that could ever measure them, and it could not see them.
+
+    Deliberately a SEPARATE function from ``_nested_safemodel_class`` rather than
+    a branch inside it, because the two answers are used for different decisions
+    and only one of them transfers. ``_nested_safemodel_class`` also gates the
+    direction-A skip, whose justification (Phase 36 CR-01 / NOBJ-02) is that an
+    absent LINK collapses to its empty instance and emits **NOTHING** -- so
+    reporting it would contradict the decoder. That justification does NOT hold
+    for a mapping: matriz's mapping axis emits a ``missing`` divergence for an
+    absent mapping field, so an absent mapping IS a divergence both halves agree
+    on, and the differ must keep reporting it. Folding the mapping branch into
+    ``_nested_safemodel_class`` would have silently suppressed those.
+
+    Recognises the same vocabulary the runtime axis does (``dict``, ``Mapping``,
+    ``MutableMapping``, ``defaultdict``, ...) via a subclass test, for the reason
+    WR-01 gives: two hardcoded lists drift, a structural test cannot.
+    """
+    inner = _strip_optional(hint)
+    origin = get_origin(inner)
+    if not (isinstance(origin, type) and issubclass(origin, Mapping)):
+        return None
+    args = get_args(inner)
+    return args[1] if len(args) == 2 else None
+
+
+def _descend(payload: Any, hint: Any, path: str) -> Iterator[tuple[str, str, str]]:
+    """Diff ``payload`` against whatever SafeModel-like sits under ``hint``.
+
+    One entry point for all three container shapes the differ descends, so a
+    fourth shape is added in one place instead of three. Each container samples
+    ONE element, consistent with :func:`verification.schema.schema_of` and with
+    the ``list[Model]`` behaviour that predates this function.
+
+    The mapping segment is rendered ``{}`` -- index-free, matching both the
+    ``[0]`` convention here and the decode walker's own ``{}`` marker for mapping
+    elements (models.py ``_mapping_value``, WR-04). A key sampled out of an
+    open-keyed payload is data, not schema, and putting it in the path would make
+    the same structural finding read as N different ones.
+    """
+    value_hint = _mapping_value_hint(hint)
+    if value_hint is not None:
+        if isinstance(payload, dict) and payload:
+            first = next(iter(payload.values()))
+            yield from _descend(first, value_hint, f"{path}{{}}")
+        # Empty mapping: nothing to sample, no finding — same as an empty list.
+        return
+
+    nested_cls = _nested_safemodel_class(hint)
+    if nested_cls is None:
+        return
+    if _is_list_of_safemodel(hint):
+        if isinstance(payload, list) and payload:
+            yield from diff_safemodel_bidirectional(payload[0], nested_cls, f"{path}[0]")
+        # Empty list: no recursion, no finding.
+        return
+    yield from diff_safemodel_bidirectional(payload, nested_cls, path)
+
+
 def diff_safemodel_bidirectional(
     payload: Any,
     model_cls: type,
@@ -165,21 +254,8 @@ def diff_safemodel_bidirectional(
     for key in sorted(wire_keys - model_keys):
         yield (path, "wire-only", key)
 
-    # Recursion: descender en nested SafeModel-like y list[SafeModel-like].
+    # Recursion: descender en nested SafeModel-like, list[SafeModel-like] y
+    # -- desde el code review de la Phase 37 (WR-06) -- mapping[str, ...],
+    # incluido el anidado a dos niveles. Toda la dispatch vive en ``_descend``.
     for key in model_keys & wire_keys:
-        hint = hints[key]
-        nested_payload = payload[key]
-        nested_cls = _nested_safemodel_class(hint)
-        if nested_cls is None:
-            continue
-        if _is_list_of_safemodel(hint):
-            # Samplea solo el primer elemento (consistente con schema_of).
-            if isinstance(nested_payload, list) and nested_payload:
-                yield from diff_safemodel_bidirectional(
-                    nested_payload[0],
-                    nested_cls,
-                    f"{path}.{key}[0]",
-                )
-            # Lista vacia: sin recursion, sin finding.
-        else:
-            yield from diff_safemodel_bidirectional(nested_payload, nested_cls, f"{path}.{key}")
+        yield from _descend(payload[key], hints[key], f"{path}.{key}")
