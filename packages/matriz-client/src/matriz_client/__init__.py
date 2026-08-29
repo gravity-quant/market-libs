@@ -77,6 +77,7 @@ from matriz_client.models import (  # noqa: E402
     Position,
     PrimaryWsMessage,
     Segment,
+    TickPriceRange,
     Trade,
     UnknownFrame,
 )
@@ -141,6 +142,7 @@ __all__ = [
     "Segment",
     "SegmentId",
     "Side",
+    "TickPriceRange",
     "TimeInForce",
     "Trade",
     "UnknownFrame",

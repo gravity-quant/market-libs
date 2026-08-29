@@ -17,7 +17,7 @@ DEFAULT_MARKET_DATA_ENTRIES : tuple :
 DetailedPosition : class : (account: 'str | None' = None, totalDailyDiffPlain: 'float | None' = None, totalMarketValue: 'float | None' = None, report: 'dict[str, Any]' = <factory>, lastCalculation: 'str | None' = None) -> None
 ExecutionReportFrame : class : (type: 'str | None' = None, timestamp: 'int | None' = None, orderReport: 'OrderReport' = <factory>) -> None
 Instrument : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None) -> None
-InstrumentDetail : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None, segment: 'Segment' = <factory>, lowLimitPrice: 'float | None' = None, highLimitPrice: 'float | None' = None, minPriceIncrement: 'float | None' = None, minTradeVol: 'float | None' = None, maxTradeVol: 'float | None' = None, tickSize: 'float | None' = None, contractMultiplier: 'float | None' = None, roundLot: 'float | None' = None, priceConvertionFactor: 'float | None' = None, maturityDate: 'str | None' = None, currency: 'Currency | None' = None, orderTypes: 'list[OrderType]' = <factory>, timesInForce: 'list[TimeInForce]' = <factory>, instrumentPricePrecision: 'int | None' = None, instrumentSizePrecision: 'int | None' = None, securityDescription: 'str | None' = None, tickPriceRanges: 'dict[str, Any]' = <factory>) -> None
+InstrumentDetail : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None, segment: 'Segment' = <factory>, lowLimitPrice: 'float | None' = None, highLimitPrice: 'float | None' = None, minPriceIncrement: 'float | None' = None, minTradeVol: 'float | None' = None, maxTradeVol: 'float | None' = None, tickSize: 'float | None' = None, contractMultiplier: 'float | None' = None, roundLot: 'float | None' = None, priceConvertionFactor: 'float | None' = None, maturityDate: 'str | None' = None, currency: 'Currency | None' = None, orderTypes: 'list[OrderType]' = <factory>, timesInForce: 'list[TimeInForce]' = <factory>, instrumentPricePrecision: 'int | None' = None, instrumentSizePrecision: 'int | None' = None, securityDescription: 'str | None' = None, tickPriceRanges: 'dict[str, TickPriceRange]' = <factory>) -> None
 InstrumentId : class : (marketId: 'MarketId | None' = None, symbol: 'str | None' = None) -> None
 MARKET_DATA_ENTRIES : tuple :
 MarketDataEntry : _LiteralGenericAlias :
@@ -39,6 +39,7 @@ PrimaryWsMessage : UnionType :
 Segment : class : (marketSegmentId: 'SegmentId | None' = None, marketId: 'MarketId | None' = None) -> None
 SegmentId : _LiteralGenericAlias :
 Side : _LiteralGenericAlias :
+TickPriceRange : class : (lowerLimit: 'float | None' = None, upperLimit: 'float | None' = None, tick: 'float | None' = None) -> None
 TimeInForce : _LiteralGenericAlias :
 Trade : class : (symbol: 'str | None' = None, servertime: 'int | None' = None, size: 'int | None' = None, price: 'float | None' = None, datetime: 'str | None' = None) -> None
 UnknownFrame : class : (type: 'str | None' = None, raw: 'dict[str, Any]' = <factory>) -> None

@@ -87,7 +87,7 @@ def test_instrument_detail_accepts_partial_payload() -> None:
 # presented as a capture (D-04a).
 
 
-def test_instrument_detail_tick_price_ranges_decodes_the_committed_baseline() -> None:
+def test_instrument_detail_tickPriceRanges_decodes_the_committed_baseline() -> None:
     """D-05: the mapping values arrive as models, not raw dicts."""
     detail = InstrumentDetail.from_api(
         {
@@ -107,7 +107,7 @@ def test_instrument_detail_tick_price_ranges_decodes_the_committed_baseline() ->
     assert entry.upperLimit is None
 
 
-def test_tick_price_range_is_a_null_object() -> None:
+def test_tickPriceRanges_values_are_TickPriceRange_null_objects() -> None:
     """NOBJ-01 / T-37-06: an attribute chain over the mapping never raises."""
     tick_price_range = matriz_client.TickPriceRange
 
@@ -121,7 +121,7 @@ def test_tick_price_range_is_a_null_object() -> None:
     )
 
 
-def test_tick_price_range_is_on_the_exported_surface() -> None:
+def test_TickPriceRange_is_on_the_exported_surface() -> None:
     """Plan 37-04's field gate resolves candidates from ``__all__``."""
     assert "TickPriceRange" in matriz_client.__all__
     assert matriz_client.TickPriceRange is models.TickPriceRange

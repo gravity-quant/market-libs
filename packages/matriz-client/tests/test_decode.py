@@ -493,7 +493,7 @@ def test_dict_hint_present_mapping_is_returned_verbatim(
     assert [p for p, _ in _pairs(caplog)] == []
 
 
-def test_tick_price_ranges_undeclared_inner_key_is_one_non_fatal_extra(
+def test_tickPriceRanges_undeclared_inner_key_is_one_non_fatal_extra(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """T-37-08 (accept): the closed roster DISCARDS extras but never hides them.

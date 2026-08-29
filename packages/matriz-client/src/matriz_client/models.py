@@ -70,6 +70,7 @@ __all__ = [
     "Position",
     "PrimaryWsMessage",
     "Segment",
+    "TickPriceRange",
     "Trade",
     "UnknownFrame",
 ]
@@ -411,6 +412,40 @@ class Instrument(_SafeModel):
 
 
 @dataclass(frozen=True)
+class TickPriceRange(_SafeModel):
+    """One tick-size band inside :attr:`InstrumentDetail.tickPriceRanges` (§5.2).
+
+    Live-capture provenance (D-04a class ``baseline``): field set taken verbatim
+    from ``.planning/verification/schemas/matriz-client/get-instrument-detail.json``,
+    captured 2026-06-10T01:01:55Z against ``https://api.remarkets.primary.com.ar``
+    (reMarkets, symbol ``SOJ.ROS/NOV26 308 P``). The capture records exactly one
+    key ``"0"`` carrying exactly these three names. Not from the vendor doc and
+    not from a mock — the samples at ``documentation/Primary-API.md:330,378,454``
+    agree on all three names, on the single key and on the runtime types, and are
+    cited here as **vendor-documented corroboration only**, never as a capture.
+
+    ``lowerLimit`` is declared ``float | None`` although the capture records
+    ``int`` on the wire: ``_decode.walk_field``'s ``float`` arm widens ``int`` to
+    ``float`` BEFORE consulting ``scalar_passthrough``, so the widening is silent
+    and fabricates no divergence (37-RESEARCH F-5; identical reasoning to Phase
+    36's ``BookLevel.price``). A future reader must not "fix" it to ``int`` —
+    that would start reporting a divergence on every well-formed payload.
+    ``upperLimit`` was ``null`` in every observed sample, so an absent one
+    answers ``None`` rather than a typed zero.
+
+    The roster is CLOSED at these three keys because that is what the capture
+    shows (T-37-08). A fourth key the vendor adds later is discarded from the
+    model but reported as a non-fatal ``extra`` divergence by the walker, which
+    is the "closed roster + divergence reporting" form Phase 36's
+    ``MarketDataEntries`` established for a partially observed payload.
+    """
+
+    lowerLimit: float | None = None
+    upperLimit: float | None = None
+    tick: float | None = None
+
+
+@dataclass(frozen=True)
 class InstrumentDetail(_SafeModel):
     """Full instrument detail (§5.2).
 
@@ -437,7 +472,11 @@ class InstrumentDetail(_SafeModel):
     instrumentPricePrecision: int | None = None
     instrumentSizePrecision: int | None = None
     securityDescription: str | None = None
-    tickPriceRanges: dict[str, Any] = field(default_factory=dict)
+    # D-05: a string-keyed MAPPING, never ``list[TickPriceRange]``. All three
+    # observed samples carry exactly one key ``"0"``; nothing observed proves the
+    # keys are contiguous or ordered, and flattening to a list would assert a
+    # sequence property no evidence supports.
+    tickPriceRanges: dict[str, TickPriceRange] = field(default_factory=dict)
 
 
 # ----------------------------------------------------------------------
