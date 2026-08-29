@@ -1,7 +1,7 @@
 """Null Object contract for ``iol_client.models`` — NOBJ-01, Phase 35.
 
-The iol copy of the contract higyrus pinned first (plan 35-01). It asserts the
-same four things, over this paquete's own shipped classes:
+The iol copy of the contract the tracer paquete pinned first (plan 35-01). It
+asserts the same four things, over this paquete's own shipped classes:
 
 1. Every shipped :class:`~iol_client.models.SafeModel` subclass is **falsy**
    when it carries nothing, and ``Model.from_api(None) == Model.empty()``
@@ -108,8 +108,8 @@ def _perturb(empty: Any) -> Any:
     value to dispatch on, and every later branch would fall through, covering
     the class vacuously.
 
-    The trailing nested-model branch is carried over from the higyrus tracer
-    (35-01 deviation 1): a nested-model field's empty value in these paquetes is
+    The trailing nested-model branch is carried over from the 35-01 tracer
+    (deviation 1): a nested-model field's empty value in these paquetes is
     a nested empty INSTANCE rather than ``None``, so a class whose only fields
     are nested models offers nothing the earlier branches can dispatch on. No
     shipped iol class is that shape today — ``Titulo.puntas`` is ``Punta | None``
