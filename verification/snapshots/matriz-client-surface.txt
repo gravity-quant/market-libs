@@ -7,18 +7,20 @@
 # See PATTERNS.md Section 3 for the snapshot file convention.
 #
 AccountId : class : (id: 'str | None' = None) -> None
-AccountReport : class : (accountName: 'str | None' = None, marketMember: 'str | None' = None, marketMemberIdentity: 'str | None' = None, collateral: 'float | None' = None, margin: 'float | None' = None, availableToCollateral: 'float | None' = None, detailedAccountReports: 'dict[str, Any]' = <factory>, portfolio: 'dict[str, Any]' = <factory>, ordersMargin: 'float | None' = None, currentCash: 'float | None' = None, dailyDiff: 'float | None' = None, uncoveredMargin: 'float | None' = None) -> None
+AccountReport : class : (accountName: 'str | None' = None, marketMember: 'str | None' = None, marketMemberIdentity: 'str | None' = None, collateral: 'float | None' = None, margin: 'float | None' = None, availableToCollateral: 'float | None' = None, detailedAccountReports: 'dict[str, DetailedAccountReport]' = <factory>, portfolio: 'float | None' = None, ordersMargin: 'float | None' = None, currentCash: 'float | None' = None, dailyDiff: 'float | None' = None, uncoveredMargin: 'float | None' = None) -> None
 AsyncClient : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.AsyncClient | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 AuthenticationError : class : (status: 'str', description: 'str | None' = None, message: 'str | None' = None)
 CFICode : _LiteralGenericAlias :
 Client : class : (*, base_url: 'str | None' = None, username: 'str | None' = None, password: 'str | None' = None, token: 'str | None' = None, token_expires_at: 'float | None' = None, max_retries: 'int' = 2, http_client: 'httpx.Client | None' = None, strict_decode: 'bool | None' = None) -> 'None'
 Currency : _LiteralGenericAlias :
 DEFAULT_MARKET_DATA_ENTRIES : tuple :
-DetailedPosition : class : (account: 'str | None' = None, totalDailyDiffPlain: 'float | None' = None, totalMarketValue: 'float | None' = None, report: 'dict[str, Any]' = <factory>, lastCalculation: 'str | None' = None) -> None
+DetailedAccountReport : class : (settlementDate: 'int | None' = None) -> None
+DetailedPosition : class : (account: 'str | None' = None, totalDailyDiffPlain: 'float | None' = None, totalMarketValue: 'float | None' = None, report: 'dict[str, dict[str, InstrumentPositionReport]]' = <factory>, lastCalculation: 'str | None' = None) -> None
 ExecutionReportFrame : class : (type: 'str | None' = None, timestamp: 'int | None' = None, orderReport: 'OrderReport' = <factory>) -> None
 Instrument : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None) -> None
 InstrumentDetail : class : (instrumentId: 'InstrumentId' = <factory>, cficode: 'CFICode | None' = None, segment: 'Segment' = <factory>, lowLimitPrice: 'float | None' = None, highLimitPrice: 'float | None' = None, minPriceIncrement: 'float | None' = None, minTradeVol: 'float | None' = None, maxTradeVol: 'float | None' = None, tickSize: 'float | None' = None, contractMultiplier: 'float | None' = None, roundLot: 'float | None' = None, priceConvertionFactor: 'float | None' = None, maturityDate: 'str | None' = None, currency: 'Currency | None' = None, orderTypes: 'list[OrderType]' = <factory>, timesInForce: 'list[TimeInForce]' = <factory>, instrumentPricePrecision: 'int | None' = None, instrumentSizePrecision: 'int | None' = None, securityDescription: 'str | None' = None, tickPriceRanges: 'dict[str, TickPriceRange]' = <factory>) -> None
 InstrumentId : class : (marketId: 'MarketId | None' = None, symbol: 'str | None' = None) -> None
+InstrumentPositionReport : class : (instrumentInitialSize: 'float | None' = None, instrumentFilledSize: 'float | None' = None, instrumentCurrentSize: 'float | None' = None) -> None
 MARKET_DATA_ENTRIES : tuple :
 MarketDataEntry : _LiteralGenericAlias :
 MarketDataEntryValue : class : (price: 'float | None' = None, size: 'int | None' = None, date: 'int | None' = None) -> None

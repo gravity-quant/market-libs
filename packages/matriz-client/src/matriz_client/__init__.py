@@ -62,6 +62,7 @@ from matriz_client.exceptions import (  # noqa: E402
 from matriz_client.models import (  # noqa: E402
     AccountId,
     AccountReport,
+    DetailedAccountReport,
     DetailedPosition,
     ExecutionReportFrame,
     Instrument,
@@ -119,6 +120,7 @@ __all__ = [
     # REST Client class (Phase 6 Plan 06)
     "Client",
     "Currency",
+    "DetailedAccountReport",
     "DetailedPosition",
     "ExecutionReportFrame",
     "Instrument",

@@ -55,6 +55,7 @@ from matriz_client.types import (
 __all__ = [
     "AccountId",
     "AccountReport",
+    "DetailedAccountReport",
     "DetailedPosition",
     "ExecutionReportFrame",
     "Instrument",
@@ -687,6 +688,52 @@ class DetailedPosition(_SafeModel):
 
 
 @dataclass(frozen=True)
+class DetailedAccountReport(_SafeModel):
+    """One ``detailedAccountReports[key]`` entry of :class:`AccountReport` (§9.3).
+
+    **Provenance: vendor-documented, UNMEASURED (D-04a's third class).** The
+    field set is transcribed from ``documentation/Primary-API.md:1888`` inside
+    the ``GET /rest/risk/accountReport/REM7374`` sample at ``:1817-1895``. This
+    is **not** a capture: *no live observation of this payload exists anywhere in
+    this repo*, and none can be produced while ``LIVE-MATZ-33`` stands —
+    ``main_matriz.py`` asserts the remarkets hostname (D-MATZ-33) and that assert
+    is not bypassed. Nobody has seen this shape on the wire. Real verification is
+    deferred to Phase 39 / ``LIVE-NOBJ-01``.
+
+    **The deferred subtrees, named so they stay discoverable.** The sample's
+    entry also carries ``currencyBalance`` (``:1828-1859``, an open-keyed
+    ``detailedCurrencyBalance`` map of ``{consumed, available}`` pairs) and
+    ``availableToOperate`` (``:1860-1887``, a ``cash`` object with its own
+    open-keyed ``detailedCash`` map plus four siblings). D-07 defers **both**
+    rather than modelling open-keyed trees nobody has measured. Destination:
+    Phase 39 / ``LIVE-NOBJ-01``.
+
+    **The cost of the closed roster, disclosed (T-37-12).**
+    ``detailedAccountReports`` used to be a ``dict[str, Any]`` passthrough where
+    every key the vendor sent was readable. It is a closed dataclass now, so the
+    two deferred objects — and any key the vendor adds later — are DISCARDED:
+    their values never reach the caller. Detection is not silent: the walker
+    emits a non-fatal ``extra`` divergence per key (reported, never raised, not
+    even under ``strict_decode``), and the artifact where a real run's
+    divergences land is the append-only
+    ``.planning/verification/matriz-client-findings.md``, where Phase 37 also
+    filed this roster as declared-but-unobserved.
+
+    This entry sits under **ONE** level of vendor-open keys, unlike
+    :class:`InstrumentPositionReport` which sits under two. The asymmetry is
+    measured (37-RESEARCH F-7/F-8), not an oversight: forcing the two containers
+    to share a depth would fabricate a level of keys one of the samples does not
+    show.
+
+    No field is a mapping, for the same F-11 reason as
+    :class:`InstrumentPositionReport`. ``settlementDate`` is an epoch-millis
+    ``int`` on the wire and is declared ``int | None`` accordingly.
+    """
+
+    settlementDate: int | None = None
+
+
+@dataclass(frozen=True)
 class AccountReport(_SafeModel):
     """Full account report with cash, margins and portfolio (§9.3)."""
 
@@ -696,8 +743,21 @@ class AccountReport(_SafeModel):
     collateral: float | None = None
     margin: float | None = None
     availableToCollateral: float | None = None
-    detailedAccountReports: dict[str, Any] = field(default_factory=dict)
-    portfolio: dict[str, Any] = field(default_factory=dict)
+    # ONE level of vendor-open keys (``Primary-API.md:1826-1890``). Deliberately
+    # NOT mirrored on ``DetailedPosition.report``'s two-level shape — F-7
+    # measured the asymmetry and forcing a shared depth here would fabricate a
+    # level of keys the vendor sample does not show.
+    detailedAccountReports: dict[str, DetailedAccountReport] = field(default_factory=dict)
+    # D-02: a SCALAR leaf, not a mapping and not a model. Evidence: the vendor
+    # sample carries a bare number at ``Primary-API.md:1894``
+    # (``"portfolio":60240``), and the identical value appears as
+    # ``"totalMarketValue":60240`` for the SAME account in the detailed-position
+    # sample (``:1706``) — which is what makes "account market value" the
+    # reading rather than "an object we failed to model". Consequence: it leaves
+    # the mapping axis entirely (``_apply_mapping_policy`` no longer visits it)
+    # and a malformed value is now a reported ``type`` divergence, fatal under
+    # strict mode, instead of silently collapsing to ``{}`` (T-37-14).
+    portfolio: float | None = None
     ordersMargin: float | None = None
     currentCash: float | None = None
     dailyDiff: float | None = None
