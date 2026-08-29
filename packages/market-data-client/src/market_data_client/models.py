@@ -222,6 +222,78 @@ class SafeModel:
         )
         return cls(**kwargs)
 
+    @classmethod
+    def empty(cls) -> Self:
+        """Build an all-defaults instance. Emits nothing (T-29-33).
+
+        ``empty()`` does not decode wire data: it is the shape a model converges
+        on when it carries nothing, and it is the reference value
+        :meth:`__bool__` compares against. Routing it through an emitting sink
+        would produce one spurious ``missing`` record per field on every call —
+        records about a payload that was never received.
+
+        Phase 35 D-07 prohibits expressing this constructor as
+        ``cls.from_api(None)``, which would look equivalent and is not: the
+        tolerant entry point emits a terminal ``non_dict`` record for a
+        non-``dict`` payload, so ``empty()`` would stop being silent, and in the
+        matriz twin — whose ``from_api`` falls back to ``cls.empty()`` for a
+        non-``dict`` payload — the two would recurse without end. The walker is
+        reached directly instead, with the same ``SILENT_SINK`` the walker's own
+        nested-model default uses, so an ``empty()`` instance and a nested
+        default are the same object by construction.
+
+        **This is form B of D-07, and the mapping pass below is the whole
+        delta.** This paquete's tolerant constructor runs
+        :func:`_apply_mapping_policy` after the walk, because the walker has no
+        ``dict`` branch and would otherwise hand back whatever the payload held
+        for a mapping-declared field. ``empty()`` must run the same pass, or the
+        two constructors would disagree on every ``dict``-typed field — one
+        answering ``{}`` and the other ``None`` — and every truthiness
+        comparison against such a field would answer on that disagreement rather
+        than on the payload. The conditional sink :meth:`from_api` uses does NOT
+        carry over: inside ``empty()`` there is no payload that could be
+        non-``dict``, so both sinks are unconditionally silent and the ternary
+        collapses. The form-A paquetes carry no mapping pass and must not grow a
+        no-op one to look identical — per-paquete ``from_api`` differences are
+        declared policy axes (``29-SEMANTICS-MATRIX.md``, "never harmonize"),
+        and Phase 36 retires this paquete's mapping machinery outright.
+
+        The result is deliberately **not** memoized. Several shipped classes in
+        this workspace declare mutable ``list`` / ``dict`` fields, and a cached
+        instance handed to every caller would be process-wide shared mutable
+        state that any one of them could corrupt for all the others.
+        """
+        kwargs = _decode.walk_model(cls, {}, policy=_decode.POLICY, sink=_decode.SILENT_SINK)
+        _apply_mapping_policy(cls, kwargs, sink=_decode.SILENT_SINK)
+        return cls(**kwargs)
+
+    def __bool__(self) -> bool:
+        """Null Object truthiness (NOBJ-01): falsy iff the model carries nothing.
+
+        A model equal to its own :meth:`empty` answers ``False``; any instance
+        differing in at least one field answers ``True``. This is what lets a
+        caller write ``if snapshot.entries:`` instead of threading ``None``
+        checks through a chain of nested models.
+
+        Two recorded facts about the semantics, both load-bearing for callers:
+
+        - **Cost is proportional to the subtree.** Each call rebuilds the whole
+          empty instance, measured at roughly 11 µs for a two-level shipped
+          model and 19 µs for a three-level one — not the ~2.6 µs of a flat
+          synthetic dataclass. It is cheap at a branch and expensive inside a
+          hot loop over hundreds of snapshots; hoist it if that is the shape of
+          the call site.
+        - **Emptiness is a field-level question, not an envelope-level one**
+          (D-09). :class:`MarketDataSnapshot` is this workspace's live example
+          and it lives in this module: its ``from_api`` stamps the client-side
+          ``received_at`` AFTER the walk, so a snapshot decoded by the shipped
+          client always differs from its ``empty()`` and is **truthy even when
+          the wire carried nothing at all**. Ask about the field you care about
+          — ``snapshot.entries``, ``snapshot.market_data`` — never about the
+          envelope that wraps it.
+        """
+        return self != type(self).empty()
+
     def to_dict(self) -> dict[str, Any]:
         """Re-project the model as the plain wire dict (D-08).
 
