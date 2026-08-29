@@ -25,7 +25,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### matriz-client
 
-- [ ] **NOBJ-MTZ-01**: `InstrumentDetail.tickPriceRanges`, `AccountReport.report`, `AccountReport.detailedAccountReports`, `AccountReport.portfolio` tipados como modelos contra payloads reales (exención única y documentada: `UnknownFrame.raw`)
+- [x] **NOBJ-MTZ-01**: `InstrumentDetail.tickPriceRanges`, `AccountReport.report`, `AccountReport.detailedAccountReports`, `AccountReport.portfolio` tipados como modelos contra payloads reales (exención única y documentada: `UnknownFrame.raw`)
 - [ ] **NOBJ-MTZ-02**: `matriz_client.models.MarketDataSnapshot` gana las mismas propiedades alias (`last`/`bids`/`offers`/`settlement`/`close`/`open_interest`), compartidas por la superficie REST y los frames WS
 
 ### Auditoría resto
@@ -67,7 +67,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOBJ-MD-01 | Phase 36 | Complete |
 | NOBJ-MD-02 | Phase 36 | Complete |
 | NOBJ-IOL-01 | Phase 38 | Pending |
-| NOBJ-MTZ-01 | Phase 37 | Pending |
+| NOBJ-MTZ-01 | Phase 37 | Complete |
 | NOBJ-MTZ-02 | Phase 37 | Pending |
 | NOBJ-AUD-01 | Phase 38 | Pending |
 | LIVE-NOBJ-01 | Phase 39 | Pending |

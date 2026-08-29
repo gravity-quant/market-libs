@@ -5,15 +5,15 @@ milestone_name: API tipada con Null Objects
 current_phase: 37
 current_phase_name: matriz-client-dicts-residuales-tipados-alias
 status: executing
-stopped_at: Completed 37-02-PLAN.md
-last_updated: "2026-08-29T16:07:47.780Z"
+stopped_at: Completed 37-04-PLAN.md
+last_updated: "2026-08-29T16:20:01.342Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 37 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 37 (matriz-client-dicts-residuales-tipados-alias) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 37 execution started
 
@@ -180,6 +180,7 @@ Last activity: 2026-08-29 — Phase 37 execution started
 | Phase 37 P01 | 10min | 3 tasks | 3 files |
 | Phase 37 P02 | ~11 min | 2 tasks | 5 files |
 | Phase 37 P03 | ~22 min | 3 tasks | 6 files |
+| Phase 37 P04 | 34min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -400,6 +401,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 37-03: DetailedPosition.report typed at TWO levels and AccountReport.detailedAccountReports at ONE — the vendor samples show different depths (F-7/F-8); forcing a shared shape would fabricate a level of keys
 - [Phase ?]: 37-03: both new inner models declare D-04a's third provenance class 'vendor-documented, UNMEASURED' — no live capture exists, LIVE-MATZ-33 blocks producing one, destination Phase 39 LIVE-NOBJ-01 (ledger rows F-11/F-12)
 - [Phase ?]: 37-03: _safemodel_classes() is now 20; Plan 37-05 raises test_null_object.py's roster floor from 17 to it
+- [Phase ?]: 37-04: el predicado de campo del gate no restringe el tipo de la KEY del mapping — más estricto que la letra del plan, cierra dict[int, Any] como bypass
+- [Phase ?]: 37-04: el guard anti-vacuidad pasa de 'cero definiciones' a 'cero definiciones Y cero campos'; sin cláusula dura de cero-campos (reenrojecería los fixtures de iol)
+- [Phase ?]: 37-04: la exención de campo se prueba por nombre (exempted_by_reason['ws-catch-all'] == 1), no subiendo el piso total de exenciones
 
 ### Pending Todos
 
@@ -425,6 +429,7 @@ Recent decisions affecting current work:
 - ~~[v1.6 / Phase 31 deferred-items D-2/D-3]~~ **RESUELTO 2026-08-25 (Plan 32-01, commits `5ce4e87` + `f08b7f2`).** Texto original: *ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run; mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.* Los 33 errores (29 matriz + 2 higyrus + 2 ambito) se arreglaron **en código de test únicamente** — `pyproject.toml` byte-idéntico, cero tests borrados/skippeados. El loop per-package de `ci.yml:92-99` imprime `Success: no issues found` **seis veces**; el job `typecheck` está verde por primera vez desde 2026-08-18. Baseline completo de los 4 jobs en `.planning/phases/32-gates-de-homogeneidad-d-16/32-01-SUMMARY.md` § CI-green baseline (Wave 0 close).
 - ~~Criterio 1 de la Phase 33 PARCIAL (registrado por 33-05): 33-07 debe surfacearlo en vez de dar el criterio 1 por cerrado.~~ **SURFACEADO 2026-08-27 por el plan 33-07** en tres lugares: `33-CENSUS.md` § Criterio 1 (declarado GATE HUMANO ABIERTO), `33-07-SUMMARY.md`, y una asercion EJECUTABLE dentro de `verification/test_cycle_closure_phase33.py` que exige que el censo siga diciendo `SKIPPED — vendor inalcanzable` y que `LIVE-HIGY-33` siga nombrado. El gate en si **sigue abierto** — ver la entrada siguiente.
 - Criterio 1 de la Phase 33 **PARCIAL** — 3 de 5 paquetes medidos en vivo. `higyrus-client` (host que no resuelve por DNS) y `matriz-client` (assert de politica remarkets-only D-MATZ-33) no pudieron correr, y ninguna causa es resoluble desde dentro de la fase. Destinos nombrados: `LIVE-HIGY-33` y `LIVE-MATZ-33`. `LIVE-TYP-01` queda Pending por esto, no por prudencia: cerrarlo exigiria afirmar el criterio 1.
+- DEF-37-01: 4 errores mypy PRE-EXISTENTES en packages/matriz-client/tests/{test_core.py:372, test_decode.py:666,839,840} heredados de los retipados 37-01/02/03 — rompen el job CI typecheck; diagnóstico en 37-.../deferred-items.md
 
 ### Quick Tasks Completed
 
@@ -483,8 +488,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T16:07:34.119Z
-Stopped at: Completed 37-02-PLAN.md
+Last session: 2026-08-29T16:19:57.173Z
+Stopped at: Completed 37-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
