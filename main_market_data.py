@@ -675,6 +675,30 @@ def _unwrap_rows(raw: Any, key: str) -> list[Any]:
     return rows if isinstance(rows, list) else []
 
 
+# Posición del ``last price`` dentro de la tupla que arman los cuatro probes de
+# lectura. La tupla queda LOCAL al probe (T-36-03-01: al detail sólo sube un
+# conteo), así que el índice se nombra acá una sola vez en vez de repetirse
+# crudo en los cuatro sitios.
+_CHAINED_LAST_PRICE = 1
+
+
+def _with_last(chained: list[tuple[Any, ...]]) -> int:
+    """Cuántas de las filas encadenadas traen un last price REAL (no ``None``).
+
+    Phase 36 code review, WR-05: el detail rendereaba ``chained={len(chained)}``,
+    que por construcción NUNCA puede diferir de la cantidad de filas — la
+    comprensión que arma ``chained`` no tiene filtro. Se leía como una medición
+    independiente ("N filas traídas, N cadenas caminadas") en un artefacto que un
+    humano lee para juzgar una corrida en vivo, y no podía reportar otra cosa: si
+    la cadena se rompiera, el probe sería un FINDING y la línea ni se rendearía.
+
+    Este conteo SÍ es independiente del row count: distingue "traje N filas" de
+    "N de esas filas tenían precio", que es exactamente lo que un operador
+    necesita para juzgar si el mercado estaba cerrado o si el feed está mudo.
+    """
+    return sum(1 for row in chained if row[_CHAINED_LAST_PRICE] is not None)
+
+
 def _emit_shape(
     sample: Any,
     model_cls: type,
@@ -870,7 +894,9 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
             base_url=base_url,
             surface="sync",
         )
-        return ProbeResult(name, "PASS", f"snapshots={len(snapshots)} chained={len(chained)}")
+        return ProbeResult(
+            name, "PASS", f"snapshots={len(snapshots)} with_last={_with_last(chained)}"
+        )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
@@ -913,7 +939,9 @@ def probe_latest_sync(client: Client) -> ProbeResult:
             surface="sync",
         )
         return ProbeResult(
-            name, "PASS", f"latest={len(latest)} batch={len(batch)} chained={len(chained)}"
+            name,
+            "PASS",
+            f"latest={len(latest)} batch={len(batch)} with_last={_with_last(chained)}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
@@ -1212,7 +1240,9 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
             surface="async",
         )
-        return ProbeResult(name, "PASS", f"snapshots={len(snapshots)} chained={len(chained)}")
+        return ProbeResult(
+            name, "PASS", f"snapshots={len(snapshots)} with_last={_with_last(chained)}"
+        )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
@@ -1254,7 +1284,9 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
             surface="async",
         )
         return ProbeResult(
-            name, "PASS", f"latest={len(latest)} batch={len(batch)} chained={len(chained)}"
+            name,
+            "PASS",
+            f"latest={len(latest)} batch={len(batch)} with_last={_with_last(chained)}",
         )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
