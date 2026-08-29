@@ -19,6 +19,13 @@ alone. The suite pins five things:
    ``frozen=True`` dataclass is **invisible** to :func:`typing.get_type_hints`
    and therefore to the walker — the invariant phases 36-38 depend on when they
    add ``last`` / ``bids`` aliases (ROADMAP Phase 35 criterio 5, D-16).
+6. Phase 37 / ``NOBJ-MTZ-02`` **applies** point 5 to the real
+   :class:`~matriz_client.models.MarketDataSnapshot`: the six human-facing
+   aliases are asserted to be views (identity, not equality), to hold on a
+   REST-parsed instance AND on one reached through
+   :attr:`~matriz_client.models.MarketDataFrame.marketData`, and to leave the
+   walker's view of the class untouched. The generic proof in point 5 is
+   **cited, never duplicated** — see the docstrings of the cases at the bottom.
 
 The class roster is obtained by **introspection of the real module**, never
 from a hand-written fixture list (D-15): a fixture roster would keep passing on
@@ -49,7 +56,14 @@ import pytest
 
 from matriz_client import _decode, models
 from matriz_client._decode import POLICY, DecodeScope, walk_model
-from matriz_client.models import UnknownFrame, _SafeModel
+from matriz_client.models import (
+    MarketDataEntryValue,
+    MarketDataFrame,
+    MarketDataLevel,
+    MarketDataSnapshot,
+    UnknownFrame,
+    _SafeModel,
+)
 
 _MESSAGE = "decode divergence"
 
@@ -329,3 +343,239 @@ def test_adding_a_property_alias_does_not_change_the_divergence_count(
     assert shaped.LA == free.LA
     assert shaped.BI == free.BI
     assert shaped.last is shaped.LA
+
+
+# ---------------------------------------------------------------------------
+# NOBJ-MTZ-02 (Phase 37) — criterio 5 APPLIED to the real MarketDataSnapshot
+# ---------------------------------------------------------------------------
+#
+# Everything below asserts the six aliases on the class this paquete actually
+# ships. It deliberately does NOT re-prove the invariant: the generic proof
+# lives in `test_property_aliases_are_invisible_to_get_type_hints` and
+# `test_adding_a_property_alias_does_not_change_the_divergence_count` above,
+# with their `_AliasShaped` / `_AliasFree` fixtures, whose docstring already
+# says they exist "for phases 36-38". Those two tests and their fixtures are
+# not to be modified by this phase — they are cited by name from here instead.
+#
+# The single fact that makes this section short: `MarketDataFrame.marketData`
+# IS a `MarketDataSnapshot` (37-RESEARCH F-12). One class serves the REST
+# return type and the WebSocket frame payload, so six properties on that one
+# class satisfy Success Criterion 3 on both surfaces and `ws_client.py` needs
+# no change at all. The pair of identity cases below is the direct evidence
+# for that claim, which is why it is asserted rather than assumed.
+
+_ALIAS_NAMES = {"bids", "offers", "last", "settlement", "close", "open_interest"}
+
+#: The fourteen declared wire fields of ``MarketDataSnapshot``, asserted exactly
+#: so an accidental fifteenth field or a rename reddens here.
+_WIRE_FIELDS = {
+    "BI",
+    "OF",
+    "LA",
+    "SE",
+    "OI",
+    "CL",
+    "OP",
+    "HI",
+    "LO",
+    "TV",
+    "IV",
+    "EV",
+    "NV",
+    "ACP",
+}
+
+#: Wire entries carrying no alias, on purpose. ``OP`` is the headline case: it
+#: arrives as a BARE FLOAT rather than an ``{price, size, date}`` object (the
+#: comment at the field in ``models.py`` records this, issue #102), so there is
+#: no entry object for an ``open`` alias to view. The other seven are matriz's
+#: extra scalars, absent from the Phase 36 template and outside NOBJ-MTZ-02.
+_UNALIASED_SCALARS = {"OP", "HI", "LO", "TV", "IV", "EV", "NV", "ACP"}
+
+#: A market-data body in the REST shape (§8.1), values taken from the payload
+#: ``test_models.py`` already pins for this class.
+_REST_MARKET_DATA: dict[str, Any] = {
+    "BI": [{"price": 179.75, "size": 275}, {"price": 178.95, "size": 514}],
+    "OF": [{"price": 179.8, "size": 1000}],
+    "LA": {"price": 179.75, "size": 5, "date": 1669852800000},
+    "SE": {"price": 180.3, "size": None, "date": 1669852800000},
+    "CL": {"price": 180.35, "size": None, "date": 1669852800000},
+    "OI": {"price": None, "size": 217596, "date": 1664150400000},
+    "OP": 180.35,
+}
+
+#: The identical market data, wrapped in the ``type == "Md"`` envelope
+#: ``ws_client._parse_frame`` hands to ``MarketDataFrame.from_api`` (§8.2).
+_WS_FRAME: dict[str, Any] = {
+    "type": "Md",
+    "timestamp": 1669852800000,
+    "instrumentId": {"marketId": "ROFX", "symbol": "DLR/DIC23"},
+    "marketData": _REST_MARKET_DATA,
+}
+
+
+def test_the_six_alias_names_and_the_fourteen_wire_fields_are_disjoint() -> None:
+    """No alias may collide with a declared field name (NOBJ-MTZ-02).
+
+    The rationale differs from ``market-data-client``'s and must not be copied
+    from it verbatim. There the class is ``frozen=True, slots=True``, so a
+    colliding name is a SLOT collision that fails loudly at class creation.
+    This paquete's dataclasses carry no ``slots`` (semantics matrix row 5,
+    difference 5), so a collision here would be silent NAME SHADOWING: the
+    property would sit on the class and win attribute lookup over the instance
+    ``__dict__`` entry the dataclass ``__init__`` wrote, quietly hiding decoded
+    wire data behind a view of a different field. Nothing would raise. That is
+    exactly why the disjointness has to be asserted rather than trusted to the
+    runtime.
+
+    The wire roster is asserted EXACTLY, not as a subset, so an accidental
+    fifteenth field or a rename reddens here instead of widening the surface.
+    """
+    field_names = {f.name for f in dataclasses.fields(MarketDataSnapshot)}
+
+    assert field_names == _WIRE_FIELDS
+    assert len(field_names) == 14
+    assert field_names & _ALIAS_NAMES == set()
+    # And the frozen dataclass still constructs with the properties present.
+    assert MarketDataSnapshot.empty() is not None
+
+
+def test_each_alias_returns_the_identical_object_on_a_rest_parsed_snapshot() -> None:
+    """The six aliases are plain read-only views — no copy, no cache, no transformation.
+
+    ``is`` rather than ``==`` is the whole point: an alias that built a copy, a
+    cached value or a derived object would still compare equal and would still
+    pass an equality assertion, while silently ceasing to be a view of the wire
+    field (T-37-27).
+    """
+    snapshot = MarketDataSnapshot.from_api(_REST_MARKET_DATA)
+
+    assert snapshot.bids is snapshot.BI
+    assert snapshot.offers is snapshot.OF
+    assert snapshot.last is snapshot.LA
+    assert snapshot.settlement is snapshot.SE
+    assert snapshot.close is snapshot.CL
+    assert snapshot.open_interest is snapshot.OI
+
+
+def test_each_alias_returns_the_identical_object_on_a_ws_frame_parsed_snapshot() -> None:
+    """The same six identities hold on a snapshot reached through a WebSocket frame.
+
+    This is the falsifiable form of Success Criterion 3's "es el mismo objeto y
+    el mismo juego de alias". ``MarketDataFrame.marketData`` is annotated
+    ``MarketDataSnapshot``, so the WS surface inherits the properties with no
+    ``ws_client.py`` change; asserting it here means a future retype of that
+    field — the only way the claim could stop holding — reddens immediately
+    instead of silently splitting the two surfaces apart.
+    """
+    frame = MarketDataFrame.from_api(_WS_FRAME)
+    snapshot = frame.marketData
+
+    assert isinstance(snapshot, MarketDataSnapshot)
+    assert snapshot.bids is snapshot.BI
+    assert snapshot.offers is snapshot.OF
+    assert snapshot.last is snapshot.LA
+    assert snapshot.settlement is snapshot.SE
+    assert snapshot.close is snapshot.CL
+    assert snapshot.open_interest is snapshot.OI
+
+
+def test_the_alias_chain_reads_the_frame_payload_values_without_raising() -> None:
+    """A WS frame carrying book levels and a last price is readable through the aliases."""
+    snapshot = MarketDataFrame.from_api(_WS_FRAME).marketData
+
+    assert snapshot.last.price == 179.75
+    assert snapshot.last.size == 5
+    assert isinstance(snapshot.bids[0], MarketDataLevel)
+    assert snapshot.bids[0].price == 179.75
+    assert snapshot.bids[1].size == 514
+    assert snapshot.offers[0].price == 179.8
+    assert snapshot.settlement.price == 180.3
+    assert snapshot.close.price == 180.35
+    assert snapshot.open_interest.size == 217596
+
+
+def test_one_class_serves_both_surfaces_so_the_alias_set_is_shared() -> None:
+    """REST and WS answer the SAME six alias names because they are the same class.
+
+    37-RESEARCH F-12, asserted rather than assumed: this is the measurement that
+    makes a separate WebSocket-side alias task a no-op.
+    """
+    rest = MarketDataSnapshot.from_api(_REST_MARKET_DATA)
+    ws = MarketDataFrame.from_api(_WS_FRAME).marketData
+
+    assert type(rest) is type(ws) is MarketDataSnapshot
+    for name in _ALIAS_NAMES:
+        assert isinstance(getattr(type(rest), name), property)
+        assert getattr(rest, name) == getattr(ws, name)
+
+
+def test_the_empty_snapshot_answers_all_six_aliases_without_raising() -> None:
+    """T-37-23: every alias views a field whose default is a Null Object.
+
+    The two list aliases answer ``[]``; the four entry aliases answer the empty
+    :class:`MarketDataEntryValue`, so ``.price`` on any of them is ``None``
+    rather than an ``AttributeError``.
+    """
+    snapshot = MarketDataSnapshot.empty()
+
+    assert snapshot.bids == []
+    assert snapshot.offers == []
+    for name in ("last", "settlement", "close", "open_interest"):
+        entry = getattr(snapshot, name)
+        assert isinstance(entry, MarketDataEntryValue)
+        assert entry == MarketDataEntryValue.empty()
+        assert entry.price is None
+
+
+def test_the_empty_frame_chain_reaches_the_last_alias_and_answers_none() -> None:
+    """T-37-23 through the full WebSocket chain: ``frame.marketData.last.price``.
+
+    The deepest reachable chain a caller writes on the WS surface, over a frame
+    that carries nothing at all.
+    """
+    assert MarketDataFrame.empty().marketData.last.price is None
+    assert MarketDataFrame.from_api(None).marketData.bids == []
+    assert MarketDataFrame.from_api({"type": "Md"}).marketData.open_interest.size is None
+
+
+def test_the_bare_scalar_entries_are_deliberately_left_unaliased() -> None:
+    """``OP`` and matriz's seven extra scalars get NO alias — a decision, not an omission.
+
+    ``OP`` is the one a reader would expect to find as ``open``: it is excluded
+    because it arrives as a bare float, not as an ``{price, size, date}`` entry
+    object, so an ``open`` alias would return a scalar where its five siblings
+    return a model — an asymmetry the Phase 36 template also refused. ``HI``,
+    ``LO`` and ``TV`` are excluded for the same reason; ``IV``, ``EV``, ``NV``
+    and ``ACP`` are matriz-only scalars absent from the template and outside
+    NOBJ-MTZ-02's named set.
+    """
+    assert _UNALIASED_SCALARS <= _WIRE_FIELDS
+    assert _UNALIASED_SCALARS | {"BI", "OF", "LA", "SE", "OI", "CL"} == _WIRE_FIELDS
+
+    for name in ("open", "high", "low", "trade_volume", "traded_volume"):
+        assert not hasattr(MarketDataSnapshot, name)
+
+    # The alias set is exactly the six NOBJ-MTZ-02 names, no more.
+    properties = {n for n, v in vars(MarketDataSnapshot).items() if isinstance(v, property)}
+    assert properties == _ALIAS_NAMES
+
+
+def test_the_six_aliases_are_invisible_on_the_real_snapshot_class() -> None:
+    """Criterio 5 APPLIED once to the shipped class — the proof is not re-run here.
+
+    ``test_property_aliases_are_invisible_to_get_type_hints`` and
+    ``test_adding_a_property_alias_does_not_change_the_divergence_count`` above
+    already establish the invariant generically, on fixtures declared in this
+    paquete's own shape. This case only checks that the REAL class matches those
+    fixtures' shape, so the generic conclusion actually transfers to it — it
+    deliberately does not rebuild the ``_AliasShaped`` / ``_AliasFree`` machinery
+    (T-37-25).
+    """
+    hints = get_type_hints(MarketDataSnapshot)
+    declared = {f.name for f in dataclasses.fields(MarketDataSnapshot)}
+
+    assert declared <= set(hints)
+    assert set(hints) - declared == {"__dataclass_fields__"}
+    assert set(hints) & _ALIAS_NAMES == set()
+    assert declared & _ALIAS_NAMES == set()
