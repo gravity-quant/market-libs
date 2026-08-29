@@ -180,6 +180,51 @@ _BUILD_ARTIFACT_SUFFIX = ".egg-info"
 # ``list[dict[str, Any]]`` and ``Any | None`` are one predicate rather than five.
 _ANY = "Any"
 
+# The optional wrapper the FIELD predicate strips before matching. Both
+# spellings are handled: the PEP 604 union (``X | None``) and the legacy
+# ``Optional[X]``. See ``_field_annotation_is_untyped_mapping``.
+_OPTIONAL = "Optional"
+
+# The mapping bases the FIELD predicate recognises. ``dict`` is the only one in
+# the tree today; the aliases are listed so the ratchet cannot be bypassed by
+# spelling the same untyped mapping as ``Mapping[str, Any]``. Matched through
+# ``_base_name``, so ``typing.Dict`` and ``collections.abc.Mapping`` are the same
+# entry as their bare forms.
+_MAPPING_BASES = frozenset({"dict", "Dict", "Mapping", "MutableMapping"})
+
+# ---------------------------------------------------------------------------
+# THE ONE DECLARED FIELD EXEMPTION (Phase 37, D-01c)
+# ---------------------------------------------------------------------------
+#
+# Keyed on the QUALIFIED ``Class.field`` name, never on the bare member name.
+# That is the whole point: ``_is_exempt`` attributes by the *simple* name by its
+# own documented design, so an entry for ``raw`` placed there would spare every
+# member named ``raw`` in all six packages. This table is consulted first and
+# holds exactly one entry.
+#
+# The entry is the WebSocket catch-all frame's raw payload. That class exists to
+# preserve frames whose ``type`` this repo does not model, so callers can still
+# inspect forward-compatible keys without losing information; its own docstring
+# already carries that justification, and Phase 29's semantics matrix exempts it
+# from the decode walker for the same reason. An untyped mapping is the correct
+# annotation for a payload whose shape is by definition unknown -- this is the
+# one place in the phase where that is true, and it is the phase's single
+# declared exemption.
+#
+# BLAST-RADIUS NOTE (Phase 37 research finding F-9), recorded here rather than
+# left to be rediscovered by a red CI run: an AST scan over every ``ClassDef``
+# body in all six packages' ``src/`` trees found that the internal request-spec
+# dataclass declares an optional untyped mapping field (``params``, and in three
+# packages ``json_body``/``data`` as well) in EVERY one of them. Those fields
+# match this predicate exactly. They are unreachable today for one reason only:
+# that dataclass appears in no package's ``__all__``, and this gate resolves its
+# candidates from the exported surface outward. Exporting it would turn all six
+# packages red at once. Anyone who adds it to an ``__all__`` must re-check this
+# gate first -- and the remedy is to type those fields, not to widen this table.
+_FIELD_EXEMPTIONS: dict[str, str] = {
+    "UnknownFrame.raw": "ws-catch-all",
+}
+
 # Depth limit for the intra-package re-export chase (see the CR-01 section of the
 # module docstring). The deepest real chain in the workspace today is two hops
 # (`__init__` -> `ws_client` -> `types`); this bound exists so a pathological or
@@ -210,11 +255,19 @@ class ScanResult:
     *assignment* rather than to a ``def``/``class`` -- constants and ``Literal``
     aliases. They carry no return annotation, so they are reported as a stated
     outcome rather than absorbed into silence (Phase 32 CR-01).
+
+    ``fields`` counts annotated field declarations found in the bodies of
+    exported classes -- the second scanning dimension, added in Phase 37. It is
+    a *scanned* count, not a hit count: it is the denominator that proves the
+    dimension looked at something. Before Phase 37 this number did not exist and
+    would have been 0, which is exactly how the gate reported green with five
+    untyped mapping fields sitting on an exported surface.
     """
 
     packages: int
     all_names: int
     definitions: int
+    fields: int
     assignments: int
     exempted: int
     exempted_by_reason: tuple[tuple[str, int], ...]
@@ -413,6 +466,91 @@ def _annotation_mentions_any(annotation: ast.expr) -> bool:
     return False
 
 
+def _base_name(node: ast.expr) -> str | None:
+    """The trailing identifier of ``Name``/``Attribute``, or ``None``.
+
+    Collapses ``Any``/``t.Any``/``typing.Any`` and ``dict``/``typing.Dict``/
+    ``collections.abc.Mapping`` to one comparison, structurally rather than by
+    substring on unparsed source.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _is_any(node: ast.expr) -> bool:
+    """Whether this annotation node *is* ``Any`` -- not merely mentions it."""
+    return _base_name(node) == _ANY
+
+
+def _is_none(node: ast.expr) -> bool:
+    """Whether this annotation node is the ``None`` arm of an optional union."""
+    if isinstance(node, ast.Constant) and node.value is None:
+        return True
+    return _base_name(node) == "None"
+
+
+def _strip_optional(annotation: ast.expr) -> ast.expr:
+    """Peel an optional wrapper off an annotation, or return it unchanged.
+
+    ``X | None`` and ``Optional[X]`` both yield ``X``. RESEARCH A2/F-9 asked for
+    this explicitly: no exported field carries ``dict[str, Any] | None`` today,
+    so the choice is unobservable on the real tree and only makes the ratchet
+    stricter -- but leaving the hole open would have made ``| None`` a one-token
+    bypass of the whole field dimension.
+
+    A union with two non-``None`` arms is NOT an optional wrapper and is
+    returned unchanged, so ``str | dict[str, Any]`` is judged on its own shape.
+    """
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        if _is_none(annotation.right):
+            return _strip_optional(annotation.left)
+        if _is_none(annotation.left):
+            return _strip_optional(annotation.right)
+        return annotation
+    if isinstance(annotation, ast.Subscript) and _base_name(annotation.value) == _OPTIONAL:
+        return _strip_optional(annotation.slice)
+    return annotation
+
+
+def _field_annotation_is_untyped_mapping(annotation: ast.expr) -> bool:
+    """Whether an exported class FIELD is annotated as an untyped mapping (D-01b).
+
+    This is deliberately **not** :func:`_annotation_mentions_any`, the wide
+    predicate the return dimension uses. It matches the annotation's own shape,
+    never its subtree, and exactly two shapes match once the optional wrapper is
+    stripped:
+
+    1. a bare ``Any`` -- the degenerate untyped surface;
+    2. a two-parameter mapping subscript whose **value** parameter is ``Any``,
+       i.e. ``dict[str, Any]`` and its spellings.
+
+    Everything else is spared, and one case in particular is spared **on
+    purpose**: ``list[Any]``. Widening this predicate to any mention of ``Any``
+    would immediately redden two *exported* ``list[Any]`` fields in a package
+    Phase 37 declared disjoint and out of scope. Ratchet discipline says a red
+    gate is never resolved by weakening the gate; D-01b adds the corollary that
+    an out-of-scope red is resolved by NARROWING this predicate, never by
+    exempting the foreign field and never by editing the foreign package.
+
+    The key parameter is not constrained to ``str``: the observed shape is
+    string-keyed, but a mapping keyed by anything else says just as little about
+    its values, and constraining the key would leave ``dict[int, Any]`` as a
+    trivially reachable hole.
+    """
+    inner = _strip_optional(annotation)
+    if _is_any(inner):
+        return True
+    if not isinstance(inner, ast.Subscript):
+        return False
+    if _base_name(inner.value) not in _MAPPING_BASES:
+        return False
+    parameters = inner.slice.elts if isinstance(inner.slice, ast.Tuple) else [inner.slice]
+    return len(parameters) == 2 and _is_any(parameters[1])
+
+
 def _module_path(import_root: Path, submodule: str) -> Path:
     """The file backing a dotted submodule name, preferring ``<name>.py``."""
     parts = submodule.split(".")
@@ -539,6 +677,65 @@ def _adjudicate(
     return None, f"    `{package}.{qualified}` {detail} on the exported surface"
 
 
+def _field_candidates_for(binding: _Binding) -> list[tuple[str, str, ast.AnnAssign]]:
+    """The annotated field declarations one resolved export contributes.
+
+    The mirror image of :func:`_candidates_for`, and deliberately the same
+    ``(qualified, simple, node)`` triple over the same
+    :func:`_module_level_statements` traversal -- so a field declared under an
+    ``if`` inside a class body is included for the same reason a conditionally
+    defined method is (CR-01 shape 2).
+
+    Only a class binding contributes fields. A function binding contributes
+    none: a local annotated variable inside a function body is not on the
+    exported surface, and :func:`_module_level_statements` never descends into
+    a function body anyway.
+
+    An ``AnnAssign`` whose target is not a plain name (``self.x: int``,
+    ``obj.attr: int``) is skipped: it declares nothing on the class.
+    """
+    node = binding.node
+    if not isinstance(node, ast.ClassDef):
+        return []
+    return [
+        (f"{node.name}.{member.target.id}", member.target.id, member)
+        for member in _module_level_statements(node.body)
+        if isinstance(member, ast.AnnAssign) and isinstance(member.target, ast.Name)
+    ]
+
+
+def _adjudicate_field(
+    qualified: str,
+    member: str,
+    node: ast.AnnAssign,
+    package: str,
+) -> tuple[str | None, str | None]:
+    """Classify one candidate field as ``(exemption_reason, violation)``.
+
+    The same two-slot contract as :func:`_adjudicate`, with two differences the
+    field dimension forces:
+
+    - The predicate is the NARROW :func:`_field_annotation_is_untyped_mapping`
+      (D-01b), not the wide return predicate.
+    - There is no "has no annotation" arm. An ``ast.AnnAssign`` carries an
+      annotation by construction, so a field analogue of that branch would be
+      unreachable code rather than a check.
+
+    :data:`_FIELD_EXEMPTIONS` is consulted **before** :func:`_is_exempt`,
+    because it is keyed on the qualified ``Class.field`` pair while
+    ``_is_exempt`` attributes by the simple member name. Both reasons flow into
+    the same ``exempted_by_reason`` accumulator, so an exemption that never
+    absorbs a real hit is visible as a missing count rather than as silence.
+    """
+    if not _field_annotation_is_untyped_mapping(node.annotation):
+        return None, None
+    reason = _FIELD_EXEMPTIONS.get(qualified) or _is_exempt(member)
+    if reason is not None:
+        return reason, None
+    detail = f"is annotated `{ast.unparse(node.annotation)}`"
+    return None, f"    `{package}.{qualified}` {detail} on the exported surface"
+
+
 def scan_surface_types(root: Path) -> ScanResult:
     """Scan every package under ``root/packages`` and report what was found.
 
@@ -553,6 +750,7 @@ def scan_surface_types(root: Path) -> ScanResult:
     exempt_counts: dict[str, int] = {}
     all_names_total = 0
     definitions_total = 0
+    fields_total = 0
     assignments_total = 0
 
     packages_dir = root / "packages"
@@ -603,7 +801,8 @@ def scan_surface_types(root: Path) -> ScanResult:
                 continue
             _, binding = resolved
             candidates = _candidates_for(binding)
-            if not candidates and binding.node is None:
+            field_candidates = _field_candidates_for(binding)
+            if not candidates and not field_candidates and binding.node is None:
                 # Resolved to a module-level assignment: a constant or a
                 # `Literal` alias. It has no return annotation to check, so it
                 # is a stated outcome rather than a silent skip.
@@ -620,6 +819,20 @@ def scan_surface_types(root: Path) -> ScanResult:
                 if violation is not None:
                     violations.append(violation)
 
+            # The second dimension (Phase 37, D-01a). Adjudicated in the same
+            # loop, against the same package label, into the same two
+            # accumulators -- so a field violation and a return violation are
+            # indistinguishable to every caller downstream of here.
+            fields_total += len(field_candidates)
+            for qualified_name, member_name, field_node in field_candidates:
+                reason, violation = _adjudicate_field(
+                    qualified_name, member_name, field_node, package_dir.name
+                )
+                if reason is not None:
+                    exempt_counts[reason] = exempt_counts.get(reason, 0) + 1
+                if violation is not None:
+                    violations.append(violation)
+
     # Anti-vacuity: a scan that saw nothing must never read as a clean tree.
     if not problems:
         if all_names_total == 0:
@@ -627,10 +840,23 @@ def scan_surface_types(root: Path) -> ScanResult:
                 "    zero `__all__` names resolved across the whole scan -- a surface "
                 "with nothing on it is a broken checkout, not a clean tree"
             )
-        elif definitions_total == 0:
+        elif definitions_total == 0 and fields_total == 0:
+            # Phase 37 widened this guard from "zero definitions" to "zero of
+            # EITHER dimension". Not a weakening: a package that exports only
+            # dataclasses -- no methods at all -- was inspected, and reporting
+            # it as a broken checkout would be false. The condition that still
+            # has to fail loudly is a scan that inspected *nothing at all*.
+            #
+            # Worth naming for the same reason the definitions clause is: a
+            # scan that reports zero fields across six packages of
+            # dataclass-heavy model modules is a blind gate, not a clean tree.
+            # That was literally the state of this file before Phase 37, and
+            # the floor assertion in the RED fixture is what pins it now --
+            # here it can only be a lower bound of one, because the synthetic
+            # single-function trees the fixtures inject legitimately have none.
             problems.append(
-                "    zero definitions were scanned -- a gate that inspects nothing "
-                "cannot report green"
+                "    zero definitions and zero fields were scanned -- a gate that "
+                "inspects nothing cannot report green"
             )
 
     if problems:
@@ -640,6 +866,7 @@ def scan_surface_types(root: Path) -> ScanResult:
         packages=len(package_dirs),
         all_names=all_names_total,
         definitions=definitions_total,
+        fields=fields_total,
         assignments=assignments_total,
         exempted=sum(exempt_counts.values()),
         exempted_by_reason=tuple(sorted(exempt_counts.items())),
@@ -648,17 +875,20 @@ def scan_surface_types(root: Path) -> ScanResult:
 
 
 def check_surface_types(root: Path = REPO_ROOT) -> str:
-    """Assert no exported name returns an untyped value; report the counts."""
+    """Assert nothing on the exported surface is untyped; report the counts."""
     result = scan_surface_types(root)
 
     if result.violations:
-        raise _fail("the exported surface has untyped returns:\n" + "\n".join(result.violations))
+        raise _fail(
+            "the exported surface has untyped returns or fields:\n" + "\n".join(result.violations)
+        )
 
     taxonomy = ", ".join(f"{reason} {count}" for reason, count in result.exempted_by_reason)
     return (
         f"surface types: {result.packages} packages, {result.all_names} `__all__` names, "
-        f"{result.definitions} definitions scanned, {result.assignments} constant/alias "
-        f"exports, {result.exempted} exempted ({taxonomy or 'none'}), 0 violations"
+        f"{result.definitions} definitions scanned, {result.fields} fields scanned, "
+        f"{result.assignments} constant/alias exports, {result.exempted} exempted "
+        f"({taxonomy or 'none'}), 0 violations"
     )
 
 
