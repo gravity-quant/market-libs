@@ -5,8 +5,8 @@ milestone_name: API tipada con Null Objects
 current_phase: 37
 current_phase_name: `matriz-client` — dicts residuales tipados + alias
 status: verifying
-stopped_at: Phase 36 context gathered (assumptions mode)
-last_updated: "2026-08-29T13:58:23.690Z"
+stopped_at: Phase 37 context gathered (assumptions mode)
+last_updated: "2026-08-29T14:46:09.795Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 36 complete, transitioned to Phase 37
 progress:
@@ -473,9 +473,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T13:06:14.159Z
-Stopped at: Phase 36 context gathered (assumptions mode)
-Resume file: .planning/phases/36-market-data-client-market-data-tipado-revocaci-n-de-la-fase-/36-CONTEXT.md
+Last session: 2026-08-29T14:46:09.789Z
+Stopped at: Phase 37 context gathered (assumptions mode)
+Resume file: .planning/phases/37-matriz-client-dicts-residuales-tipados-alias/37-CONTEXT.md
 
 ## Operator Next Steps
 
