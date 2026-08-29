@@ -493,6 +493,31 @@ def test_dict_hint_present_mapping_is_returned_verbatim(
     assert [p for p, _ in _pairs(caplog)] == []
 
 
+def test_tick_price_ranges_undeclared_inner_key_is_one_non_fatal_extra(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-37-08 (accept): the closed roster DISCARDS extras but never hides them.
+
+    ``TickPriceRange``'s three keys are exactly what the committed capture shows.
+    A fourth key the vendor adds later is dropped from the model, reported as an
+    ``extra`` divergence attributed to ``TickPriceRange``, and — lock 4 — is NOT
+    fatal even under strict mode, because vendor field growth is not our outage.
+    """
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        detail = models.InstrumentDetail.from_api(
+            {"tickPriceRanges": {"0": {"tick": 0.1, "vendorNew": 1}}}
+        )
+
+    assert detail.tickPriceRanges["0"].tick == 0.1
+    assert not hasattr(detail.tickPriceRanges["0"], "vendorNew")
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    assert len(extras) == 1
+    assert extras[0].field_path == ".tickPriceRanges.0.vendorNew"  # type: ignore[attr-defined]
+    assert extras[0].model == "TickPriceRange"  # type: ignore[attr-defined]
+
+
 def test_shipped_mapping_fields_still_default_to_empty_dict() -> None:
     """The four shipped mapping fields — the ones ``test_models.py`` pins."""
     assert models.InstrumentDetail.from_api({}).tickPriceRanges == {}

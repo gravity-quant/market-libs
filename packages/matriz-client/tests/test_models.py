@@ -12,6 +12,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+import matriz_client
+from matriz_client import models
 from matriz_client.models import (
     AccountReport,
     DetailedPosition,
@@ -62,7 +64,67 @@ def test_instrument_detail_accepts_partial_payload() -> None:
     assert detail.instrumentId == InstrumentId.empty()
     assert detail.currency is None
     assert detail.orderTypes == []
+    # Still ``{}`` after the Phase 37 retype: the empty-mapping default survives
+    # ``dict[str, Any]`` -> ``dict[str, TickPriceRange]`` untouched.
     assert detail.tickPriceRanges == {}
+
+
+# ----------------------------------------------------------------------
+# tickPriceRanges — the one field in Phase 37 with live-capture provenance
+# ----------------------------------------------------------------------
+#
+# PROVENANCE (D-04c, class `baseline`). The payload below is shaped from the
+# committed live capture
+# `.planning/verification/schemas/matriz-client/get-instrument-detail.json`,
+# captured 2026-06-10T01:01:55Z against `https://api.remarkets.primary.com.ar`
+# (symbol `SOJ.ROS/NOV26 308 P`). That file records TYPES, and for
+# `tickPriceRanges` it records exactly one key `"0"` carrying
+# `{"lowerLimit": "int", "tick": "float", "upperLimit": "NoneType"}`.
+# The concrete VALUES are the vendor-documented samples at
+# `packages/matriz-client/documentation/Primary-API.md:330,378,454`, which agree
+# with the capture on all three field names, on the single `"0"` key, and on the
+# three runtime types. The vendor doc is corroboration only — it is never
+# presented as a capture (D-04a).
+
+
+def test_instrument_detail_tick_price_ranges_decodes_the_committed_baseline() -> None:
+    """D-05: the mapping values arrive as models, not raw dicts."""
+    detail = InstrumentDetail.from_api(
+        {
+            "securityDescription": "TRI.ROS/DIC23 352 C",
+            "tickPriceRanges": {"0": {"lowerLimit": 0, "upperLimit": None, "tick": 0.1}},
+        }
+    )
+
+    assert list(detail.tickPriceRanges) == ["0"]
+    entry = detail.tickPriceRanges["0"]
+    assert not isinstance(entry, dict)
+    # The capture records ``int`` on the wire; the walker's ``float`` arm widens
+    # BEFORE consulting ``scalar_passthrough``, so this is silent and correct.
+    assert entry.lowerLimit == 0.0
+    assert isinstance(entry.lowerLimit, float)
+    assert entry.tick == 0.1
+    assert entry.upperLimit is None
+
+
+def test_tick_price_range_is_a_null_object() -> None:
+    """NOBJ-01 / T-37-06: an attribute chain over the mapping never raises."""
+    tick_price_range = matriz_client.TickPriceRange
+
+    assert bool(tick_price_range.empty()) is False
+    assert tick_price_range.empty().tick is None
+    assert bool(tick_price_range.from_api({"tick": 0.05})) is True
+    # The chain a caller actually writes, on a payload that carried nothing.
+    assert (
+        InstrumentDetail.from_api({}).tickPriceRanges.get("0", tick_price_range.empty()).tick
+        is None
+    )
+
+
+def test_tick_price_range_is_on_the_exported_surface() -> None:
+    """Plan 37-04's field gate resolves candidates from ``__all__``."""
+    assert "TickPriceRange" in matriz_client.__all__
+    assert matriz_client.TickPriceRange is models.TickPriceRange
 
 
 # ----------------------------------------------------------------------
