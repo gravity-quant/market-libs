@@ -1489,3 +1489,58 @@ def test_non_dict_nested_payload_keeps_the_nested_attribution(
 
     triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
     assert triples == [("_Leaf", ".hoja", "non_dict")]
+
+
+def test_wrong_typed_list_field_still_reports_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ROADMAP Phase 35 criterio 2, falsification half: the list site still reports.
+
+    A ``str`` where a ``list[Model]`` is declared is NOT the legitimate-null case
+    Phase 35 blesses: it is a wrong-typed value and it must keep emitting a
+    ``type`` record, with the same ``[]`` return value it has today.
+
+    This test is GREEN before plan 35-05 edits the walker and must stay GREEN
+    after it. Its whole job is to redden if that edit's silencing over-reaches
+    from ``value is None`` to every non-list value. The assertion is an EQUALITY
+    against a one-element list rather than a membership check, so a second,
+    spurious record would fail it too.
+    """
+    obj, records = _walk(_Nested, {"titulo": "t", "hojas": "garbage"}, caplog)
+
+    assert obj.hojas == []
+    triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+    assert triples == [("_Nested", ".hojas", "type")]
+    assert records[0].declared_type == "list"  # type: ignore[attr-defined]
+    assert records[0].observed_type == "str"  # type: ignore[attr-defined]
+
+
+def test_strict_mode_still_raises_on_a_wrong_typed_list() -> None:
+    """ROADMAP Phase 35 criterio 2: the list site stays FATAL under strict mode.
+
+    The other half of the same falsification argument. Reporting and fatality
+    are two separate dispositions in this walker — ``_INFO_KINDS`` exempts
+    ``extra`` from the raise while still emitting it — so a walker edit could
+    conceivably keep the record and lose the raise. Both are pinned.
+
+    Green before plan 35-05's edit, and required to stay green after it. The
+    assertion reaches into the exception's attributes rather than settling for
+    its type, because an exception raised for a DIFFERENT divergence of the same
+    payload would satisfy a bare check on the exception class alone.
+    """
+    token = _decode.STRICT_DECODE.set(True)
+    try:
+        with pytest.raises(MarketDataDecodeError) as excinfo:
+            walk_model(
+                _Nested,
+                {"titulo": "t", "hojas": "garbage"},
+                policy=POLICY,
+                sink=DecodeScope(),
+            )
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+    assert excinfo.value.field_path == ".hojas"
+    assert excinfo.value.declared_type == "list"
+    assert excinfo.value.observed_type == "str"
+    assert excinfo.value.model == "_Nested"
