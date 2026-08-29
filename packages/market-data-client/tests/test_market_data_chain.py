@@ -509,14 +509,27 @@ def test_a_wire_int_widens_to_float_silently_and_int_slots_stay_int(
 # ---------------------------------------------------------------------------
 
 
+# Complete rows varying ONLY ``entries``, so the record-set assertion below can
+# stay global: a partial payload would emit one ``missing`` per omitted field and
+# drown the single record the probe is about.
+_ENTRIES_BASE: dict[str, Any] = {
+    "symbol": "AAA1",
+    "market_id": "ZZZ",
+    "active": False,
+    "market_data": None,
+    "staleness_seconds": None,
+    "note": None,
+}
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_records"),
     [
-        pytest.param({}, [], id="entries-absent"),
-        pytest.param({"entries": None}, [], id="entries-null"),
-        pytest.param({"entries": []}, [], id="entries-empty-list"),
+        pytest.param(_ENTRIES_BASE, [], id="entries-absent"),
+        pytest.param({**_ENTRIES_BASE, "entries": None}, [], id="entries-null"),
+        pytest.param({**_ENTRIES_BASE, "entries": []}, [], id="entries-empty-list"),
         pytest.param(
-            {"entries": "not-a-list"},
+            {**_ENTRIES_BASE, "entries": "not-a-list"},
             [("MarketDataSnapshot", ".entries", "type")],
             id="entries-non-list-scalar",
         ),
