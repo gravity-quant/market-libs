@@ -124,6 +124,22 @@ corregida.
 
 </details>
 
+## Current Milestone: v1.7 API tipada con Null Objects
+
+**Goal:** Que toda cadena de acceso como `snapshot.market_data.last.price` sea siempre válida bajo mypy strict y nunca lance en las 6 libs: ningún eslabón intermedio de tipo modelo/lista puede ser `None` (patrón Null Object — el campo devuelve una instancia vacía falsy), y `dict[str, Any]` desaparece de los campos de modelos públicos (un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado).
+
+**Decisión revocada:** la ampliación `| None` de la Fase 33 (SC-2, checkpoint 33-07 "fix-shape-now") sobre `MarketDataSnapshot.entries`/`market_data`/`staleness_seconds` queda formalmente revocada para eslabones de cadena — Python no tiene conditional type chaining, así que un eslabón `None` destruye la ergonomía que v1.6 construyó. La ausencia se detecta por veracidad (`SafeModel.__bool__` — instancia vacía es falsy) y por el reporting de divergencias existente, no por `None` en el tipo. Las hojas escalares (`price: float | None`) pueden seguir siendo nulas: terminan la cadena, no la rompen.
+
+**Target features:**
+- Base `SafeModel` (6 paquetes, copia verbatim): `__bool__` falsy-cuando-vacío + política del walker `_decode` — `null` legítimo sobre campo modelo/lista colapsa a instancia vacía sin divergencia; wrong-type sigue divergiendo y sigue fatal bajo `strict_decode`
+- `market-data-client`: `market_data` pasa de `dict[str, Any] | None` a modelo tipado (`BookLevel`/`EntryValue`, espejo del patrón matriz) con alias ergonómicos `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`; `entries` vuelve a `list[str]` con default `[]`
+- `matriz-client`: tipar los dicts residuales (`tickPriceRanges`, `AccountReport.report`, `detailedAccountReports`, `portfolio`) + mismos alias en su `MarketDataSnapshot` (exención única documentada: `UnknownFrame.raw`)
+- `iol-client`: `Cotizacion.puntas` → `list[Punta]` default `[]`; `Titulo.puntas` → `Punta` Null Object
+- higyrus / ámbito / wallets: auditoría de campos y retornos públicos, aplicando D-NO-01/02 donde aparezcan violaciones
+- Verificación en vivo del encadenamiento profundo (sync + async) + releases breaking coordinados por el pipeline de tags
+
+**Key context:** Plan fuente: `.future_plans/api-tipada-null-objects.md` (principios D-NO-01..06 + inventario de violaciones por paquete). Los 4 gates de CI de v1.6 (`check_decode_intactness.py`, `check_uniform_structure.py`, `check_surface_types.py`, `surface_parity.py`) deben seguir verdes; todo cambio a `_decode.py` se replica verbatim por paquete (sin código compartido); todo cambio de lógica se espeja en `client.py` y `aio.py`. La numeración de fases continúa desde la 35.
+
 ## Last Shipped Milestone: v1.6 Tipado homogéneo de la superficie pública (2026-08-27)
 
 **Goal:** Que las seis librerías expongan un **contrato de tipos idéntico y verificable por máquina** — cero `Any`/`dict[str, Any]` en la superficie pública de datos, una única decodificación de política **observable** (nunca silenciosa), parámetros de dominio como `Literal`, y gates de CI que sostengan la homogeneidad sin código compartido entre paquetes.
@@ -196,7 +212,16 @@ corregida.
 
 ### Active
 
-(None yet — scope v1.7 via `/gsd-new-milestone`)
+<!-- v1.7 — REQ-IDs formalizados en REQUIREMENTS.md -->
+
+- [ ] **NOBJ-01** — Base `SafeModel`: instancia vacía falsy (`__bool__`) + `empty()` garantizado, copia verbatim en los 6 paquetes
+- [ ] **NOBJ-02** — Política del walker `_decode`: `null`/ausente sobre campo modelo/lista no-opcional colapsa a vacío sin divergencia; wrong-type sigue fatal en strict
+- [ ] **NOBJ-MD-01** — `market-data-client`: revertir widening F33 + `market_data` tipado con alias `last`/`bids`/`offers`
+- [ ] **NOBJ-IOL-01** — `iol-client`: `puntas` sin `None` (lista vacía / `Punta` Null Object)
+- [ ] **NOBJ-MTZ-01** — `matriz-client`: dicts residuales tipados + alias en `MarketDataSnapshot`
+- [ ] **NOBJ-AUD-01** — Auditoría higyrus/ámbito/wallets: cero violaciones D-NO-01/02
+- [ ] **LIVE-NOBJ-01** — Verificación en vivo del encadenamiento profundo, sync + async
+- [ ] **PUB-NOBJ-01** — Releases breaking coordinados de los paquetes cuya superficie cambió
 
 ### Out of Scope
 
@@ -296,6 +321,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
+*Last updated: 2026-08-28 after starting milestone **v1.7 · API tipada con Null Objects** — revoca la decisión "fix-shape-now" (F33 SC-2): ningún eslabón de cadena (campo modelo/lista) puede ser `None` — Null Object falsy en su lugar — y `dict[str, Any]` desaparece de los campos de modelos públicos en las 6 libs (`market_data` tipado con alias `last`/`bids`/`offers`, `puntas` de iol, dicts residuales de matriz). Requisitos activos: NOBJ-01/02, NOBJ-MD-01, NOBJ-IOL-01, NOBJ-MTZ-01, NOBJ-AUD-01, LIVE-NOBJ-01, PUB-NOBJ-01 → fases continúan desde la 35. Plan fuente: `.future_plans/api-tipada-null-objects.md`. Prior v1.6-close footer below for reference.*
+
 *Last updated: 2026-08-27 after v1.6 milestone complete — **v1.6 Tipado homogéneo de la superficie pública SHIPPED**: 6 fases (29-34) / 44 planes / 7-of-7 requisitos validados (DEC-01, TYP-01, TYP-02, TYP-03, GATE-TYP-01, LIVE-TYP-01, PUB-TYP-01). Los 6 paquetes cliente exponen ahora superficie pública tipada homogénea con decodificación observable verbatim y 4 gates de CI que sostienen la homogeneidad. `iol-client` v0.3.0 y `market-data-client` v0.5.0 publicados (ambos source-breaking) bajo doble gate humano genuino nunca auto-aprobado pese a yolo/auto_advance activos; Phase 34 code review encontró y corrigió un bug real en `main` (README de v0.4.0 bajo changelog de v0.5.0) vía PR #13 de seguimiento. Milestone audit: `tech_debt`, 7/7 reqs live-verified (integración cross-fase re-trazada en código real, no sólo docs), 3 items no-bloqueantes (harness `verification/` de matriz roto desde Phase 15, alcance no-recursivo del gate de superficie, paridad README/memory/test de `iol-client` pendiente). 301 files / +83,714/−1,350 LOC / 2026-08-18→2026-08-27. Next: `/gsd-new-milestone` v1.7. Prior Phase-33 footer below for reference.*
 
 *Last updated: 2026-08-27 after Phase 33 complete — **v1.6 Phase 33 (verificación en vivo en modo estricto + fixes) shipped, LIVE-TYP-01 validated con 2 overrides**: `verification/divergences.py` cableado a los 5 drivers, 130/130 probes decorados, pero sólo 3/5 paquetes (ámbito, iol, market-data) corrieron en vivo — higyrus (DNS inalcanzable) y matriz (safety assert D-MATZ-33) quedaron `SKIPPED` con causa medida, aceptados por el operator con destinos nombrados (`LIVE-HIGY-33`, `LIVE-MATZ-33`). 4 divergencias confirmadas corregidas in-cycle en `market-data-client` (envelope unwrap, `CalendarConfigPreview` nuevo, 3 campos a `Optional`, `Symbol` timestamps a `str | None`), mirror sync/async con regresión mockeada — decisión de shape-change del operator en checkpoint bloqueante, consecuencia semver diferida a Phase 34 (0.4.0 → 0.5.0). DT-07 cerrado en `str` permanente con evidencia real; matriz Literals quedan `COULD-NOT-DECIDE`. `verify_cycle_closure` no-vacuo PASS por los 3 paquetes medidos; `verification/` baseline rojo sin regresión. 7 planes/5 waves, code review 0 Critical, verifier PASS con overrides documentados. Next: Phase 34 (releases por paquete) — bump set ahora incluye iol 0.2.0→0.3.0 Y market-data-client 0.4.0→0.5.0. Prior Phase-28 footer below for reference.*

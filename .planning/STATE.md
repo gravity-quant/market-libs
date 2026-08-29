@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: Tipado homogéneo de la superficie pública
-current_phase: 6
-status: Awaiting next milestone
-stopped_at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
-last_updated: "2026-08-27T23:51:25.337Z"
-last_activity: 2026-08-27
-last_activity_desc: Milestone v1.6 completed and archived
+milestone: v1.7
+milestone_name: API tipada con Null Objects
+status: planning
+last_updated: "2026-08-29T00:31:32.704Z"
+last_activity: 2026-08-29
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 44
-  completed_plans: 44
-  percent: 100
-current_phase_name: releases-por-paquete
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: Milestone v1.6 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-27 — Milestone v1.6 completed and archived
+Status: Defining requirements
+Last activity: 2026-08-29 — Milestone v1.7 started
 
 ## Performance Metrics
 
