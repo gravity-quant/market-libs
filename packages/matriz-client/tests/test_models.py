@@ -337,10 +337,15 @@ def test_InstrumentPositionReport_declares_only_the_vendor_documented_scalars() 
     ]
     hints = get_type_hints(models.InstrumentPositionReport)
     assert all(hints[n] == (float | None) for n in names)
-    # F-11: a mapping field on a model nested at depth 2 would be invisible to
-    # ``test_no_mapping_carrying_model_is_ever_a_nested_field_type``'s
-    # single-level ``__args__`` walk. The phase's answer is to keep these models
-    # mapping-free; this is the executable form of that constraint.
+    # F-11: this class sits at depth 2, and
+    # ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` used to walk
+    # exactly ONE level of ``__args__``, so a mapping field here was invisible to
+    # it and this per-class assertion was the actual guard. The Phase 37 code
+    # review (WR-08) made that walk depth-agnostic, so the general guard now
+    # covers this class by construction rather than by name. Kept anyway: it is
+    # cheap, it states the constraint where the class is defined, and deleting a
+    # correct assertion to celebrate a better one elsewhere is how coverage
+    # quietly shrinks.
     assert [n for n, t in hints.items() if get_origin(t) is dict] == []
 
 
@@ -380,7 +385,9 @@ def test_DetailedAccountReport_declares_only_the_vendor_documented_scalar() -> N
     assert names == ["settlementDate"]
     hints = get_type_hints(models.DetailedAccountReport)
     assert hints["settlementDate"] == (int | None)
-    # F-11, same constraint as InstrumentPositionReport: mapping-free.
+    # F-11, same constraint as InstrumentPositionReport: mapping-free. Also
+    # subsumed by the now depth-agnostic general guard (WR-08), and kept for the
+    # same reason.
     assert [n for n, t in hints.items() if get_origin(t) is dict] == []
 
 

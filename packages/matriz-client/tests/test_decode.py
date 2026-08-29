@@ -780,7 +780,42 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
     reached as another model's field. That is harmless only while no
     mapping-carrying model is ever declared as a field type. If a future plan
     nests one, this test fails and the pass needs to move into the walker.
+
+    **The walk is DEPTH-AGNOSTIC as of the Phase 37 code review (WR-08).** It
+    used to walk exactly one level of ``__args__``, which the phase itself had
+    measured as a blind spot (F-11) and answered by hand: for
+    ``report: dict[str, dict[str, InstrumentPositionReport]]`` the ``__args__``
+    are ``(str, dict[str, InstrumentPositionReport])``, so the leaf model never
+    entered the guarded set, and the job was handed to two per-class assertions
+    in ``test_models.py`` that enumerate today's depth-2 models BY NAME.
+
+    That is a checklist, not a guard. Plan 39 (``LIVE-NOBJ-01``) is scheduled to
+    add the deferred ``detailedPositions`` / ``currencyBalance`` /
+    ``availableToOperate`` subtrees, which are themselves open-keyed maps —
+    exactly the shape that would carry a mapping field at depth 2 — and nothing
+    would have failed. ``_model_types_in`` below recurses instead of naming
+    classes, closing F-11 option (b) at test cost only, with no production
+    change, and subsuming both hand-written assertions.
     """
+
+    def _model_types_in(hint: Any) -> Iterator[type]:
+        """Every ``_SafeModel`` subclass reachable anywhere inside ``hint``.
+
+        Recurses through ``get_args`` at any depth, so ``dict[str, dict[str,
+        Model]]``, ``list[dict[str, Model]]`` and any future container yield the
+        leaf without the walk needing to know the container's shape.
+        """
+        inner = models._strip_optional(hint)
+        if (
+            isinstance(inner, type)
+            and dataclasses.is_dataclass(inner)
+            and issubclass(inner, _SafeModel)
+        ):
+            yield inner
+            return
+        for arg in get_args(inner):
+            yield from _model_types_in(arg)
+
     shipped = [
         obj
         for obj in vars(models).values()
@@ -806,27 +841,19 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
     }
     assert carriers, "expected at least InstrumentDetail / DetailedPosition / AccountReport"
 
-    nested_types: set[str] = set()
-    for cls in shipped:
-        for hint in _decode.hints_for(cls).values():  # type: ignore[arg-type]
-            inner = models._strip_optional(hint)
-            for candidate in (inner, *getattr(inner, "__args__", ())):
-                if (
-                    isinstance(candidate, type)
-                    and dataclasses.is_dataclass(candidate)
-                    and issubclass(candidate, _SafeModel)
-                ):
-                    nested_types.add(candidate.__name__)
+    nested_types = {
+        nested.__name__
+        for cls in shipped
+        for hint in _decode.hints_for(cls).values()  # type: ignore[arg-type]
+        for nested in _model_types_in(hint)
+    }
 
-    # Phase 37, F-11 — a MEASURED blind spot, recorded rather than papered over.
-    # The ``__args__`` walk above is exactly ONE level deep, so a model nested at
-    # depth 2 (``dict[str, dict[str, Model]]`` — the shape Plan 37-03 gives
-    # ``DetailedPosition.report``) never enters ``nested_types`` and would not be
-    # caught here if it became a mapping carrier. The phase's answer is (a) from
-    # F-11's two options: every inner model introduced in Phase 37
-    # (``TickPriceRange`` and 37-03's report/account-report leaves) is kept
-    # mapping-FREE, so no carrier can reach depth 2 in the first place. Deepening
-    # the walk is option (b) and is only needed the day that rule is broken.
+    # Non-vacuity: the depth-2 leaves Plan 37-03 introduced must actually be IN
+    # the guarded set now. The one-level walk this replaces did not contain them,
+    # which is precisely why the guard had degraded into a hand-maintained
+    # checklist of today's two classes (WR-08).
+    assert {"InstrumentPositionReport", "DetailedAccountReport"} <= nested_types
+
     assert carriers & nested_types == set()
 
 
