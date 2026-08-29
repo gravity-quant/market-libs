@@ -114,7 +114,14 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   3. `snapshot.last.price`, `.bids`, `.offers`, `.settlement`, `.close` y `.open_interest` funcionan sobre `matriz_client.models.MarketDataSnapshot` tanto cuando la instancia viene de la superficie REST como cuando viene de un frame de `ws_client` — es el mismo objeto y el mismo juego de alias — con `mypy --strict` limpio sobre el paquete.
   4. La suite de matriz queda verde en REST **y** en las rutas del daemon thread de WS (incluida la propagación explícita del modo de decode por conexión y por frame de la Phase 29), sin aflojar el mutation gate ni tocar la deny-list `_token_store.py` / `_refresh_policy.py` / `_refresh.py` más allá de lo que exija el alias.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — Envelope unwrap de los dos parsers Risk en `_core.py` (D-03, un solo sitio) + regresiones mockeadas; checkpoint de disposición del body plano
+- [ ] 37-02-PLAN.md — Tracer: axis de mapping con tipo de elemento y recursión (D-06) + `TickPriceRange` con procedencia `baseline` (D-04c/D-05)
+- [ ] 37-03-PLAN.md — `report` a dos niveles, `detailedAccountReports` a uno, `portfolio` a escalar (D-02/D-07) con procedencia `vendor-documented, UNMEASURED` + filas en el ledger
+- [ ] 37-04-PLAN.md — Dimensión de campos en `tools/check_surface_types.py` (D-01a/b/c) + fixture RED de no-vacuidad (D-01d)
+- [ ] 37-05-PLAN.md — Seis `@property` alias sobre `MarketDataSnapshot` (NOBJ-MTZ-02), compartidas por REST y frames WS
 
 ### Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets
 
