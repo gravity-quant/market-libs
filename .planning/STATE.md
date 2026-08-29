@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
-current_phase: 36
-current_phase_name: market-data-client — market_data tipado + revocación de la Fase 33
+current_phase: 37
+current_phase_name: `matriz-client` — dicts residuales tipados + alias
 status: verifying
 stopped_at: Phase 36 context gathered (assumptions mode)
-last_updated: "2026-08-29T13:06:24.988Z"
+last_updated: "2026-08-29T13:58:23.690Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 36 execution started
+last_activity_desc: Phase 36 complete, transitioned to Phase 37
 progress:
   total_phases: 6
   completed_phases: 2
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 36 (market-data-client — market_data tipado + revocación de la Fase 33) — EXECUTING
-Plan: 3 of 3
+Phase: 37 — `matriz-client` — dicts residuales tipados + alias
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-08-29 — Phase 36 execution started
+Last activity: 2026-08-29 — Phase 36 complete, transitioned to Phase 37
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 132 (v1.0)
+- Total plans completed: 135 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
