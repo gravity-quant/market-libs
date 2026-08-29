@@ -101,13 +101,19 @@ def _write_fake_package(
         (pkg / f"{name}.py").write_text(source, encoding="utf-8")
 
 
-def _model_package(root: Path, *, class_name: str, body: str) -> None:
+def _model_package(root: Path, *, class_name: str, body: str, extra_imports: str = "") -> None:
     """A synthetic package exporting one dataclass whose body is ``body``.
 
     Every field case below is the same package with a different annotation, so
     the surrounding ``@dataclass`` / ``__all__`` / import plumbing is written
     once. ``body`` is inserted verbatim at four-space indentation depth already
     applied by the caller.
+
+    ``extra_imports`` is appended to the import block for the cases that name a
+    symbol the default block does not (``Union``, ``Mapping``, ``defaultdict``).
+    The gate never imports or executes this source -- it parses it -- so an
+    undefined name would not have failed anything; the parameter exists so a
+    reader of the fixture is not left staring at source that could not run.
     """
     _write_fake_package(
         root,
@@ -117,6 +123,7 @@ def _model_package(root: Path, *, class_name: str, body: str) -> None:
         client_source=(
             "from dataclasses import dataclass, field\n"
             "from typing import Any, Optional\n"
+            f"{extra_imports}"
             "\n"
             "\n"
             "class Level:\n"
@@ -198,6 +205,110 @@ def test_optional_untyped_mapping_field_is_caught(tmp_path: Path) -> None:
 
     _model_package(
         tmp_path, class_name="Thing", body=f"    payload: Optional[{_UNTYPED_MAPPING}] = None\n"
+    )
+    with pytest.raises(CheckFailure, match=r"Thing\.payload"):
+        check_surface_types(root=tmp_path)
+
+
+def test_union_spelled_optional_untyped_mapping_field_is_caught(tmp_path: Path) -> None:
+    """The THIRD spelling of optional, missed until the Phase 37 code review (CR-02).
+
+    ``_strip_optional`` handled ``X | None`` and ``Optional[X]`` but not
+    ``Union[X, None]``, so the very bypass its docstring claimed to have closed
+    was open under one more import. The review executed the predicate and
+    measured ``'Union[dict[str, Any], None]' -> False``.
+
+    The runtime counterpart ``matriz_client.models._strip_optional`` accepts
+    ``typing.Union`` and always did, so this was also a gate/runtime disagreement
+    about what "optional" means -- the kind of drift that makes a green gate
+    unreadable as evidence.
+    """
+    _model_package(
+        tmp_path,
+        class_name="Thing",
+        body=f"    payload: Union[{_UNTYPED_MAPPING}, None] = None\n",
+        extra_imports="from typing import Union\n",
+    )
+
+    with pytest.raises(CheckFailure, match=r"Thing\.payload"):
+        check_surface_types(root=tmp_path)
+
+
+def test_a_nested_untyped_mapping_value_is_caught(tmp_path: Path) -> None:
+    """``dict[str, dict[str, Any]]`` reddens -- the shape THIS phase introduced (CR-02).
+
+    ``DetailedPosition.report`` is ``dict[str, dict[str, InstrumentPositionReport]]``.
+    Until the code review the predicate tested only ``_is_any(parameters[1])``,
+    so an author who typed the OUTER level and left the inner one ``Any`` --
+    the single most likely partial migration of exactly this field -- shipped
+    green. The predicate now recurses through the mapping value parameter.
+    """
+    _model_package(
+        tmp_path,
+        class_name="Thing",
+        body=f"    report: dict[str, {_UNTYPED_MAPPING}] = field(default_factory=dict)\n",
+    )
+
+    with pytest.raises(CheckFailure, match=r"Thing\.report"):
+        check_surface_types(root=tmp_path)
+
+
+def test_a_quoted_untyped_mapping_annotation_is_caught(tmp_path: Path) -> None:
+    """A string annotation parses to ``ast.Constant`` and used to short-circuit (CR-02).
+
+    ``payload: "dict[str, Any]"`` is legal Python and ordinary for forward refs.
+    ``_base_name`` answered ``None`` for the ``Constant`` node, so the predicate
+    returned ``False`` on an annotation stating exactly as little as the one it
+    catches. Both the fully quoted form and the partially quoted
+    ``dict[str, "Any"]`` are exercised; the recursion handles the second for free
+    once the string arm exists.
+    """
+    _model_package(tmp_path, class_name="Thing", body='    payload: "dict[str, Any]" = None\n')
+    with pytest.raises(CheckFailure, match=r"Thing\.payload"):
+        check_surface_types(root=tmp_path)
+
+    _model_package(tmp_path, class_name="Thing", body='    payload: dict[str, "Any"] = None\n')
+    with pytest.raises(CheckFailure, match=r"Thing\.payload"):
+        check_surface_types(root=tmp_path)
+
+
+def test_a_bare_unparameterised_mapping_field_is_caught(tmp_path: Path) -> None:
+    """Plain ``dict`` states LESS than ``dict[str, Any]`` yet used to be spared (CR-02).
+
+    The predicate required an ``ast.Subscript``, so the unparameterised base fell
+    straight through. WR-02 covers the other half of this shape's cost: at
+    runtime ``models._is_mapping(dict)`` was ``False``, so the field also skipped
+    the ``{}`` fallback, the element decode and the divergence report.
+    """
+    _model_package(tmp_path, class_name="Thing", body="    payload: dict = None\n")
+
+    with pytest.raises(CheckFailure, match=r"Thing\.payload"):
+        check_surface_types(root=tmp_path)
+
+
+def test_an_aliased_mapping_base_is_caught(tmp_path: Path) -> None:
+    """The alias vocabulary is exercised, not merely declared (CR-02).
+
+    ``_MAPPING_BASES`` lists the aliases so "the ratchet cannot be bypassed by
+    spelling the same untyped mapping as ``Mapping[str, Any]``", but nothing
+    proved the claim. ``defaultdict`` was added to the set by the same review:
+    it is a mapping that says exactly as little as ``dict`` about its values, and
+    leaving it out left the bypass open under a different import.
+    """
+    _model_package(
+        tmp_path,
+        class_name="Thing",
+        body="    payload: Mapping[str, Any] = None\n",
+        extra_imports="from collections.abc import Mapping\n",
+    )
+    with pytest.raises(CheckFailure, match=r"Thing\.payload"):
+        check_surface_types(root=tmp_path)
+
+    _model_package(
+        tmp_path,
+        class_name="Thing",
+        body="    payload: defaultdict[str, Any] = None\n",
+        extra_imports="from collections import defaultdict\n",
     )
     with pytest.raises(CheckFailure, match=r"Thing\.payload"):
         check_surface_types(root=tmp_path)
@@ -311,11 +422,21 @@ def test_a_list_of_any_field_is_spared_keeping_the_narrow_predicate_narrow(
 
 
 def test_any_nested_deeper_inside_a_typed_container_is_spared(tmp_path: Path) -> None:
-    """Only the two declared shapes match; a mention of ``Any`` is not enough.
+    """A mention of ``Any`` is not enough; only the MAPPING spine is walked.
 
     ``list[dict[str, Any]]`` and ``dict[str, list[Any]]`` both mention ``Any``,
-    and the wide return predicate would flag both. The field predicate matches
-    the annotation's own shape, not its subtree, so neither reddens.
+    and the wide return predicate would flag both. Neither reddens: the field
+    predicate descends only through the value parameter of a mapping base, and a
+    ``list`` is not one.
+
+    Phase 37 code review, CR-02, sharpened this from "matches the annotation's
+    own shape, not its subtree" to the statement above. The predicate now DOES
+    recurse -- ``dict[str, dict[str, Any]]`` reddens, which is what closes the
+    hole this phase's own container shape sat in -- and the reason ``list[Any]``
+    survives that recursion is the mapping-only descent, not the absence of any
+    descent at all. The distinction is load-bearing for D-01b: it is what keeps
+    ``market-data-client``'s two exported ``list[Any]`` fields out of this
+    phase's blast radius.
     """
     _model_package(
         tmp_path,
@@ -327,6 +448,27 @@ def test_any_nested_deeper_inside_a_typed_container_is_spared(tmp_path: Path) ->
 
     assert result.violations == ()
     assert result.fields == 2
+
+
+def test_a_fully_typed_nested_mapping_is_spared_by_the_recursion(tmp_path: Path) -> None:
+    """The recursion's upper bound: ``dict[str, dict[str, Level]]`` stays green (CR-02).
+
+    This is ``DetailedPosition.report``'s real shape. The recursion added by the
+    code review must catch the partially-migrated form
+    (``dict[str, dict[str, Any]]``) without reddening the finished one -- a
+    predicate that flagged both would make the phase's own deliverable
+    unsatisfiable and would be reverted rather than obeyed.
+    """
+    _model_package(
+        tmp_path,
+        class_name="Thing",
+        body="    report: dict[str, dict[str, Level]] = field(default_factory=dict)\n",
+    )
+
+    result = scan_surface_types(tmp_path)
+
+    assert result.violations == ()
+    assert result.fields == 1
 
 
 # ----------------------------------------------------------------------

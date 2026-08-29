@@ -11,11 +11,20 @@ missing altogether is a violation, subject to the DT-06 exemptions listed below.
 
 **Field types** (Phase 37, NOBJ-MTZ-01). No field declared in the body of an
 exported class may be annotated as an untyped mapping. The predicate here is
-deliberately **narrow** and is not the return dimension's: only a bare ``Any``
-and a mapping whose value parameter is ``Any`` match, with the optional wrapper
-stripped first. ``list[Any]`` is spared on purpose -- see
+deliberately **narrow** and is not the return dimension's: it walks the
+annotation's MAPPING spine and nothing else, so a bare ``Any``, an
+unparameterised mapping base, and a mapping whose value parameter recursively
+matches all redden -- with the optional wrapper (all three spellings) stripped
+first. ``list[Any]`` is spared on purpose, and survives the recursion because a
+list is not a mapping and is never descended into. See
 :func:`_field_annotation_is_untyped_mapping` and :data:`_FIELD_EXEMPTIONS`,
 which holds the single declared field exemption.
+
+The recursion, the unparameterised base, the quoted annotation and the
+``Union[X, None]`` spelling were all added by the Phase 37 **code review**
+(CR-02), which executed the predicate and measured four provable false
+negatives against the contract stated in this paragraph -- including
+``dict[str, dict[str, Any]]``, the exact container shape 37-03 introduced.
 
 The second dimension exists because the first one was not enough, and the gap
 was measured rather than suspected. **Before Phase 37** this gate printed::
@@ -213,17 +222,41 @@ _BUILD_ARTIFACT_SUFFIX = ".egg-info"
 # ``list[dict[str, Any]]`` and ``Any | None`` are one predicate rather than five.
 _ANY = "Any"
 
-# The optional wrapper the FIELD predicate strips before matching. Both
-# spellings are handled: the PEP 604 union (``X | None``) and the legacy
-# ``Optional[X]``. See ``_field_annotation_is_untyped_mapping``.
+# The optional wrappers the FIELD predicate strips before matching. All THREE
+# spellings are handled: the PEP 604 union (``X | None``), the legacy
+# ``Optional[X]``, and ``Union[X, None]``. See
+# ``_field_annotation_is_untyped_mapping``.
+#
+# Phase 37 code review, CR-02: only the first two were handled, so
+# ``Union[dict[str, Any], None]`` -- the third legal spelling of the same thing
+# -- passed the gate. That is precisely the ``| None`` one-token bypass
+# ``_strip_optional``'s own docstring claimed to have closed. It also made the
+# gate and the runtime disagree: ``models._strip_optional`` accepts
+# ``typing.Union`` and always did.
 _OPTIONAL = "Optional"
+_UNION = "Union"
 
 # The mapping bases the FIELD predicate recognises. ``dict`` is the only one in
 # the tree today; the aliases are listed so the ratchet cannot be bypassed by
 # spelling the same untyped mapping as ``Mapping[str, Any]``. Matched through
 # ``_base_name``, so ``typing.Dict`` and ``collections.abc.Mapping`` are the same
 # entry as their bare forms.
-_MAPPING_BASES = frozenset({"dict", "Dict", "Mapping", "MutableMapping"})
+#
+# Phase 37 code review, CR-02: ``defaultdict`` / ``DefaultDict`` / ``OrderedDict``
+# joined the set for the same stated reason the abc aliases are here -- they are
+# mappings that say exactly as little as ``dict`` about their values, so leaving
+# them out left the bypass open under a different import.
+_MAPPING_BASES = frozenset(
+    {
+        "dict",
+        "Dict",
+        "Mapping",
+        "MutableMapping",
+        "defaultdict",
+        "DefaultDict",
+        "OrderedDict",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # THE ONE DECLARED FIELD EXEMPTION (Phase 37, D-01c)
@@ -528,14 +561,21 @@ def _is_none(node: ast.expr) -> bool:
 def _strip_optional(annotation: ast.expr) -> ast.expr:
     """Peel an optional wrapper off an annotation, or return it unchanged.
 
-    ``X | None`` and ``Optional[X]`` both yield ``X``. RESEARCH A2/F-9 asked for
-    this explicitly: no exported field carries ``dict[str, Any] | None`` today,
-    so the choice is unobservable on the real tree and only makes the ratchet
-    stricter -- but leaving the hole open would have made ``| None`` a one-token
-    bypass of the whole field dimension.
+    ``X | None``, ``Optional[X]`` and ``Union[X, None]`` all yield ``X``.
+    RESEARCH A2/F-9 asked for this explicitly: no exported field carries
+    ``dict[str, Any] | None`` today, so the choice is unobservable on the real
+    tree and only makes the ratchet stricter -- but leaving the hole open would
+    have made ``| None`` a one-token bypass of the whole field dimension.
+
+    Phase 37 code review, CR-02: the ``Union[X, None]`` arm was MISSING, so the
+    claim in the paragraph above was false for the third spelling. The runtime
+    counterpart ``matriz_client.models._strip_optional`` accepts
+    ``typing.Union`` and always did, so gate and runtime disagreed on what
+    "optional" means.
 
     A union with two non-``None`` arms is NOT an optional wrapper and is
-    returned unchanged, so ``str | dict[str, Any]`` is judged on its own shape.
+    returned unchanged, so ``str | dict[str, Any]`` and
+    ``Union[str, dict[str, Any]]`` are both judged on their own shape.
     """
     if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
         if _is_none(annotation.right):
@@ -545,6 +585,13 @@ def _strip_optional(annotation: ast.expr) -> ast.expr:
         return annotation
     if isinstance(annotation, ast.Subscript) and _base_name(annotation.value) == _OPTIONAL:
         return _strip_optional(annotation.slice)
+    if isinstance(annotation, ast.Subscript) and _base_name(annotation.value) == _UNION:
+        arms = (
+            annotation.slice.elts if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+        )
+        non_none = [arm for arm in arms if not _is_none(arm)]
+        if len(non_none) == 1:
+            return _strip_optional(non_none[0])
     return annotation
 
 
@@ -552,13 +599,35 @@ def _field_annotation_is_untyped_mapping(annotation: ast.expr) -> bool:
     """Whether an exported class FIELD is annotated as an untyped mapping (D-01b).
 
     This is deliberately **not** :func:`_annotation_mentions_any`, the wide
-    predicate the return dimension uses. It matches the annotation's own shape,
-    never its subtree, and exactly two shapes match once the optional wrapper is
+    predicate the return dimension uses. It walks the annotation's own MAPPING
+    spine and nothing else, and these shapes match once the optional wrapper is
     stripped:
 
     1. a bare ``Any`` -- the degenerate untyped surface;
-    2. a two-parameter mapping subscript whose **value** parameter is ``Any``,
-       i.e. ``dict[str, Any]`` and its spellings.
+    2. an unparameterised mapping base (``dict``, ``Mapping``, ...), which says
+       strictly LESS than ``dict[str, Any]``;
+    3. a two-parameter mapping subscript whose **value** parameter itself
+       matches this predicate -- so ``dict[str, Any]``, ``dict[str, "Any"]`` and
+       ``dict[str, dict[str, Any]]`` all match.
+
+    Phase 37 code review, CR-02, which measured four provable false negatives
+    against the docstring this replaces:
+
+    - **the recursion** (shape 3). The predicate used to test only
+      ``_is_any(parameters[1])``, so ``dict[str, dict[str, Any]]`` -- the exact
+      container shape 37-03 introduced for ``DetailedPosition.report`` -- shipped
+      green. Typing the outer level and leaving the inner one ``Any`` is the
+      single most likely partial migration and was the single least caught.
+    - **the bare base** (shape 2). The predicate required an ``ast.Subscript``,
+      so a field annotated plain ``dict`` was spared while stating less than the
+      shape that was caught. WR-02 covers what that spelling also does at runtime.
+    - **quoted annotations**. ``payload: "dict[str, Any]"`` parses to
+      ``ast.Constant``; ``_base_name`` answered ``None`` and the predicate
+      short-circuited. Legal Python, ordinary for forward refs. The string is now
+      re-parsed and judged; an UNPARSEABLE string is treated as a violation,
+      because an annotation this gate cannot inspect is exactly what the gate
+      exists to refuse.
+    - **``Union[X, None]``**, handled one level down in :func:`_strip_optional`.
 
     Everything else is spared, and one case in particular is spared **on
     purpose**: ``list[Any]``. Widening this predicate to any mention of ``Any``
@@ -568,20 +637,34 @@ def _field_annotation_is_untyped_mapping(annotation: ast.expr) -> bool:
     an out-of-scope red is resolved by NARROWING this predicate, never by
     exempting the foreign field and never by editing the foreign package.
 
+    **The recursion does not disturb that contract**, and the shape of the
+    recursion is why: it descends ONLY through the value parameter of a mapping
+    base. ``list[Any]`` is not a mapping, so it is not descended into and not
+    matched -- neither at the top level nor as ``dict[str, list[Any]]``.
+    ``test_a_list_of_any_field_is_spared_...`` still holds, and the real tree
+    stays at ``0 violations``.
+
     The key parameter is not constrained to ``str``: the observed shape is
     string-keyed, but a mapping keyed by anything else says just as little about
     its values, and constraining the key would leave ``dict[int, Any]`` as a
     trivially reachable hole.
     """
     inner = _strip_optional(annotation)
+    if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+        try:
+            inner = _strip_optional(ast.parse(inner.value, mode="eval").body)
+        except SyntaxError:
+            return True  # an uninspectable annotation is not a spared one
     if _is_any(inner):
         return True
+    if isinstance(inner, ast.Name | ast.Attribute) and _base_name(inner) in _MAPPING_BASES:
+        return True  # bare `dict` says less than `dict[str, Any]`
     if not isinstance(inner, ast.Subscript):
         return False
     if _base_name(inner.value) not in _MAPPING_BASES:
         return False
     parameters = inner.slice.elts if isinstance(inner.slice, ast.Tuple) else [inner.slice]
-    return len(parameters) == 2 and _is_any(parameters[1])
+    return len(parameters) == 2 and _field_annotation_is_untyped_mapping(parameters[1])
 
 
 def _module_path(import_root: Path, submodule: str) -> Path:
