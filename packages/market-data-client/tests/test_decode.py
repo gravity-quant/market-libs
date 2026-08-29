@@ -1205,40 +1205,22 @@ def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
 
 
 # ---------------------------------------------------------------------------
-# Phase 29 code review, CR-03 — the mapping axis reaches market-data too
+# Phase 36 (D-05) — what remains of the CR-03 mapping block
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class _RequiredMapping(SafeModel):
-    """Module-local carrier for CR-03's REQUIRED-mapping property (Phase 33 SC-2).
-
-    CR-03's contract — a ``dict[...]``-declared field is never a silent ``None``:
-    it substitutes ``{}`` and REPORTS — used to be pinned against
-    ``MarketDataSnapshot.market_data``. Phase 33 SC-2 widened that field to
-    ``dict[str, Any] | None`` because the vendor sends ``null`` legitimately on
-    the no-data row, which left no shipped model declaring a required mapping.
-
-    The property is unchanged; only its carrier moved. Restating it here keeps
-    the mapping pass under test the day a future model declares a required
-    mapping again — the alternative, deleting the rows, would have retired a
-    live contract because its example changed.
-    """
-
-    payload: dict[str, Any]
-
-
-def test_absent_required_mapping_field_reports_missing_and_substitutes_the_empty_dict(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """CR-03: a REQUIRED ``dict[...]`` field is never a silent ``None``."""
-    caplog.clear()
-    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
-        obj = _RequiredMapping.from_api({})
-
-    assert obj.payload == {}
-    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
-    assert (".payload", "missing") in kinds
+#
+# CR-03's REQUIRED-mapping contract ("a ``dict[...]``-declared field is never a
+# silent ``None``: it substitutes ``{}`` and REPORTS") was RETIRED here together
+# with the machinery that implemented it — ``models._mapping_value`` /
+# ``_apply_mapping_policy`` leave the paquete in Plan 36-02. Its module-local
+# carrier ``_RequiredMapping`` and the two rows that drove it went with it: at
+# 33-07 only the contract's EXAMPLE had changed, so restating it was right; in
+# Phase 36 its IMPLEMENTATION goes, so keeping the rows would have meant keeping
+# dead code alive in a shipped module purely to assert against.
+#
+# The four rows below survive the retirement. They are ``MarketDataSnapshot``
+# rows, not mapping-machinery rows, and Plan 36-02 migrates them when
+# ``market_data`` becomes a model — including the lock-8 row, whose measured
+# record set does not change and which is only retitled there.
 
 
 def test_optional_mapping_field_keeps_none_and_reports_nothing(
@@ -1286,19 +1268,6 @@ def test_wrong_typed_mapping_field_reports_type_and_substitutes_the_empty_dict(
     assert (".market_data", "type") in kinds
 
 
-def test_strict_mode_raises_on_an_absent_required_mapping_field() -> None:
-    """CR-03: lock 4 applies to the mapping axis exactly as to every other axis."""
-    token = _decode.STRICT_DECODE.set(True)
-    try:
-        with pytest.raises(MarketDataDecodeError) as excinfo:
-            _RequiredMapping.from_api({})
-    finally:
-        _decode.STRICT_DECODE.reset(token)
-
-    assert excinfo.value.field_path == ".payload"
-    assert excinfo.value.declared_type == "dict"
-
-
 def test_strict_mode_does_not_raise_on_a_null_optional_mapping_field() -> None:
     """Phase 33 SC-2: the strict raise the 33-05 run measured stops firing.
 
@@ -1332,42 +1301,6 @@ def test_mapping_pass_is_silent_under_a_non_dict_payload(
     assert snap.market_data is None
     kinds = [(r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert kinds == [("", "non_dict")]
-
-
-def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
-    """Precondition that makes the call-site mapping pass complete (CR-03 / WR-03).
-
-    ``walk_field`` recurses into a nested model through ``walk_model`` directly,
-    so ``models.py``'s post-walk mapping pass — and every other ``from_api``
-    override — is bypassed for a model reached as another model's field type.
-    That is harmless only while no mapping-carrying model is ever declared as a
-    field type. This mirrors matriz's test of the same name.
-    """
-    shipped = [
-        obj
-        for obj in vars(models).values()
-        if isinstance(obj, type) and dataclasses.is_dataclass(obj) and issubclass(obj, SafeModel)
-    ]
-    carriers = {
-        cls.__name__
-        for cls in shipped
-        if any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, cls)).values())
-    }
-    assert carriers == {"MarketDataSnapshot"}
-
-    nested_types: set[str] = set()
-    for cls in shipped:
-        for hint in _decode.hints_for(cast(Any, cls)).values():
-            inner = models._strip_optional(hint)
-            for candidate in (inner, *getattr(inner, "__args__", ())):
-                if (
-                    isinstance(candidate, type)
-                    and dataclasses.is_dataclass(candidate)
-                    and issubclass(candidate, SafeModel)
-                ):
-                    nested_types.add(candidate.__name__)
-
-    assert carriers & nested_types == set()
 
 
 def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None:
