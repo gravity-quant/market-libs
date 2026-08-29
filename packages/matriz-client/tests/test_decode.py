@@ -741,6 +741,152 @@ def test_convert_shim_inherits_the_element_routing(caplog: pytest.LogCaptureFixt
 
 
 # ---------------------------------------------------------------------------
+# Risk mapping — ``DetailedPosition.report`` at TWO levels (Phase 37, D-07)
+# ---------------------------------------------------------------------------
+
+# PROVENANCE: **vendor-documented, UNMEASURED** — D-04a's third class, NOT a
+# live capture. Every value below is transcribed from
+# ``packages/matriz-client/documentation/Primary-API.md:1701-1791`` (the
+# ``GET /rest/risk/detailedPosition/REM7374`` sample), trimmed to the first of
+# its two symbols. No capture of either Risk endpoint exists anywhere in this
+# repo and none can be produced: ``main_matriz.py`` asserts the remarkets
+# hostname (D-MATZ-33 / ``LIVE-MATZ-33``) and that assert is not bypassed.
+# Real verification is deferred to Phase 39 / ``LIVE-NOBJ-01``.
+#
+# The body is ENVELOPED under ``detailedPosition`` in the doc; these fixtures
+# drive ``DetailedPosition.from_api`` directly, i.e. the already-unwrapped
+# inner object, because Plan 37-01 ratified ``strict-unwrap`` — the parser is
+# what removes the envelope, and a flat body raises ``PrimaryAPIError`` there
+# rather than reaching the model at all.
+_VENDOR_REPORT_SYMBOL = "SOJ.ROS/MAY23 380 C"
+
+#: The deferred subtree (``Primary-API.md:1710-1744``): a ~21-field array
+#: element carrying an 8-field ``detailedDailyDiff``. D-07 defers BOTH until a
+#: real capture exists; they must arrive as ``extra`` divergences, not as an
+#: invented model.
+_VENDOR_REPORT_LEAF: dict[str, Any] = {
+    "detailedPositions": [
+        {
+            "symbolReference": "SOJ.ROS/MAY23 380 C",
+            "contractType": "FUTURE_OPTION_CALL",
+            "totalCurrentSize": -2,
+            "detailedDailyDiff": {"totalDailyDiff": -100},
+        }
+    ],
+    # The declared roster — ``Primary-API.md:1745-1747``.
+    "instrumentInitialSize": -2,
+    "instrumentFilledSize": 0,
+    "instrumentCurrentSize": -2,
+}
+
+_VENDOR_DETAILED_POSITION: dict[str, Any] = {
+    "account": "REM7374",
+    "totalDailyDiffPlain": -184777,
+    "totalMarketValue": 60240,
+    "report": {"FUTURE_OPTION_CALL": {_VENDOR_REPORT_SYMBOL: _VENDOR_REPORT_LEAF}},
+    # ``lastCalculation`` (``:1791``) is DELIBERATELY omitted. The wire carries
+    # an epoch ``int`` while the field is annotated ``str | None`` — a
+    # pre-existing mismatch inherited from 37-01's follow-ups and explicitly out
+    # of scope here. Including it would add an unrelated ``type`` divergence
+    # that makes the strict-mode assertions below fail for the wrong reason.
+}
+
+# The symbol key as it appears in a ``field_path``: ``_decode._safe_key``
+# replaces every character outside ``[0-9A-Za-z_-]`` with ``?`` (lock 11), so a
+# key carrying ``.``, ``/`` or a space cannot forge a path segment.
+_SAFE_SYMBOL = "SOJ?ROS?MAY23?380?C"
+
+
+def test_detailed_position_report_decodes_the_vendor_sample_at_depth_two() -> None:
+    """``report[contractType][symbol]`` yields a model, not a raw dict, at BOTH levels."""
+    obj = models.DetailedPosition.from_api(_VENDOR_DETAILED_POSITION)
+
+    assert set(obj.report) == {"FUTURE_OPTION_CALL"}
+    inner = obj.report["FUTURE_OPTION_CALL"]
+    assert isinstance(inner, dict)
+    assert set(inner) == {_VENDOR_REPORT_SYMBOL}
+
+    leaf = inner[_VENDOR_REPORT_SYMBOL]
+    assert isinstance(leaf, models.InstrumentPositionReport)
+    # Silently widened ``int`` -> ``float`` by the walker's float arm.
+    assert leaf.instrumentInitialSize == -2.0
+    assert isinstance(leaf.instrumentInitialSize, float)
+    assert leaf.instrumentFilledSize == 0.0
+    assert leaf.instrumentCurrentSize == -2.0
+
+
+def test_report_deferred_detailedPositions_is_one_non_fatal_extra(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-07 / T-37-12: the deferred subtree is REPORTED, never silently dropped."""
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.DetailedPosition.from_api(_VENDOR_DETAILED_POSITION)
+
+    leaf = obj.report["FUTURE_OPTION_CALL"][_VENDOR_REPORT_SYMBOL]
+    assert not hasattr(leaf, "detailedPositions")
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    assert len(extras) == 1
+    assert extras[0].model == "InstrumentPositionReport"  # type: ignore[attr-defined]
+    assert (  # type: ignore[attr-defined]
+        extras[0].field_path == f".report.FUTURE_OPTION_CALL.{_SAFE_SYMBOL}.detailedPositions"
+    )
+
+
+def test_report_divergence_path_reads_through_both_open_keys(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A reader can locate the offending leaf in the payload through both open keys."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        models.DetailedPosition.from_api(
+            {
+                "report": {
+                    "FUTURE_OPTION_CALL": {_VENDOR_REPORT_SYMBOL: {"instrumentFilledSize": "x"}}
+                }
+            }
+        )
+
+    paths = [p for p, _ in _pairs(caplog)]
+    assert f".report.FUTURE_OPTION_CALL.{_SAFE_SYMBOL}.instrumentFilledSize" in paths
+
+
+def test_report_non_dict_still_substitutes_and_reports(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The container contract survives the retype: ``{}`` plus exactly one record."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.DetailedPosition.from_api({"account": "x", "report": "not-a-mapping"})
+
+    assert obj.report == {}
+    assert (".report", "type") in _pairs(caplog)
+
+
+def test_report_non_dict_is_fatal_under_strict_mode() -> None:
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MatrizDecodeError):
+        models.DetailedPosition.from_api({"account": "x", "report": "not-a-mapping"})
+
+
+def test_report_chain_over_two_open_key_levels_never_raises() -> None:
+    """T-37-13: no payload shape makes an attribute chain through ``report`` raise."""
+    for payload in (
+        {"account": "x"},
+        {"report": None},
+        {"report": "not-a-mapping"},
+        {"report": {"FUTURE_OPTION_CALL": "not-a-mapping"}},
+        {"report": {"FUTURE_OPTION_CALL": {_VENDOR_REPORT_SYMBOL: None}}},
+        _VENDOR_DETAILED_POSITION,
+    ):
+        obj = models.DetailedPosition.from_api(payload)
+        for outer in obj.report.values():
+            for leaf in outer.values():
+                assert leaf.instrumentCurrentSize is None or isinstance(
+                    leaf.instrumentCurrentSize, float
+                )
+
+
+# ---------------------------------------------------------------------------
 # ``empty()`` is silent (T-29-33)
 # ---------------------------------------------------------------------------
 

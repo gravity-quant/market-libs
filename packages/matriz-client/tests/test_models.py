@@ -8,7 +8,9 @@ result never raises ``KeyError`` or ``AttributeError``.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import FrozenInstanceError
+from typing import get_origin, get_type_hints
 
 import pytest
 
@@ -309,7 +311,44 @@ def test_position_round_trip() -> None:
 def test_detailed_position_accepts_partial_payload() -> None:
     parsed = DetailedPosition.from_api({"account": "REM6771"})
     assert parsed.account == "REM6771"
+    # Still ``{}`` after Phase 37's retype to ``dict[str, dict[str, InstrumentPositionReport]]``:
+    # the default factory is unchanged, so this assertion did NOT flip.
     assert parsed.report == {}
+
+
+def test_InstrumentPositionReport_is_on_the_exported_surface() -> None:
+    assert "InstrumentPositionReport" in matriz_client.__all__
+    assert matriz_client.InstrumentPositionReport is models.InstrumentPositionReport
+
+
+def test_InstrumentPositionReport_declares_only_the_vendor_documented_scalars() -> None:
+    """D-07's MINIMAL disposition, stated executably.
+
+    The roster is exactly the three sibling scalars of
+    ``Primary-API.md:1745-1747``. The deferred ``detailedPositions`` array and
+    its ``detailedDailyDiff`` object are NOT modelled — shipping them would
+    present an unobserved model as observed (SC-1).
+    """
+    names = [f.name for f in dataclasses.fields(models.InstrumentPositionReport)]
+    assert names == [
+        "instrumentInitialSize",
+        "instrumentFilledSize",
+        "instrumentCurrentSize",
+    ]
+    hints = get_type_hints(models.InstrumentPositionReport)
+    assert all(hints[n] == (float | None) for n in names)
+    # F-11: a mapping field on a model nested at depth 2 would be invisible to
+    # ``test_no_mapping_carrying_model_is_ever_a_nested_field_type``'s
+    # single-level ``__args__`` walk. The phase's answer is to keep these models
+    # mapping-free; this is the executable form of that constraint.
+    assert [n for n, t in hints.items() if get_origin(t) is dict] == []
+
+
+def test_InstrumentPositionReport_empty_is_falsy_and_chain_safe() -> None:
+    empty = models.InstrumentPositionReport.empty()
+    assert not empty
+    assert empty.instrumentCurrentSize is None
+    assert models.InstrumentPositionReport.from_api({"instrumentFilledSize": 3})
 
 
 def test_account_report_accepts_partial_payload() -> None:
