@@ -12,11 +12,18 @@ substitutes safe defaults per type:
 - ``X | None`` -> ``None`` when missing (explicit opt-in to nullable)
 
 Extra keys in the payload are ignored; missing keys fall back to defaults.
-Chained access like ``quote.puntas[0].precioCompra`` never raises on a
-*declared* attribute — the worst case is a final ``None`` or a zero-valued
-primitive. A **misspelled** attribute, by contrast, is a hard error in both
-directions: mypy rejects it statically and ``slots=True`` raises
-``AttributeError`` at runtime. That is the whole point of TYP-01.
+Chained access like ``quote.puntas[0].precioCompra`` and
+``titulo.puntas.precioCompra`` never raises on a *declared* attribute, and since
+NOBJ-IOL-01 that holds with **no** ``None`` guard anywhere along the chain: no
+model link and no collection link in this module is nullable any more, so an
+absent or ``null`` order book collapses to ``[]`` / an empty :class:`Punta`
+rather than to ``None``. Only *scalar* leaves stay ``T | None`` (D-03), so the
+worst case at the *end* of a chain is a final ``None`` or a zero-valued
+primitive. Ask whether the wire carried anything by branching on truthiness
+(``if quote.puntas:``), not by threading null checks. A **misspelled**
+attribute, by contrast, is a hard error in both directions: mypy rejects it
+statically and ``slots=True`` raises ``AttributeError`` at runtime. That is the
+whole point of TYP-01.
 
 Field names follow the wire format (camelCase) verbatim so JSON parsing can
 stay declarative.
@@ -115,9 +122,12 @@ class SafeModel:
         """Null Object truthiness (NOBJ-01): falsy iff the model carries nothing.
 
         A model equal to its own :meth:`empty` answers ``False``; any instance
-        differing in at least one field answers ``True``. This is what lets a
-        caller write ``if quote.puntas:`` instead of threading ``None`` checks
-        through a chain of nested models.
+        differing in at least one field answers ``True``. Since NOBJ-IOL-01 that
+        is not merely nicer than threading ``None`` checks through a chain of
+        nested models — it is the only question left to ask, because no nested
+        model link in this module is nullable: ``titulo.puntas`` is always a
+        :class:`Punta`, so ``if titulo.puntas:`` is how a caller asks whether the
+        wire carried an order book at all.
 
         Two recorded facts about the semantics, both load-bearing for callers:
 
@@ -179,10 +189,22 @@ class Cotizacion(SafeModel):
 
     - Both endpoints carry the **same 20 keys**; they differ only in which ones
       arrive ``null``. One model therefore covers both (D-01).
-    - ``descripcionTitulo``, ``plazo`` and ``puntas`` are ``Optional`` because
-      the historical series sends the three of them ``null``; in ``get_quote``
-      all three arrive populated (D-03). The Optional branch of the walker
-      returns ``None`` for those **without** emitting a divergence record.
+    - ``descripcionTitulo`` and ``plazo`` are ``Optional`` because the historical
+      series sends both of them ``null``; in ``get_quote`` both arrive populated
+      (D-03). The Optional branch of the walker returns ``None`` for those
+      **without** emitting a divergence record.
+    - ``puntas`` used to sit in that list and no longer does (NOBJ-IOL-01). It is
+      declared ``list[Punta]`` — non-Optional, and with **no** dataclass default,
+      because the field sits at position 16 of 20 with four no-default fields
+      after it. The historical series' ``null``, and an absent key, take the
+      NOBJ-02 collapse arm at ``_decode.py:448-452`` instead of the Union early
+      return: that arm guards its ``sink(...)`` call with ``if value is not
+      None``, so both cases yield the empty list and neither emits a divergence
+      record. ``quote.puntas`` is therefore always a list and
+      ``quote.puntas[0].precioCompra`` needs no ``None`` guard; branch on
+      truthiness (``if quote.puntas:``) to ask whether the wire carried a book.
+      A **wrong-typed** ``puntas`` is untouched by this: it still earns its
+      ``type`` record and still raises under ``strict_decode``.
     - ``puntas`` element shape is inobservado — see :class:`Punta` (D-02).
     - ``cantidadOperaciones`` is the one field where the two IOL models
       disagree, asymmetrically (D-04): ``int`` here, ``float`` in ``Titulo``,
@@ -210,7 +232,7 @@ class Cotizacion(SafeModel):
     plazo: str | None
     precioAjuste: float
     precioPromedio: float
-    puntas: list[Punta] | None
+    puntas: list[Punta]
     tendencia: str
     ultimoPrecio: float
     variacion: float
@@ -266,7 +288,18 @@ class Titulo(SafeModel):
       pre-cargar el censo de Phase 33 con divergencias garantizadas.
     - ``puntas`` es acá un :class:`Punta` **singular**, mientras que en
       :class:`Cotizacion` es una colección: dos formas de la misma clave en el
-      mismo corpus, cada una siguiendo su propia captura (D-02).
+      mismo corpus, cada una siguiendo su propia captura (D-02). Y es un **Null
+      Object** (NOBJ-IOL-01): se declara no-Optional y sin default de dataclass
+      —el campo está en la posición 14 de 20, con seis campos sin default
+      después—, así que un ``null`` del wire, o la clave ausente, ya no toma el
+      retorno temprano de la rama Union sino la rama de colapso NOBJ-02 de
+      ``_decode.py:504-505``, que construye la instancia vacía con
+      ``SILENT_SINK`` y **no** reporta. El atributo es entonces siempre un
+      ``Punta``: ``titulo.puntas.precioCompra`` nunca levanta y no necesita
+      guard de nulidad, y la pregunta "¿vino libro?" se hace por truthiness
+      (``if titulo.puntas:``), que es falsy exactamente cuando el modelo iguala
+      a ``Punta.empty()``. Un ``puntas`` **mal tipado** queda igual que siempre:
+      emite su registro y sigue levantando bajo ``strict_decode``.
     - ``cantidadOperaciones`` es **decimal** acá y entero en
       :class:`Cotizacion` (D-04). La asimetría es deliberada y observable: la
       rama decimal del walker **ensancha en silencio** un entero del wire,
@@ -298,7 +331,7 @@ class Titulo(SafeModel):
     moneda: str
     plazo: str
     precioEjercicio: float | None
-    puntas: Punta | None
+    puntas: Punta
     simbolo: str
     tipoOpcion: str | None
     ultimoCierre: float
