@@ -19,9 +19,11 @@ with a dedicated test below:
    reporting.
 
 Plus the matriz-only **mapping axis**: a ``dict``-declared field falls back to
-``{}``. The canonical walker has no ``dict`` branch (higyrus and market-data
-declare no mapping fields), so that axis lives in ``models.py`` at the call
-site — see ``_apply_mapping_policy`` and the tests under "Mapping axis".
+``{}``, and since Phase 37 its VALUES are decoded against the declared element
+type (with recursion for a nested mapping hint). The canonical walker has no
+``dict`` branch (higyrus and market-data declare no mapping fields), so both
+halves live in ``models.py`` at the call site — see ``_apply_mapping_policy``
+and the tests under "Mapping axis".
 
 Model fixtures are declared module-locally so the suite never depends on a
 shipped model's field list — a shipped model gaining or losing a field must not

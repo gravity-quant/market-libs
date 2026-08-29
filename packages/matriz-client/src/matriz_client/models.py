@@ -25,9 +25,11 @@ is deliberate — every difference is a declared axis of
 ``scalar_passthrough = True``), never a bug to be harmonized away. Two things
 the policy constant cannot express live here instead:
 
-- the **mapping axis** — a ``dict``-declared field falls back to ``{}``. The
-  canonical walker has no ``dict`` branch because higyrus and market-data
-  declare no mapping fields; see :func:`_apply_mapping_policy`.
+- the **mapping axis** — a ``dict``-declared field falls back to ``{}``, and
+  (Phase 37) its VALUES are decoded against the declared element type, with
+  recursion for a nested mapping hint. The canonical walker has no ``dict``
+  branch because higyrus and market-data declare no mapping fields, so both
+  halves live here; see :func:`_apply_mapping_policy`.
 - **UnknownFrame**, which is not a :class:`_SafeModel` at all and is exempt
   from extra-key reporting (matrix Section 3(c)).
 """
@@ -96,14 +98,44 @@ def _is_mapping(tp: Any) -> bool:
     return get_origin(_strip_optional(tp)) is dict
 
 
-def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeScope) -> Any:
-    """matriz's mapping axis: a non-mapping wire value falls back to ``{}``.
+def _element_hint(tp: Any) -> Any:
+    """The declared VALUE type of a ``dict[...]`` annotation; ``Any`` when unparameterised.
+
+    ``Optional`` is stripped first via :func:`_strip_optional`, so
+    ``dict[str, X] | None`` answers ``X`` exactly as the bare form does — the
+    same normalization :func:`_is_mapping` already performs, reused rather than
+    re-derived.
+
+    A legacy bare ``dict[str, Any]`` and an unparameterised ``dict`` both answer
+    ``Any``, which :func:`_decode.walk_field` lands on its bare pass-through:
+    the value is returned verbatim. That is the correct behaviour for an untyped
+    mapping and it is what keeps ``test_convert_shim_still_coerces`` green (F-17)
+    without a special case that skips the walker.
+    """
+    args = get_args(_strip_optional(tp))
+    return args[1] if len(args) == 2 else Any
+
+
+def _mapping_value(
+    value: Any,
+    element: Any,
+    *,
+    path: str,
+    model: str,
+    sink: _decode.DecodeScope,
+) -> Any:
+    """matriz's mapping axis: decode a ``dict``-declared field, element type included.
+
+    A non-mapping wire value falls back to ``{}``; a mapping is rebuilt with each
+    value routed through :func:`_decode.walk_field` against ``element``.
 
     The canonical walker has **no** ``dict`` branch, so ``walk_field`` lands such
-    a value on its bare pass-through and would hand back ``None``. matriz declares four mapping
-    fields (``InstrumentDetail.tickPriceRanges``, ``DetailedPosition.report``,
-    ``AccountReport.detailedAccountReports`` / ``.portfolio``) whose documented
-    contract is "missing dicts become ``{}``".
+    a value on its bare pass-through and hands the raw dict back unchanged
+    (``_decode.py:555`` is ``return value`` — 37-RESEARCH F-6 corrects the
+    long-standing claim in this docstring that it returned ``None``). matriz
+    declares four mapping fields (``InstrumentDetail.tickPriceRanges``,
+    ``DetailedPosition.report``, ``AccountReport.detailedAccountReports`` /
+    ``.portfolio``) whose documented contract is "missing dicts become ``{}``".
 
     The axis lives here rather than in ``_decode.py`` because that file is a
     byte-verbatim copy across five paquetes (D-02) and Plan 09 hashes it; a
@@ -135,11 +167,61 @@ def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeSco
     Reporting matches what the walker would emit for any other substituted
     default — ``missing`` when the payload carried nothing, ``type`` otherwise
     — so strict mode is fatal here exactly as it is on every other axis.
+
+    **Phase 37 (NOBJ-MTZ-01, D-05 / D-06): the axis now also OWNS element
+    decoding.** Until this phase it only coerced the outer CONTAINER and returned
+    a present mapping verbatim, which was adequate while every mapping field was
+    declared ``dict[str, Any]``. It is not adequate for ``dict[str, Model]``: the
+    walker's missing ``dict`` branch means an element type is never consulted by
+    anything else, so without the loop below the inner values would reach the
+    caller as raw payload dicts under a model annotation — a type lie. Each value
+    is therefore routed through :func:`_decode.walk_field` with the element hint,
+    the extended path and, critically, **the sink this function was handed**.
+
+    Never ``Model.from_api`` here: an override resolves its own sink through
+    ``current_sink()`` rather than accepting the one threaded through this
+    recursion, so the nested decode would leave the surrounding
+    :class:`~matriz_client._decode.DecodeScope` and lock 5's dedupe collapse
+    would stop firing inside it (``_decode.py:459-506`` documents the same trap
+    for the walker's own nested-model branch). ``walk_field`` takes the sink as a
+    parameter, which is why it is the correct entry point.
+
+    The function **self-recurses** when the element hint is itself a mapping.
+    That exists for ``DetailedPosition.report``, which Plan 37-03 types as
+    ``dict[str, dict[str, InstrumentPositionReport]]`` — two levels of
+    vendor-open keys (``contractType`` then ``symbol``), the only honest shape
+    for a payload whose key sets are not enumerable.
+
+    Payload-supplied keys are neutralized with :func:`_decode._safe_key` before
+    they enter a ``field_path``, for the same reason the walker neutralizes an
+    ``extra`` key (lock 11): a mapping key is wire content, and one carrying a
+    newline would otherwise forge a line in any text handler. The walker's own
+    helper is reused rather than re-implemented so the two cannot drift.
     """
-    if isinstance(value, dict):
-        return value
-    sink(model, path, "missing" if value is None else "type", "dict", type(value).__name__)
-    return {}
+    if not isinstance(value, dict):
+        sink(model, path, "missing" if value is None else "type", "dict", type(value).__name__)
+        return {}
+    decoded: dict[Any, Any] = {}
+    for key, item in value.items():
+        item_path = f"{path}.{_decode._safe_key(key)}"
+        if _is_mapping(element):
+            decoded[key] = _mapping_value(
+                item,
+                _element_hint(element),
+                path=item_path,
+                model=model,
+                sink=sink,
+            )
+        else:
+            decoded[key] = _decode.walk_field(
+                item,
+                element,
+                path=item_path,
+                model=model,
+                policy=_decode.POLICY,
+                sink=sink,
+            )
+    return decoded
 
 
 def _apply_mapping_policy(
@@ -154,6 +236,9 @@ def _apply_mapping_policy(
     model that declares a mapping field is ever another model's field type —
     ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` pins that
     precondition, and fails loudly if a future plan nests one.
+
+    Phase 37: the declared ELEMENT hint is derived here (:func:`_element_hint`)
+    and handed to :func:`_mapping_value`, which owns the decoding of the values.
     """
     # ``cast(Any, cls)`` is the walker's own mypy-strict discipline for
     # ``get_type_hints``-driven code: mypy rejects ``type[Any]`` against
@@ -165,7 +250,11 @@ def _apply_mapping_policy(
         hint = hints[f.name]
         if _is_mapping(hint):
             kwargs[f.name] = _mapping_value(
-                kwargs[f.name], path=f".{f.name}", model=model, sink=sink
+                kwargs[f.name],
+                _element_hint(hint),
+                path=f".{f.name}",
+                model=model,
+                sink=sink,
             )
 
 
@@ -183,10 +272,17 @@ def _convert(tp: Any, value: Any) -> Any:
     not the silent one, so a legacy caller reaching for the shim gets the same
     observability as a caller going through ``from_api`` — and never shares
     dedupe state with a surrounding request scope.
+
+    Phase 37: the element hint is derived from ``get_args(tp)`` via
+    :func:`_element_hint` and handed on, so the shim INHERITS the new element
+    routing instead of bypassing it. A bare ``dict[str, Any]`` still yields
+    ``Any``, which walks to a verbatim pass-through — ``_convert(dict[str, Any],
+    None) == {}`` and the reversed ``(tp, value)`` order are both pinned by
+    committed tests (F-17) and neither moves.
     """
     sink = _decode.DecodeScope()
     if _is_mapping(tp):
-        return _mapping_value(value, path="", model="", sink=sink)
+        return _mapping_value(value, _element_hint(tp), path="", model="", sink=sink)
     return _decode.walk_field(
         value,
         tp,
