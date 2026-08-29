@@ -193,7 +193,7 @@ Plans:
 | 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
-| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete   | 2026-08-29 |
+| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
