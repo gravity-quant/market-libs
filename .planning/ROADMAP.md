@@ -150,7 +150,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 | Phase                                                        | Milestone | Plans | Status      | Completed  |
 |--------------------------------------------------------------|-----------|-------|-------------|------------|
-| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete   | 2026-08-29 |
+| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 0/?   | Not started | -          |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 0/?   | Not started | -          |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |
