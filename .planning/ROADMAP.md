@@ -38,7 +38,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 > **La cobertura en vivo de la Phase 39 arranca con dos bloqueos heredados de la Phase 33**: `higyrus-client` (host que no resuelve por DNS) y `matriz-client` (assert de política remarkets-only D-MATZ-33, que **no se rodea**). Ninguno se resuelve desde adentro de una fase; el registro correcto es `SKIPPED` con causa medida y destino nombrado (`LIVE-HIGY-33` / `LIVE-MATZ-33`), nunca un cero que se lea como limpio.
 > **Las Phases 36, 37 y 38 paralelizan** entre sí (las tres dependen sólo de la 35 y tocan paquetes disjuntos).
 
-- [ ] **Phase 35: Fundación Null Object — `__bool__` + política del walker** *(load-bearing, PRIMERO)* — `SafeModel.__bool__`/`empty()` en las 4 jerarquías de base copiadas verbatim a los 6 paquetes + nueva disposición del walker para eslabones no-opcionales, con los 4 gates de v1.6 verdes y **cero** cambios de superficie pública — NOBJ-01, NOBJ-02
+- [x] **Phase 35: Fundación Null Object — `__bool__` + política del walker** *(load-bearing, PRIMERO)* — `SafeModel.__bool__`/`empty()` en las 4 jerarquías de base copiadas verbatim a los 6 paquetes + nueva disposición del walker para eslabones no-opcionales, con los 4 gates de v1.6 verdes y **cero** cambios de superficie pública — NOBJ-01, NOBJ-02 (completed 2026-08-29)
 - [ ] **Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33** — `MarketDataEntries`/`BookLevel`/`EntryValue` con alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`, `entries` de vuelta a `list[str]`, fila no-data expresada por veracidad y baja de la maquinaria `_mapping_value` — NOBJ-MD-01, NOBJ-MD-02
 - [ ] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02
 - [ ] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01
@@ -60,7 +60,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. **Ninguna superficie pública cambia en esta fase**: las suites de los 6 paquetes pasan sin editar un solo test, y los snapshots de superficie pública quedan byte-idénticos — la fase entrega política y capacidad, no ruptura.
   5. Las propiedades alias que introducen las fases 36-38 son **invisibles para el walker**: un test prueba que `get_type_hints()` sobre una dataclass con `@property` alias devuelve exactamente los campos declarados, de modo que agregar un alias no puede fabricar un `missing` ni cambiar el conteo de divergencias.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 **Wave 1**
 
 - [x] 35-01-PLAN.md — TRACER: higyrus end-to-end (`SafeModel.empty()` forma A + `__bool__`, suite de enumeración/veracidad/alias, 2 tests nuevos de wrong-type sobre lista) — wave 1
@@ -73,7 +73,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 35-05-PLAN.md — ATÓMICO: EDIT 1 + EDIT 2 en las 5 copias de `_decode.py` + comentario byte-idéntico + las 11 inversiones + `CANONICAL_DIGEST` recomputado, en UN commit; más el gate de fase — wave 3
+- [x] 35-05-PLAN.md — ATÓMICO: EDIT 1 + EDIT 2 en las 5 copias de `_decode.py` + comentario byte-idéntico + las 11 inversiones + `CANONICAL_DIGEST` recomputado, en UN commit; más el gate de fase — wave 3
 
 ### Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33
 
@@ -150,7 +150,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 | Phase                                                        | Milestone | Plans | Status      | Completed  |
 |--------------------------------------------------------------|-----------|-------|-------------|------------|
-| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 4/5 | In Progress|  |
+| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete   | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 0/?   | Not started | -          |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 0/?   | Not started | -          |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |

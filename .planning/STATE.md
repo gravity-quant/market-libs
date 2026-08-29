@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 35
 current_phase_name: Fundación Null Object — __bool__ + política del walker
-status: executing
-stopped_at: Completed 35-04-PLAN.md
-last_updated: "2026-08-29T02:48:26.382Z"
+status: verifying
+stopped_at: Completed 35-05-PLAN.md
+last_updated: "2026-08-29T03:03:39.667Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 17
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 35 (Fundación Null Object — __bool__ + política del walker) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-29 — Phase 35 execution started
 
 ## Performance Metrics
@@ -173,6 +173,7 @@ Last activity: 2026-08-29 — Phase 35 execution started
 | Phase 35 P02 | 18min | 2 tasks | 1 files |
 | Phase 35 P03 | 14min | 2 tasks | 6 files |
 | Phase 35 P04 | 15 min | 3 tasks | 6 files |
+| Phase 35 P05 | 10min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -374,6 +375,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 35-04: matriz's base declares __dataclass_fields__ as a ClassVar, so get_type_hints reports one name dataclasses.fields omits — the criterio-5 hint assertion pins that single extra as an equality rather than relaxing to a subset check
 - [Phase ?]: 35-04: a zero roster is asserted as a positive structural property (AST class count, empty __all__, import discipline, absent walker) in ambito and wallets — never a >= 0 bound, never an empty parametrize pytest would skip
 - [Phase ?]: 35-04: matriz needed __bool__ only; its Phase-29 empty() was verified against the plan and left byte-unchanged (one removed source line total, the UnknownFrame docstring method count)
+- [Phase ?]: [Phase 35-05]: la disposicion NOBJ-02 se compuerta por identidad contra null (if value is not None:), NUNCA por falsedad — cadena vacia, 0, dict vacio y lista vacia son falsy y son wrong-types legitimos que siguen divergiendo y siguen siendo fatales bajo strict_decode; los 10 tripwires de wrong-type de las olas 1-2 son la falsificacion de esa mitad
+- [Phase ?]: [Phase 35-05]: CANONICAL_DIGEST ac14868282ad0a5c -> a1f00c824348164c, leido VERBATIM del mensaje de falla del propio gate (que reporto UN solo hash distinto en las 5 copias), nunca del digest cd937d17 de RESEARCH F-6, que corresponde a una variante sin reescritura del comentario
+- [Phase ?]: [Phase 35-05]: los docstrings de modulo de _decode.py NO estan hasheados (la regla 1 de normalizacion los strippea) — la revision manual x5 que exige D-10 encontro un bullet podrido y se enmendo byte-identico x5 sin mover el digest
 
 ### Pending Todos
 
@@ -457,8 +461,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T02:48:13.538Z
-Stopped at: Completed 35-02-PLAN.md
+Last session: 2026-08-29T03:03:39.661Z
+Stopped at: Completed 35-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
