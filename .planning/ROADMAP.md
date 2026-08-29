@@ -143,7 +143,7 @@ Plans:
   3. El grep de cierre del plan fuente sobre `packages/*/src/*/models.py` devuelve **sólo** hojas escalares y `Literal` en los 6 paquetes, y ningún retorno de función pública expone `dict[str, Any]` / `list[dict[str, Any]]` fuera de los shims `_legacy` e internals (`_request`) — el resultado se reporta con el comando ejecutado y su salida, no como afirmación.
   4. Las suites de los cuatro paquetes quedan verdes con los 4 gates de v1.6 activos, y `surface_parity.py` asevera que cada cambio de lógica viajó a las dos superficies (D-NO-06); para `wallets-client` se registra explícitamente su condición de stub sin endpoints reales en vez de reportar un verde vacuo.
 
-**Plans**: 1/4 plans executed
+**Plans**: 2/4 plans executed
 
 **Wave 1**
 
@@ -151,7 +151,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 38-02-PLAN.md — Ratchet D-11: predicado de campo del gate ensanchado con discriminador `ClassDef` + 3 fixtures RED en iol, sin reenrojecer los 10 leaves `Literal` de matriz — wave 2
+- [x] 38-02-PLAN.md — Ratchet D-11: predicado de campo del gate ensanchado con discriminador `ClassDef` + 3 fixtures RED en iol, sin reenrojecer los 10 leaves `Literal` de matriz — wave 2
 - [ ] 38-03-PLAN.md — Callout `## Unreleased — BREAKING` en el README de iol (D-10) + corrección de refs y addendum de contabilidad Phase 38 en `35-RETIRED-TRIPLES.md` (D-12) — wave 2
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -193,7 +193,7 @@ Plans:
 | 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
-| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 1/4 | In Progress|  |
+| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 2/4 | In Progress|  |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 

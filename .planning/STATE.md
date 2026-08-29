@@ -6,14 +6,14 @@ current_phase: 38
 current_phase_name: iol-client-auditor-a-de-higyrus-mbito-wallets
 status: executing
 stopped_at: Phase 38 context gathered (assumptions mode)
-last_updated: "2026-08-29T20:10:18.352Z"
+last_updated: "2026-08-29T20:37:14.110Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 38 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
   percent: 50
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 38 (iol-client-auditor-a-de-higyrus-mbito-wallets) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 38 execution started
 
@@ -183,6 +183,7 @@ Last activity: 2026-08-29 — Phase 38 execution started
 | Phase 37 P04 | 34min | 2 tasks | 2 files |
 | Phase 37 P05 | ~8 min | 2 tasks | 2 files |
 | Phase 38 P01 | 6min | 3 tasks | 4 files |
+| Phase 38 P02 | 7min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -412,6 +413,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 38-01: Cotizacion.puntas es list[Punta] y Titulo.puntas es Punta — no-Optional, sin default de dataclass; el colapso lo produce el walker NOBJ-02 congelado, no Python
 - [Phase ?]: 38-01: la deriva del round-trip se absorbe en el valor ESPERADO del test con la causa dicha; la captura live 2026-06-06 nunca se reescribe
 - [Phase ?]: 38-01: sin edit espejo en client.py/aio.py — ambas superficies delegan en _core.py; la obligación sync/async se descarga con surface_parity, no duplicando decode
+- [Phase ?]: 38-02: el discriminador de modelo del gate es estatico (conjunto de nombres ClassDef por import root) - issubclass/get_type_hints exigirian importar un modulo de paquete, lo que dispararia load_dotenv() en el job lint
+- [Phase ?]: 38-02: dict[str, Model] | None queda fuera del ratchet como exclusion declarada; agregarlo despues es una adicion declarada, no un bug fix
 
 ### Pending Todos
 
@@ -496,7 +499,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T20:09:59.821Z
+Last session: 2026-08-29T20:37:10.564Z
 Stopped at: Phase 38 context gathered (assumptions mode)
 Resume file: .planning/phases/38-iol-client-auditor-a-de-higyrus-mbito-wallets/38-CONTEXT.md
 

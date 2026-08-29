@@ -30,7 +30,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Auditoría resto
 
-- [ ] **NOBJ-AUD-01**: higyrus/ámbito/wallets auditados: cero campos modelo/lista `| None` y cero `dict[str, Any]` en campos de modelos públicos, verificable por gate/grep (hojas escalares `T | None` permitidas por D-NO-03)
+- [x] **NOBJ-AUD-01**: higyrus/ámbito/wallets auditados: cero campos modelo/lista `| None` y cero `dict[str, Any]` en campos de modelos públicos, verificable por gate/grep (hojas escalares `T | None` permitidas por D-NO-03)
 
 ### Verificación en vivo + release
 
@@ -69,7 +69,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOBJ-IOL-01 | Phase 38 | Complete |
 | NOBJ-MTZ-01 | Phase 37 | Complete |
 | NOBJ-MTZ-02 | Phase 37 | Complete |
-| NOBJ-AUD-01 | Phase 38 | Pending |
+| NOBJ-AUD-01 | Phase 38 | Complete |
 | LIVE-NOBJ-01 | Phase 39 | Pending |
 | PUB-NOBJ-01 | Phase 40 | Pending |
 
