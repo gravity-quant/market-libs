@@ -88,7 +88,19 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. La fila no-data de `/marketdata/latest` conserva **el mismo poder expresivo sin `None`**: `bool(snapshot.market_data) is False` y `note` poblado; `test_snapshot_no_data_row.py` queda migrado a esa semántica en vez de eliminado.
   5. `_mapping_value` / `_apply_mapping_policy` y su test de precondición desaparecen de `market-data-client` **sin mover el hash de `_decode.py`** (la maquinaria vive en `models.py`, no en el walker), y `main_market_data.py` consume por encadenamiento profundo en sus sitios reales.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 36-01-PLAN.md — Prep: retirar el eje mapping de la suite de tests por censo per-call-site (no por rango), con checkpoint del operator sobre la disposición del contrato CR-03 — wave 1
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 36-02-PLAN.md — TRACER: `BookLevel`/`EntryValue`/`MarketDataEntries` + 6 alias, revocación del widening 33-07 por rol de campo, `LatestRequest` alineado, baja de la maquinaria en `models.py`, y la matriz SC-1 de 4 payloads × 2 superficies — wave 2
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 36-03-PLAN.md — SC-5: encadenamiento profundo en los 4 probes reales de `main_market_data.py` con lock AST, cierre de prosa form B → form A, y gate de fase — wave 3
 
 ### Phase 37: `matriz-client` — dicts residuales tipados + alias
 
