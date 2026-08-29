@@ -1,7 +1,7 @@
 # Findings: matriz-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-06-14T05:13:01.923274+00:00
+- Timestamp: 2026-08-29T16:04:41.215338+00:00
 - Resolved base URL / env: https://api.remarkets.primary.com.ar
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -22,6 +22,8 @@
 | F-08 | SHAPE | sync | NO-FIX |
 | F-09 | ERROR-MAP | sync | FIXED |
 | F-10 | SHAPE | sync | EXPECTED |
+| F-11 | SHAPE | sync | NO-FIX |
+| F-12 | SHAPE | sync | NO-FIX |
 
 ## Detalle por hallazgo
 
@@ -103,9 +105,9 @@
 - **Expected:** PrimaryAPIError mapeado para CFI inválido
 - **Actual:** ninguna excepción; el cliente retornó normalmente (pre-Phase 9)
 - **Diff:** upstream aceptó CFI no válido; revisar validación
+- **Regression:** `packages/matriz-client/tests/test_core.py::test_get_instruments_by_cfi_validates_cfi_code` (10 casos paramétricos cubriendo 3 buckets: literal-known x2, regex forward-compat x2, malformed x6 — hyphen/lowercase/digit/len5/len7/empty)
 - **Classification rationale (Phase 5):** Gap real en el error mapping del cliente. El contrato espera `PrimaryAPIError` para CFI mal formado; el cliente lo deja pasar silenciosamente. Fix + regression test serán entregados en **Plan 05-04 cycle closure** (DRIFT-02). Hasta que se agregue, `cycle_closure_matriz_client` quedará FAIL en el próximo run — esa señal es justamente la que cierra el ciclo.
 - **Resolution:** Phase 9 Plan 09-03 BUG-01 — hybrid Literal + ISO 10962 regex guard agregado pre-HTTP en `build_get_instruments_by_cfi_request` (`packages/matriz-client/src/matriz_client/_core.py:423-441`). Si `cfi_code in _CFI_LITERAL_VALUES` (frozenset derivado de `types.CFICode` via `get_args`) → pass (literal-known, 9 valores ISO 10962:2015). Si `_CFI_ISO_RE.match(cfi_code)` (regex `^[A-Z]{6}$`) → pass (forward-compat ISO 10962:2021 sin lib bump). Otherwise → `raise PrimaryAPIError(status="ERROR", description="CFI inválido: ...")`. Deviation D-02 vs ROADMAP literal `_core.raise_for_response()`: el guard vive en el builder porque `raise_for_response` solo ve `httpx.Response` y no ve el `cfi_code` param; el contrato observable (`PrimaryAPIError(status="ERROR")`) se preserva. Single-site fix (Phase 7 REFAC-03) — el cambio en `_core.py` propaga al transport shell `Client.get_instruments_by_cfi` automáticamente. matriz NO tiene `aio.py` REST aún (Phase 10 territory). Live re-run de `main_matriz.py` confirma `probe_error_malformed_cfi` reporta PASS post-fix; `cycle_closure_matriz_client` flipea FAIL → PASS (operator-driven evidence — ver 09-03 SUMMARY paste).
-- **Regression:** `packages/matriz-client/tests/test_core.py::test_get_instruments_by_cfi_validates_cfi_code` (10 casos paramétricos cubriendo 3 buckets: literal-known x2, regex forward-compat x2, malformed x6 — hyphen/lowercase/digit/len5/len7/empty)
 
 ### F-10 -- prod-vs-remarkets divergence acknowledged
 
@@ -114,6 +116,22 @@
 - **Expected:** verification limited to remarkets sandbox by safety policy (REQUIREMENTS.md Out of Scope)
 - **Actual:** prod (api.primary.com.ar) shape unverified; sandbox shape committed in .planning/verification/schemas/matriz-client/
 - **Diff:** N/A (acknowledged limitation, not detected drift)
+
+### F-11 -- DetailedPosition.report roster declarado desde vendor doc, nunca observado en vivo
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
+
+- **Expected:** `DetailedPosition.report` tipado `dict[str, dict[str, InstrumentPositionReport]]` (dos niveles de keys abiertas: contractType -> symbol). Roster declarado de `InstrumentPositionReport`: `instrumentInitialSize`, `instrumentFilledSize`, `instrumentCurrentSize` -- los tres escalares hermanos de `packages/matriz-client/documentation/Primary-API.md:1745-1747`, dentro de la muestra `GET /rest/risk/detailedPosition/REM7374` en `:1701-1791`. Procedencia: vendor-documented, UNMEASURED (D-04a, tercera clase) -- nunca presentado como captura.
+- **Actual:** No existe observacion en vivo de este payload en ningun lado del repo. `.planning/verification/schemas/matriz-client/` tiene ocho schemas committeados (instruments, market data, segments, trades) y ninguno cubre los endpoints Risk; `grep -rn 'detailedPosition' .planning/verification/schemas/` no matchea. El roster y los tipos runtime salen del vendor doc committeado, no de la wire. Los subarboles diferidos por D-07 (`detailedPositions`, `:1710-1744`, ~21 campos por elemento, con su `detailedDailyDiff` de 8 campos en `:1733-1742`) llegan como divergencias `extra` no-fatales y quedan descartados del surface tipado.
+- **Diff:** Causa bloqueante: LIVE-MATZ-33 -- el hostname assert D-MATZ-33 en `main_matriz.py:2548-2556` aborta cualquier corrida cuyo `base_url` no sea remarkets, y no fue bypasseado (T-37-16). Sin corrida en vivo no hay captura, y sin captura el roster no puede confirmarse ni corregirse en este ciclo. Destino nombrado: Phase 39 / LIVE-NOBJ-01, donde se mide el payload real y se ensancha o corrige el roster.
+
+### F-12 -- AccountReport.detailedAccountReports roster declarado desde vendor doc, nunca observado en vivo
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `NO-FIX`
+
+- **Expected:** `AccountReport.detailedAccountReports` tipado `dict[str, DetailedAccountReport]` (UN nivel de keys abiertas, no dos -- la asimetria con `report` esta medida en 37-RESEARCH F-7/F-8). Roster declarado de `DetailedAccountReport`: `settlementDate` (epoch millis), el unico escalar con evidencia directa en `packages/matriz-client/documentation/Primary-API.md:1888`, dentro de la muestra `GET /rest/risk/accountReport/REM7374` en `:1817-1895`. Procedencia: vendor-documented, UNMEASURED (D-04a, tercera clase) -- nunca presentado como captura.
+- **Actual:** No existe observacion en vivo de este payload en ningun lado del repo; `grep -rn 'accountData' .planning/verification/schemas/` no matchea. Los subarboles diferidos por D-07 (`currencyBalance` en `:1828-1859`, con su mapa open-keyed `detailedCurrencyBalance`; y `availableToOperate` en `:1860-1887`, con su objeto `cash` y su mapa open-keyed `detailedCash`) llegan como divergencias `extra` no-fatales y quedan descartados del surface tipado. Fila hermana: `AccountReport.portfolio` se retipo a `float | None` (D-02) sobre la misma clase de evidencia -- numero pelado en `:1894`, corroborado por el `totalMarketValue` identico de la misma cuenta en `:1706`.
+- **Diff:** Causa bloqueante: LIVE-MATZ-33 -- el hostname assert D-MATZ-33 en `main_matriz.py:2548-2556` aborta cualquier corrida cuyo `base_url` no sea remarkets, y no fue bypasseado (T-37-16). Sin corrida en vivo no hay captura, y sin captura el roster no puede confirmarse ni corregirse en este ciclo. Destino nombrado: Phase 39 / LIVE-NOBJ-01, donde se mide el payload real y se ensancha o corrige el roster.
 <!-- END AUTO-GENERATED -->
 
 ## Cycle Closure
