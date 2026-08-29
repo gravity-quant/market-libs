@@ -293,11 +293,25 @@ async def test_async_get_positions(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_async_get_detailed_positions(httpx_mock: HTTPXMock) -> None:
-    """AQ16: get_detailed_positions (BasicAuth) parses raw payload → DetailedPosition."""
+    """AQ16: get_detailed_positions (BasicAuth) desenvuelve ``detailedPosition`` → modelo.
+
+    Phase 37 D-03 (``strict-unwrap``): el fixture migró de la forma PLANA a la
+    ENVUELTA que documenta ``Primary-API.md:1701-1703``. Que este test async
+    pase sin tocar ``aio.py`` es la evidencia de F-4 — ambas superficies
+    delegan en ``_core``, así que el espejo sync/async se cumple por
+    construcción y no por un segundo edit.
+    """
     httpx_mock.add_response(
         url="https://api.test/rest/risk/detailedPosition/ACC-2",
         method="GET",
-        json={"status": "OK", "account": "ACC-2", "totalMarketValue": 1234.5, "report": {}},
+        json={
+            "status": "OK",
+            "detailedPosition": {
+                "account": "ACC-2",
+                "totalMarketValue": 1234.5,
+                "report": {},
+            },
+        },
     )
     dp = await aio.get_detailed_positions("ACC-2")
     assert isinstance(dp, DetailedPosition)
@@ -305,16 +319,22 @@ async def test_async_get_detailed_positions(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_async_get_account_report(httpx_mock: HTTPXMock) -> None:
-    """AQ17: get_account_report (BasicAuth) parses raw payload → AccountReport."""
+    """AQ17: get_account_report (BasicAuth) desenvuelve ``accountData`` → modelo.
+
+    Phase 37 D-03 (``strict-unwrap``): fixture migrado de la forma PLANA a la
+    ENVUELTA de ``Primary-API.md:1817-1819``. Gemelo async de AQ16.
+    """
     httpx_mock.add_response(
         url="https://api.test/rest/risk/accountReport/ACC-3",
         method="GET",
         json={
             "status": "OK",
-            "accountName": "ACC-3",
-            "marketMember": "MM",
-            "collateral": 100.0,
-            "currentCash": 50.0,
+            "accountData": {
+                "accountName": "ACC-3",
+                "marketMember": "MM",
+                "collateral": 100.0,
+                "currentCash": 50.0,
+            },
         },
     )
     rep = await aio.get_account_report("ACC-3")

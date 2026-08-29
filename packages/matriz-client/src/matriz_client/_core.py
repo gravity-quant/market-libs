@@ -276,11 +276,14 @@ def parse_envelope_response(resp: httpx.Response, endpoint: str) -> dict[str, An
 
 
 def _parse_risk_response(resp: httpx.Response, endpoint: str) -> dict[str, Any]:
-    """Risk API parser — payload raíz ES el resultado (NO envelope key, D-07).
+    """DEPRECATED — copia sin unwrap de ``parse_envelope_response``; ya sin callers.
 
-    Mismo orden CR-03 que ``parse_envelope_response`` pero sin envelope
-    unwrap: ``DetailedPosition`` / ``AccountReport`` se construyen
-    directamente con ``Model.from_api(raw)``.
+    Existía porque se creía que los endpoints Risk respondían con el payload en
+    la raíz. El vendor doc falsifica esa creencia:
+    ``documentation/Primary-API.md:1701-1703`` y ``:1817-1819`` muestran los
+    bodies envueltos en ``detailedPosition`` / ``accountData``. Phase 37 (D-03,
+    ``strict-unwrap``) reapuntó ambos parsers Risk a
+    ``parse_envelope_response`` + ``unwrap``, dejando esta función sin uso.
     """
     resp.read()
     raise_for_response(resp)
@@ -895,7 +898,10 @@ def build_get_detailed_positions_request(
 ) -> RequestSpec:
     """``GET /rest/risk/detailedPosition/{account_name}`` con HTTP Basic Auth (D-07).
 
-    Risk §9.2 sin envelope key — payload raíz ES el resultado.
+    Risk §9.2 responde ENVUELTO en la key ``detailedPosition``
+    (``documentation/Primary-API.md:1701-1703``). El claim previo de esta
+    docstring — "sin envelope key, payload raíz ES el resultado" — lo falsifica
+    el propio vendor doc; corregido en Phase 37 (D-03, ``strict-unwrap``).
     """
     return RequestSpec(
         method="GET",
@@ -912,10 +918,23 @@ def build_get_detailed_positions_request(
 def parse_get_detailed_positions_response(
     resp: httpx.Response, account_name: str
 ) -> DetailedPosition:
-    """Parse risk payload raíz (NO envelope key, D-07) → ``DetailedPosition``."""
+    """Parse envelope ``{detailedPosition: {...}}`` → ``DetailedPosition``.
+
+    Phase 37 D-03, opción ratificada ``strict-unwrap``. Hasta esta fase el
+    parser pasaba el body RAÍZ a ``from_api`` bajo un claim de ausencia de
+    envelope que el vendor doc falsifica, así que ``detailedPosition`` entraba
+    como key ``extra`` y ningún campo declarado se encontraba jamás. El vendor doc
+    (``documentation/Primary-API.md:1701-1703``) muestra el body envuelto, y el
+    endpoint hermano ``parse_get_positions_response`` ya desenvolvía.
+
+    Un body SIN la envelope key levanta ``PrimaryAPIError`` vía ``unwrap`` —
+    disposición ratificada por el operator en el checkpoint de 37-01: una
+    respuesta de forma equivocada se vuelve ruidosa en vez de producir un
+    modelo all-defaults que se lee como "la cuenta no tiene nada".
+    """
     path = f"/rest/risk/detailedPosition/{account_name}"
-    raw = _parse_risk_response(resp, path)
-    return DetailedPosition.from_api(raw)
+    data = parse_envelope_response(resp, path)
+    return DetailedPosition.from_api(unwrap(data, "detailedPosition", path))
 
 
 def build_get_account_report_request(
@@ -924,7 +943,10 @@ def build_get_account_report_request(
 ) -> RequestSpec:
     """``GET /rest/risk/accountReport/{account_name}`` con HTTP Basic Auth (D-07).
 
-    Risk §9.3 sin envelope key — payload raíz ES el resultado.
+    Risk §9.3 responde ENVUELTO en la key ``accountData``
+    (``documentation/Primary-API.md:1817-1819``). El claim previo de esta
+    docstring — "sin envelope key, payload raíz ES el resultado" — lo falsifica
+    el propio vendor doc; corregido en Phase 37 (D-03, ``strict-unwrap``).
     """
     return RequestSpec(
         method="GET",
@@ -939,7 +961,14 @@ def build_get_account_report_request(
 
 @_decode._response_parser
 def parse_get_account_report_response(resp: httpx.Response, account_name: str) -> AccountReport:
-    """Parse risk payload raíz (NO envelope key, D-07) → ``AccountReport``."""
+    """Parse envelope ``{accountData: {...}}`` → ``AccountReport``.
+
+    Phase 37 D-03, opción ratificada ``strict-unwrap`` — gemelo exacto de
+    ``parse_get_detailed_positions_response``. El claim previo de ausencia de
+    envelope lo falsifica ``documentation/Primary-API.md:1817-1819``, que muestra
+    el body envuelto en ``accountData``. Un body SIN la key levanta
+    ``PrimaryAPIError`` vía ``unwrap``.
+    """
     path = f"/rest/risk/accountReport/{account_name}"
-    raw = _parse_risk_response(resp, path)
-    return AccountReport.from_api(raw)
+    data = parse_envelope_response(resp, path)
+    return AccountReport.from_api(unwrap(data, "accountData", path))
