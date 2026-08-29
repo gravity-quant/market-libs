@@ -1,7 +1,7 @@
 ---
 phase: 38-iol-client-auditor-a-de-higyrus-mbito-wallets
 verified: 2026-08-29T21:53:38Z
-status: human_needed
+status: verified
 score: 14/14 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -9,6 +9,7 @@ human_verification:
   - test: "Open `.planning/phases/38-iol-client-auditor-a-de-higyrus-mbito-wallets/38-CENSUS.md` and read every table row top to bottom."
     expected: "Every row in both tables has a non-empty disposition cell and a non-empty evidence cell. The three packages are all represented — higyrus with real per-field and per-class rows, ambito and wallets with explicit zero-by-enumeration sub-headings rather than empty tables. The wallets section states the stub condition (no domain function in `__all__`, Phase 29 decoder exemption, 10 tests that exercise plumbing only). The SC-3 section shows both commands and their literal output rather than a claim about them. The 10-vs-11 discrepancy against CONTEXT D-11 is named, not silently absorbed."
     why_human: "SC-2's 'zero rows without disposition' and SC-4's 'no vacuous green' are documentation-completeness contracts. A grep can confirm the phrases are present; only a reader can confirm the dispositions are real rather than filler. Deferred from checkpoint:human-verify to end-of-phase per `workflow.human_verify_mode = end-of-phase` (harvested from 38-04-PLAN.md's `<human-check>` block)."
+    confirmed: 2026-08-29T22:04:57Z
 ---
 
 # Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets — Verification Report
@@ -17,7 +18,7 @@ human_verification:
 `titulo.puntas.precioCompra` es siempre válido — y la limpieza de los tres casi-limpios queda
 **medida campo por campo**, no supuesta.
 **Verified:** 2026-08-29T21:53:38Z
-**Status:** human_needed
+**Status:** verified (human confirmation received via UAT 2026-08-29T22:04:57Z)
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
@@ -49,7 +50,7 @@ human confirmation regardless of the verifier's own read.
 | 11 | Code-review finding WR-01 (quoted-forward-reference gap in D-11's `list[...]` arm) is fixed, not just documented | VERIFIED | `tools/check_surface_types.py:870-880` re-parses a quoted `ast.Constant` list element via `ast.parse(elem.value, mode="eval").body` before testing membership, matching the sibling mapping predicate's convention; regression test `test_a_quoted_list_model_element_is_caught` present and passing (commit `b2b06ff`) |
 | 12 | README breaking-change callout (D-10/38-03): consumer can read exactly what stops working, incl. the truthiness-asymmetry consequence; headed `## Unreleased — BREAKING` with no version number assumed | VERIFIED | `packages/iol-client/README.md:5` `## Unreleased — BREAKING`, anchors on `iol-client-v0.3.0` (tag confirmed to exist via `git tag -l`); names the asymmetry explicitly (`Cotizacion.puntas`: falsy→falsy, no branch changes; `Titulo.puntas`: falsy→falsy but no longer `None`, an `is None` check stops firing silently); `pyproject.toml`/`uv.lock` untouched (`version = "0.3.0"`, matches the tag, confirming no premature bump) |
 | 13 | `35-RETIRED-TRIPLES.md` ledger correction + Phase-38 addendum (D-12/38-03): no stale source-line references survive; Phase 39 can read 2 field rows added / 0 triples retired | VERIFIED | `## Phase 38 addendum` section present, cites `iol_client/models.py:235`/`:334` (confirmed against current source), states 2 rows added / 0 triples retired with the branch-level reasoning (`Union` early-return pre-38 vs. NOBJ-02 collapse arms post-38, same zero-emission observable); cross-references `38-CENSUS.md` |
-| 14 | `38-CENSUS.md` documentation-completeness (harvested `<human-check>`, deferred to end-of-phase) | ⚠️ ROUTED TO HUMAN — verifier's own read found no defect | See Human Verification section below. Verifier independently re-derived every higyrus number in the census via AST and found exact agreement; no empty disposition/evidence cells found by grep. |
+| 14 | `38-CENSUS.md` documentation-completeness (harvested `<human-check>`, deferred to end-of-phase) | VERIFIED — human confirmed via UAT 2026-08-29T22:04:57Z | See Human Verification section below. Verifier independently re-derived every higyrus number in the census via AST and found exact agreement; no empty disposition/evidence cells found by grep. Human reader confirmed the same reading `pass` in `38-UAT.md`. |
 
 **Score:** 14/14 truths verified on their technical merits (item 14 additionally routed to human confirmation per deferred human-check protocol)
 
@@ -114,9 +115,11 @@ None. Scanned all 9 files touched by this phase's commits (`8930b5f..cf01930`) f
 
 **Verifier's note:** I performed this exact read myself as part of goal-backward verification (see "Goal Achievement" preamble above) and independently re-derived the higyrus numbers via a standalone AST scan — every figure matched exactly, and no empty cells were found. I am not aware of any defect in this artifact. It is still listed here because the phase's own plan explicitly routed this class of judgment to a human checkpoint rather than to automated verification, and per the verification protocol harvested human-check items are always surfaced for human confirmation regardless of the verifier's own read.
 
+**Human confirmation:** Confirmed via `/gsd-verify-work 38` (`38-UAT.md`, Test 1) on 2026-08-29T22:04:57Z — user responded `pass`.
+
 ### Gaps Summary
 
-No gaps found. All 14 must-haves (roadmap Success Criteria 1-4 plus the four plans' own must-haves, including the code-review fix WR-01) are verified against the actual codebase — not merely against SUMMARY.md claims. Every numeric claim in `38-CENSUS.md` that was spot-checked was independently reproduced from source, not transcribed. The one item routed to `human_needed` is a documentation-completeness judgment call the phase's own plan deliberately deferred to end-of-phase human review; it is not a defect.
+No gaps found. All 14 must-haves (roadmap Success Criteria 1-4 plus the four plans' own must-haves, including the code-review fix WR-01) are verified against the actual codebase — not merely against SUMMARY.md claims. Every numeric claim in `38-CENSUS.md` that was spot-checked was independently reproduced from source, not transcribed. The one item routed to `human_needed` was a documentation-completeness judgment call the phase's own plan deliberately deferred to end-of-phase human review; it has now been confirmed by the human reader with no defect found.
 
 ---
 
