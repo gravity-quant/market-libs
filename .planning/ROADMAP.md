@@ -60,7 +60,13 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. **Ninguna superficie pública cambia en esta fase**: las suites de los 6 paquetes pasan sin editar un solo test, y los snapshots de superficie pública quedan byte-idénticos — la fase entrega política y capacidad, no ruptura.
   5. Las propiedades alias que introducen las fases 36-38 son **invisibles para el walker**: un test prueba que `get_type_hints()` sobre una dataclass con `@property` alias devuelve exactamente los campos declarados, de modo que agregar un alias no puede fabricar un `missing` ni cambiar el conteo de divergencias.
 
-**Plans**: TBD
+**Plans**: 5 plans (3 waves — el walker es una ola secuencial de un solo commit atómico por §Pitfall 7)
+
+- [ ] 35-01-PLAN.md — TRACER: higyrus end-to-end (`SafeModel.empty()` forma A + `__bool__`, suite de enumeración/veracidad/alias, 2 tests nuevos de wrong-type sobre lista) — wave 1
+- [ ] 35-02-PLAN.md — Artefacto D-17 `35-RETIRED-TRIPLES.md`: los 35 triples que la política retira, con resta por paquete y advertencia de unidad para la Phase 39 — wave 1
+- [ ] 35-03-PLAN.md — Fan-out A: bases + suites de iol (forma A) y market-data (forma B con mapping pass, caveat `received_at` D-09) — wave 2
+- [ ] 35-04-PLAN.md — Fan-out B: matriz (`_SafeModel.__bool__` + `UnknownFrame.__bool__`, 17 clases) y las aserciones de roster vacío de ámbito/wallets — wave 2
+- [ ] 35-05-PLAN.md — ATÓMICO: EDIT 1 + EDIT 2 en las 5 copias de `_decode.py` + comentario byte-idéntico + las 11 inversiones + `CANONICAL_DIGEST` recomputado, en UN commit; más el gate de fase — wave 3
 
 ### Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33
 
