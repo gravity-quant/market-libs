@@ -60,10 +60,10 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. **Ninguna superficie pública cambia en esta fase**: las suites de los 6 paquetes pasan sin editar un solo test, y los snapshots de superficie pública quedan byte-idénticos — la fase entrega política y capacidad, no ruptura.
   5. Las propiedades alias que introducen las fases 36-38 son **invisibles para el walker**: un test prueba que `get_type_hints()` sobre una dataclass con `@property` alias devuelve exactamente los campos declarados, de modo que agregar un alias no puede fabricar un `missing` ni cambiar el conteo de divergencias.
 
-**Plans**: 5 plans (3 waves — el walker es una ola secuencial de un solo commit atómico por §Pitfall 7)
+**Plans**: 1/5 plans executed
 **Wave 1**
 
-- [ ] 35-01-PLAN.md — TRACER: higyrus end-to-end (`SafeModel.empty()` forma A + `__bool__`, suite de enumeración/veracidad/alias, 2 tests nuevos de wrong-type sobre lista) — wave 1
+- [x] 35-01-PLAN.md — TRACER: higyrus end-to-end (`SafeModel.empty()` forma A + `__bool__`, suite de enumeración/veracidad/alias, 2 tests nuevos de wrong-type sobre lista) — wave 1
 - [ ] 35-02-PLAN.md — Artefacto D-17 `35-RETIRED-TRIPLES.md`: los 35 triples que la política retira, con resta por paquete y advertencia de unidad para la Phase 39 — wave 1
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -150,7 +150,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 | Phase                                                        | Milestone | Plans | Status      | Completed  |
 |--------------------------------------------------------------|-----------|-------|-------------|------------|
-| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 0/?   | Not started | -          |
+| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 1/5 | In Progress|  |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 0/?   | Not started | -          |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 0/?   | Not started | -          |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |

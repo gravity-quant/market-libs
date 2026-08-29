@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 35
-status: planning
-stopped_at: Phase 35 context gathered (assumptions mode)
-last_updated: "2026-08-29T00:59:36.107Z"
+current_phase_name: Fundación Null Object — __bool__ + política del walker
+status: executing
+stopped_at: Completed 35-01-PLAN.md
+last_updated: "2026-08-29T02:14:57.037Z"
 last_activity: 2026-08-29
-last_activity_desc: ROADMAP.md + traceability de v1.7 escritos
+last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 35 — Fundación Null Object (`__bool__` + política del walker) — load-bearing, prerequisito de las fases 36-38
+**Current focus:** Phase 35 — Fundación Null Object — __bool__ + política del walker
 
 ## Current Position
 
-Phase: 35 — Fundación Null Object — `__bool__` + política del walker (not started)
-Plan: —
-Status: Roadmap v1.7 creado (6 fases, 35-40; 10/10 requisitos mapeados) — listo para `/gsd-plan-phase 35`
-Last activity: 2026-08-29 — ROADMAP.md + traceability de v1.7 escritos
+Phase: 35 (Fundación Null Object — __bool__ + política del walker) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-08-29 — Phase 35 execution started
 
 ## Performance Metrics
 
@@ -168,6 +169,7 @@ Last activity: 2026-08-29 — ROADMAP.md + traceability de v1.7 escritos
 | 38    | ?     | Not started | NOBJ-IOL-01, NOBJ-AUD-01 | `Cotizacion.puntas` → `list[Punta]` default `[]` y `Titulo.puntas` → `Punta` Null Object (espejado sync/async, snapshot de superficie regenerado, ruptura en el README de iol); más el **censo con disposición por campo** de higyrus/ámbito/wallets — cero filas sin disposición — cerrado con el grep del plan fuente reportado con comando y salida. Paraleliza con 36 y 37. |
 | 39    | ?     | Not started | LIVE-NOBJ-01 | Cadenas profundas reales en sync + async por los drivers `main_*.py`. **Arranca con dos bloqueos heredados**: `LIVE-HIGY-33` (DNS) y `LIVE-MATZ-33` (política) → se registran `SKIPPED` con causa medida y destino nombrado, nunca cero. Divergencias corregidas in-cycle con espejo + regresión mockeada; censo contrastado contra el de la Fase 33 declarando cuántas divergencias bajaron **por la política Null Object** y cuántas por corrección. Depende de 36 + 37 + 38. |
 | 40    | ?     | Not started | PUB-NOBJ-01 | Releases sólo de los paquetes cuya superficie cambió, bump breaking + callout + **tabla de migración vieja→nueva**; `uv.lock` refrescado una sola vez; CI asertado por conteo; merge commit real (nunca squash); tags anotados; verificación post-publicación instalando desde el wheel público. **Doble gate humano independiente** (D-08/D-18), nunca colapsado ni auto-aprobado pese a `auto_advance: true` + `mode: yolo`. Depende de 39. |
+| Phase 35 P01 | 7min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -361,6 +363,9 @@ Recent decisions affecting current work:
 - [Phase 34]: [Phase 34-03]: Dos tags anotados (iol-client-v0.3.0 + market-data-client-v0.5.0) sobre el MISMO merge commit a89fa45 re-resuelto en vivo con git rev-parse origin/main, pusheados POR NOMBRE uno por uno — nunca --tags, porque existía un tag local-only v1.3 que un push masivo habría publicado; dos runs independientes de release.yml (33118792322 + 33118800550) en verde, cuatro assets verificados por separado
 - [Phase 34]: [Phase 34-03]: Se refrescó la memory existente market-data-client-releases.md en sus seis regiones (commit 60fc58b en milestone/v1.5-mutations, llega a main en un PR futuro); NO se creó iol-client-releases.md — ese era el item diferido en CONTEXT y queda intacto y disponible para que una fase futura lo tome deliberadamente
 - [Phase 34]: [Phase 34-03]: La aserción (f) del plan (diff dir-wide de .github/workflows contra el tag de release anterior) usa baseline obsoleto y falla sobre ci.yml por commits de Phases 24/29/31/32; el invariante real de D-11 se asertó por sha256 de release.yml (7109ff0b… idéntico en los 4 refs) y por diff desde el commit base de la fase (0 archivos, 0 commits) — tercera aparición del mismo baseline obsoleto en la fase, conviene corregir la forma de la aserción en el patrón
+- [Phase ?]: 35-01: _perturb needs a seventh nested-SafeModel branch that RESEARCH Pitfall 3 omits — in higyrus a nested-model default is an empty INSTANCE, not None, so Administrador (3 nested fields, 0 scalars) falls through every declared branch; 35-03/35-04 fan-out must copy that branch.
+- [Phase ?]: 35-01: the criterio-5 alias-vs-twin equality is asserted on (field_path, divergence, declared_type, observed_type) and EXCLUDES the model key — the two fixture classes necessarily disagree on their own class name and on nothing else.
+- [Phase ?]: 35-01: canonical digest UNCHANGED (ac14868282ad0a5c) — no byte of any _decode.py moved; all 4 v1.6 gates green, surface snapshots byte-identical, 1810 workspace tests passing.
 
 ### Pending Todos
 
@@ -444,9 +449,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T00:59:36.102Z
-Stopped at: Phase 35 context gathered (assumptions mode)
-Resume file: .planning/phases/35-fundaci-n-null-object-bool-pol-tica-del-walker/35-CONTEXT.md
+Last session: 2026-08-29T02:14:47.842Z
+Stopped at: Completed 35-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

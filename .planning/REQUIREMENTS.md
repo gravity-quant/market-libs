@@ -11,8 +11,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Fundaciones Null Object
 
-- [ ] **NOBJ-01**: Toda instancia vacía de un `SafeModel` es falsy (`bool(X.from_api(None)) is False`) y una instancia con al menos un campo no-default es truthy, en los 6 paquetes (copia verbatim de la base + `empty()` garantizado en todas las jerarquías, incl. `_SafeModel` de matriz)
-- [ ] **NOBJ-02**: El walker `_decode` colapsa `null`/ausente sobre un campo modelo/lista **no-opcional** a instancia vacía/`[]` sin emitir divergencia; un valor wrong-typed sigue emitiendo divergencia y sigue fatal bajo `strict_decode`; los 4 gates de CI de v1.6 (`check_decode_intactness.py`, `check_uniform_structure.py`, `check_surface_types.py`, `surface_parity.py`) siguen verdes tras la actualización verbatim
+- [x] **NOBJ-01**: Toda instancia vacía de un `SafeModel` es falsy (`bool(X.from_api(None)) is False`) y una instancia con al menos un campo no-default es truthy, en los 6 paquetes (copia verbatim de la base + `empty()` garantizado en todas las jerarquías, incl. `_SafeModel` de matriz)
+- [x] **NOBJ-02**: El walker `_decode` colapsa `null`/ausente sobre un campo modelo/lista **no-opcional** a instancia vacía/`[]` sin emitir divergencia; un valor wrong-typed sigue emitiendo divergencia y sigue fatal bajo `strict_decode`; los 4 gates de CI de v1.6 (`check_decode_intactness.py`, `check_uniform_structure.py`, `check_surface_types.py`, `surface_parity.py`) siguen verdes tras la actualización verbatim
 
 ### market-data-client
 
@@ -62,8 +62,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NOBJ-01 | Phase 35 | Pending |
-| NOBJ-02 | Phase 35 | Pending |
+| NOBJ-01 | Phase 35 | Complete |
+| NOBJ-02 | Phase 35 | Complete |
 | NOBJ-MD-01 | Phase 36 | Pending |
 | NOBJ-MD-02 | Phase 36 | Pending |
 | NOBJ-IOL-01 | Phase 38 | Pending |
@@ -74,6 +74,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PUB-NOBJ-01 | Phase 40 | Pending |
 
 **Coverage:**
+
 - v1.7 requirements: 10 total
 - Mapped to phases: 10 ✓
 - Unmapped: 0
