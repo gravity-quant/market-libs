@@ -28,9 +28,9 @@ still valid at `HEAD = 235506b`: plan 35-01 modified `higyrus_client/models.py` 
 ## Why every row's retired kind is `missing`
 
 Read from the shipped walker, not inferred. A non-`Optional` **list**-typed field carrying
-`None` takes `_decode.py:443-445`, whose kind comes from `_kind_of(None)` → `"missing"`
-(`_decode.py:363-367`). A non-`Optional` **model**-typed field carrying `None` takes the
-WR-02 branch at `_decode.py:482-484`, which emits the literal kind `"missing"` attributed to
+`None` takes `_decode.py:448-452`, whose kind comes from `_kind_of(None)` → `"missing"`
+(`_decode.py:369-373`). A non-`Optional` **model**-typed field carrying `None` takes the
+WR-02 branch at `_decode.py:504-505`, which emits the literal kind `"missing"` attributed to
 the **outer** model at the outer field path. Both are the branches NOBJ-02 silences, so the
 `kind` component of every retired 4-tuple below is `missing`.
 
@@ -65,7 +65,7 @@ provenance columns carries a citation, a reasoned `no`, or `UNKNOWN`; none is bl
 | higyrus-client | Cuenta | `.administrador` (`Administrador`) | missing | no — empty capture, 29-SIZING.md:110 | SKIPPED — 33-CENSUS.md:68; no measurement, not zero | the link that makes the three `Administrador` rows above reachable |
 | higyrus-client | Movimiento | `.idMovimientos` (`list[int]`) | missing | **yes** — 29-SIZING.md:303 (one of `Movimiento`'s 9 `missing`) and 29-SIZING.md:111 (corpus row 4, `missing 9`) | SKIPPED — 33-CENSUS.md:68; no measurement, not zero | **floor member.** 1 record and 1 distinct triple (single corpus file) |
 | higyrus-client | Posicion | `.parking` (`list[Parking]`) | missing | **yes** — 29-SIZING.md:304 (`Posicion`: `disponibleAjustado`, `parking`) and 29-SIZING.md:113 (corpus row 6, `missing 2`) | SKIPPED — 33-CENSUS.md:68; no measurement, not zero | **floor member.** 1 record and 1 distinct triple. Its sibling `.disponibleAjustado` is a scalar and keeps emitting |
-| iol-client | *(no model)* | *(no non-`Optional` model/list field exists today)* | *(nothing retired)* | no — 29-SIZING.md:114-117 records iol as **N/A, not zero**: the package had no `models.py` at sizing time | no — 33-CENSUS.md:69 measured iol live at 0 distinct triples, an inspected zero, not an absence | **Explicit zero with a reason.** `Cotizacion.puntas` and `Titulo.puntas` are declared `Optional` today (`iol_client/models.py:154`, `:242`), so they take the walker's `Union` early return at `_decode.py:431-435` and never emitted a link-level divergence at all. They become non-`Optional` links in **Phase 38**, which is when this package starts participating in this disposition |
+| iol-client | *(no model)* | *(no non-`Optional` model/list field exists today)* | *(nothing retired)* | no — 29-SIZING.md:114-117 records iol as **N/A, not zero**: the package had no `models.py` at sizing time | no — 33-CENSUS.md:69 measured iol live at 0 distinct triples, an inspected zero, not an absence | **Explicit zero with a reason.** `Cotizacion.puntas` and `Titulo.puntas` were declared `Optional` at `242b9f3` (today `iol_client/models.py:235` and `iol_client/models.py:334`), so they took the walker's `Union` early return at `_decode.py:440-446` and never emitted a link-level divergence at all. They became non-`Optional` links in **Phase 38**, which is when this package starts participating in this disposition — see `## Phase 38 addendum` at the end of this file |
 | market-data-client | AddHolidaysResult | `.days` (`list[CalendarDay]`) | missing | no — 29-SIZING.md:139-142 (corpus rows 32-35) records the calendar-write acks as N/A untyped `dict`; the model arrived in Phase 31 | yes, measured and non-divergent — 33-CENSUS.md:151, the four calendar-write acks ran with the mutation gate OPEN and produced 0 triples | list link |
 | market-data-client | CalendarConfig | `.warnings` (`list[Any]`) | missing | no — `CalendarConfig` was walked (29-SIZING.md:136-138) but `.warnings` is not among S-2's 12 divergent paths; 29-SIZING.md:255 names it as the one field that survives | yes, measured and non-divergent — 33-CENSUS.md:212-213 lists the 12 live paths and `.warnings` is not one of them | list link |
 | market-data-client | CalendarConfigPreview | `.market_after` (`PreviewMarket`) | missing | no — the model did not exist at sizing time; the preview envelope was walked as `CalendarConfig` (29-SIZING.md:137-138) | no — the class was created by the 33-07 fix **after** the census run; `.market_after` appears in the census only as an `extra` on `CalendarConfig` (33-CENSUS.md:213) | model link on a class newer than both source artefacts |
@@ -149,14 +149,22 @@ floor at all.
 
 **`iol-client` — the zero is a fact about `Optional`, not a fact about quality.** iol retires
 nothing in this phase because its two order-book links, `Cotizacion.puntas`
-(`iol_client/models.py:154`) and `Titulo.puntas` (`:242`), are declared `Optional` **today**.
-An `Optional` field takes the walker's `Union` early return (`_decode.py:431-435`), which
-returns `None` and never calls the sink, so those fields were not emitting a link-level
-divergence for NOBJ-02 to stop emitting. They become non-`Optional` links in **Phase 38**
-(ROADMAP.md:114), and that is the phase in which this package starts participating in this
-disposition and its zero stops being zero. Written as a bare `0`, or omitted from the table,
-this row would read as "iol was already clean" — a different claim, and a false one: iol had
-no `models.py` at sizing time at all (29-SIZING.md:166, "**Not applicable, not zero**").
+(`iol_client/models.py:235`) and `Titulo.puntas` (`iol_client/models.py:334`), were declared
+`Optional` at `242b9f3`. An `Optional` field takes the walker's `Union` early return
+(`_decode.py:440-446`), which returns `None` and never calls the sink, so those fields were
+not emitting a link-level divergence for NOBJ-02 to stop emitting. They become non-`Optional`
+links in **Phase 38** (ROADMAP.md:114), and that is the phase in which this package starts
+participating in this disposition and its zero stops being zero. Written as a bare `0`, or
+omitted from the table, this row would read as "iol was already clean" — a different claim,
+and a false one: iol had no `models.py` at sizing time at all (29-SIZING.md:166,
+"**Not applicable, not zero**").
+
+**Phase 38 has since landed, and the last clause above did not hold: the zero stayed zero.**
+The two links are non-`Optional` at HEAD, so they now take the NOBJ-02 collapse arms instead
+of the `Union` early return — but they emitted nothing before and they emit nothing now, so
+**0** triples were retired, in both columns. The roster grew by two field rows; the
+arithmetic did not move. Measured, with the reason spelled out, in `## Phase 38 addendum` at
+the end of this file — read it before using iol's row in any subtraction.
 
 **`ambito-financiero-client` and `wallets-client` — absent by enumeration, not by
 cleanliness.** Neither package declares a single response model, so neither can contribute a
@@ -239,3 +247,65 @@ intersect with — `LIVE-HIGY-33` (DNS) and `LIVE-MATZ-33` (the remarkets-only p
 which is not to be worked around) — so their retired counts above are intersections with the
 `29-SIZING.md` floor only, and Phase 39 must record them `SKIPPED` with measured cause and
 named destination rather than as a zero that reads as clean.
+
+---
+
+## Phase 38 addendum
+
+**Everything above scopes to the disposition of Phase 35 against the classes shipped at
+`242b9f3`, and this addendum changes none of it** — not the 35-row main table, not the "Row
+accounting" equality with `35-CONTEXT.md:112-116`, and not the subtraction table. It is the
+accounting the "Two limits with named destinations" paragraph above says Phase 38 owes its
+own phase: the numbers, measured at Phase 38's HEAD, for the two iol links that the main
+table's explicit-zero row names as future participants.
+
+### 1. Field rows added to the NOBJ-02 disposition: 2
+
+Same seven-column shape as the main table, so Phase 39 can union them without translating.
+They are **additions to the roster**, not replacements for the iol explicit-zero row, which
+stays exactly where it is (see §2 for why the two statements are consistent).
+
+| slug | model | field_path | kind retired | in the 29-SIZING floor? | measured in 33-CENSUS? | note |
+|---|---|---|---|---|---|---|
+| iol-client | Cotizacion | `.puntas` (`list[Punta]`) | missing | no — 29-SIZING.md:114-117 records iol as **N/A, not zero**: the package had no `models.py` at sizing time | no — 33-CENSUS.md:69 measured iol live at 0 distinct triples, an inspected zero, not an absence | list link. Non-`Optional` since Phase 38 (`iol_client/models.py:235`); its collapse arm is the list branch at `_decode.py:448-452` |
+| iol-client | Titulo | `.puntas` (`Punta`) | missing | no — same reason: N/A, not zero (29-SIZING.md:114-117) | no — same inspected zero (33-CENSUS.md:69) | model link. Non-`Optional` since Phase 38 (`iol_client/models.py:334`); its collapse arm is the WR-02 branch at `_decode.py:504-505` |
+
+### 2. Triples retired: 0 — in the records column and in the distinct-triples column alike
+
+**And the zero is not a claim that iol was already clean.** A field retires a triple only if
+that triple was actually being emitted. Under the **pre**-Phase-38 `Optional` declaration
+these two fields took the walker's `Union` early return (`_decode.py:440-446`), which returns
+`None` without ever calling the sink — nothing was emitted for NOBJ-02 to stop emitting.
+Under the **post**-Phase-38 non-`Optional` declaration they take the NOBJ-02 collapse arms
+instead (`_decode.py:448-452` for the list, `_decode.py:504-505` for the model), which
+construct `[]` / `Punta.empty()` with `SILENT_SINK` — and still emit nothing. Two different
+branches, the same observable output: zero records, before and after.
+
+**The invariance is the finding.** It is a measured result about which branch runs, not an
+absence of measurement, and not a verdict on iol's data quality. The misreading this
+paragraph exists to block is the one the main table's explicit-zero row already warns about:
+a bare `0` read as "iol was clean". iol's floor is `N/A — not zero` (29-SIZING.md:166,
+"**Not applicable, not zero**") and its live census zero (33-CENSUS.md:69) was inspected, not
+assumed. Neither becomes a baseline of zero because of this addendum.
+
+### 3. Phase 39's middle term is unchanged
+
+**higyrus 2, iol 0, market-data 0, matriz 5** against the distinct-triples column, and
+**matriz 6** against the records column — identical to the values the "Mechanics" paragraph
+of `## How Phase 39 should use this` supplies. Compute the term exactly as that paragraph
+prescribes (set intersection on `(slug, field_path)`, `kind` read from this file and not from
+`29-SIZING.md`); nothing about the formula or its inputs moved. The two rows in §1 join the
+intersection's **left-hand set** and intersect no measured census, so they contribute 0.
+
+Phase 38 changed the **roster**, not the **arithmetic**. A subtraction that comes out
+different because of these two rows has a bug in it, not a finding.
+
+### 4. Where the rest of Phase 38's audit lives
+
+The full higyrus / ámbito / wallets annotation audit — the one that carries Phase 38's own
+per-package numbers rather than its contribution to this ledger — is the phase-local artefact
+`.planning/phases/38-iol-client-auditor-a-de-higyrus-mbito-wallets/38-CENSUS.md`. This
+addendum is deliberately the narrow half: only what Phase 39's subtraction needs. The pointer
+is recorded in both places, asymmetrically — `38-CENSUS.md` cross-references this addendum for
+the retired-triples accounting rather than duplicating it, and this addendum points there for
+everything else.
