@@ -128,3 +128,114 @@ different answers (matriz: 6 records vs. 5 distinct triples) both are written ou
 No number in this file is an estimate: each is either quoted from a cited line of
 `35-RESEARCH.md` §F-10, `29-SIZING.md` or `33-CENSUS.md`, or derived by counting the rows of
 the table above, which is itself a transcription of a `[VERIFIED]` introspection run.
+
+---
+
+## Expected subtraction per package
+
+The middle term of Phase 39's arithmetic. **"Triples retired" is the intersection of the
+main table with a measured census — not the row count.** A listed field only retires a
+triple if that triple was actually being emitted; 28 of the 35 rows intersect no ratified
+floor at all.
+
+| package | floor (records column) | floor (distinct-triples column) | triples retired by NOBJ-02 | expected post-35 baseline | column this row counts against |
+|---|---|---|---|---|---|
+| `higyrus-client` | ≥ 22 | 22 | **2** in both columns | **≥ 20** records / **20** distinct triples | **both, and they agree** — three files, three disjoint models, no cross-file overlap (33-CENSUS.md:50) |
+| `iol-client` | N/A — not zero | N/A — not zero | **0** | N/A — unchanged, and N/A is not a baseline of zero | **neither** — there is no floor to subtract from (29-SIZING.md:166) |
+| `market-data-client` | ≥ 50 | 22 | **0** in both columns | **≥ 50** records / **22** distinct triples, both unchanged; the live census of **24** (33-CENSUS.md:70) is likewise unchanged | **both, and the answer is 0 in each** |
+| `matriz-client` | ≥ 24 | 14 | **6** records / **5** distinct triples | **18** records / **9** distinct triples | **both, and they DIFFER** — S-3's link is one triple recorded in two corpus files (29-SIZING.md:145-146), so it subtracts 2 from the records column and 1 from the distinct column; S-5's four each subtract 1 from both |
+| `ambito-financiero-client` | N/A — no models to walk | N/A | **0 by enumeration** | N/A | **neither** — the package declares zero model classes |
+| `wallets-client` | N/A — no models to walk | N/A | **0 by enumeration** | N/A | **neither** — the package declares zero model classes and has no walker |
+
+**`iol-client` — the zero is a fact about `Optional`, not a fact about quality.** iol retires
+nothing in this phase because its two order-book links, `Cotizacion.puntas`
+(`iol_client/models.py:154`) and `Titulo.puntas` (`:242`), are declared `Optional` **today**.
+An `Optional` field takes the walker's `Union` early return (`_decode.py:431-435`), which
+returns `None` and never calls the sink, so those fields were not emitting a link-level
+divergence for NOBJ-02 to stop emitting. They become non-`Optional` links in **Phase 38**
+(ROADMAP.md:114), and that is the phase in which this package starts participating in this
+disposition and its zero stops being zero. Written as a bare `0`, or omitted from the table,
+this row would read as "iol was already clean" — a different claim, and a false one: iol had
+no `models.py` at sizing time at all (29-SIZING.md:166, "**Not applicable, not zero**").
+
+**`ambito-financiero-client` and `wallets-client` — absent by enumeration, not by
+cleanliness.** Neither package declares a single response model, so neither can contribute a
+row: there is no non-`Optional` model-typed or list-typed field in either. The evidence is
+the two deliberately-empty `models.py` module docstrings (D-05, `35-CONTEXT.md:43-47`).
+ámbito's states that its single endpoint parses a scraped Argentine-format decimal straight
+into a `float`, that the package "declares **no response models today** (Phase 31, D-11)",
+and that the absence of a `SafeModel` base is "deliberately absent, and not an oversight".
+wallets' states that the package is still a stub with no verifiable endpoints and that it
+carries the Phase 29 decoder exemption (`29-WALLETS-EXEMPTION.md`) — it has no `_decode.py`
+to import a walker from, so a base class copied there for cosmetic uniformity would raise
+`ImportError` on import. `33-CENSUS.md:67` records ámbito's live census as "**Cero afirmado,
+no inferido**". A future reader must not read either absence as a gap in this ledger.
+
+---
+
+## How Phase 39 should use this
+
+**Mechanics.** Phase 39's live census is a set of distinct 4-tuples
+`(slug, model, field_path, kind)` taken from `DivergenceHandler.seen`, the same unit as
+`33-CENSUS.md` and the same unit as this file. The expected relationship is
+`census_39 ≈ census_33 − retired_here − fixed_in_36_37_38`, and this ledger supplies the
+middle term: **higyrus 2, iol 0, market-data 0, matriz 5** against the distinct-triples
+column (matriz 6 against the records column). Compute the term as a set intersection of the
+main table with the census being contrasted, matching on `(slug, field_path)` and reading
+`kind` from this file rather than from `29-SIZING.md` — see the kind caveat above.
+
+**The failure mode this exists to prevent.** If the middle term is not subtracted
+explicitly, every triple the policy stopped recording is silently credited to quality work.
+The census number falls, nobody can say why, and the milestone reports a clean bill of
+health it did not earn — which is precisely the false clean v1.6 was built to eliminate
+(ROADMAP.md:131, Phase 39 criterio 4). The drop must be split into "N disappeared because
+the policy stopped recording them" and "M disappeared because we fixed them", and the split
+is only auditable if N is written down before the run rather than reconstructed after it.
+
+**What a NON-balancing subtraction means.** It is a finding to investigate, not a rounding
+error, and it must be written up rather than absorbed. The two most likely causes, in the
+order to check them: **(b) a unit-column mix-up** — a distinct-triple count contrasted
+against a records floor, or matriz's 6-vs-5 read off the wrong column — check this first,
+because it costs nothing and is the single most common way these two artefacts have been
+misread; and **(a) a field reachable on the live wire in a shape the static roster did not
+anticipate**, which is a real finding about the models and belongs in the phase's findings
+file with a named destination.
+
+---
+
+## Method and limits
+
+**Method.** The roster is an introspection of `typing.get_type_hints` over the 52 shipped
+model classes of the four packages that have them, selecting every field whose annotation is
+a model type or a `list[...]` and is **not** `Optional`. It is measurement, not inference,
+and over the declared-annotation axis it is exhaustive at `242b9f3`: no non-`Optional`
+model/list annotation shipped at that commit is missing from the table.
+
+**The blind spot.** Being an introspection of annotations, it is blind to everything that is
+not a declared annotation. Value-level divergences — out-of-set enumeration values under the
+D-09 RESPONSE-`Literal` lock, `NaN`/`Infinity`, range and format violations, cross-field
+inconsistency — are outside it by construction (29-SIZING.md:311-337 catalogues the same
+blind spot for the floor it produced).
+
+**Direction of the error, and why it is the safe one.** The blindness is one-directional and
+it does not run through the retired set: value-level divergences are never retired by
+NOBJ-02, so no retirement can hide inside the blind spot. What the ledger under-describes is
+the **census population** — it can speak about shape divergences and about nothing else, so
+it always accounts for less of the census than the census contains. On the retired set
+itself the file errs the other way, by **over-listing candidates**: it names 35 fields of
+which only 7 intersect any ratified floor, and a field that never diverged live retires
+nothing. That is the safe direction for this artefact, because over-listing can only make
+Phase 39 attribute *more* of a drop to the policy and *less* to real fixes — an understated
+credit for quality work, which is visible in the arithmetic and correctable. The opposite
+error, under-listing, would leave policy-driven disappearances unaccounted and let them be
+read as fixes: it would manufacture the false clean instead of exposing it.
+
+**Two limits with named destinations.** First, this file scopes to the disposition of
+**Phase 35** against the classes shipped at `242b9f3`. Phases 36, 37 and 38 introduce new
+non-`Optional` links (market-data's `market_data` Null Object, matriz's typed report fields,
+iol's two order-book links); the triples those retire are **not** in this ledger and belong
+to their own phases' accounting. Second, higyrus and matriz have no measured live census to
+intersect with — `LIVE-HIGY-33` (DNS) and `LIVE-MATZ-33` (the remarkets-only policy assert,
+which is not to be worked around) — so their retired counts above are intersections with the
+`29-SIZING.md` floor only, and Phase 39 must record them `SKIPPED` with measured cause and
+named destination rather than as a zero that reads as clean.
