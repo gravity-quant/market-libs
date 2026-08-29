@@ -369,7 +369,7 @@ def test_parse_get_detailed_positions_response_unwraps_envelope() -> None:
     # int (:1791). matriz corre con ``scalar_passthrough=True`` (_decode.py:140),
     # así que el valor llega verbatim y la divergencia queda REPORTADA, no
     # tragada. Poblado — que es lo que este test defiende — no ausente.
-    assert result.lastCalculation == 1669996294136
+    assert result.lastCalculation == 1669996294136  # type: ignore[comparison-overlap]
     assert bool(result) is True
 
 

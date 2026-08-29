@@ -663,7 +663,7 @@ def test_the_axis_emits_through_the_sink_it_was_handed(
         )
 
     assert isinstance(out["0"], _TickLike)
-    assert out["0"].tick == "nope"  # scalar_passthrough=True keeps the wire value
+    assert out["0"].tick == "nope"  # type: ignore[comparison-overlap]  # scalar_passthrough=True keeps the wire value
     assert _divergences(caplog) == []
 
 
@@ -836,8 +836,8 @@ def test_report_deferred_detailedPositions_is_one_non_fatal_extra(
     extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
     assert len(extras) == 1
     assert extras[0].model == "InstrumentPositionReport"  # type: ignore[attr-defined]
-    assert (  # type: ignore[attr-defined]
-        extras[0].field_path == f".report.FUTURE_OPTION_CALL.{_SAFE_SYMBOL}.detailedPositions"
+    assert (
+        extras[0].field_path == f".report.FUTURE_OPTION_CALL.{_SAFE_SYMBOL}.detailedPositions"  # type: ignore[attr-defined]
     )
 
 
