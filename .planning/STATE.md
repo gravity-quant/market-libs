@@ -4,9 +4,9 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 38
 current_phase_name: `iol-client` + auditoría de higyrus/ámbito/wallets
-status: verifying
+status: executing
 stopped_at: Phase 38 context gathered (assumptions mode)
-last_updated: "2026-08-29T19:00:22.037Z"
+last_updated: "2026-08-29T20:00:06.914Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 37 complete, transitioned to Phase 38
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 38 — `iol-client` + auditoría de higyrus/ámbito/wallets
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-08-29 — Phase 37 complete, transitioned to Phase 38
 
 ## Performance Metrics
