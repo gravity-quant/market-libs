@@ -558,6 +558,33 @@ class MarketDataSnapshot(_SafeModel):
     Each entry is optional in the wire payload; missing entries fall back
     to safe defaults so chained access (``snapshot.SE.price``) never
     raises.
+
+    Phase 37 / ``NOBJ-MTZ-02`` adds six human-facing alias properties over the
+    wire-named entry fields, in the form ``market-data-client`` established in
+    Phase 36 (``MarketDataEntries``). Three things a future reader needs:
+
+    1. **They are views and carry no behaviour.** Each is a single ``return``
+       of the wire attribute — no copy, no cache, no default and no
+       transformation, and none has a setter. ``test_null_object.py``'s
+       ``test_each_alias_returns_the_identical_object_on_a_rest_parsed_snapshot``
+       asserts this with ``is`` rather than ``==``, which is what makes a
+       copying or caching alias fail rather than pass unnoticed.
+    2. **``OP`` is excluded on purpose**, and so are ``HI``, ``LO``, ``TV`` and
+       matriz's extra ``IV`` / ``EV`` / ``NV`` / ``ACP``. ``OP`` arrives as a
+       BARE SCALAR rather than an ``{price, size, date}`` entry object — the
+       comment at the ``CL`` declaration below already records that asymmetry
+       (issue #102) — so an ``open`` alias would return a float where its five
+       siblings return a model. The Phase 36 template excluded the scalar
+       entries for the same reason.
+    3. **This ONE class is both surfaces.** It is the REST return type of the
+       ``/marketdata`` endpoints AND the payload type of
+       :attr:`MarketDataFrame.marketData`, the WebSocket ``type == "Md"`` frame
+       model. The six properties therefore serve the WebSocket surface with no
+       ``ws_client.py`` change whatsoever (37-RESEARCH F-12) — a separate
+       WS-side alias change would be a no-op. Because properties are invisible
+       to :func:`typing.get_type_hints` and to :func:`dataclasses.fields`
+       (Phase 35 criterio 5, D-16), they are equally invisible to
+       ``_decode.walk_model`` and add no decode path on either surface.
     """
 
     BI: list[MarketDataLevel] = field(default_factory=list)
@@ -576,6 +603,36 @@ class MarketDataSnapshot(_SafeModel):
     EV: float | None = None
     NV: float | None = None
     ACP: float | None = None
+
+    @property
+    def bids(self) -> list[MarketDataLevel]:
+        """Human-facing alias over the wire-named field ``BI`` (NOBJ-MTZ-02, D-16)."""
+        return self.BI
+
+    @property
+    def offers(self) -> list[MarketDataLevel]:
+        """Human-facing alias over the wire-named field ``OF`` (NOBJ-MTZ-02, D-16)."""
+        return self.OF
+
+    @property
+    def last(self) -> MarketDataEntryValue:
+        """Human-facing alias over the wire-named field ``LA`` (NOBJ-MTZ-02, D-16)."""
+        return self.LA
+
+    @property
+    def settlement(self) -> MarketDataEntryValue:
+        """Human-facing alias over the wire-named field ``SE`` (NOBJ-MTZ-02, D-16)."""
+        return self.SE
+
+    @property
+    def close(self) -> MarketDataEntryValue:
+        """Human-facing alias over the wire-named field ``CL`` (NOBJ-MTZ-02, D-16)."""
+        return self.CL
+
+    @property
+    def open_interest(self) -> MarketDataEntryValue:
+        """Human-facing alias over the wire-named field ``OI`` (NOBJ-MTZ-02, D-16)."""
+        return self.OI
 
 
 @dataclass(frozen=True)
