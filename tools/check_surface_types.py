@@ -20,6 +20,21 @@ list is not a mapping and is never descended into. See
 :func:`_field_annotation_is_untyped_mapping` and :data:`_FIELD_EXEMPTIONS`,
 which holds the single declared field exemption.
 
+**Optional model links** (Phase 38, D-11). No field declared in the body of an
+exported class may be annotated ``Model | None`` or ``list[Model] | None``, where
+"Model" means a name bound by a ``class`` statement in the package's own import
+root. This turns ROADMAP SC-3 from a one-time grep into a permanent ratchet: the
+two ``puntas`` fields 38-01 flipped to Null Objects cannot be reintroduced
+silently. The discriminator is static because it has to be -- ``issubclass`` and
+``get_type_hints`` would require importing a package module, which this gate
+forbids by name below. It is deliberately narrow: a ``Literal`` alias is an
+``ast.Assign``, not a ``ClassDef``, so the ten optional scalar-set leaves
+D-NO-03 permits in ``matriz-client`` stay green, as do ``list[Any] | None`` and
+every other non-class base name. See :func:`_class_names` and
+:func:`_field_annotation_is_optional_model`; measured over all six packages
+before it was written, it reddens exactly the 2 sites this phase fixed and
+nothing else, with **zero** exemptions added.
+
 The recursion, the unparameterised base, the quoted annotation and the
 ``Union[X, None]`` spelling were all added by the Phase 37 **code review**
 (CR-02), which executed the predicate and measured four provable false
@@ -634,6 +649,31 @@ def _strip_optional(annotation: ast.expr) -> ast.expr:
     return annotation
 
 
+def _optional_inner(annotation: ast.expr) -> ast.expr | None:
+    """The inner arm of an optional wrapper, or ``None`` when there was no wrapper.
+
+    The optional-model-link predicate (Phase 38, D-11) needs a signal
+    :func:`_strip_optional` deliberately does not carry: ``Punta | None`` must
+    redden while a bare ``Punta`` must not, so "the wrapper was present" is the
+    violation and the peeled shape alone cannot say it.
+
+    This is a **sibling rather than a modification**. The mapping predicate
+    depends on ``_strip_optional`` peeling unconditionally and returning an
+    ``ast.expr``, so changing its contract to return a pair would have rippled
+    through the dimension Phase 37 shipped. More to the point, ``_strip_optional``
+    is the single place that knows all three legal spellings (``X | None``,
+    ``Optional[X]``, ``Union[X, None]``); Phase 37 code review CR-02 is on record
+    as the defect caused by a peeler that handled only two of them. Detecting the
+    wrapper by delegating the peel and comparing ``ast.dump`` before and after
+    keeps every spelling on that one code path, where a fourth spelling would be
+    added once rather than twice.
+    """
+    inner = _strip_optional(annotation)
+    if ast.dump(inner) == ast.dump(annotation):
+        return None
+    return inner
+
+
 def _field_annotation_is_untyped_mapping(annotation: ast.expr) -> bool:
     """Whether an exported class FIELD is annotated as an untyped mapping (D-01b).
 
@@ -704,6 +744,135 @@ def _field_annotation_is_untyped_mapping(annotation: ast.expr) -> bool:
         return False
     parameters = inner.slice.elts if isinstance(inner.slice, ast.Tuple) else [inner.slice]
     return len(parameters) == 2 and _field_annotation_is_untyped_mapping(parameters[1])
+
+
+def _class_names(import_root: Path) -> frozenset[str]:
+    """Every name bound by a ``class`` statement anywhere under ``import_root``.
+
+    The static discriminator behind the optional-model-link predicate (Phase 38,
+    D-11). ``get_type_hints`` and ``issubclass(SafeModel)`` are the obvious ways
+    to ask "is this annotation a model?", and neither is available here: this gate
+    never imports a package module, because ``import <pkg>`` runs ``load_dotenv()``
+    and constructs HTTP clients at import time. So the question is answered
+    structurally instead -- ``Punta`` is an ``ast.ClassDef``, while ``MarketId``
+    and ``Side`` are module-level ``ast.Assign`` bindings of ``Literal`` aliases.
+
+    Three things this set is NOT, each recorded because a later reader would
+    otherwise re-litigate it:
+
+    **(a) It is a CLASSIFIER, never a candidate source.** Candidates still resolve
+    from each package's ``__all__`` outward through :func:`_resolve_export`, so the
+    gate's "resolve from the exported surface outward" design is untouched. The
+    full-tree walk is used only to answer a yes/no question *about an annotation
+    already found on an exported field*. The walk is preferred over resolving the
+    annotation's name through ``__all__`` because every response model happens to
+    be exported today -- but the unexported ``ClassDef`` roster (the request-spec
+    dataclass, the token store, the transports, the decode policy) shows that an
+    internal model could be introduced, and the ``__all__`` route would silently
+    spare a field linking to it.
+
+    **(b) It does not reach model-valued MAPPINGS.**
+    :func:`_field_annotation_is_optional_model` matches ``Model | None`` and
+    ``list[Model] | None`` and stops there; ``dict[str, Model] | None`` is
+    deliberately out of scope. No such field exists in any of the six packages
+    (RESEARCH F-6, measured), and pre-banning an unreachable shape is scope this
+    phase does not own. Adding it later is a stated addition, not a bug fix.
+
+    **(c) Exception classes are ``ClassDef``s too.** An exported dataclass field
+    annotated ``IOLAPIError | None`` WOULD redden under this discriminator. None
+    exists today, and the behaviour is arguably correct -- an optional error link
+    is the same "callers must guard" shape the Null Object rule exists to remove.
+    It is named here so nobody rediscovers it as a bug.
+
+    Files are read as text and parsed through :func:`_parse`, so an unparseable
+    module anywhere in an import root is a failure rather than a silently smaller
+    classifier -- the same rule the rest of the gate already applies.
+    """
+    return frozenset(
+        node.name
+        for path in sorted(import_root.rglob("*.py"))
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.ClassDef)
+    )
+
+
+def _field_annotation_is_optional_model(annotation: ast.expr, class_names: frozenset[str]) -> bool:
+    """Whether an exported class FIELD is annotated as an OPTIONAL model link (D-11).
+
+    Phase 38, D-11. This is the second field predicate, added beside the untyped
+    mapping one rather than folded into it: the two catch different defects and
+    their violation messages stay distinguishable in the failure output. Two
+    shapes match, both only once an optional wrapper has been peeled:
+
+    1. ``Model | None`` -- the bare link, reproducing ``Titulo.puntas``;
+    2. ``list[Model] | None`` -- the collection link, reproducing
+       ``Cotizacion.puntas``.
+
+    "Model" means: the annotation's base name is bound by a ``class`` statement
+    somewhere in the package's own import root. See :func:`_class_names` for why
+    the discriminator is static and for the three notes restated below. It
+    reproduces the mapping predicate's two structural habits -- a quoted
+    annotation is re-parsed and judged, and an UNPARSEABLE one is treated as a
+    violation, because an annotation this gate cannot inspect is precisely what
+    the gate exists to refuse.
+
+    Provenance: ROADMAP SC-3 was a one-time grep. Turning it into a ratchet is
+    what stops the two ``puntas`` fields plan 38-01 flipped from being
+    reintroduced with no gate to catch them. The predicate was implemented and
+    executed over all six packages during research before it was written here: it
+    reddens exactly 2 sites, both in ``iol-client``, both fixed by 38-01, with
+    zero collateral (RESEARCH F-6).
+
+    **Spared on purpose**, and structurally rather than by special case:
+
+    - ``Mode | None`` where ``Mode`` is a module-level ``Literal`` alias. Ten
+      exported matriz fields carry that shape and D-NO-03 permits them: the Null
+      Object rule governs MODEL links, not enum-like scalar-set leaves. A
+      ``Literal`` alias is an ``ast.Assign``, so it is not in ``class_names``.
+    - ``list[Any] | None`` and ``dict[str, Any] | None``. ``_base_name`` answers
+      ``None`` for a subscript, so both fall through the membership test without a
+      carve-out -- which is the mechanism that keeps Phase 37 D-01b's two
+      market-data ``warnings`` fields green.
+    - A bare ``Model`` with no optional wrapper. The wrapper IS the violation; the
+      model reference is the fix.
+    - ``Path | None``, ``datetime | None`` and anything else whose base name is not
+      bound by a ``class`` in the package's own tree.
+
+    Restating :func:`_class_names`'s three notes here, because this is the
+    function a reader lands on from a red CI line: **(a)** ``class_names`` is a
+    classifier, never a candidate source -- candidates still resolve from
+    ``__all__`` outward; **(b)** ``dict[str, Model] | None`` is deliberately NOT
+    covered and its later addition is a stated addition, not a bug fix;
+    **(c)** exception classes are ``ClassDef``s, so an optional exception-typed
+    field on an exported dataclass would redden -- none exists today, and that is
+    named rather than left to be rediscovered as a bug.
+
+    Ratchet discipline, inherited verbatim from the mapping predicate: an
+    out-of-scope red is resolved by NARROWING this predicate, never by exempting
+    the foreign field and never by editing the foreign package.
+    """
+    outer = annotation
+    if isinstance(outer, ast.Constant) and isinstance(outer.value, str):
+        try:
+            outer = ast.parse(outer.value, mode="eval").body
+        except SyntaxError:
+            return True  # an uninspectable annotation is not a spared one
+    inner = _optional_inner(outer)
+    if inner is None:
+        return False  # no optional wrapper: a model reference is the fix, not the bug
+    if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+        try:
+            inner = ast.parse(inner.value, mode="eval").body
+        except SyntaxError:
+            return True  # an uninspectable annotation is not a spared one
+    if _base_name(inner) in class_names:
+        return True
+    if isinstance(inner, ast.Subscript) and _base_name(inner.value) == "list":
+        # Spelled as the builtin only, matching the two real fields and RESEARCH
+        # F-6's measurement. No `typing.List[Model] | None` exists in the tree,
+        # and there is no `_MAPPING_BASES`-style alias set to bypass here.
+        return _base_name(inner.slice) in class_names
+    return False
 
 
 def _module_path(import_root: Path, submodule: str) -> Path:
@@ -863,14 +1032,23 @@ def _adjudicate_field(
     qualified: str,
     node: ast.AnnAssign,
     package: str,
+    class_names: frozenset[str],
 ) -> tuple[str | None, str | None]:
     """Classify one candidate field as ``(exemption_reason, violation)``.
+
+    Two predicates, OR-ed rather than merged (Phase 38, D-11): an untyped mapping
+    and an optional model link are different defects with different remedies, so
+    each emits its own message. The mapping message is unchanged to the byte; the
+    link message keeps the same prefix and appends a clause naming the rule, so a
+    red CI line says which of the two dimensions fired without the reader
+    reverse-engineering it from the annotation.
 
     The same two-slot contract as :func:`_adjudicate`, with three differences the
     field dimension forces:
 
-    - The predicate is the NARROW :func:`_field_annotation_is_untyped_mapping`
-      (D-01b), not the wide return predicate.
+    - The predicates are the NARROW :func:`_field_annotation_is_untyped_mapping`
+      (D-01b) and :func:`_field_annotation_is_optional_model` (D-11), not the wide
+      return predicate.
     - There is no "has no annotation" arm. An ``ast.AnnAssign`` carries an
       annotation by construction, so a field analogue of that branch would be
       unreachable code rather than a check.
@@ -887,13 +1065,17 @@ def _adjudicate_field(
     an exemption that never absorbs a real hit is visible as a missing count
     rather than as silence.
     """
-    if not _field_annotation_is_untyped_mapping(node.annotation):
+    if _field_annotation_is_untyped_mapping(node.annotation):
+        rule = ""
+    elif _field_annotation_is_optional_model(node.annotation, class_names):
+        rule = " -- a model link may not be optional (D-NO-01)"
+    else:
         return None, None
     reason = _is_field_exempt(qualified)
     if reason is not None:
         return reason, None
     detail = f"is annotated `{ast.unparse(node.annotation)}`"
-    return None, f"    `{package}.{qualified}` {detail} on the exported surface"
+    return None, f"    `{package}.{qualified}` {detail} on the exported surface{rule}"
 
 
 def scan_surface_types(root: Path) -> ScanResult:
@@ -937,6 +1119,12 @@ def scan_surface_types(root: Path) -> ScanResult:
                 f"{package_dir.name}/src/"
             )
             continue
+
+        # The D-11 classifier, computed ONCE per package: it walks the whole
+        # import root, so recomputing it per field would reparse every module in
+        # the package for every annotated field in it. A classifier, never a
+        # candidate source -- see `_class_names`.
+        package_class_names = _class_names(import_root)
 
         init_path = import_root / "__init__.py"
         if not init_path.is_file():
@@ -989,7 +1177,9 @@ def scan_surface_types(root: Path) -> ScanResult:
             # than dropped from ``_field_candidates_for`` so the triple stays the
             # mirror image of ``_candidates_for``.
             for qualified_name, _member_name, field_node in field_candidates:
-                reason, violation = _adjudicate_field(qualified_name, field_node, package_dir.name)
+                reason, violation = _adjudicate_field(
+                    qualified_name, field_node, package_dir.name, package_class_names
+                )
                 if reason is not None:
                     exempt_counts[reason] = exempt_counts.get(reason, 0) + 1
                 if violation is not None:
