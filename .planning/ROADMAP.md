@@ -41,7 +41,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 - [x] **Phase 35: Fundación Null Object — `__bool__` + política del walker** *(load-bearing, PRIMERO)* — `SafeModel.__bool__`/`empty()` en las 4 jerarquías de base copiadas verbatim a los 6 paquetes + nueva disposición del walker para eslabones no-opcionales, con los 4 gates de v1.6 verdes y **cero** cambios de superficie pública — NOBJ-01, NOBJ-02 (completed 2026-08-29)
 - [x] **Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33** — `MarketDataEntries`/`BookLevel`/`EntryValue` con alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`, `entries` de vuelta a `list[str]`, fila no-data expresada por veracidad y baja de la maquinaria `_mapping_value` — NOBJ-MD-01, NOBJ-MD-02 (completed 2026-08-29)
 - [x] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02 (completed 2026-08-29)
-- [ ] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01
+- [x] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01 (completed 2026-08-29)
 - [ ] **Phase 39: Verificación en vivo del encadenamiento profundo** — los drivers `main_*.py` ejercen cadenas profundas reales en sync y async contra las APIs en vivo, con divergencias corregidas in-cycle y censo contrastado contra el de la Fase 33 — LIVE-NOBJ-01
 - [ ] **Phase 40: Releases breaking coordinados** — bumps sólo de los paquetes cuya superficie cambió, con callout + tabla de migración vieja→nueva por paquete, y las dos operaciones irreversibles detrás de dos gates humanos independientes — PUB-NOBJ-01
 
@@ -143,7 +143,7 @@ Plans:
   3. El grep de cierre del plan fuente sobre `packages/*/src/*/models.py` devuelve **sólo** hojas escalares y `Literal` en los 6 paquetes, y ningún retorno de función pública expone `dict[str, Any]` / `list[dict[str, Any]]` fuera de los shims `_legacy` e internals (`_request`) — el resultado se reporta con el comando ejecutado y su salida, no como afirmación.
   4. Las suites de los cuatro paquetes quedan verdes con los 4 gates de v1.6 activos, y `surface_parity.py` asevera que cada cambio de lógica viajó a las dos superficies (D-NO-06); para `wallets-client` se registra explícitamente su condición de stub sin endpoints reales en vez de reportar un verde vacuo.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 
 **Wave 1**
 
@@ -156,7 +156,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 38-04-PLAN.md — `38-CENSUS.md`: censo con disposición por campo de higyrus/ámbito/wallets, ceros por enumeración con la condición de stub de wallets, y la evidencia SC-3 como comando ejecutado con su salida — wave 3
+- [x] 38-04-PLAN.md — `38-CENSUS.md`: censo con disposición por campo de higyrus/ámbito/wallets, ceros por enumeración con la condición de stub de wallets, y la evidencia SC-3 como comando ejecutado con su salida — wave 3
 
 ### Phase 39: Verificación en vivo del encadenamiento profundo
 
@@ -193,7 +193,7 @@ Plans:
 | 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
-| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 3/4 | In Progress|  |
+| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete   | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 

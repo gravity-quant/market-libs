@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 38
 current_phase_name: iol-client-auditor-a-de-higyrus-mbito-wallets
-status: executing
+status: verifying
 stopped_at: Completed 38-03-PLAN.md
-last_updated: "2026-08-29T20:44:45.438Z"
+last_updated: "2026-08-29T21:11:56.893Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 38 execution started
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 17
-  completed_plans: 16
-  percent: 50
+  completed_plans: 17
+  percent: 67
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 38 (iol-client-auditor-a-de-higyrus-mbito-wallets) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-29 — Phase 38 execution started
 
 ## Performance Metrics
@@ -185,6 +185,7 @@ Last activity: 2026-08-29 — Phase 38 execution started
 | Phase 38 P01 | 6min | 3 tasks | 4 files |
 | Phase 38 P02 | 7min | 3 tasks | 2 files |
 | Phase 38 P03 | 8min | 2 tasks | 2 files |
+| Phase 38 P04 | 8min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -418,6 +419,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 38-02: dict[str, Model] | None queda fuera del ratchet como exclusion declarada; agregarlo despues es una adicion declarada, no un bug fix
 - [Phase ?]: 38-03: las refs de models.py en 35-RETIRED-TRIPLES.md se escriben :235/:334 (verificadas en HEAD), no :213/:301 — la tabla del plan se midio en cf79e65, antes del drift de docstrings de 38-01
 - [Phase ?]: 38-03: la fila de cero explicito de iol en 35-RETIRED-TRIPLES.md se conserva y las 2 filas nuevas van en un addendum delimitado — reemplazarla habria roto la igualdad de 35 filas con el conteo D-17
+- [Phase ?]: 38-04: la cita 35-RETIRED-TRIPLES.md:184-197 del plan estaba stale — el parrafo de ausencia enumerada esta en :169-180; el censo escribe el numero medido y registra la discrepancia
+- [Phase ?]: 38-04: las uniones PEP-604 se sacaron de toda celda de tabla del censo — un pipe dentro de una celda rompe el conteo de columnas del awk de verificacion; las firmas de _request van en bloque de codigo verbatim
+- [Phase ?]: 38-04: el cross-check de los 142 campos de higyrus se hizo scopeando el gate a un solo paquete (semilla D-04 inyectable), no comparando contra el total workspace de 442 fields scanned
 
 ### Pending Todos
 
@@ -502,7 +506,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T20:44:41.679Z
+Last session: 2026-08-29T21:11:39.399Z
 Stopped at: Completed 38-03-PLAN.md
 Resume file: None
 
