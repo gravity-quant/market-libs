@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
-current_phase: 37
-current_phase_name: matriz-client-dicts-residuales-tipados-alias
+current_phase: 38
+current_phase_name: `iol-client` + auditoría de higyrus/ámbito/wallets
 status: verifying
 stopped_at: Completed 37-05-PLAN.md
-last_updated: "2026-08-29T16:32:24.571Z"
+last_updated: "2026-08-29T18:07:21.569Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 37 execution started
+last_activity_desc: Phase 37 complete, transitioned to Phase 38
 progress:
   total_phases: 6
   completed_phases: 3
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 37 (matriz-client-dicts-residuales-tipados-alias) — EXECUTING
-Plan: 5 of 5
+Phase: 38 — `iol-client` + auditoría de higyrus/ámbito/wallets
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-08-29 — Phase 37 execution started
+Last activity: 2026-08-29 — Phase 37 complete, transitioned to Phase 38
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 135 (v1.0)
+- Total plans completed: 140 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 

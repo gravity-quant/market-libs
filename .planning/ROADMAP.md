@@ -40,7 +40,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 - [x] **Phase 35: Fundación Null Object — `__bool__` + política del walker** *(load-bearing, PRIMERO)* — `SafeModel.__bool__`/`empty()` en las 4 jerarquías de base copiadas verbatim a los 6 paquetes + nueva disposición del walker para eslabones no-opcionales, con los 4 gates de v1.6 verdes y **cero** cambios de superficie pública — NOBJ-01, NOBJ-02 (completed 2026-08-29)
 - [x] **Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33** — `MarketDataEntries`/`BookLevel`/`EntryValue` con alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`, `entries` de vuelta a `list[str]`, fila no-data expresada por veracidad y baja de la maquinaria `_mapping_value` — NOBJ-MD-01, NOBJ-MD-02 (completed 2026-08-29)
-- [ ] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02
+- [x] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02 (completed 2026-08-29)
 - [ ] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01
 - [ ] **Phase 39: Verificación en vivo del encadenamiento profundo** — los drivers `main_*.py` ejercen cadenas profundas reales en sync y async contra las APIs en vivo, con divergencias corregidas in-cycle y censo contrastado contra el de la Fase 33 — LIVE-NOBJ-01
 - [ ] **Phase 40: Releases breaking coordinados** — bumps sólo de los paquetes cuya superficie cambió, con callout + tabla de migración vieja→nueva por paquete, y las dos operaciones irreversibles detrás de dos gates humanos independientes — PUB-NOBJ-01
@@ -119,17 +119,17 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 Plans:
 **Wave 1**
 
-- [ ] 37-01-PLAN.md — Envelope unwrap de los dos parsers Risk en `_core.py` (D-03, un solo sitio) + regresiones mockeadas; checkpoint de disposición del body plano
-- [ ] 37-02-PLAN.md — Tracer: axis de mapping con tipo de elemento y recursión (D-06) + `TickPriceRange` con procedencia `baseline` (D-04c/D-05)
+- [x] 37-01-PLAN.md — Envelope unwrap de los dos parsers Risk en `_core.py` (D-03, un solo sitio) + regresiones mockeadas; checkpoint de disposición del body plano
+- [x] 37-02-PLAN.md — Tracer: axis de mapping con tipo de elemento y recursión (D-06) + `TickPriceRange` con procedencia `baseline` (D-04c/D-05)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 37-03-PLAN.md — `report` a dos niveles, `detailedAccountReports` a uno, `portfolio` a escalar (D-02/D-07) con procedencia `vendor-documented, UNMEASURED` + filas en el ledger
+- [x] 37-03-PLAN.md — `report` a dos niveles, `detailedAccountReports` a uno, `portfolio` a escalar (D-02/D-07) con procedencia `vendor-documented, UNMEASURED` + filas en el ledger
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 37-04-PLAN.md — Dimensión de campos en `tools/check_surface_types.py` (D-01a/b/c) + fixture RED de no-vacuidad (D-01d)
-- [ ] 37-05-PLAN.md — Seis `@property` alias sobre `MarketDataSnapshot` (NOBJ-MTZ-02), compartidas por REST y frames WS
+- [x] 37-04-PLAN.md — Dimensión de campos en `tools/check_surface_types.py` (D-01a/b/c) + fixture RED de no-vacuidad (D-01d)
+- [x] 37-05-PLAN.md — Seis `@property` alias sobre `MarketDataSnapshot` (NOBJ-MTZ-02), compartidas por REST y frames WS
 
 ### Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets
 
@@ -179,7 +179,7 @@ Plans:
 |--------------------------------------------------------------|-----------|-------|-------------|------------|
 | 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
-| 37. `matriz-client` — dicts residuales + alias               | v1.7      | 0/?   | Not started | -          |
+| 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
