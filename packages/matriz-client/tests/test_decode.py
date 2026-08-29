@@ -332,14 +332,22 @@ def test_int_into_a_float_field_widens_and_is_not_reported() -> None:
     assert isinstance(models.MarketDataLevel.from_api({"size": 1000}).size, int)
 
 
-def test_missing_list_field_returns_empty_list_and_reports(
+def test_missing_list_field_returns_empty_list_without_reporting(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """A ``list[X]`` field absent from the payload stays ``[]`` and reports NOTHING.
+
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. A null or absent value on a non-optional list link is the
+    legitimate shape the milestone declares, so it collapses to ``[]`` with no
+    record. The wrong-TYPE half is untouched and stays pinned by the wrong-type
+    tests further down this module.
+    """
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         obj = _Nested.from_api({"leaf": {"name": "n", "count": 1}})
 
     assert obj.rows == []
-    assert (".rows", "missing") in _pairs(caplog)
+    assert (".rows", "missing") not in _pairs(caplog)
 
 
 def test_extra_wire_key_reports_at_info_and_leaves_the_model_untouched(
@@ -1231,16 +1239,23 @@ def test_two_standalone_from_api_calls_after_a_response_parse_both_report(
 # ---------------------------------------------------------------------------
 
 
-def test_absent_nested_model_key_is_missing_on_the_outer_model(
+def test_absent_nested_model_key_collapses_silently_on_the_outer_model(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """WR-02: lock 2's definition of ``missing``, and lock 1's ``model`` pairing.
+    """An absent nested-model key becomes the empty instance and reports NOTHING.
 
     matriz is the package this hits hardest — roughly ten nested-model fields,
-    every one of them defaulted via ``field(default_factory=X.empty)``. Each used
-    to emit a ``non_dict`` record attributed to the NESTED class at a path rooted
-    in the OUTER decode: a pair naming a decode site that does not exist, which
-    lock 10 then freezes into a Phase 33 finding identity.
+    every one of them defaulted via ``field(default_factory=X.empty)``.
+
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. WR-02's classification order is still in force — the branch still
+    classifies BEFORE recursing, so an absent key never reaches ``walk_model`` as
+    ``payload=None`` and can never be emitted as ``non_dict`` attributed to the
+    NESTED class at a path rooted in the OUTER decode, which lock 10 would freeze
+    into a Phase 33 finding identity. That is why the trailing ``non_dict``
+    assertion below stays exactly as it was: it is the half NOBJ-02 does not
+    touch. What NOBJ-02 retires is only the ``missing`` record; the returned
+    VALUE is unchanged, which is the whole point.
     """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
@@ -1248,7 +1263,7 @@ def test_absent_nested_model_key_is_missing_on_the_outer_model(
 
     assert instance.leaf == _Leaf.empty()
     triples = [(r.model, r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
-    assert ("_Nested", ".leaf", "missing") in triples
+    assert ("_Nested", ".leaf", "missing") not in triples
     assert not [t for t in triples if t[2] == "non_dict"]
 
 

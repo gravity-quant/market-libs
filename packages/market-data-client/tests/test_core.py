@@ -1056,7 +1056,7 @@ def test_health_from_api_missing_auth_yields_zero_valued_nested_model(
     health, records = _from_api(Health.from_api, caplog, {"status": "ok"})
     assert health.status == "ok"
     assert health.auth == HealthAuth(configured=False, enabled=False, issuer="")
-    assert [(r.field_path, r.divergence) for r in records] == [(".auth", "missing")]  # type: ignore[attr-defined]
+    assert [(r.field_path, r.divergence) for r in records] == []  # type: ignore[attr-defined]
 
 
 def test_health_feed_from_api_reaches_all_three_nesting_levels() -> None:

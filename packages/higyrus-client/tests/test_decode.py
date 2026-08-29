@@ -212,14 +212,21 @@ def test_missing_scalars_return_typed_zeros_and_report(
     assert all(r.levelno == logging.WARNING for r in records)
 
 
-def test_missing_list_field_returns_empty_list_and_reports(
+def test_missing_list_field_returns_empty_list_without_reporting(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A ``list[X]`` field absent from the payload stays ``[]`` and reports once."""
+    """A ``list[X]`` field absent from the payload stays ``[]`` and reports NOTHING.
+
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. A null or absent value on a non-optional list link is the
+    legitimate shape the milestone declares, so it collapses to ``[]`` with no
+    record. The wrong-TYPE half is untouched and stays pinned by the wrong-type
+    tests further down this module.
+    """
     obj, records = _walk(_Nested, {"titulo": "t"}, caplog)
 
     assert obj.hojas == []
-    assert _tuples(records) == [(".hojas", "missing")]
+    assert _tuples(records) == []
 
 
 # ---------------------------------------------------------------------------
@@ -1128,22 +1135,24 @@ class _CarriesNested(SafeModel):
     hoja: _Leaf
 
 
-def test_absent_nested_model_key_is_missing_on_the_outer_model(
+def test_absent_nested_model_key_collapses_silently_on_the_outer_model(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """WR-02: lock 2's definition of ``missing``, and lock 1's ``model`` pairing.
+    """An absent nested-model key becomes the empty instance and reports NOTHING.
 
-    The walker used to recurse unconditionally, so an absent key whose declared
-    type is a nested model reached ``walk_model`` as ``payload=None`` and was
-    emitted as ``non_dict`` — attributed to the NESTED class at a path rooted in
-    the OUTER decode. That pair names a decode site that does not exist, and
-    lock 10 freezes it into a Phase 33 finding identity.
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. WR-02's classification order is still in force — the branch still
+    classifies BEFORE recursing, so an absent key never reaches ``walk_model`` as
+    ``payload=None`` and can never be emitted as ``non_dict`` attributed to the
+    NESTED class at a path rooted in the OUTER decode, which lock 10 would freeze
+    into a Phase 33 finding identity. What NOBJ-02 retires is only the record;
+    the returned VALUE below is unchanged, which is the whole point.
     """
     instance, records = _walk(_CarriesNested, {"titulo": "t"}, caplog)
 
     assert instance == _CarriesNested("t", _Leaf("", 0))
     triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
-    assert triples == [("_CarriesNested", ".hoja", "missing")]
+    assert triples == []
 
 
 def test_non_dict_nested_payload_keeps_the_nested_attribution(
