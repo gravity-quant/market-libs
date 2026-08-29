@@ -199,6 +199,18 @@ class _BareMapping(_SafeModel):
 
 
 @dataclass(frozen=True)
+class _OptionalMapping(_SafeModel):
+    """``dict[str, Model] | None`` — the nullable opt-in (WR-03).
+
+    ``_is_mapping`` strips the optional wrapper, so this field enters the axis
+    like any other mapping; what it must NOT lose on the way is the declaration
+    that ``None`` is a legal value.
+    """
+
+    m: dict[str, _TickLike] | None = None
+
+
+@dataclass(frozen=True)
 class _Nested(_SafeModel):
     """Nested model + list-of-model, matriz's ``empty()``-flavoured defaults."""
 
@@ -632,6 +644,88 @@ def test_the_runtime_mapping_vocabulary_covers_the_gates() -> None:
         "`models._is_mapping` does not recognise them — a green gate would be "
         "steering authors into a runtime type lie (WR-01)."
     )
+
+
+def test_optional_mapping_absent_stays_none_and_emits_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-03: a declared-nullable mapping can actually hold ``None``.
+
+    Measured before the fix::
+
+        OptMap.from_api({}) -> OptMap(m={}) + WARNING "decode divergence" (missing)
+
+    ``walk_field`` had already returned the right answer — *"Optional[T] /
+    T | None: explicit opt-in to nullable — a missing value stays None ... and is
+    NOT a divergence"* — and the mapping pass was overwriting it.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({})
+
+    assert obj.m is None
+    assert _pairs(caplog) == []
+
+
+def test_optional_mapping_explicit_null_stays_none_and_is_not_a_divergence(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-03: an explicit ``null`` on a nullable field is well-formed, not a defect."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({"m": None})
+
+    assert obj.m is None
+    assert _pairs(caplog) == []
+
+
+def test_optional_mapping_null_is_not_fatal_under_strict_mode() -> None:
+    """WR-03's teeth: the spurious ``missing`` record was FATAL under strict mode.
+
+    ``DecodeScope.__call__`` raises on a non-exempt divergence when
+    ``strict_decode`` is set, so before the fix a strict driver run crashed on a
+    perfectly well-formed payload — the failure mode strict mode exists to
+    surface, fabricated by the decoder itself.
+    """
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+
+    assert _OptionalMapping.from_api({"m": None}).m is None
+
+
+def test_optional_mapping_still_reports_a_non_null_garbage_value(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-03's upper bound: nullable means "may be absent", never "may be anything".
+
+    A non-``None``, non-mapping value on an optional field is NOT skipped by the
+    guard: it falls through to ``_mapping_value``, substitutes ``{}`` and reports
+    a ``type`` divergence exactly as the non-optional spelling does.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({"m": "garbage"})
+
+    assert obj.m == {}
+    assert (".m", "type") in _pairs(caplog)
+
+
+def test_optional_mapping_present_value_decodes_its_elements(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The guard must not cost the optional spelling its element decoding."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({"m": {"0": {"tick": 0.5}}})
+
+    assert obj.m is not None
+    assert obj.m["0"] == _TickLike(lowerLimit=None, upperLimit=None, tick=0.5)
+
+
+def test_convert_shim_inherits_the_nullable_guard() -> None:
+    """WR-03: the shim answers the same thing ``from_api`` does for one annotation.
+
+    The non-optional pin from F-17 is asserted alongside it, because the whole
+    risk of touching the shim is moving that one.
+    """
+    assert models._convert(dict[str, Any] | None, None) is None
+    assert models._convert(dict[str, Any], None) == {}
 
 
 def test_tickPriceRanges_undeclared_inner_key_is_one_non_fatal_extra(

@@ -157,6 +157,24 @@ def _is_mapping(tp: Any) -> bool:
     return _is_mapping_base(stripped)
 
 
+def _is_optional(tp: Any) -> bool:
+    """True for ``T | None`` / ``Optional[T]`` / ``Union[T, None]``.
+
+    Phase 37 code review, WR-03. :func:`_is_mapping` strips the optional wrapper
+    before testing, which is right — an optional mapping IS a mapping — but it
+    left :func:`_apply_mapping_policy` unable to tell the two apart, so a
+    declared-nullable field was force-collapsed to ``{}`` and a legitimate null
+    was reported as a ``missing`` divergence (fatal under ``strict_decode``).
+    This predicate restores the distinction; :func:`_apply_mapping_policy`
+    documents what it guards.
+
+    Deliberately NOT expressed as ``_strip_optional(tp) is not tp``: a union of
+    two non-``None`` arms is returned unchanged by ``_strip_optional``, and
+    reading "unchanged" as "not optional" would be right today only by accident.
+    """
+    return get_origin(tp) in (Union, types.UnionType) and type(None) in get_args(tp)
+
+
 def _element_hint(tp: Any) -> Any:
     """The declared VALUE type of a mapping annotation; ``Any`` when unparameterised.
 
@@ -305,6 +323,30 @@ def _apply_mapping_policy(
 
     Phase 37: the declared ELEMENT hint is derived here (:func:`_element_hint`)
     and handed to :func:`_mapping_value`, which owns the decoding of the values.
+
+    **The nullable opt-in is honoured (Phase 37 code review, WR-03).**
+    :func:`_is_mapping` strips ``Optional`` before testing — correct, an optional
+    mapping IS a mapping — so an ``Optional[dict[str, X]]`` field entered the
+    axis and had its ``None`` overwritten with ``{}``. Two defects in one, both
+    measured::
+
+        OptMap.from_api({})          -> OptMap(m={})  + WARNING divergence (missing)
+        OptMap.from_api({"m": None}) -> OptMap(m={})  + WARNING divergence (missing)
+
+    A field declared nullable could never hold ``None``, and a legitimate null on
+    an explicitly-nullable field was reported as a ``missing`` divergence — which
+    ``DecodeScope.__call__`` makes **fatal** under ``strict_decode``, so a strict
+    driver run would crash on a well-formed payload. ``walk_field`` had already
+    returned the right answer (``_decode.py``: *"Optional[T] / T | None: explicit
+    opt-in to nullable — a missing value stays None ... and is NOT a
+    divergence"*); this pass was overwriting it. No shipped model declares an
+    optional mapping today, which is the only reason it was not live.
+
+    The guard is an early ``continue``, so the field keeps ``walk_field``'s
+    ``None`` AND no record is emitted. A non-``None``, non-mapping value on an
+    optional field is NOT skipped: it still falls through to
+    :func:`_mapping_value`, which substitutes ``{}`` and reports a ``type``
+    divergence. Nullable means "may be absent", never "may be anything".
     """
     # ``cast(Any, cls)`` is the walker's own mypy-strict discipline for
     # ``get_type_hints``-driven code: mypy rejects ``type[Any]`` against
@@ -315,6 +357,8 @@ def _apply_mapping_policy(
     for f in fields(target):
         hint = hints[f.name]
         if _is_mapping(hint):
+            if _is_optional(hint) and kwargs[f.name] is None:
+                continue  # WR-03: declared nullable, wire said null — that is the answer
             kwargs[f.name] = _mapping_value(
                 kwargs[f.name],
                 _element_hint(hint),
@@ -345,9 +389,17 @@ def _convert(tp: Any, value: Any) -> Any:
     ``Any``, which walks to a verbatim pass-through — ``_convert(dict[str, Any],
     None) == {}`` and the reversed ``(tp, value)`` order are both pinned by
     committed tests (F-17) and neither moves.
+
+    The shim inherits WR-03's nullable guard for the same reason it inherits the
+    element routing: it is the same axis, and one module answering ``{}`` here
+    and ``None`` through ``from_api`` for the identical annotation would be a
+    wart, not a policy. The non-optional case is untouched, so
+    ``_convert(dict[str, Any], None) == {}`` still holds.
     """
     sink = _decode.DecodeScope()
     if _is_mapping(tp):
+        if _is_optional(tp) and value is None:
+            return None
         return _mapping_value(value, _element_hint(tp), path="", model="", sink=sink)
     return _decode.walk_field(
         value,
