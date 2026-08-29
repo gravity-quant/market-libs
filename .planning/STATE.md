@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 37
 current_phase_name: matriz-client-dicts-residuales-tipados-alias
-status: executing
-stopped_at: Completed 37-04-PLAN.md
-last_updated: "2026-08-29T16:20:01.342Z"
+status: verifying
+stopped_at: Completed 37-05-PLAN.md
+last_updated: "2026-08-29T16:32:24.571Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 37 execution started
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
-  completed_plans: 12
-  percent: 33
+  completed_plans: 13
+  percent: 50
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 37 (matriz-client-dicts-residuales-tipados-alias) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-29 — Phase 37 execution started
 
 ## Performance Metrics
@@ -181,6 +181,7 @@ Last activity: 2026-08-29 — Phase 37 execution started
 | Phase 37 P02 | ~11 min | 2 tasks | 5 files |
 | Phase 37 P03 | ~22 min | 3 tasks | 6 files |
 | Phase 37 P04 | 34min | 2 tasks | 2 files |
+| Phase 37 P05 | ~8 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -404,6 +405,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 37-04: el predicado de campo del gate no restringe el tipo de la KEY del mapping — más estricto que la letra del plan, cierra dict[int, Any] como bypass
 - [Phase ?]: 37-04: el guard anti-vacuidad pasa de 'cero definiciones' a 'cero definiciones Y cero campos'; sin cláusula dura de cero-campos (reenrojecería los fixtures de iol)
 - [Phase ?]: 37-04: la exención de campo se prueba por nombre (exempted_by_reason['ws-catch-all'] == 1), no subiendo el piso total de exenciones
+- [Phase ?]: 37-05: los seis alias de MarketDataSnapshot citan NOBJ-MTZ-02/D-16, no el D-03 de market-data — D-03 en matriz es el envelope unwrap de Risk
+- [Phase ?]: 37-05: la disjunción de nombres se argumenta como name shadowing silencioso (matriz no usa slots), no como colisión de slots
+- [Phase ?]: 37-05: sin tarea WS y sin tocar ws_client.py — MarketDataFrame.marketData ES un MarketDataSnapshot (F-12), ahora aseverado
 
 ### Pending Todos
 
@@ -488,8 +492,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T16:19:57.173Z
-Stopped at: Completed 37-04-PLAN.md
+Last session: 2026-08-29T16:32:24.566Z
+Stopped at: Completed 37-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
