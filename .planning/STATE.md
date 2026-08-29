@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 36
-current_phase_name: `market-data-client` — `market_data` tipado + revocación de la Fase 33
+current_phase_name: market-data-client — market_data tipado + revocación de la Fase 33
 status: executing
 stopped_at: Phase 36 context gathered (assumptions mode)
-last_updated: "2026-08-29T11:40:25.004Z"
+last_updated: "2026-08-29T11:58:48.807Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 35 complete, transitioned to Phase 36
+last_activity_desc: Phase 36 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
   percent: 17
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 35 — Fundación Null Object — __bool__ + política del walker
+**Current focus:** Phase 36 — market-data-client — market_data tipado + revocación de la Fase 33
 
 ## Current Position
 
-Phase: 36 — `market-data-client` — `market_data` tipado + revocación de la Fase 33
-Plan: Not started
+Phase: 36 (market-data-client — market_data tipado + revocación de la Fase 33) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-08-29 — Phase 35 complete, transitioned to Phase 36
+Last activity: 2026-08-29 — Phase 36 execution started
 
 ## Performance Metrics
 
@@ -174,6 +174,7 @@ Last activity: 2026-08-29 — Phase 35 complete, transitioned to Phase 36
 | Phase 35 P03 | 14min | 2 tasks | 6 files |
 | Phase 35 P04 | 15 min | 3 tasks | 6 files |
 | Phase 35 P05 | 10min | 2 tasks | 13 files |
+| Phase 36 P01 | 15min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -378,6 +379,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 35-05]: la disposicion NOBJ-02 se compuerta por identidad contra null (if value is not None:), NUNCA por falsedad — cadena vacia, 0, dict vacio y lista vacia son falsy y son wrong-types legitimos que siguen divergiendo y siguen siendo fatales bajo strict_decode; los 10 tripwires de wrong-type de las olas 1-2 son la falsificacion de esa mitad
 - [Phase ?]: [Phase 35-05]: CANONICAL_DIGEST ac14868282ad0a5c -> a1f00c824348164c, leido VERBATIM del mensaje de falla del propio gate (que reporto UN solo hash distinto en las 5 copias), nunca del digest cd937d17 de RESEARCH F-6, que corresponde a una variante sin reescritura del comentario
 - [Phase ?]: [Phase 35-05]: los docstrings de modulo de _decode.py NO estan hasheados (la regla 1 de normalizacion los strippea) — la revision manual x5 que exige D-10 encontro un bullet podrido y se enmendo byte-identico x5 sin mover el digest
+- [Phase ?]: [Phase 36-01]: CR-03 disposition = retire — la maquinaria de mapping se retira entera, así que conservar _RequiredMapping y sus dos tests habría exigido mantener _mapping_value vivo como código muerto en un módulo shipeado (contradice D-05 y hace SC-5 inalcanzable). Auto-resuelto bajo auto-mode (primera opción = recomendación de RESEARCH), no por veredicto humano; punto de revert = de7614a
+- [Phase ?]: [Phase 36-01]: _strip_optional copiado módulo-local en test_core.py y test_decode.py (DT-03 no-shared-code); _is_mapping no se copia a ningún lado. Las 3 locks que sólo pedían prestado el detector (T-31-17, mutation-result no-Optional, WR-03) sobreviven intactas — edición por censo per-call-site, nunca por rango de líneas (Pitfall 1). 663 → 660 tests; models.py intacto (dea0dec)
 
 ### Pending Todos
 
@@ -461,7 +464,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T10:53:19.263Z
+Last session: 2026-08-29T11:58:43.619Z
 Stopped at: Phase 36 context gathered (assumptions mode)
 Resume file: .planning/phases/36-market-data-client-market-data-tipado-revocaci-n-de-la-fase-/36-CONTEXT.md
 

@@ -88,11 +88,11 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. La fila no-data de `/marketdata/latest` conserva **el mismo poder expresivo sin `None`**: `bool(snapshot.market_data) is False` y `note` poblado; `test_snapshot_no_data_row.py` queda migrado a esa semántica en vez de eliminado.
   5. `_mapping_value` / `_apply_mapping_policy` y su test de precondición desaparecen de `market-data-client` **sin mover el hash de `_decode.py`** (la maquinaria vive en `models.py`, no en el walker), y `main_market_data.py` consume por encadenamiento profundo en sus sitios reales.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 **Wave 1**
 
-- [ ] 36-01-PLAN.md — Prep: retirar el eje mapping de la suite de tests por censo per-call-site (no por rango), con checkpoint del operator sobre la disposición del contrato CR-03 — wave 1
+- [x] 36-01-PLAN.md — Prep: retirar el eje mapping de la suite de tests por censo per-call-site (no por rango), con checkpoint del operator sobre la disposición del contrato CR-03 — wave 1
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -163,7 +163,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 | Phase                                                        | Milestone | Plans | Status      | Completed  |
 |--------------------------------------------------------------|-----------|-------|-------------|------------|
 | 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 5/5 | Complete    | 2026-08-29 |
-| 36. `market-data-client` — `market_data` tipado              | v1.7      | 0/?   | Not started | -          |
+| 36. `market-data-client` — `market_data` tipado              | v1.7      | 1/3 | In Progress|  |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 0/?   | Not started | -          |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
