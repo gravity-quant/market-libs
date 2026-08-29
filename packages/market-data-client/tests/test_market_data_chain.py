@@ -9,14 +9,27 @@ and ``market_data`` — while leaving it standing on the two LEAVES,
 ``.future_plans/api-tipada-null-objects.md``).
 
 This module is the phase goal expressed as assertions. It asserts the FOUR
-payloads the vendor can actually produce, on BOTH surfaces (C-3):
+``market_data`` shapes the vendor can produce, on BOTH surfaces (C-3):
 
 1. the real ``/marketdata`` wire item, mirroring the committed baseline
    ``.planning/verification/schemas/market-data-client/get-market-data.json``;
 2. ``market_data`` absent from the row entirely;
-3. ``market_data`` explicitly ``null`` — the no-data row of
-   ``.planning/verification/schemas/market-data-client/get-latest.json``;
+3. ``market_data`` explicitly ``null``;
 4. ``market_data`` present but empty (``{}``).
+
+**Phase 36 code review, CR-02.** Rows 2-4 vary ``market_data`` and hold every
+other field populated, ON PURPOSE — that is what makes the matrix a statement
+about the LINK rather than about a whole payload. Until the review, row 3 also
+claimed to be "the shape of the no-data row of get-latest.json" and was not: the
+committed baseline sends ``market_id`` and ``active`` as ``null`` too and carries
+no ``entries`` key at all, so the matrix covered three producible shapes and one
+synthetic one while the ONE payload the repo has actually measured was absent
+from it. That row is now here as ``_MEASURED_NO_DATA_ROW``, in its own pair of
+tests below — it cannot join the matrix, because it legitimately emits two
+``missing`` records and raises under ``strict_decode`` on ``.market_id``. Those
+two over-declared LEAVES are a real divergence, deferred rather than fixed here
+(``36-DEFERRED-market-data-leaves.md``); what the new tests lock is that the
+LINKS stay silent and walkable on it, which is the phase's actual claim.
 
 Every expected value below is MEASURED in ``36-RESEARCH.md`` § "Key Measured
 Findings" F-1 and F-3 — they are asserted here, not recomputed. In particular
@@ -31,7 +44,10 @@ account id appears here (C-4).
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -44,6 +60,7 @@ from market_data_client import (
     LatestRequest,
     MarketDataEntries,
     MarketDataSnapshot,
+    _decode,
     aio,
 )
 
@@ -116,9 +133,9 @@ _MD_ABSENT: dict[str, Any] = {
     "note": None,
 }
 
-# Row 3 — ``market_data: null``, the shape of the no-data row of
-# ``.../schemas/market-data-client/get-latest.json`` (which also carries no
-# ``entries`` value at all).
+# Row 3 — ``market_data: null`` with every other field populated. SYNTHETIC by
+# design (CR-02): it isolates the ``market_data`` link, and is deliberately NOT
+# the get-latest.json no-data row — that one is ``_MEASURED_NO_DATA_ROW`` below.
 _MD_NULL: dict[str, Any] = {
     "symbol": "AAA1",
     "market_id": "ZZZ",
@@ -139,6 +156,31 @@ _MD_EMPTY: dict[str, Any] = {
     "staleness_seconds": None,
     "note": None,
 }
+
+# The MEASURED no-data row (CR-02) — the committed baseline
+# ``.planning/verification/schemas/market-data-client/get-latest.json`` VERBATIM,
+# key for key: ``symbol`` + ``note`` carry a string, everything else is ``null``,
+# and there is NO ``entries`` key. Kept apart from the matrix because it is the
+# only payload here that legitimately produces divergence records. Identifiers
+# synthesised (C-4).
+_MEASURED_NO_DATA_ROW: dict[str, Any] = {
+    "active": None,
+    "market_data": None,
+    "market_id": None,
+    "note": "sin datos para el simbolo",
+    "received_at": None,
+    "staleness_seconds": None,
+    "symbol": "AAA1",
+}
+
+# The two records the over-declared LEAVES produce on that row, in walker order
+# (dataclass declaration order). Asserting the WHOLE record set — not a subset —
+# is what makes "the LINKS emit nothing" a real claim: a link regression would
+# add a third tuple and redden here.
+_MEASURED_NO_DATA_RECORDS = [
+    ("MarketDataSnapshot", ".market_id", "missing"),
+    ("MarketDataSnapshot", ".active", "missing"),
+]
 
 # Expected leaf values per row — RESEARCH F-1, asserted not recomputed.
 _REAL_EXPECT: dict[str, Any] = {
@@ -290,6 +332,74 @@ async def test_chain_survives_strict_decode_async(
         rows = await client.get_market_data()
 
     _assert_chain(rows[0], expected_entries, truthy, expect)
+
+
+# ---------------------------------------------------------------------------
+# The MEASURED no-data row (CR-02) — the payload the repo has actually captured
+# ---------------------------------------------------------------------------
+
+
+def test_the_measured_no_data_row_is_the_committed_baseline_key_for_key() -> None:
+    """The fixture IS the baseline — asserted against the file, not against a comment.
+
+    CR-02's root cause was a fixture that CLAIMED to mirror
+    ``get-latest.json`` and quietly populated two fields the baseline sends as
+    ``null``. A prose claim cannot redden; this can. If the baseline is
+    re-captured with a different shape, this test fails and the fixture (and the
+    verdict about which fields are over-declared) has to be revisited.
+    """
+    baseline_path = (
+        Path(__file__).resolve().parents[3]
+        / ".planning"
+        / "verification"
+        / "schemas"
+        / "market-data-client"
+        / "get-latest.json"
+    )
+    baseline_row = json.loads(baseline_path.read_text(encoding="utf-8"))["schema"][0]
+
+    projected = {k: type(v).__name__ for k, v in _MEASURED_NO_DATA_ROW.items()}
+
+    assert projected == baseline_row
+
+
+@pytest.fixture
+def non_strict_decode() -> Iterator[None]:
+    """Pin ``STRICT_DECODE`` to ``False`` for a model-level (client-less) decode.
+
+    ``Client.__init__`` calls ``_decode.STRICT_DECODE.set(...)`` without ever
+    resetting the token, so the strict flag set by ``test_chain_survives_strict_decode``
+    survives into whatever runs next in the same context. Every other test in this
+    module goes through a client, which re-sets the flag on the way in; the two
+    tests below decode ``from_api`` directly and would otherwise inherit whatever
+    the previous test left behind — passing or failing on test ORDER, which is the
+    kind of accident CR-02 was about.
+    """
+    token = _decode.STRICT_DECODE.set(False)
+    try:
+        yield
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+
+@pytest.mark.usefixtures("non_strict_decode")
+def test_the_measured_no_data_row_keeps_the_chain_walkable_and_the_links_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SC-1 against the ONE measured payload: links collapse, only leaves report.
+
+    The record-set equality is the load-bearing half. Asserting the WHOLE set —
+    rather than "``.market_data`` is not in it" — means a link that started
+    reporting again would add a third tuple and redden here, and it simultaneously
+    states the two LEAF divergences that Phase 36 deliberately did not fix.
+    """
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
+        snap = MarketDataSnapshot.from_api(_MEASURED_NO_DATA_ROW, received_at=1.0)
+
+    _assert_chain(snap, [], False, _EMPTY_EXPECT)
+    assert snap.market_data == MarketDataEntries.empty()
+    assert _records(caplog) == _MEASURED_NO_DATA_RECORDS
 
 
 # ---------------------------------------------------------------------------

@@ -324,6 +324,17 @@ class MarketDataEntries(SafeModel):
     Every field is a Null Object or a nullable leaf, so a chain such as
     ``snapshot.market_data.last.price`` answers a value or ``None`` and never
     raises, for every payload the vendor can produce.
+
+    That last claim is MEASURED, not argued (Phase 36 code review, CR-02): it is
+    asserted against the one payload this repo has actually captured — the
+    no-data row of
+    ``.planning/verification/schemas/market-data-client/get-latest.json`` — by
+    ``tests/test_market_data_chain.py::test_the_measured_no_data_row_keeps_the_chain_walkable_and_the_links_silent``,
+    whose fixture is in turn pinned against that JSON file key for key. It is a
+    claim about the CHAIN only: the same row still produces two divergences on
+    the over-declared scalar LEAVES of the enclosing
+    :class:`MarketDataSnapshot` (``market_id``, ``active``), which are deferred
+    rather than fixed here — see ``36-DEFERRED-market-data-leaves.md``.
     """
 
     BI: list[BookLevel] = field(default_factory=list)
