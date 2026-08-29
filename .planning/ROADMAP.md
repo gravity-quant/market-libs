@@ -9,6 +9,7 @@
 - ✅ **v1.4 market-data-client** — Phases 20-24 (shipped 2026-07-31) — nuevo paquete cliente (solo lectura) contra la API primary-extractor con Auth0 client-credentials, verificado en vivo y publicado v0.1.0 — see [`milestones/v1.4-ROADMAP.md`](./milestones/v1.4-ROADMAP.md)
 - ✅ **v1.5 market-data-client · mutaciones** — Phases 25-28 (shipped 2026-08-17) — superficie de **escritura** (symbols + calendar) detrás de mutating-gate default-refuse, verificada en vivo (create→verify→revert) y publicada `market-data-client-v0.4.0` — see [`milestones/v1.5-ROADMAP.md`](./milestones/v1.5-ROADMAP.md)
 - ✅ **v1.6 Tipado homogéneo de la superficie pública** — Phases 29-34 (shipped 2026-08-27) — contrato de tipos idéntico y verificable por máquina en los 6 paquetes: decodificación por-campo observable, `iol-client` y los endpoints de ops tipados, gates de CI que sostienen la homogeneidad, verificación en vivo en modo estricto, y publicación de `iol-client-v0.3.0` + `market-data-client-v0.5.0` — see [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
+- 🚧 **v1.7 API tipada con Null Objects** — Phases 35-40 (in progress) — patrón Null Object en los 6 paquetes: ningún eslabón de cadena (`snapshot.market_data.last.price`) puede ser `None`, cero `dict[str, Any]` en campos de modelos públicos (exención única: `UnknownFrame.raw`)
 
 ## Phases
 
@@ -25,6 +26,125 @@
 Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 </details>
+
+### 🚧 v1.7 API tipada con Null Objects (Phases 35-40) — IN PROGRESS
+
+**Milestone Goal:** Que toda cadena de acceso como `snapshot.market_data.last.price` sea **siempre válida bajo mypy strict y nunca lance** en las 6 libs: ningún eslabón intermedio de tipo modelo/lista puede ser `None` (patrón Null Object — el campo devuelve una instancia vacía falsy), y `dict[str, Any]` desaparece de los campos de modelos públicos, de modo que un typo sea error de mypy + `AttributeError` y nunca un `KeyError` ni un `None` propagado.
+
+> **Notas de sizing y restricciones (leer antes de planificar).**
+> **La Phase 35 es load-bearing y es la única fase transversal**: toca las bases `SafeModel` de los 6 paquetes y el walker `_decode.py` de las 5 copias verbatim, sin cambiar ni una firma pública. Todo lo que hacen 36-38 depende de que su política esté firmada primero. La restricción **no-shared-code** (DT-03) sigue vigente: cada cambio de base se **copia verbatim** por paquete y `tools/check_decode_intactness.py` lo verifica por hash — no hay atajo por un paquete común.
+> **Los 4 gates de CI de v1.6 son el contrato de no-regresión de este milestone**: `check_decode_intactness.py`, `check_uniform_structure.py`, `check_surface_types.py` y `surface_parity.py` deben quedar verdes en cada fase, y `check_surface_types.py` es además el instrumento que mide el criterio central de D-NO-02 (cero `dict[str, Any]` en la superficie pública).
+> **Todo cambio de lógica se espeja en `client.py` y `aio.py`** del mismo paquete (D-NO-06 / deuda dual conocida), y `surface_parity.py` lo asevera por introspección.
+> **La cobertura en vivo de la Phase 39 arranca con dos bloqueos heredados de la Phase 33**: `higyrus-client` (host que no resuelve por DNS) y `matriz-client` (assert de política remarkets-only D-MATZ-33, que **no se rodea**). Ninguno se resuelve desde adentro de una fase; el registro correcto es `SKIPPED` con causa medida y destino nombrado (`LIVE-HIGY-33` / `LIVE-MATZ-33`), nunca un cero que se lea como limpio.
+> **Las Phases 36, 37 y 38 paralelizan** entre sí (las tres dependen sólo de la 35 y tocan paquetes disjuntos).
+
+- [ ] **Phase 35: Fundación Null Object — `__bool__` + política del walker** *(load-bearing, PRIMERO)* — `SafeModel.__bool__`/`empty()` en las 4 jerarquías de base copiadas verbatim a los 6 paquetes + nueva disposición del walker para eslabones no-opcionales, con los 4 gates de v1.6 verdes y **cero** cambios de superficie pública — NOBJ-01, NOBJ-02
+- [ ] **Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33** — `MarketDataEntries`/`BookLevel`/`EntryValue` con alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`, `entries` de vuelta a `list[str]`, fila no-data expresada por veracidad y baja de la maquinaria `_mapping_value` — NOBJ-MD-01, NOBJ-MD-02
+- [ ] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02
+- [ ] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01
+- [ ] **Phase 39: Verificación en vivo del encadenamiento profundo** — los drivers `main_*.py` ejercen cadenas profundas reales en sync y async contra las APIs en vivo, con divergencias corregidas in-cycle y censo contrastado contra el de la Fase 33 — LIVE-NOBJ-01
+- [ ] **Phase 40: Releases breaking coordinados** — bumps sólo de los paquetes cuya superficie cambió, con callout + tabla de migración vieja→nueva por paquete, y las dos operaciones irreversibles detrás de dos gates humanos independientes — PUB-NOBJ-01
+
+## Phase Details (v1.7)
+
+### Phase 35: Fundación Null Object — `__bool__` + política del walker
+
+**Goal**: La ausencia deja de expresarse con `None` y pasa a expresarse con veracidad — toda base `SafeModel` de los 6 paquetes sabe decir "estoy vacío" y el walker `_decode` sabe colapsar un `null` legítimo sobre un eslabón sin ensuciar el canal de divergencias, sin que ninguna firma pública cambie todavía.
+**Depends on**: Nothing (primera fase de v1.7; parte del head de v1.6)
+**Requirements**: NOBJ-01, NOBJ-02
+**Success Criteria** (what must be TRUE):
+
+  1. `bool(X.from_api(None)) is False` para toda clase `SafeModel` de los 6 paquetes y `bool(instancia_con_un_campo_no_default) is True`, incluida la jerarquía `_SafeModel` de matriz (sin `slots`, con `empty()` y semánticas propias registradas en la tabla 6-way de la Phase 29) — `empty()` existe y es invocable en las 4 bases, y el chequeo se hace por enumeración de las clases reales del paquete, nunca sobre un fixture de test.
+  2. Un `null`/ausente sobre un campo **no-opcional** de tipo modelo o lista decodifica a instancia vacía / `[]` **sin emitir registro de divergencia**, mientras que un valor **wrong-typed** sobre el mismo campo sigue emitiendo el record de seis claves y sigue levantando bajo `strict_decode` — las dos mitades probadas por falsificación (invertir la disposición enrojece un test), no sólo por el camino feliz.
+  3. Los 4 gates de CI de v1.6 quedan verdes tras la actualización verbatim: `check_decode_intactness.py` reduce las copias de `_decode.py` a **un único hash canónico nuevo** (ninguna copia se queda atrás ni diverge), y `check_uniform_structure.py`, `check_surface_types.py` y `surface_parity.py` pasan sin que se afloje ninguna regla, se baje ningún lower bound ni se excluya ningún paquete.
+  4. **Ninguna superficie pública cambia en esta fase**: las suites de los 6 paquetes pasan sin editar un solo test, y los snapshots de superficie pública quedan byte-idénticos — la fase entrega política y capacidad, no ruptura.
+  5. Las propiedades alias que introducen las fases 36-38 son **invisibles para el walker**: un test prueba que `get_type_hints()` sobre una dataclass con `@property` alias devuelve exactamente los campos declarados, de modo que agregar un alias no puede fabricar un `missing` ni cambiar el conteo de divergencias.
+
+**Plans**: TBD
+
+### Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33
+
+**Goal**: El consumidor de `market-data-client` escribe `snapshot.market_data.last.price` y esa expresión compila bajo mypy strict y nunca lanza — con el payload real, con un `market_data` ausente, con `null` y con la fila no-data.
+**Depends on**: Phase 35 (necesita `__bool__` + la disposición del walker; paraleliza con 37 y 38)
+**Requirements**: NOBJ-MD-01, NOBJ-MD-02
+**Success Criteria** (what must be TRUE):
+
+  1. `snapshot.market_data.last.price`, `.market_data.bids[0].price`, `.offers`, `.settlement`, `.close` y `.open_interest` pasan `mypy --strict` y **no lanzan** contra los cuatro payloads de la matriz de casos: el wire real ya capturado (`.planning/verification/schemas/market-data-client/get-market-data.json`), `market_data` ausente, `market_data: null` y `market_data: {}` — verificado en **ambas** superficies (`client.py` y `aio.py`).
+  2. `MarketDataEntries` (wire verbatim `BI`/`OF: list[BookLevel]`, `LA`/`SE`/`CL`/`OI: EntryValue` Null Object, `OP`/`HI`/`LO`/`TV`… hojas `float | None`), `BookLevel {price, size}` y `EntryValue {price, size, date}` existen como **copia local** del patrón matriz (sin import cross-package, D-NO-06) con las propiedades alias de sólo lectura de D-NO-05, y `MarketDataSnapshot.market_data: MarketDataEntries` no admite `None` en su anotación.
+  3. El widening de la Fase 33 queda **revocado donde rompe la cadena y sólo ahí**: `MarketDataSnapshot.entries` y `LatestRequest.entries` vuelven a `list[str]` con default `[]`, mientras que `staleness_seconds` y `note` se quedan como hojas `| None` (D-NO-03) — la revocación se registra en el docstring del módulo con referencia al checkpoint 33-07 que revoca.
+  4. La fila no-data de `/marketdata/latest` conserva **el mismo poder expresivo sin `None`**: `bool(snapshot.market_data) is False` y `note` poblado; `test_snapshot_no_data_row.py` queda migrado a esa semántica en vez de eliminado.
+  5. `_mapping_value` / `_apply_mapping_policy` y su test de precondición desaparecen de `market-data-client` **sin mover el hash de `_decode.py`** (la maquinaria vive en `models.py`, no en el walker), y `main_market_data.py` consume por encadenamiento profundo en sus sitios reales.
+
+**Plans**: TBD
+
+### Phase 37: `matriz-client` — dicts residuales tipados + alias
+
+**Goal**: La implementación de referencia del patrón Null Object queda ella misma sin `dict[str, Any]` en su superficie pública y expone la misma ergonomía de alias que market-data, compartida por la superficie REST y los frames de WebSocket.
+**Depends on**: Phase 35 (paraleliza con 36 y 38)
+**Requirements**: NOBJ-MTZ-01, NOBJ-MTZ-02
+**Success Criteria** (what must be TRUE):
+
+  1. `InstrumentDetail.tickPriceRanges`, `AccountReport.report`, `AccountReport.detailedAccountReports` y `AccountReport.portfolio` devuelven modelos tipados (o `list[modelo]`) derivados de **payloads observados**, con la procedencia de cada uno declarada por campo: baseline committeado, captura nueva, o modelo mínimo con los campos no observados dejados al reporting de divergencias — nunca un `dict[str, Any]` de reemplazo ni un modelo inventado presentado como observado. **Restricción heredada:** `matriz-client` sigue bloqueado para corridas en vivo por el assert de política D-MATZ-33 (`LIVE-MATZ-33`), que no se rodea; si un payload no es observable, esa fila se declara como tal.
+  2. `check_surface_types.py` reporta **cero** `dict[str, Any]` en campos de modelos públicos de matriz con **una única exención**, `UnknownFrame.raw`, declarada explícitamente como exención documentada (el escape hatch de frames desconocidos) y no obtenida por omisión o por un hueco de resolución del gate.
+  3. `snapshot.last.price`, `.bids`, `.offers`, `.settlement`, `.close` y `.open_interest` funcionan sobre `matriz_client.models.MarketDataSnapshot` tanto cuando la instancia viene de la superficie REST como cuando viene de un frame de `ws_client` — es el mismo objeto y el mismo juego de alias — con `mypy --strict` limpio sobre el paquete.
+  4. La suite de matriz queda verde en REST **y** en las rutas del daemon thread de WS (incluida la propagación explícita del modo de decode por conexión y por frame de la Phase 29), sin aflojar el mutation gate ni tocar la deny-list `_token_store.py` / `_refresh_policy.py` / `_refresh.py` más allá de lo que exija el alias.
+
+**Plans**: TBD
+
+### Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets
+
+**Goal**: Los cuatro paquetes restantes quedan sin eslabones `None` en sus cadenas — `titulo.puntas.precioCompra` es siempre válido — y la limpieza de los tres casi-limpios queda **medida campo por campo**, no supuesta.
+**Depends on**: Phase 35 (paraleliza con 36 y 37)
+**Requirements**: NOBJ-IOL-01, NOBJ-AUD-01
+**Success Criteria** (what must be TRUE):
+
+  1. `Cotizacion.puntas` es `list[Punta]` con default `[]` y `Titulo.puntas` es un `Punta` Null Object: `titulo.puntas.precioCompra` y `cotizacion.puntas[0].precioCompra` pasan `mypy --strict` y no lanzan con un payload sin `puntas`, con `puntas: null` y con el `puntas` polimórfico real ya resuelto en la Phase 30 — espejado en `client.py` y `aio.py`, con el snapshot de superficie pública regenerado y la ruptura (incluido el flip de truthiness) registrada en el README de iol.
+  2. La auditoría de higyrus, ámbito y wallets está **publicada como censo con disposición**: cada campo modelo/lista `| None` y cada `dict[str, Any]` en campos de modelos o retornos públicos aparece en una fila con su disposición — corregido a Null Object/`[]`, hoja escalar permitida por D-NO-03, o exención documentada — y **cero filas quedan sin disposición**.
+  3. El grep de cierre del plan fuente sobre `packages/*/src/*/models.py` devuelve **sólo** hojas escalares y `Literal` en los 6 paquetes, y ningún retorno de función pública expone `dict[str, Any]` / `list[dict[str, Any]]` fuera de los shims `_legacy` e internals (`_request`) — el resultado se reporta con el comando ejecutado y su salida, no como afirmación.
+  4. Las suites de los cuatro paquetes quedan verdes con los 4 gates de v1.6 activos, y `surface_parity.py` asevera que cada cambio de lógica viajó a las dos superficies (D-NO-06); para `wallets-client` se registra explícitamente su condición de stub sin endpoints reales en vez de reportar un verde vacuo.
+
+**Plans**: TBD
+
+### Phase 39: Verificación en vivo del encadenamiento profundo
+
+**Goal**: El encadenamiento profundo deja de ser una propiedad demostrada contra fixtures y pasa a ser una propiedad demostrada contra las APIs reales, en sync y en async, con toda divergencia corregida dentro del mismo ciclo.
+**Depends on**: Phases 36, 37, 38
+**Requirements**: LIVE-NOBJ-01
+**Success Criteria** (what must be TRUE):
+
+  1. Cada driver `main_*.py` ejercita al menos una **cadena profunda real** (`snapshot.market_data.last.price`, `titulo.puntas.precioCompra`, `snapshot.last.price`, …) en **ambas** superficies contra la API en vivo, y la corrida reporta por paquete `PASS` o `SKIPPED` **con causa medida y destino nombrado** — los bloqueos heredados `LIVE-HIGY-33` (DNS) y `LIVE-MATZ-33` (política D-MATZ-33, que no se rodea) se registran así si siguen vigentes, nunca como cero.
+  2. Ninguna cadena lanza `AttributeError` ni `TypeError` con datos reales en ninguno de los paquetes que efectivamente corrieron, incluidos los casos límite que sólo produce la API en vivo: mercado cerrado, fila no-data, campo ausente y respuesta 204/vacía.
+  3. Toda divergencia CONFIRMED se corrige **in-cycle** con espejo sync/async y un test de regresión mockeado que la pinea, y `verify_cycle_closure` devuelve PASS **no-vacuo** para cada paquete medido (con la evidencia positiva de que el driver corrió, no la mera ausencia de findings).
+  4. El censo de esta corrida se contrasta explícitamente contra el de la Fase 33 y contra el piso ratificado de `29-SIZING.md`, **declarando cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas desaparecieron por corrección — para que la baja de números no pueda leerse como un falso limpio.
+
+**Plans**: TBD
+
+### Phase 40: Releases breaking coordinados
+
+**Goal**: Los paquetes cuya superficie pública cambió quedan publicados con la ruptura declarada y una tabla de migración que el consumidor puede seguir, y ninguna operación irreversible ocurre sin que un humano la apruebe.
+**Depends on**: Phase 39
+**Requirements**: PUB-NOBJ-01
+**Success Criteria** (what must be TRUE):
+
+  1. **Sólo** los paquetes cuya superficie pública cambió se bumpean y publican, cada uno con bump **breaking** y un callout source-breaking **primero** en el changelog, acompañado de una **tabla de migración vieja→nueva** ejecutable por el consumidor (`market_data["LA"]["price"]` → `market_data.last.price`; `if snapshot.market_data is None` → `if not snapshot.market_data`; `puntas or []` → `puntas`); los paquetes sin cambios NO se re-publican.
+  2. `uv.lock` global se refresca **exactamente una vez** para todos los bumps, y el PR llega a CI verde asertado **por conteo explícito** de checks (6 paquetes × py3.12/py3.13 más los 4 gates), nunca por ausencia de la palabra `fail`; el merge usa **merge commit real**, nunca squash (D-11).
+  3. Un tag anotado por paquete queda sobre el SHA del merge commit re-resuelto en vivo, `release.yml` **sin editar** publica wheel + sdist por paquete, y la publicación se verifica **post-publicación instalando desde el wheel público** y ejerciendo una cadena profunda en el paquete instalado.
+  4. Merge y push de tags quedan detrás de **dos checkpoints humanos independientes**, nunca colapsados en uno solo y nunca auto-aprobados pese a `auto_advance: true` + `mode: yolo` activos en config (precedente D-08 / D-18).
+
+**Plans**: TBD
+
+## Progress
+
+| Phase                                                        | Milestone | Plans | Status      | Completed  |
+|--------------------------------------------------------------|-----------|-------|-------------|------------|
+| 35. Fundación Null Object — `__bool__` + política del walker | v1.7      | 0/?   | Not started | -          |
+| 36. `market-data-client` — `market_data` tipado              | v1.7      | 0/?   | Not started | -          |
+| 37. `matriz-client` — dicts residuales + alias               | v1.7      | 0/?   | Not started | -          |
+| 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 0/?   | Not started | -          |
+| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
+| 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
+
+*(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 
 ## Backlog
 

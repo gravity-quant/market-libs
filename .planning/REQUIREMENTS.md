@@ -62,22 +62,35 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NOBJ-01 | — | Pending |
-| NOBJ-02 | — | Pending |
-| NOBJ-MD-01 | — | Pending |
-| NOBJ-MD-02 | — | Pending |
-| NOBJ-IOL-01 | — | Pending |
-| NOBJ-MTZ-01 | — | Pending |
-| NOBJ-MTZ-02 | — | Pending |
-| NOBJ-AUD-01 | — | Pending |
-| LIVE-NOBJ-01 | — | Pending |
-| PUB-NOBJ-01 | — | Pending |
+| NOBJ-01 | Phase 35 | Pending |
+| NOBJ-02 | Phase 35 | Pending |
+| NOBJ-MD-01 | Phase 36 | Pending |
+| NOBJ-MD-02 | Phase 36 | Pending |
+| NOBJ-IOL-01 | Phase 38 | Pending |
+| NOBJ-MTZ-01 | Phase 37 | Pending |
+| NOBJ-MTZ-02 | Phase 37 | Pending |
+| NOBJ-AUD-01 | Phase 38 | Pending |
+| LIVE-NOBJ-01 | Phase 39 | Pending |
+| PUB-NOBJ-01 | Phase 40 | Pending |
 
 **Coverage:**
 - v1.7 requirements: 10 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 10 ⚠️
+- Mapped to phases: 10 ✓
+- Unmapped: 0
+
+**Phases (35-40):**
+
+| Phase | Name | Requirements |
+|-------|------|--------------|
+| 35 | Fundación Null Object — `__bool__` + política del walker (load-bearing) | NOBJ-01, NOBJ-02 |
+| 36 | `market-data-client` — `market_data` tipado + revocación de la Fase 33 | NOBJ-MD-01, NOBJ-MD-02 |
+| 37 | `matriz-client` — dicts residuales tipados + alias | NOBJ-MTZ-01, NOBJ-MTZ-02 |
+| 38 | `iol-client` + auditoría de higyrus/ámbito/wallets | NOBJ-IOL-01, NOBJ-AUD-01 |
+| 39 | Verificación en vivo del encadenamiento profundo | LIVE-NOBJ-01 |
+| 40 | Releases breaking coordinados | PUB-NOBJ-01 |
+
+Phases 36, 37 y 38 paralelizan (dependen sólo de la 35, paquetes disjuntos); 39 depende de 36+37+38; 40 depende de 39.
 
 ---
 *Requirements defined: 2026-08-28*
-*Last updated: 2026-08-28 after milestone v1.7 kickoff*
+*Last updated: 2026-08-29 after v1.7 roadmap creation (phases 35-40, 10/10 requirements mapped)*

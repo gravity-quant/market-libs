@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
 status: planning
-last_updated: "2026-08-29T00:31:32.704Z"
+last_updated: "2026-08-29T00:36:00.000Z"
 last_activity: 2026-08-29
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 34 — releases-por-paquete
+**Current focus:** Phase 35 — Fundación Null Object (`__bool__` + política del walker) — load-bearing, prerequisito de las fases 36-38
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 35 — Fundación Null Object — `__bool__` + política del walker (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-29 — Milestone v1.7 started
+Status: Roadmap v1.7 creado (6 fases, 35-40; 10/10 requisitos mapeados) — listo para `/gsd-plan-phase 35`
+Last activity: 2026-08-29 — ROADMAP.md + traceability de v1.7 escritos
 
 ## Performance Metrics
 
@@ -155,12 +155,32 @@ Last activity: 2026-08-29 — Milestone v1.7 started
 | Phase 34 P02 | 14 min | 3 tasks | 1 files |
 | Phase 34 P03 | 5 min | 3 tasks | 1 files |
 
+**By Phase (v1.7 planned):**
+
+| Phase | Plans | Status      | Requirements | Notes |
+|-------|-------|-------------|--------------|-------|
+| 35    | ?     | Not started | NOBJ-01, NOBJ-02 | **Load-bearing, PRIMERO** y única fase transversal — `__bool__`/`empty()` en las 4 jerarquías de base (`SafeModel` de higyrus/iol/market-data + `_SafeModel` de matriz) copiadas verbatim a los 6 paquetes, más la nueva disposición del walker `_decode` (null legítimo sobre eslabón no-opcional → vacío **sin** divergencia; wrong-type sigue divergiendo y sigue fatal en strict). **Cero cambios de superficie pública**: las suites de los 6 paquetes pasan sin editar un test. Los 4 gates de v1.6 verdes, con `check_decode_intactness.py` reduciendo las 5 copias a un único hash canónico nuevo. Incluye el test de que las `@property` alias son invisibles a `get_type_hints()` (retira el riesgo antes de 36-38). |
+| 36    | ?     | Not started | NOBJ-MD-01, NOBJ-MD-02 | El disparador del milestone. `MarketDataEntries` + `BookLevel` + `EntryValue` (copia local del patrón matriz, no-shared-code) con alias D-NO-05; `market_data: dict[str, Any] \| None` → modelo Null Object; `entries` de vuelta a `list[str]` default `[]` (revoca el widening de la Fase 33, SC-2); fila no-data expresada por veracidad + `note`; baja de `_mapping_value`/`_apply_mapping_policy` sin mover el hash de `_decode.py`. Bump breaking. Paraleliza con 37 y 38. |
+| 37    | ?     | Not started | NOBJ-MTZ-01, NOBJ-MTZ-02 | `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` tipados con **procedencia declarada por campo** (baseline / captura / modelo mínimo) — matriz sigue bloqueado para vivo por D-MATZ-33 (`LIVE-MATZ-33`), que **no se rodea**; exención única y documentada `UnknownFrame.raw`; alias compartidos por REST y frames WS (daemon thread incluido). Paraleliza con 36 y 38. |
+| 38    | ?     | Not started | NOBJ-IOL-01, NOBJ-AUD-01 | `Cotizacion.puntas` → `list[Punta]` default `[]` y `Titulo.puntas` → `Punta` Null Object (espejado sync/async, snapshot de superficie regenerado, ruptura en el README de iol); más el **censo con disposición por campo** de higyrus/ámbito/wallets — cero filas sin disposición — cerrado con el grep del plan fuente reportado con comando y salida. Paraleliza con 36 y 37. |
+| 39    | ?     | Not started | LIVE-NOBJ-01 | Cadenas profundas reales en sync + async por los drivers `main_*.py`. **Arranca con dos bloqueos heredados**: `LIVE-HIGY-33` (DNS) y `LIVE-MATZ-33` (política) → se registran `SKIPPED` con causa medida y destino nombrado, nunca cero. Divergencias corregidas in-cycle con espejo + regresión mockeada; censo contrastado contra el de la Fase 33 declarando cuántas divergencias bajaron **por la política Null Object** y cuántas por corrección. Depende de 36 + 37 + 38. |
+| 40    | ?     | Not started | PUB-NOBJ-01 | Releases sólo de los paquetes cuya superficie cambió, bump breaking + callout + **tabla de migración vieja→nueva**; `uv.lock` refrescado una sola vez; CI asertado por conteo; merge commit real (nunca squash); tags anotados; verificación post-publicación instalando desde el wheel público. **Doble gate humano independiente** (D-08/D-18), nunca colapsado ni auto-aprobado pese a `auto_advance: true` + `mode: yolo`. Depende de 39. |
+
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v1.7 Roadmap]: Phase numbering CONTINUES from v1.6 (última fase = 34) — v1.7 arranca en **Phase 35** (no resetea). Sequential `phase_naming` per config.json.
+- [v1.7 Roadmap]: **6 fases (35-40)** pese a granularity `coarse`, con una compresión deliberada respecto del plan fuente: las Fases D (iol) y E (auditoría del resto) de `.future_plans/api-tipada-null-objects.md` se **funden en la Phase 38** — iol son dos campos y la auditoría es un barrido sobre tres paquetes casi limpios; ninguna de las dos sostiene una fase propia. La Fase F del plan fuente se **parte en 39 (vivo) + 40 (release)** siguiendo el precedente de v1.4/v1.5/v1.6: el release tiene doble gate humano y no puede compartir fase con la verificación que lo habilita. 10 requisitos → 6 fases, 2:1 salvo 39 y 40.
+- [v1.7 Roadmap]: **Phase 35 es load-bearing y la única fase transversal** — es la que toca las 4 jerarquías de base y las 5 copias verbatim de `_decode.py`, y es la única que puede romper los 4 gates de CI de v1.6 de un golpe. Entrega política y capacidad con **cero** cambios de superficie pública (suites de los 6 paquetes verdes sin editar un test); si algo de la superficie se mueve ahí, el scope se corrió.
+- [v1.7 Roadmap]: **Phases 36, 37 y 38 paralelizan** (las tres dependen sólo de la 35 y tocan paquetes disjuntos: market-data / matriz / iol+higyrus+ámbito+wallets). Phase 39 depende de las tres; Phase 40 depende de la 39.
+- [v1.7 Roadmap]: La restricción **no-shared-code (DT-03)** sigue vigente y es lo que hace cara a la Phase 35: cada cambio a la base `SafeModel` y al walker se **copia verbatim** por paquete, y `tools/check_decode_intactness.py` lo verifica por hash. No hay atajo por `market-libs-core` — está listado en Out of Scope.
+- [v1.7 Roadmap]: La cobertura en vivo de la **Phase 39 arranca con dos bloqueos heredados de la Phase 33** que ninguna fase resuelve desde adentro: `LIVE-HIGY-33` (el host de higyrus no resuelve por DNS desde esta red) y `LIVE-MATZ-33` (el assert de política remarkets-only D-MATZ-33 de `main_matriz.py`, que **no se rodea** — la superficie de matriz incluye entrada de órdenes). El registro correcto es `SKIPPED` con causa medida y destino nombrado, nunca un cero que se lea como limpio (precedente D-13 / 33-05).
+- [v1.7 Roadmap]: La Phase 39 debe declarar **cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas por corrección real, contrastando contra el censo de la Fase 33 y el piso ratificado de `29-SIZING.md`. Sin esa separación, la baja de números de la política se lee como un falso limpio — exactamente lo que v1.6 existió para eliminar.
+- [v1.7 Roadmap]: **La Fase 33 (SC-2, checkpoint 33-07 "fix-shape-now") queda formalmente revocada sólo donde rompe cadenas**: `MarketDataSnapshot.entries` y `.market_data` vuelven a ser no-opcionales en la Phase 36, mientras que `.staleness_seconds` y `.note` **se quedan** `| None` por ser hojas escalares (D-NO-03). La revocación es parcial y por rol del campo (eslabón vs hoja), no un rollback del checkpoint.
 
 - [v1.6 / Phase 29 P04 — **D-lock (a) FIRMADO, NO-GO**]: **msgspec queda afuera; stdlib-only, un solo motor (el walker con caché de hints).** Firmado `no-go-stdlib-only` por **sebadlf** el **2026-08-19** en `29-DLOCK-MSGSPEC.md`. Criterio: **presupuesto absoluto de 100 ms** para el decode de una respuesta de catálogo de referencia de 5.000 filas medida sobre el arm B (el walker ya shippeado) — **no** un ratio, porque no existe requisito de throughput contra el cual un ratio sea decidible. Medido: **19,37 ms** (`matriz.Instrument` end-to-end) y **20,69 ms** (`market_data.Symbol`) → 4,8× de holgura, la condición de GO (que el arm B se pase del presupuesto) nunca se cumplió. La ventaja real de msgspec sobre el arm B es de **13-24×** (no 123×: ese número sale de comparar contra el arm A sin caché y fabricaría un GO por una mejora que el `lru_cache` de la Plan 29-02 ya entrega gratis). Rechazado igual porque: no puede implementar el modo observable, **violaría el lock D-09 de RESPONSE-`Literal`** firmado en esta misma fase (msgspec valida pertenencia a `Literal` y levanta excepción), descarta claves extra en silencio, reporta un error por decode e ignora el rename de campos en dataclasses del stdlib (`market_data.Symbol`). **Consecuencia:** los 6 wheels siguen siendo un closure 100% puro-Python, `uv.lock` no se toca, el set de releases de la Phase 34 queda como estaba, y las Phases 30-34 avanzan con un único motor de decode. Revisitar exige un requisito de throughput declarado: sólo un presupuesto por debajo de ~20,7 ms a 5.000 filas daría vuelta el veredicto.
 - [v1.6 Roadmap]: Phase numbering CONTINUES from v1.5 (última fase = 28) — v1.6 arranca en **Phase 29** (no resetea). Sequential `phase_naming` per config.json.
@@ -421,10 +441,10 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T21:42:04.862Z
-Stopped at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
+Last session: 2026-08-29T00:36:00.000Z
+Stopped at: ROADMAP.md de v1.7 escrito (Phases 35-40) + traceability de REQUIREMENTS.md completada (10/10 mapeados, 0 huérfanos); ninguna fase planificada todavía
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Planificar la primera fase con `/gsd-plan-phase 35` (Fundación Null Object — load-bearing, prerequisito de 36/37/38)
