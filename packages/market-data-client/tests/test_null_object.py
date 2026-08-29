@@ -18,10 +18,15 @@ classes:
    Phase 36 depends on when it gives ``MarketDataEntries`` / ``BookLevel``
    their ``last`` / ``bids`` aliases (ROADMAP Phase 35 criterio 5, D-16).
 
-market-data takes **form B** of D-07: this paquete's ``from_api`` carries a
-mapping pass, so its ``empty()`` carries the same pass with a silent sink. That
-delta against the form-A paquetes is a declared per-paquete policy axis
-(``29-SEMANTICS-MATRIX.md``, "never harmonize"), not a divergence to close.
+market-data takes **form A** of D-07 since Phase 36 (D-05): this paquete's
+``from_api`` and its ``empty()`` both reach the walker directly, with nothing
+between. It was form B until then — a mapping pass sat after the walk in both
+constructors, compensating for the one ``dict``-declared field the paquete
+shipped — and that pass was retired together with the field, which is a typed
+Null Object (:class:`~market_data_client.models.MarketDataEntries`) now. The
+per-paquete deltas that remain are still declared policy axes
+(``29-SEMANTICS-MATRIX.md``, "never harmonize"): the paquetes that carry a pass
+keep it, and this one must NOT grow a no-op one back to look identical.
 
 The roster is obtained by **introspection of the real module**, never from a
 hand-written fixture list (D-15). The filter is also what keeps the seven
@@ -255,10 +260,14 @@ def test_every_shipped_model_is_truthy_when_populated(cls: type) -> None:
 def test_empty_emits_nothing(cls: type, caplog: pytest.LogCaptureFixture) -> None:
     """T-29-33 / D-07: ``empty()`` does not decode wire data, so it reports nothing.
 
-    Form B is the reason this test earns its keep in this paquete specifically:
-    ``empty()`` here runs a mapping pass on top of the walk, and that pass has
-    its own sink argument. Handing it anything but the silent sink would emit one
-    ``missing`` record per mapping-declared field on every call.
+    The property survives the form B → form A transition of Phase 36 and is
+    sharper after it. ``empty()`` reaches the walker DIRECTLY now, and that
+    walker is the same one that decodes real payloads — so the only thing
+    keeping a construction with no wire behind it silent is the sink it is
+    handed. With three levels of nested Null Objects (``MarketDataSnapshot`` →
+    ``MarketDataEntries`` → ``BookLevel`` / ``EntryValue``), a leaky sink would
+    emit one record per declared field per level on a call that decoded nothing
+    at all.
     """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
@@ -268,13 +277,22 @@ def test_empty_emits_nothing(cls: type, caplog: pytest.LogCaptureFixture) -> Non
     assert _divergences(caplog) == []
 
 
-def test_empty_and_from_api_agree_on_every_mapping_declared_field() -> None:
-    """Form B's whole point: the two constructors cannot disagree on a dict field.
+def test_empty_and_from_api_agree_on_the_nested_container_field() -> None:
+    """The two constructors cannot disagree on the nested CONTAINER field.
 
-    ``MarketDataSnapshot`` is the one shipped class declaring a mapping-typed
-    field. If ``empty()`` skipped the mapping pass that ``from_api`` runs, the
-    two would produce different values for that field and every ``__bool__``
-    comparison against it would answer on the delta rather than on the payload.
+    That agreement is what makes ``bool(snapshot.market_data)`` answer about the
+    PAYLOAD rather than about a constructor delta, and a three-level Null Object
+    chain leans on it at every level.
+
+    Retitled in Phase 36, not retired. The row was written when this paquete was
+    form B, where the property was earned by both constructors carrying the same
+    mapping pass with the same silent sink; the name said ``mapping-declared
+    field``, and after D-05 retired the machinery there is no such field, so the
+    green no longer meant what it said. The PROPERTY is untouched — it is earned
+    more directly now (both constructors are a bare walk, so neither can
+    post-process a field the other does not) and it is exactly what
+    :class:`~market_data_client.models.MarketDataEntries` depends on as the
+    ``market_data`` link.
     """
     assert models.MarketDataSnapshot.empty().market_data == (
         models.MarketDataSnapshot.from_api(None).market_data
