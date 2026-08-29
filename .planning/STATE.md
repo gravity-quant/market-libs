@@ -5,8 +5,8 @@ milestone_name: API tipada con Null Objects
 current_phase: 36
 current_phase_name: `market-data-client` — `market_data` tipado + revocación de la Fase 33
 status: verifying
-stopped_at: Completed 35-05-PLAN.md
-last_updated: "2026-08-29T03:26:13.126Z"
+stopped_at: Phase 36 context gathered (assumptions mode)
+last_updated: "2026-08-29T10:53:19.272Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 35 complete, transitioned to Phase 36
 progress:
@@ -461,9 +461,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T03:03:39.661Z
-Stopped at: Completed 35-05-PLAN.md
-Resume file: None
+Last session: 2026-08-29T10:53:19.263Z
+Stopped at: Phase 36 context gathered (assumptions mode)
+Resume file: .planning/phases/36-market-data-client-market-data-tipado-revocaci-n-de-la-fase-/36-CONTEXT.md
 
 ## Operator Next Steps
 
