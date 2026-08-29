@@ -519,19 +519,42 @@ def test_the_field_exemption_is_qualified_not_a_bare_member_name(tmp_path: Path)
         check_surface_types(root=tmp_path)
 
 
-def test_a_private_field_is_absorbed_by_the_existing_taxonomy(tmp_path: Path) -> None:
-    """``_is_exempt`` still applies to fields, after the qualified table misses.
+def test_a_private_field_reddens_because_a_field_is_not_a_method(tmp_path: Path) -> None:
+    """INVERTED by the Phase 37 code review (WR-07).
 
-    An underscore-prefixed field is not part of the exported surface for the
-    same reason an underscore-prefixed method is not, so the field dimension
-    reuses the existing reason rather than inventing a parallel one.
+    This test used to assert the opposite: that ``_is_exempt``'s
+    ``private-helper`` rule applied to fields, "for the same reason an
+    underscore-prefixed method is not part of the exported surface". It is not
+    the same reason. That rule's own justification is that such a member is
+    *"reachable only as a method of an exported class"* -- and a dataclass field
+    named ``_cache`` is an ``__init__`` parameter, an instance attribute, and
+    appears verbatim in ``verification/snapshots/*.txt``. It is unambiguously on
+    the exported surface.
+
+    So ``_payload: dict[str, Any]`` was a ONE-CHARACTER bypass of the entire
+    field dimension, and this test enshrined the bypass as correct. Inverting it
+    weakens nothing: the assertion is exactly as strict, it just pins the right
+    answer. ``_adjudicate_field`` now consults ``_is_field_exempt``, which
+    deliberately does not inherit the method taxonomy.
     """
     _model_package(tmp_path, class_name="Thing", body=f"    _cache: {_UNTYPED_MAPPING} = ()\n")
 
-    result = scan_surface_types(tmp_path)
+    with pytest.raises(CheckFailure, match=r"Thing\._cache"):
+        check_surface_types(root=tmp_path)
 
-    assert result.violations == ()
-    assert dict(result.exempted_by_reason)["private-helper"] == 1
+
+def test_the_field_dimension_has_exactly_one_exemption_reason(tmp_path: Path) -> None:
+    """D-01c in executable form: the qualified table is the ONLY field exemption.
+
+    The counterpart to WR-07's inversion. A ``to_dict`` field and a dunder-ish
+    field name must not pick up the method taxonomy either; the first is a method
+    name and the second cannot be declared on a dataclass, so the point is that
+    no reason other than the declared one can ever be attributed to a field.
+    """
+    _model_package(tmp_path, class_name="Thing", body=f"    to_dict: {_UNTYPED_MAPPING} = ()\n")
+
+    with pytest.raises(CheckFailure, match=r"Thing\.to_dict"):
+        check_surface_types(root=tmp_path)
 
 
 # ----------------------------------------------------------------------

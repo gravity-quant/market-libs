@@ -136,6 +136,15 @@ Three exemptions, matching the measured taxonomy (13 dunder / 1 underscore /
 - ``serialize-out`` -- exactly ``to_dict``. Projecting a typed model back to the
   wire shape is the one place an untyped mapping is the correct return type.
 
+**These three are the RETURN dimension's taxonomy and do not transfer to the
+FIELD dimension** (Phase 37 code review, WR-07). ``_adjudicate_field`` consults
+:func:`_is_field_exempt`, which reads :data:`_FIELD_EXEMPTIONS` and nothing else.
+The ``private-helper`` rule in particular is a method's: it is justified by "no
+``__all__`` contains an underscore-prefixed name", while a dataclass field named
+``_payload`` is an ``__init__`` parameter, an instance attribute and a verbatim
+line in ``verification/snapshots/*.txt``. Inheriting it made a leading underscore
+a one-character bypass of the whole field dimension.
+
 Research's simulation measured **22** hits (12 dunder) because it flagged only
 annotations *containing* ``Any``. This gate also treats a **missing** return
 annotation as untyped, which adds exactly one dunder hit today -- an exception
@@ -522,6 +531,36 @@ def _is_exempt(name: str) -> str | None:
     return None
 
 
+def _is_field_exempt(qualified: str) -> str | None:
+    """Return the exemption reason for a candidate FIELD, or ``None``.
+
+    Deliberately **not** :func:`_is_exempt`, and the difference is the whole
+    point. Phase 37 code review, WR-07: ``_adjudicate_field`` used to fall back
+    to ``_is_exempt``, whose ``private-helper`` rule spares *"any
+    single-underscore-prefixed member"* on the stated grounds that it is
+    *"reachable only as a method of an exported class; no ``__all__`` in any
+    package contains an underscore-prefixed name"*.
+
+    That reasoning is a METHOD's, and it does not transfer to a field. A
+    dataclass field named ``_payload`` is an ``__init__`` parameter, an instance
+    attribute, and it appears verbatim in ``verification/snapshots/*.txt`` — it
+    is unambiguously on the exported surface. Inheriting the method rule made
+    ``_payload: dict[str, Any]`` a ONE-CHARACTER bypass of the entire field
+    dimension, and the test that existed enshrined it as correct.
+
+    ``dunder`` is not inherited either, and does not need a replacement: a
+    dataclass cannot declare a dunder field (``@dataclass`` would generate an
+    ``__init__`` parameter named ``__x``, which name-mangles), and ``to_dict`` is
+    a method name. So the qualified table is the only field exemption there is —
+    which is exactly what D-01c says: *one* declared field exemption.
+
+    Kept as a named function rather than an inlined ``_FIELD_EXEMPTIONS.get`` so
+    the divergence from ``_is_exempt`` is a decision with a docstring, not an
+    absence a future contributor "restores".
+    """
+    return _FIELD_EXEMPTIONS.get(qualified)
+
+
 def _annotation_mentions_any(annotation: ast.expr) -> bool:
     """Whether ``Any`` occurs anywhere in a return-annotation subtree."""
     for node in ast.walk(annotation):
@@ -822,13 +861,12 @@ def _field_candidates_for(binding: _Binding) -> list[tuple[str, str, ast.AnnAssi
 
 def _adjudicate_field(
     qualified: str,
-    member: str,
     node: ast.AnnAssign,
     package: str,
 ) -> tuple[str | None, str | None]:
     """Classify one candidate field as ``(exemption_reason, violation)``.
 
-    The same two-slot contract as :func:`_adjudicate`, with two differences the
+    The same two-slot contract as :func:`_adjudicate`, with three differences the
     field dimension forces:
 
     - The predicate is the NARROW :func:`_field_annotation_is_untyped_mapping`
@@ -836,16 +874,22 @@ def _adjudicate_field(
     - There is no "has no annotation" arm. An ``ast.AnnAssign`` carries an
       annotation by construction, so a field analogue of that branch would be
       unreachable code rather than a check.
+    - The exemption taxonomy is :func:`_is_field_exempt`, NOT :func:`_is_exempt`.
+      Phase 37 code review, WR-07: falling back to the method taxonomy meant a
+      field named ``_payload`` inherited the ``private-helper`` rule, whose whole
+      justification is that an underscore-prefixed member is reachable only as a
+      METHOD. A dataclass field is an ``__init__`` parameter and an instance
+      attribute and appears verbatim in the committed surface snapshots, so the
+      rule made ``_payload: dict[str, Any]`` a one-character bypass of this
+      entire dimension. ``_is_field_exempt`` documents why the rule stops here.
 
-    :data:`_FIELD_EXEMPTIONS` is consulted **before** :func:`_is_exempt`,
-    because it is keyed on the qualified ``Class.field`` pair while
-    ``_is_exempt`` attributes by the simple member name. Both reasons flow into
-    the same ``exempted_by_reason`` accumulator, so an exemption that never
-    absorbs a real hit is visible as a missing count rather than as silence.
+    The reason still flows into the same ``exempted_by_reason`` accumulator, so
+    an exemption that never absorbs a real hit is visible as a missing count
+    rather than as silence.
     """
     if not _field_annotation_is_untyped_mapping(node.annotation):
         return None, None
-    reason = _FIELD_EXEMPTIONS.get(qualified) or _is_exempt(member)
+    reason = _is_field_exempt(qualified)
     if reason is not None:
         return reason, None
     detail = f"is annotated `{ast.unparse(node.annotation)}`"
@@ -940,10 +984,12 @@ def scan_surface_types(root: Path) -> ScanResult:
             # accumulators -- so a field violation and a return violation are
             # indistinguishable to every caller downstream of here.
             fields_total += len(field_candidates)
-            for qualified_name, member_name, field_node in field_candidates:
-                reason, violation = _adjudicate_field(
-                    qualified_name, member_name, field_node, package_dir.name
-                )
+            # ``member_name`` is deliberately unused here: the field dimension
+            # adjudicates on the QUALIFIED name only (WR-07). Unpacked rather
+            # than dropped from ``_field_candidates_for`` so the triple stays the
+            # mirror image of ``_candidates_for``.
+            for qualified_name, _member_name, field_node in field_candidates:
+                reason, violation = _adjudicate_field(qualified_name, field_node, package_dir.name)
                 if reason is not None:
                     exempt_counts[reason] = exempt_counts.get(reason, 0) + 1
                 if violation is not None:
