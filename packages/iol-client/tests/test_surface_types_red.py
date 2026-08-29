@@ -477,6 +477,46 @@ def test_an_optional_model_field_is_caught(tmp_path: Path) -> None:
     assert len(result.violations) == 2
 
 
+def test_a_quoted_list_model_element_is_caught(tmp_path: Path) -> None:
+    """WR-01 (Phase 38 code review): a quoted element inside ``list[...]`` must redden too.
+
+    ``_field_annotation_is_optional_model``'s bare-model arm and its docstring
+    both claim parity with ``_field_annotation_is_untyped_mapping``'s "re-parse a
+    quoted annotation" habit, but the ``list[Model] | None`` arm read the list's
+    element type directly without checking whether that element was itself a
+    quoted string (``ast.Constant``). ``_base_name`` answers ``None`` for a
+    ``Constant``, so ``list["Leaf"] | None`` silently spared where the unquoted
+    ``list[Leaf] | None`` correctly reddened -- exactly the ``Titulo``/``Cotizacion``
+    shape 38-01 removed, reintroduced behind a forward reference inside the
+    ``list[...]`` subscript rather than around the whole annotation (the
+    already-covered outer-quote case in ``test_an_optional_model_field_is_caught``).
+    """
+    _write_fake_package(
+        tmp_path,
+        init_source="from fake_client.client import Thing\n\n__all__ = ['Thing']\n",
+        client_source=(
+            "from dataclasses import dataclass\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class Leaf:\n"
+            "    price: float = 0.0\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class Thing:\n"
+            "    links: list['Leaf'] | None = None\n"
+        ),
+    )
+
+    with pytest.raises(CheckFailure, match=r"Thing\.links"):
+        check_surface_types(root=tmp_path)
+
+    result = scan_surface_types(tmp_path)
+
+    assert len(result.violations) == 1
+
+
 def test_an_optional_literal_alias_field_is_spared(tmp_path: Path) -> None:
     """Narrowness pin: a ``Literal`` alias is not a model, so ``Mode | None`` stays green.
 

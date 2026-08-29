@@ -871,7 +871,13 @@ def _field_annotation_is_optional_model(annotation: ast.expr, class_names: froze
         # Spelled as the builtin only, matching the two real fields and RESEARCH
         # F-6's measurement. No `typing.List[Model] | None` exists in the tree,
         # and there is no `_MAPPING_BASES`-style alias set to bypass here.
-        return _base_name(inner.slice) in class_names
+        elem = inner.slice
+        if isinstance(elem, ast.Constant) and isinstance(elem.value, str):
+            try:
+                elem = ast.parse(elem.value, mode="eval").body
+            except SyntaxError:
+                return True  # an uninspectable annotation is not a spared one
+        return _base_name(elem) in class_names
     return False
 
 
