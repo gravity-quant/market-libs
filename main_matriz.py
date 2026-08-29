@@ -412,8 +412,21 @@ def _write_or_check_schema(
 
 # ---------------------------------------------------------------------------
 # CR-05 close (Phase 7 Plan 5 / D-07 / Pitfall 5):
-# `_envelope_probe` dedupea los ~13 envelope probes "limpios" + 2 risk probes
-# (envelope_key=None). Las 3 probes con side-effect / lógica especial
+# `_envelope_probe` dedupea los ~13 envelope probes "limpios" + 2 risk probes.
+#
+# Phase 37 code review CR-01: las 2 risk probes pasaban `envelope_key=None` bajo
+# el claim D-07 "el payload raíz ES el resultado". El vendor doc lo falsifica
+# (`documentation/Primary-API.md:1701-1703` y `:1817-1819` muestran los bodies
+# envueltos en `detailedPosition` / `accountData`) y 37-01 ya había corregido
+# `_core.parse_get_detailed_positions_response` / `parse_get_account_report_response`
+# para desenvolver — pero el driver se quedó con la creencia vieja, así que
+# alimentaba a `diff_safemodel_bidirectional` con el envelope crudo y habría
+# fabricado una tanda de findings SHAPE "model declara, wire no emite". El
+# parámetro `envelope_key` es ahora REQUERIDO (`str`, sin default) y la rama
+# `None` fue eliminada: la ausencia de la rama es lo que impide que la creencia
+# vuelva. Lock: `verification/test_main_matriz_risk_envelope_keys.py`.
+#
+# Las 3 probes con side-effect / lógica especial
 # (`probe_get_segments` setea `_resolved_segment`; `probe_get_all_instruments`
 # setea `_resolved_symbol`; `probe_get_market_data` tiene market-hours guard)
 # permanecen custom — A4 honesty flag. `probe_get_instruments_by_cfi_sanity`
@@ -456,7 +469,7 @@ def _envelope_probe(
     name: str,
     path: str,
     *,
-    envelope_key: str | None = None,
+    envelope_key: str,
     request_params: dict[str, Any] | None = None,
     auth_basic_fn: Callable[[], tuple[str, str]] | None = None,
     pass_detail: Callable[[Any], str] | None = None,
@@ -469,8 +482,12 @@ def _envelope_probe(
             instead of the module singleton shim).
         name: ProbeResult label.
         path: REST path (e.g. ``/rest/segment/all``).
-        envelope_key: Envelope key to unwrap. ``None`` para risk probes (D-07)
-            donde el payload raíz ES el resultado.
+        envelope_key: Envelope key to unwrap. **Requerido** — Phase 37 code
+            review CR-01: no hay endpoint sin envelope. Las 2 risk probes
+            (``detailedPosition`` / ``accountData``) pasaban ``None`` bajo un
+            claim D-07 que el vendor doc falsifica
+            (``documentation/Primary-API.md:1701-1703``, ``:1817-1819``); el
+            parámetro ya no admite ``None`` para que la creencia no pueda volver.
         request_params: Forwarded to ``_sync_matriz_request(client, "GET", path,
             params=...)``.
         auth_basic_fn: Returns ``(user, pass)`` for Risk API HTTP Basic; ``None``
@@ -493,11 +510,7 @@ def _envelope_probe(
         raw = _sync_matriz_request(client, "GET", path, params=request_params, auth_basic=auth)
     except PrimaryAPIError as exc:
         fid = _next_fid()
-        expected = (
-            f"200 OK con envelope {{{envelope_key}: ...}}"
-            if envelope_key
-            else "200 OK con dict raíz (sin envelope key, D-07)"
-        )
+        expected = f"200 OK con envelope {{{envelope_key}: ...}}"
         append_finding(
             _PKG,
             fid=fid,
@@ -511,33 +524,18 @@ def _envelope_probe(
             base_url=base_url,
         )
         return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
-    if envelope_key is None:
-        # Risk probe (D-07): payload raíz ES el resultado.
-        if not isinstance(raw, dict):
-            fid = _next_fid()
-            append_finding(
-                _PKG,
-                fid=fid,
-                class_="SHAPE",
-                surface="sync",
-                status="OPEN",
-                title=f"{name} payload shape incorrecto",
-                expected="payload raíz es dict (sin envelope key, D-07)",
-                actual=f"raw={type(raw).__name__}",
-                diff="payload raíz no es dict",
-                base_url=base_url,
-            )
-            return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
-        detail = pass_detail(raw) if pass_detail is not None else "received"
-        return (ProbeResult(name, "PASS", detail), raw)
     # Envelope probe: unwrap key, validate shape (list o dict según el endpoint).
     payload = raw.get(envelope_key)
     # Para single-resource envelopes (instrument, order, marketData), `payload` es dict;
     # para list envelopes (instruments, segments, orders, trades, positions), es list.
+    # Phase 37 code review CR-01: las 2 risk probes también son single-resource
+    # — `detailedPosition` y `accountData` envuelven un dict, no una lista.
     expected_dict = name in {
         "get_instrument_detail",
         "get_order_status",
         "get_order_by_exec_id",
+        "get_detailed_positions",
+        "get_account_report",
     }
     if expected_dict:
         if not isinstance(payload, dict):
@@ -1266,8 +1264,15 @@ def probe_get_positions(client: Client) -> tuple[ProbeResult, list[dict[str, Any
 def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 18 (D-MATZ-29 #18): ``GET /rest/risk/detailedPosition/{account}``.
 
-    Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
-    el dict completo. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
+    Risk API HTTP Basic Auth. **Envelope key ``detailedPosition``**
+    (``documentation/Primary-API.md:1701-1703``), igual que ya desenvuelve
+    ``_core.parse_get_detailed_positions_response`` desde 37-01 (D-03,
+    ``strict-unwrap``). El claim previo de esta docstring — "SIN envelope key
+    (D-07), el payload raíz es el dict completo" — lo falsifica el vendor doc; el
+    code review de la Phase 37 (CR-01) lo encontró sobreviviendo acá después de
+    que 37-01 lo corrigiera en el cliente. Sin este fix el driver alimentaba a
+    ``diff_safemodel_bidirectional`` (probe 20) con el envelope crudo.
+    SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (
@@ -1278,7 +1283,7 @@ def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str,
         client,
         "get_detailed_positions",
         f"/rest/risk/detailedPosition/{_PRIMARY_ACCOUNT}",
-        envelope_key=None,
+        envelope_key="detailedPosition",
         auth_basic_fn=client._risk_auth,
         # WR-01: no insertamos accountId completo en detail string.
         pass_detail=lambda _: "account received",
@@ -1294,8 +1299,13 @@ def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str,
 def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 19 (D-MATZ-29 #19): ``GET /rest/risk/accountReport/{account}``.
 
-    Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
-    el dict completo. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
+    Risk API HTTP Basic Auth. **Envelope key ``accountData``**
+    (``documentation/Primary-API.md:1817-1819``), igual que ya desenvuelve
+    ``_core.parse_get_account_report_response`` desde 37-01 (D-03,
+    ``strict-unwrap``). Gemelo exacto de ``probe_get_detailed_positions``: mismo
+    claim D-07 previo, misma falsificación por el vendor doc, mismo hallazgo del
+    code review de la Phase 37 (CR-01).
+    SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (
@@ -1306,7 +1316,7 @@ def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any
         client,
         "get_account_report",
         f"/rest/risk/accountReport/{_PRIMARY_ACCOUNT}",
-        envelope_key=None,
+        envelope_key="accountData",
         auth_basic_fn=client._risk_auth,
         # WR-01: no insertamos accountName real en detail string.
         pass_detail=lambda _: "accountName received",

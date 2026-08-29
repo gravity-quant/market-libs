@@ -64,7 +64,7 @@ jobs:
         # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
         # D-05: step en `lint`, NO job nuevo (Phase 31 D-12 supersede ROADMAP.md:25).
         run: uv run python tools/check_surface_types.py
-      - name: driver locks de market-data (Phase 36 SC-5 + CR-01)
+      - name: driver locks de market-data y matriz (Phase 36 SC-5 + CR-01; Phase 37 CR-01)
         # Viven bajo `verification/`, que NUNCA corrió en CI por la misma razón
         # que documentan los tres steps de arriba: el job `test` pasa un path
         # explícito que pisa `testpaths`. Un guard nuevo metido ahí sería INERTE
@@ -79,7 +79,8 @@ jobs:
         run: |
           uv run pytest -q \
             verification/test_main_market_data_deep_chain.py \
-            verification/test_safemodel_diff_null_object_links.py
+            verification/test_safemodel_diff_null_object_links.py \
+            verification/test_main_matriz_risk_envelope_keys.py
 
   pre-commit:
     name: pre-commit hooks

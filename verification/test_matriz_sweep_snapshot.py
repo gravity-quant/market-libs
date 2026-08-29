@@ -212,19 +212,33 @@ _PROBE_FIXTURES: list[tuple[str, str, dict[str, Any], str, str]] = [
         "PASS",
         "1 positions",
     ),
-    # 16. Risk probe — envelope_key=None (D-07) — auth_basic
+    # 16. Risk probe — envelope_key="detailedPosition" (Phase 37 D-03) — auth_basic.
+    #     El body canned estaba SIN envelope, replicando el claim D-07 falsificado
+    #     (code review Phase 37, CR-01); ahora replica el vendor doc
+    #     (``documentation/Primary-API.md:1701-1703``).
     (
         "probe_get_detailed_positions",
         f"https://api.test/rest/risk/detailedPosition/{_CANNED_ACCOUNT}",
-        {"account": _CANNED_ACCOUNT, "totalDailyDiffPlain": 0.0, "totalMarketValue": 1.0},
+        {
+            "status": "OK",
+            "detailedPosition": {
+                "account": _CANNED_ACCOUNT,
+                "totalDailyDiffPlain": 0.0,
+                "totalMarketValue": 1.0,
+            },
+        },
         "PASS",
         "account received",
     ),
-    # 17. Risk probe — envelope_key=None (D-07) — auth_basic
+    # 17. Risk probe — envelope_key="accountData" (Phase 37 D-03) — auth_basic.
+    #     Mismo fix que #16; vendor doc ``documentation/Primary-API.md:1817-1819``.
     (
         "probe_get_account_report",
         f"https://api.test/rest/risk/accountReport/{_CANNED_ACCOUNT}",
-        {"accountName": _CANNED_ACCOUNT, "marketMember": "BCBA"},
+        {
+            "status": "OK",
+            "accountData": {"accountName": _CANNED_ACCOUNT, "marketMember": "BCBA"},
+        },
         "PASS",
         "accountName received",
     ),
@@ -282,24 +296,42 @@ def test_matriz_envelope_probe_helper_exists() -> None:
     assert callable(main_matriz._envelope_probe), "_envelope_probe helper missing"
 
 
-def test_matriz_risk_probes_use_envelope_key_none() -> None:
-    """D-07: the 2 risk probes (`probe_get_detailed_positions`,
-    `probe_get_account_report`) MUST call ``_envelope_probe(envelope_key=None)``.
+def test_matriz_risk_probes_unwrap_their_envelope_key() -> None:
+    """INVERTIDO en el code review de la Phase 37 (CR-01).
+
+    Este test pinneaba lo contrario: que las 2 risk probes DEBÍAN llamar
+    ``_envelope_probe(envelope_key=None)`` "por D-07". Esa creencia la falsifica
+    el vendor doc — ``documentation/Primary-API.md:1701-1703`` y ``:1817-1819``
+    muestran ambos bodies Risk envueltos en ``detailedPosition`` / ``accountData``
+    — y Plan 37-01 ya la había corregido en ``_core.py`` sin tocar el driver, así
+    que este test quedó pinneando activamente el bug: el payload que el driver
+    acumulaba para probe 20 era el envelope crudo.
+
+    No se debilita nada al invertirlo: la aserción sigue siendo igual de estricta,
+    sólo que ahora exige la forma correcta. El lock estructural completo (incluido
+    que ``_envelope_probe`` ya no ACEPTA ``None``) vive en
+    ``verification/test_main_matriz_risk_envelope_keys.py``, que además corre en CI.
     """
     src = (main_matriz.__file__ or "").replace(".pyc", ".py")
     if not src.endswith(".py"):
         pytest.skip("Cannot read main_matriz source file")
     with open(src) as f:
         text = f.read()
-    # Both risk probes must appear with envelope_key=None.
-    for probe in ("probe_get_detailed_positions", "probe_get_account_report"):
-        # Look for the probe body referencing envelope_key=None.
+    expected_keys = {
+        "probe_get_detailed_positions": "detailedPosition",
+        "probe_get_account_report": "accountData",
+    }
+    for probe, key in expected_keys.items():
         idx = text.find(f"def {probe}(")
         assert idx >= 0, f"{probe} not found in main_matriz.py"
         # Body up to next def.
         rest = text[idx:]
         next_def = rest.find("\ndef ", 10)
         body = rest[: next_def if next_def > 0 else len(rest)]
-        assert "envelope_key=None" in body, (
-            f"{probe} body must include `envelope_key=None` (D-07); body={body[:300]}"
+        assert f'envelope_key="{key}"' in body, (
+            f"{probe} body must unwrap the `{key}` envelope (Phase 37 D-03 "
+            f"strict-unwrap); body={body[:300]}"
+        )
+        assert "envelope_key=None" not in body, (
+            f"{probe} still passes `envelope_key=None` — the falsified D-07 claim"
         )
