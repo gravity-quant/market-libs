@@ -2,10 +2,43 @@
 """Surface-type gate for the workspace packages (Phase 32, GATE-TYP-01).
 
 Every name a package exports through ``__all__`` is part of a published wheel's
-contract. This gate asserts that no such name's *return type* is untyped: a
-return annotation mentioning ``Any`` -- bare, inside ``dict[str, Any]``, inside
-``list[dict[str, Any]]``, inside ``... | None`` -- or missing altogether is a
-violation, subject to the DT-06 exemptions listed below.
+contract. This gate scans that contract along **two dimensions**.
+
+**Return types** (Phase 32, GATE-TYP-01). No exported name's return type may be
+untyped: a return annotation mentioning ``Any`` -- bare, inside
+``dict[str, Any]``, inside ``list[dict[str, Any]]``, inside ``... | None`` -- or
+missing altogether is a violation, subject to the DT-06 exemptions listed below.
+
+**Field types** (Phase 37, NOBJ-MTZ-01). No field declared in the body of an
+exported class may be annotated as an untyped mapping. The predicate here is
+deliberately **narrow** and is not the return dimension's: only a bare ``Any``
+and a mapping whose value parameter is ``Any`` match, with the optional wrapper
+stripped first. ``list[Any]`` is spared on purpose -- see
+:func:`_field_annotation_is_untyped_mapping` and :data:`_FIELD_EXEMPTIONS`,
+which holds the single declared field exemption.
+
+The second dimension exists because the first one was not enough, and the gap
+was measured rather than suspected. **Before Phase 37** this gate printed::
+
+    surface types: 6 packages, 183 `__all__` names, 330 definitions scanned,
+    13 constant/alias exports, 23 exempted (dunder 13, private-helper 1,
+    serialize-out 9), 0 violations
+
+-- zero violations, while five ``dict[str, Any]`` fields sat on one package's
+exported model surface. The cause was structural, not a missing exemption:
+``_candidates_for`` filtered a class body down to its member functions and
+discarded every ``ast.AnnAssign``, so the gate could not see the thing it was
+being read as checking. **After Phase 37**, over a tree whose fields have since
+been typed::
+
+    surface types: 6 packages, 186 `__all__` names, 330 definitions scanned,
+    442 fields scanned, 13 constant/alias exports, 24 exempted (dunder 13,
+    private-helper 1, serialize-out 9, ws-catch-all 1), 0 violations
+
+The same green, now earned: 442 fields inspected and one named exemption
+absorbing a real hit. ``packages/matriz-client/tests/test_surface_types_red.py``
+is what keeps it earned, exactly as its iol sibling does for the first
+dimension.
 
 Run it as::
 

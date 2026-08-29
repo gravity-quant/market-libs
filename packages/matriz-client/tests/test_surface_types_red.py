@@ -265,21 +265,49 @@ def test_a_list_of_any_field_is_spared_keeping_the_narrow_predicate_narrow(
     wide predicate the return dimension uses. Widening it would immediately
     redden two *exported* fields in ``market-data-client`` --
     ``CalendarConfig.warnings`` and ``CalendarConfigPreview.warnings``, both
-    ``list[Any]`` -- a package Phase 37 declared disjoint and out of scope.
+    annotated ``list[Any]`` -- a package Phase 37 declared disjoint and out of
+    scope. Those are the two declarations reproduced below, on classes of the
+    same names, so the shape this test protects is the real one rather than a
+    paraphrase of it. Measured, not assumed: the extended gate was run over the
+    committed tree and reported 0 violations with both fields in place.
 
     Ratchet discipline says a red gate is never resolved by weakening the gate;
     the corollary D-01b adds is that an out-of-scope red is resolved by
     NARROWING the predicate, never by exempting the foreign field and never by
     editing the foreign package. This test is what stops a later contributor
     from "tightening" the predicate and silently pulling a disjoint package into
-    this phase's blast radius.
+    this phase's blast radius -- the widening would look like a strictly better
+    gate right up until CI reddened on a package nobody in this phase touched.
     """
-    _model_package(tmp_path, class_name="CalendarConfig", body="    warnings: list[Any] = ()\n")
+    _write_fake_package(
+        tmp_path,
+        init_source=(
+            "from fake_client.client import CalendarConfig, CalendarConfigPreview\n\n"
+            "__all__ = ['CalendarConfig', 'CalendarConfigPreview']\n"
+        ),
+        client_source=(
+            "from dataclasses import dataclass\n"
+            "from typing import Any\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class CalendarConfig:\n"
+            "    source: str\n"
+            "    warnings: list[Any]\n"
+            "\n"
+            "\n"
+            "@dataclass(frozen=True)\n"
+            "class CalendarConfigPreview:\n"
+            "    valid: bool\n"
+            "    warnings: list[Any]\n"
+        ),
+    )
 
     result = scan_surface_types(tmp_path)
 
     assert result.violations == ()
-    assert result.fields == 1
+    assert result.fields == 4
+    assert result.exempted == 0
 
 
 def test_any_nested_deeper_inside_a_typed_container_is_spared(tmp_path: Path) -> None:
@@ -377,6 +405,16 @@ def test_the_field_dimension_is_green_and_non_trivial_on_the_real_tree() -> None
     the suite. Floors still catch the failure that matters -- a dimension that
     collapses to zero scanned fields and reports green anyway, which is
     precisely the state the gate was in before Phase 37.
+
+    The field floor is the measured 442 minus a deliberate margin, chosen the
+    same way the 300-definition floor was: large enough that a resolution
+    regression silently halving the scanned population fails here, loose enough
+    that deleting a model or narrowing a package's ``__all__`` does not.
+
+    The exemption floor stays at 20 rather than rising to 24. The one field
+    exemption is asserted BY NAME in the reachability test above, which is a
+    stronger statement than a bumped total: a total can be satisfied by any
+    four exemptions, a named count only by the one this phase declared.
     """
     summary = check_surface_types()
     assert "0 violation" in summary
@@ -387,4 +425,5 @@ def test_the_field_dimension_is_green_and_non_trivial_on_the_real_tree() -> None
     assert result.packages >= 6
     assert result.definitions >= 300
     assert result.exempted >= 20
-    assert result.fields >= 1
+    assert result.fields >= 350
+    assert dict(result.exempted_by_reason)[_CATCH_ALL_REASON] == 1
