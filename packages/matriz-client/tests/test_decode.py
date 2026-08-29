@@ -749,7 +749,10 @@ def test_tickPriceRanges_undeclared_inner_key_is_one_non_fatal_extra(
     assert not hasattr(detail.tickPriceRanges["0"], "vendorNew")
     extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
     assert len(extras) == 1
-    assert extras[0].field_path == ".tickPriceRanges.0.vendorNew"  # type: ignore[attr-defined]
+    # WR-04: the open key is a DATA segment and no longer enters the path; the
+    # index-free ``{}`` marker is what makes N identically-diverging entries
+    # collapse into one record (lock 5), exactly as ``[]`` does for lists.
+    assert extras[0].field_path == ".tickPriceRanges{}.vendorNew"  # type: ignore[attr-defined]
     assert extras[0].model == "TickPriceRange"  # type: ignore[attr-defined]
 
 
@@ -868,15 +871,23 @@ def test_typed_mapping_recurses_on_a_nested_mapping_hint(
     assert _divergences(caplog) == []
 
 
-def test_nested_mapping_divergence_path_reads_through_both_keys(
+def test_nested_mapping_divergence_path_marks_both_open_key_levels(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A divergence two levels down is locatable in the payload by its path."""
+    """A divergence two levels down names its field and both open-key levels.
+
+    Phase 37 code review, WR-04, changed the segment from the KEY to an
+    index-free ``{}`` marker — the counterpart of the walker's ``[]`` for list
+    elements. This assertion is no weaker than the one it replaces (still an
+    exact full-path match); what it pins is the corrected path. An open-keyed
+    mapping is an unbounded axis exactly like a list, and interpolating the key
+    opted the axis out of lock 5's dedupe collapse.
+    """
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         _NestedMapping.from_api({"report": {"OUTER": {"0": {"tick": "nope"}}}})
 
     paths = [p for p, _ in _pairs(caplog)]
-    assert ".report.OUTER.0.tick" in paths
+    assert ".report{}{}.tick" in paths
 
 
 def test_the_axis_emits_through_the_sink_it_was_handed(
@@ -1033,10 +1044,20 @@ _VENDOR_DETAILED_POSITION: dict[str, Any] = {
     # that makes the strict-mode assertions below fail for the wrong reason.
 }
 
-# The symbol key as it appears in a ``field_path``: ``_decode._safe_key``
-# replaces every character outside ``[0-9A-Za-z_-]`` with ``?`` (lock 11), so a
-# key carrying ``.``, ``/`` or a space cannot forge a path segment.
-_SAFE_SYMBOL = "SOJ?ROS?MAY23?380?C"
+# How the two open-key levels of ``report`` appear in a ``field_path``.
+#
+# Phase 37 code review, WR-04: they appear as index-free ``{}`` markers, NOT as
+# the keys themselves. An open-keyed mapping is an unbounded axis exactly like a
+# list, so it gets the same treatment the walker gives a list index — which is
+# what makes lock 5's dedupe collapse fire on it. Interpolating the symbol used
+# to produce one record PER SYMBOL for a fact that is true of the field.
+#
+# The ``_decode._safe_key`` sanitisation this constant used to encode (lock 11:
+# a key carrying ``.``, ``/`` or a newline could forge a path segment or a log
+# line) is no longer reachable from this axis, because no payload key reaches a
+# path from it at all. The walker still applies it where a wire key genuinely
+# does enter a path — on ``extra`` keys.
+_REPORT_OPEN_KEYS = "{}{}"
 
 
 def test_detailed_position_report_decodes_the_vendor_sample_at_depth_two() -> None:
@@ -1071,15 +1092,13 @@ def test_report_deferred_detailedPositions_is_one_non_fatal_extra(
     extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
     assert len(extras) == 1
     assert extras[0].model == "InstrumentPositionReport"  # type: ignore[attr-defined]
-    assert (
-        extras[0].field_path == f".report.FUTURE_OPTION_CALL.{_SAFE_SYMBOL}.detailedPositions"  # type: ignore[attr-defined]
-    )
+    assert extras[0].field_path == f".report{_REPORT_OPEN_KEYS}.detailedPositions"  # type: ignore[attr-defined]
 
 
-def test_report_divergence_path_reads_through_both_open_keys(
+def test_report_divergence_path_marks_both_open_key_levels(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A reader can locate the offending leaf in the payload through both open keys."""
+    """The path names the field and both open-key levels, not the keys (WR-04)."""
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         models.DetailedPosition.from_api(
             {
@@ -1090,7 +1109,50 @@ def test_report_divergence_path_reads_through_both_open_keys(
         )
 
     paths = [p for p, _ in _pairs(caplog)]
-    assert f".report.FUTURE_OPTION_CALL.{_SAFE_SYMBOL}.instrumentFilledSize" in paths
+    assert f".report{_REPORT_OPEN_KEYS}.instrumentFilledSize" in paths
+
+
+def test_an_n_key_mapping_emits_o1_records_not_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-04's measurement, turned into a lock: record count is O(1) in key count.
+
+    The review measured 1000 records for a 500-symbol ``report`` carrying two
+    identically-diverging facts per leaf, where the equivalent ``list[Model]``
+    shape produces 2. ``test_report_deferred_detailedPositions_is_one_non_fatal_
+    extra`` proves the ``detailedPositions`` extra fires for EVERY leaf, so this
+    was live: every real ``get_detailed_positions`` call flooded the package
+    logger in proportion to the account's position count.
+
+    Two sizes are decoded rather than one absolute bound asserted, so the test
+    fails on a REGRESSION TO O(N) rather than on a change in how many distinct
+    facts a leaf happens to carry.
+    """
+    counts = []
+    for n in (5, 200):
+        _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+        caplog.clear()
+        payload = {
+            "report": {
+                "FUTURE_OPTION_CALL": {
+                    f"SYM{i}": {"detailedPositions": [], "instrumentFilledSize": "x"}
+                    for i in range(n)
+                }
+            }
+        }
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            models.DetailedPosition.from_api(payload)
+        counts.append(len(_divergences(caplog)))
+
+    assert counts[0] == counts[1], (
+        f"record count grew with key count ({counts[0]} -> {counts[1]}): an "
+        "open-keyed mapping is an unbounded axis and must collapse under lock 5 "
+        "exactly as a list does."
+    )
+    # Two facts about the leaf: the deferred `detailedPositions` extra and the
+    # non-numeric `instrumentFilledSize`. Both are true of the FIELD, so both
+    # are reported once regardless of how many symbols carry them.
+    assert counts[0] == 2
 
 
 def test_report_non_dict_still_substitutes_and_reports(
@@ -1199,9 +1261,11 @@ def test_detailedAccountReports_deferred_objects_are_non_fatal_extras(
     entry = obj.detailedAccountReports["0"]
     assert not hasattr(entry, "currencyBalance")
     extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    # WR-04: ONE level of open keys here (vs. two on ``report``), rendered as the
+    # index-free ``{}`` marker rather than the key itself.
     assert {r.field_path for r in extras} == {  # type: ignore[attr-defined]
-        ".detailedAccountReports.0.currencyBalance",
-        ".detailedAccountReports.0.availableToOperate",
+        ".detailedAccountReports{}.currencyBalance",
+        ".detailedAccountReports{}.availableToOperate",
     }
     assert {r.model for r in extras} == {"DetailedAccountReport"}  # type: ignore[attr-defined]
 

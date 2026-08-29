@@ -276,18 +276,51 @@ def _mapping_value(
     vendor-open keys (``contractType`` then ``symbol``), the only honest shape
     for a payload whose key sets are not enumerable.
 
-    Payload-supplied keys are neutralized with :func:`_decode._safe_key` before
-    they enter a ``field_path``, for the same reason the walker neutralizes an
-    ``extra`` key (lock 11): a mapping key is wire content, and one carrying a
-    newline would otherwise forge a line in any text handler. The walker's own
-    helper is reused rather than re-implemented so the two cannot drift.
+    **A mapping key is a DATA segment, not a schema segment, and does not enter
+    ``field_path`` (Phase 37 code review, WR-04).** Each element's path is
+    ``f"{path}{{}}"`` — an index-free ``{}`` marker, the exact counterpart of the
+    ``[]`` the walker uses for list elements. The walker chose that deliberately
+    for lock 5, so that *"N identically-diverging rows of an unbounded catalogue
+    read collapse into one record"*, and an open-keyed mapping is the SAME
+    unbounded axis: ``report[contractType][symbol]`` is keyed by account data,
+    not by schema.
+
+    Until the review the key WAS interpolated, which silently opted this axis out
+    of lock 5. Measured over a 500-symbol ``report`` where each leaf carries the
+    vendor's ``detailedPositions`` key (present in **every** vendor sample,
+    ``Primary-API.md:1710``)::
+
+        records emitted: 1000
+        sample paths: ['.report.FUT.SYM0.vendorNew',
+                       '.report.FUT.SYM0.instrumentInitialSize',
+                       '.report.FUT.SYM1.vendorNew']
+
+    Two facts about one field produced 1000 log records and 1000 entries in
+    ``DecodeScope._seen``, where the equivalent ``list[Model]`` shape produces 2.
+    That is not hypothetical: ``test_report_deferred_detailedPositions_is_one_
+    non_fatal_extra`` proves the ``detailedPositions`` extra fires for every leaf,
+    so every real ``get_detailed_positions`` call flooded the package logger in
+    proportion to the account's position count.
+
+    The cost is locatability: a record now says *which field* and *which
+    divergence*, not *which key*. That is precisely the trade the walker already
+    made for list indices, and the dedupe triple is the record path — there is no
+    second field to carry the key in, so keeping it would have meant keeping the
+    flood. Ask the payload, not the log, for the key.
+
+    A consequence worth naming rather than leaving to be rediscovered: because no
+    payload-supplied key reaches a ``field_path`` from here any more, this
+    function no longer needs :func:`_decode._safe_key`. Lock 11 (a key carrying a
+    newline could forge a line in a text handler) is not *skipped* here, it is
+    structurally out of reach — and it is still enforced by the walker where a
+    wire key genuinely does enter a path, on ``extra`` keys.
     """
     if not isinstance(value, dict):
         sink(model, path, "missing" if value is None else "type", "dict", type(value).__name__)
         return {}
     decoded: dict[Any, Any] = {}
+    item_path = f"{path}{{}}"
     for key, item in value.items():
-        item_path = f"{path}.{_decode._safe_key(key)}"
         if _is_mapping(element):
             decoded[key] = _mapping_value(
                 item,
