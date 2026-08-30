@@ -2,45 +2,6 @@
 
 Cliente HTTP (sync y async) para la API de [Invertir Online (IOL)](https://www.invertironline.com/).
 
-## Unreleased — BREAKING
-
-> **`main` NO es el `0.3.0` publicado.** El tag `iol-client-v0.3.0` es la última
-> entrada del Changelog de abajo; desde entonces `main` cambió el tipo de los dos
-> links de libro de órdenes sin bumpear la versión, porque el bump breaking
-> coordinado de los seis paquetes lo hace la Fase 40 en una sola pasada (refresca
-> `uv.lock` **exactamente una vez**). Si instalás desde `main`, esto es lo que
-> cambió respecto del `0.3.0` tageado.
-
-| Antes (0.3.0 publicado) | Ahora (`main`, pendiente de bump) |
-|---|---|
-| `quote.puntas is None` / `quote.puntas or []` | `quote.puntas == []` — el fallback `or []` ya no hace falta: `puntas` es siempre una lista |
-| `titulo.puntas is None` | `not titulo.puntas` (o, más estricto, `titulo.puntas == Punta.empty()`) |
-
-`Cotizacion.puntas` pasó de `list[Punta] | None` a `list[Punta]`, y `Titulo.puntas`
-de `Punta | None` a `Punta`. Las dos filas **no son simétricas**, y la asimetría es
-exactamente la parte que el typechecker NO atrapa — la misma clase de ruptura que el
-flip de truthiness de v0.3.0 documentado más abajo:
-
-- **`Cotizacion.puntas`: `None` → `[]`.** Falsy antes, falsy después: ninguna rama
-  de truthiness (`if quote.puntas:`) cambia de comportamiento. Sólo se movió el tipo
-  declarado. `quote.puntas or []` sigue dando el mismo valor; simplemente ya no hace
-  falta escribirlo.
-- **`Titulo.puntas`: `None` → `Punta.empty()`.** Sigue siendo falsy, porque
-  `SafeModel.__bool__` reporta vacuidad — pero **ya no es el valor nulo del
-  lenguaje**. Un consumidor que ramifique por identidad contra la nada
-  (`if titulo.puntas is None:`, `assert titulo.puntas is None`, `titulo.puntas or
-  fallback` escrito para atrapar el `None`) **deja de tomar esa rama, en silencio**:
-  no levanta, no rompe el build y mypy no dice una palabra, porque el tipo declarado
-  ahora es correcto. Es la mitad de la ruptura que ninguna herramienta atrapa —
-  revisar a mano cada chequeo `is None` sobre este campo antes de actualizar.
-
-A cambio, el acceso encadenado queda siempre válido y sin guard de nulidad:
-`titulo.puntas.precioCompra` typechequea bajo `mypy --strict` y devuelve `0.0`
-cuando el wire no mandó libro, y `quote.puntas[0].precioCompra` ya no necesita un
-`is not None` previo (sigue necesitando, como siempre, que la lista no esté vacía).
-Un `puntas` **mal tipado** no cambia en nada: sigue emitiendo su registro de
-divergencia y sigue levantando bajo `strict_decode`.
-
 ## Instalación
 
 ```bash
@@ -147,6 +108,43 @@ uv run mypy packages/iol-client
 ```
 
 ## Changelog
+
+### v0.4.0
+
+**Los dos links de libro de órdenes pierden su `| None`** (breaking, minor bump en
+línea 0.x — todo consumidor que ramifique por `is None` sobre estos campos necesita
+migrar). `Cotizacion` pasa a exponer siempre una lista y `Titulo` siempre un modelo
+`Punta`, nunca el valor nulo del lenguaje.
+
+| Antes (0.3.0 publicado) | Ahora (0.4.0) |
+| --- | --- |
+| `quote.puntas is None` / `quote.puntas or []` | `quote.puntas == []` — el fallback `or []` ya no hace falta: `puntas` es siempre una lista |
+| `titulo.puntas is None` | `not titulo.puntas` (o, más estricto, `titulo.puntas == Punta.empty()`) |
+
+`Cotizacion.puntas` pasó de `list[Punta] | None` a `list[Punta]`, y `Titulo.puntas`
+de `Punta | None` a `Punta`. Las dos filas **no son simétricas**, y la asimetría es
+exactamente la parte que el typechecker NO atrapa — la misma clase de ruptura que el
+flip de truthiness de v0.3.0 documentado más abajo:
+
+- **`Cotizacion.puntas`: `None` → `[]`.** Falsy antes, falsy después: ninguna rama
+  de truthiness (`if quote.puntas:`) cambia de comportamiento. Sólo se movió el tipo
+  declarado. `quote.puntas or []` sigue dando el mismo valor; simplemente ya no hace
+  falta escribirlo.
+- **`Titulo.puntas`: `None` → `Punta.empty()`.** Sigue siendo falsy, porque
+  `SafeModel.__bool__` reporta vacuidad — pero **ya no es el valor nulo del
+  lenguaje**. Un consumidor que ramifique por identidad contra la nada
+  (`if titulo.puntas is None:`, `assert titulo.puntas is None`, `titulo.puntas or
+  fallback` escrito para atrapar el `None`) **deja de tomar esa rama, en silencio**:
+  no levanta, no rompe el build y mypy no dice una palabra, porque el tipo declarado
+  ahora es correcto. Es la mitad de la ruptura que ninguna herramienta atrapa —
+  revisar a mano cada chequeo `is None` sobre este campo antes de actualizar.
+
+A cambio, el acceso encadenado queda siempre válido y sin guard de nulidad:
+`titulo.puntas.precioCompra` typechequea bajo `mypy --strict` y devuelve `0.0`
+cuando el wire no mandó libro, y `quote.puntas[0].precioCompra` ya no necesita un
+`is not None` previo (sigue necesitando, como siempre, que la lista no esté vacía).
+Un `puntas` **mal tipado** no cambia en nada: sigue emitiendo su registro de
+divergencia y sigue levantando bajo `strict_decode`.
 
 ### v0.3.0
 

@@ -1,6 +1,6 @@
 [project]
 name = "iol-client"
-version = "0.3.0"
+version = "0.4.0"
 description = "Cliente HTTP (sync y async) para la API de Invertir Online (IOL)."
 readme = "README.md"
 requires-python = ">=3.12"
