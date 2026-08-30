@@ -170,7 +170,44 @@ Plans:
   3. Toda divergencia CONFIRMED se corrige **in-cycle** con espejo sync/async y un test de regresión mockeado que la pinea, y `verify_cycle_closure` devuelve PASS **no-vacuo** para cada paquete medido (con la evidencia positiva de que el driver corrió, no la mera ausencia de findings).
   4. El censo de esta corrida se contrasta explícitamente contra el de la Fase 33 y contra el piso ratificado de `29-SIZING.md`, **declarando cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas desaparecieron por corrección — para que la baja de números no pueda leerse como un falso limpio.
 
-**Plans**: TBD
+**Plans**: 8 plans
+
+> **Secuenciación (recomendación de `39-RESEARCH.md`, seguida al pie).** Correr en vivo **antes**
+> de que aterricen las correcciones de harness escribe basura en ledgers versionados y puede
+> quemar baselines write-once. Por eso los planes 01-03 (clasificación, allowlist D-MATZ-33,
+> evidencia de corrida y cierre de ciclo no-vacuo) preceden a las cadenas por driver (04-06), que
+> preceden a la corrida en vivo (07) y al censo (08). Los planes 04, 05 y 06 quedan en olas
+> separadas porque los tres tocan la allowlist explícita de `.github/workflows/ci.yml`: un lock
+> bajo `verification/` que no se agrega ahí **en el mismo commit** ship inerte (defecto ya
+> committeado en la Phase 36, WR-01).
+>
+> **Corrección a la premisa de D-05:** `matriz_client` **sí** tiene `aio.py` con un `AsyncClient`
+> completo en HEAD, y `main_matriz.py` ya corre ~19 probes async sin importar `ws_client` ni una
+> vez. "Ambas superficies" para matriz es `client.py` + `aio.py`, igual que iol y higyrus; ningún
+> plan propone camino WebSocket.
+
+**Wave 1** *(paralelo: no comparten archivos)*
+
+- [ ] 39-01-PLAN.md — Gate D-MATZ-33 por hostname exacto (D-02, checkpoint humano bloqueante) + clasificación SKIPPED de matriz y higyrus (D-01), con 3 locks nuevos cableados a CI — wave 1
+- [ ] 39-02-PLAN.md — Suites mockeadas de casos límite del encadenamiento profundo en iol/higyrus/matriz, ambas superficies (SC-2 / D-12) — wave 1
+
+**Wave 2** *(bloqueado por 39-01)*
+
+- [ ] 39-03-PLAN.md — `verification/run_evidence.py` + los 4 drivers cableados + cierre de ciclo no-vacuo por conteo de probes (D-09) y semilla del censo (D-10) — wave 2
+
+**Wave 3-5** *(secuenciales: los tres tocan la allowlist de `ci.yml`)*
+
+- [ ] 39-04-PLAN.md — iol: cadena `.puntas` en los 4 probes tipados + lock AST (D-03) — wave 3
+- [ ] 39-05-PLAN.md — higyrus: cadena tipada `Posicion.parking` sin HTTP adicional + lock AST (D-04) — wave 4
+- [ ] 39-06-PLAN.md — matriz: los 6 alias en sync y async + segregación por venue de los baselines write-once + lock AST (D-05, Open Question 1) — wave 5
+
+**Wave 6** *(bloqueado por 39-01…39-06)*
+
+- [ ] 39-07-PLAN.md — Corrida en vivo de los 4 drivers, casos límite forzados, fixes in-cycle con espejo sync/async y regresión mockeada, checkpoint de disposición (D-08, D-12) — wave 6
+
+**Wave 7** *(bloqueado por 39-07)*
+
+- [ ] 39-08-PLAN.md — `39-CENSUS.md`: contraste contra Fase 33 y contra el piso ratificado, split colapso-de-política vs corrección real, ausencia medida de ámbito, addendum al ledger de triples retiradas (D-06, D-10, D-11) — wave 7
 
 ### Phase 40: Releases breaking coordinados
 
@@ -194,7 +231,7 @@ Plans:
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
-| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/?   | Not started | -          |
+| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/8   | Planned     | -          |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
