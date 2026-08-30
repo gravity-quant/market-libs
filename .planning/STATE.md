@@ -6,14 +6,14 @@ current_phase: 39
 current_phase_name: verificaci-n-en-vivo-del-encadenamiento-profundo
 status: executing
 stopped_at: Completed 39-02-PLAN.md
-last_updated: "2026-08-30T02:05:01.628Z"
+last_updated: "2026-08-30T02:11:14.720Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 39 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 39 (verificaci-n-en-vivo-del-encadenamiento-profundo) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 39 execution started
 
@@ -189,6 +189,7 @@ Last activity: 2026-08-30 — Phase 39 execution started
 | Phase 39 P01 | 42min | 3 tasks | 6 files |
 | Phase 39 P02 | 38min | 3 tasks | 4 files |
 | Phase 39 P03 | 8min | 3 tasks | 9 files |
+| Phase 39 P04 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -434,6 +435,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 39-03: la costura de no-vacuidad vive en el loop de main_matriz.py, no en verification/cycle_report.py (que queda byte-identico)
 - [Phase ?]: 39-03: el predicado de cierre de ciclo es probes_executed > 0 (evidencia positiva de corrida), NO el conteo de findings promovidos
 - [Phase ?]: 39-03: el sobre de evidencia se reescribe en cada corrida, incluidos los dos caminos de skip (T-39-12)
+- [Phase ?]: 39-04: la allowlist de driver locks de ci.yml vive en el job lint, no en el test — el job test corre per-package y nunca ve verification/
+- [Phase ?]: 39-04: la rama de la cadena .puntas se decide por truthiness (lista vacia / Null Object falsy), nunca por is None — ambos campos estan declarados sin | None desde la Phase 38
 
 ### Pending Todos
 
@@ -518,7 +521,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T02:04:57.272Z
+Last session: 2026-08-30T02:11:04.688Z
 Stopped at: Completed 39-02-PLAN.md
 Resume file: None
 
