@@ -83,7 +83,8 @@ jobs:
             verification/test_main_matriz_risk_envelope_keys.py \
             verification/test_safemodel_diff_mapping_recursion.py \
             verification/test_main_verify_classification.py \
-            verification/test_main_matriz_skip_line_shape.py
+            verification/test_main_matriz_skip_line_shape.py \
+            verification/test_main_higyrus_skip_line_shape.py
 
   pre-commit:
     name: pre-commit hooks

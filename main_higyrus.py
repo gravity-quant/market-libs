@@ -224,6 +224,29 @@ _fid_counter: int = 0
 _auth_failed: bool = False
 _auth_failure_reason: str = ""
 
+# Phase 39 D-01: el vendor no está *rechazando* — no está *ahí*. Un
+# ``httpx.ConnectError`` de ``login()`` (caso DNS ``gaierror``) no es un hallazgo
+# sobre el cliente: es la ausencia de la contraparte contra la que se verifica.
+# Hasta D-01 caía en ``_RESIDUAL_PROBE_EXCEPTIONS`` (que incluye
+# ``httpx.HTTPError``, superclase de ``ConnectError``) y se escribía como finding
+# ``AUTH OPEN`` en un ledger versionado, mientras el driver salía 0 sin decir
+# nada: ``main_verify.py`` lo clasificaba ``RAN``. Falso limpio en los dos
+# sentidos. Con estas globales, ``main()`` corta temprano y lo dice.
+_vendor_unreachable: bool = False
+_vendor_unreachable_reason: str = ""
+
+# Línea verbatim que el driver emite a STDOUT cuando el vendor no es alcanzable.
+# Literal a propósito: ``main_verify.py`` clasifica por la forma
+# ``^SKIPPED \S.*:`` (los dos puntos son load-bearing) y no interpolar el
+# hostname ni la base URL es lo que evita que el veredicto filtre el dato de
+# entrada (T-39-04).
+_VENDOR_UNREACHABLE_SKIP_LINE = (
+    "SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33"
+)
+
+# Causa medida que viaja en el ``ProbeResult`` del login (no en la línea SKIPPED).
+_VENDOR_UNREACHABLE_DETAIL = "vendor host unreachable (DNS)"
+
 # D-HIGY-11: id de cuenta resuelto por probe 5 (probe_get_listado_cuentas_sync)
 # para que los downstream que requieren id_cuenta tengan un sample real. El
 # orden de ejecución de main() garantiza que este global queda seteado ANTES
@@ -615,6 +638,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
     el ``Decode`` nunca fue intencional acá. Ahora lo intercepta ``probe_context``.
     """
     global _auth_failed, _auth_failure_reason
+    global _vendor_unreachable, _vendor_unreachable_reason
     base_url = client._state.base_url
     try:
         client.login()
@@ -636,6 +660,22 @@ def probe_login_sync(client: Client) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN)")
+    except httpx.ConnectError as exc:
+        # Phase 39 D-01: host inalcanzable != cliente defectuoso. Va DESPUÉS de
+        # ``HigyrusAPIError`` (un rechazo real del vendor sigue produciendo su
+        # finding AUTH) y ANTES de ``_RESIDUAL_PROBE_EXCEPTIONS`` (que incluye
+        # ``httpx.HTTPError``, superclase de ``ConnectError``: invertir el orden
+        # deja esta rama inalcanzable). NO llama ``append_finding``: un AUTH OPEN
+        # fabricado enrojece la rama de exención de higyrus en
+        # ``verification/test_cycle_closure_phase33.py`` y ensucia un ledger
+        # versionado con un hallazgo que no es sobre el cliente.
+        # ``httpx.ConnectTimeout`` NO entra acá (no es subclase): un timeout
+        # sigue cayendo en el bracket residual.
+        _vendor_unreachable = True
+        _vendor_unreachable_reason = f"sync login: {type(exc).__name__}: {exc}"
+        _auth_failed = True
+        _auth_failure_reason = f"sync login: {_VENDOR_UNREACHABLE_DETAIL}"
+        return ProbeResult("login_sync", "SKIPPED", _VENDOR_UNREACHABLE_DETAIL)
     except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"sync login: unexpected {type(exc).__name__}: {exc}"
@@ -679,6 +719,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     del sweep. Lo intercepta ``probe_context``.
     """
     global _auth_failed, _auth_failure_reason
+    global _vendor_unreachable, _vendor_unreachable_reason
     base_url = aclient._state.base_url
     try:
         await aclient.login()
@@ -700,6 +741,14 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_async", "FINDING", f"{fid} (OPEN)")
+    except httpx.ConnectError as exc:
+        # Espejo byte-paralelo del handler sync (CLAUDE.md dual sync/async, D-08).
+        # Mismo orden de los tres brackets y misma ausencia de ``append_finding``.
+        _vendor_unreachable = True
+        _vendor_unreachable_reason = f"async login: {type(exc).__name__}: {exc}"
+        _auth_failed = True
+        _auth_failure_reason = f"async login: {_VENDOR_UNREACHABLE_DETAIL}"
+        return ProbeResult("login_async", "SKIPPED", _VENDOR_UNREACHABLE_DETAIL)
     except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"async login: unexpected {type(exc).__name__}: {exc}"
@@ -2735,6 +2784,19 @@ def main() -> None:
 
         # (a) Probe 1 sync (login_sync) — puede setear _auth_failed.
         results["login_sync"] = probe_login_sync(client)
+
+        # Phase 39 D-01: si el vendor no es alcanzable, el driver NO corrió.
+        # Se emite la línea SKIPPED a STDOUT (el único stream que
+        # ``main_verify.py`` escanea) y se sale con código 0, antes de que
+        # ningún probe downstream cascadee 17 SKIPPED y antes de cualquier
+        # ``append_finding``: la rama no escribe nada en el ledger. El
+        # ``sys.exit`` adentro del ``with`` es seguro — ``divergence_capture``
+        # es un ``@contextmanager`` con ``try/finally``, así que el
+        # ``SystemExit`` propaga por el ``yield`` y los loggers se restauran.
+        if _vendor_unreachable:
+            print(_VENDOR_UNREACHABLE_SKIP_LINE)
+            sys.exit(0)
+
         _sync_token_snapshot = (
             client._state.token if results["login_sync"].status == "PASS" else None
         )

@@ -18,9 +18,10 @@ darse cuenta:
    gana), pero el contrato del harness es salida limpia: ``sys.exit(0)``.
 
 El regex clasificador se IMPORTA de ``main_verify`` en vez de re-declararse, así
-que si el clasificador cambia este lock lo sigue. La forma D-01 de matriz se lee
-de ``main_matriz`` (su constante real); la de higyrus queda amarrada a su driver
-por ``verification/test_main_higyrus_skip_line_shape.py``.
+que si el clasificador cambia este lock lo sigue. Las dos formas nuevas de D-01
+se leen de sus drivers (``main_matriz`` / ``main_higyrus``) en vez de
+re-declararse acá, así que si un driver cambia su texto a algo que el
+clasificador ya no matchea, este lock enrojece.
 
 ``_run_driver`` no se invoca: lanza subprocesos ``uv run`` reales contra APIs en
 vivo. Lo que se pinea es su ENTRADA (el regex) y su tabla de drivers.
@@ -28,6 +29,7 @@ vivo. Lo que se pinea es su ENTRADA (el regex) y su tabla de drivers.
 
 from __future__ import annotations
 
+import main_higyrus
 import main_matriz
 from main_verify import _DRIVERS, _ENV_SKIP
 
@@ -44,11 +46,10 @@ _MUTATION_GATE_LINE = "SKIPPED (mutating, guard off)"
 # cualquier línea cuya PARTE LITERAL permita que el regex matchee.
 _HOSTILE = "SKIPPED evil: pwned"
 
-# Forma D-01 de higyrus. Se declara como literal acá (y no se importa de
-# ``main_higyrus``) porque este archivo pinea el contrato del CLASIFICADOR; el
-# amarre entre esta forma y la constante real del driver lo hace su propio lock,
-# ``verification/test_main_higyrus_skip_line_shape.py``.
-_HIGYRUS_D01_LINE = "SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33"
+# Forma D-01 de higyrus, leída de su driver (igual que la de matriz): si un
+# driver cambia su texto a algo que el clasificador ya no matchea, este lock
+# enrojece.
+_HIGYRUS_D01_LINE = main_higyrus._VENDOR_UNREACHABLE_SKIP_LINE
 
 
 def test_env_gate_line_classifies_as_skipped() -> None:
@@ -74,7 +75,7 @@ def test_higyrus_unreachable_skip_line_classifies_as_skipped() -> None:
         f"la forma D-01 de higyrus {line!r} no matchea el clasificador: un vendor "
         f"caído se reportaría RAN (falso limpio), que es la regresión D-01."
     )
-    assert line.startswith("SKIPPED higyrus-client: ")
+    assert line.startswith(f"SKIPPED {main_higyrus._PKG}: ")
     assert line.endswith("LIVE-HIGY-33"), "la línea debe nombrar su destino de verificación"
 
 
