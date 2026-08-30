@@ -1,8 +1,8 @@
 # Findings: matriz-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-08-29T16:04:41.215338+00:00
-- Resolved base URL / env: https://api.remarkets.primary.com.ar
+- Timestamp: 2026-08-30T02:41:27.293177+00:00
+- Resolved base URL / env: https://api.bbsa.matrizoms.com.ar
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
 <!-- Clases (D-09): SHAPE, AUTH, ERROR-MAP, PARAM, SYNC-ASYNC-DRIFT, NO-DATA, ANTI-BOT -->
@@ -24,6 +24,34 @@
 | F-10 | SHAPE | sync | EXPECTED |
 | F-11 | SHAPE | sync | NO-FIX |
 | F-12 | SHAPE | sync | NO-FIX |
+| F-13 | NO-DATA | sync | OPEN |
+| F-14 | ERROR-MAP | sync | OPEN |
+| F-15 | ERROR-MAP | sync | OPEN |
+| F-16 | ERROR-MAP | sync | OPEN |
+| F-17 | SHAPE | sync | OPEN |
+| F-18 | SHAPE | sync | OPEN |
+| F-19 | SHAPE | sync | OPEN |
+| F-20 | SHAPE | sync | OPEN |
+| F-21 | SHAPE | sync | OPEN |
+| F-22 | SHAPE | sync | OPEN |
+| F-23 | SHAPE | sync | OPEN |
+| F-24 | SHAPE | sync | OPEN |
+| F-25 | SHAPE | sync | OPEN |
+| F-26 | SHAPE | sync | OPEN |
+| F-27 | SHAPE | sync | OPEN |
+| F-28 | SHAPE | sync | EXPECTED |
+| F-29 | SHAPE | async | OPEN |
+| F-30 | SHAPE | async | OPEN |
+| F-31 | SHAPE | async | OPEN |
+| F-32 | SHAPE | async | OPEN |
+| F-33 | SHAPE | async | OPEN |
+| F-34 | SHAPE | async | OPEN |
+| F-35 | SHAPE | async | OPEN |
+| F-43 | SHAPE | async | OPEN |
+| F-44 | SHAPE | async | OPEN |
+| F-63 | ERROR-MAP | async | OPEN |
+| F-64 | ERROR-MAP | async | OPEN |
+| F-65 | ERROR-MAP | async | OPEN |
 
 ## Detalle por hallazgo
 
@@ -132,6 +160,230 @@
 - **Expected:** `AccountReport.detailedAccountReports` tipado `dict[str, DetailedAccountReport]` (UN nivel de keys abiertas, no dos -- la asimetria con `report` esta medida en 37-RESEARCH F-7/F-8). Roster declarado de `DetailedAccountReport`: `settlementDate` (epoch millis), el unico escalar con evidencia directa en `packages/matriz-client/documentation/Primary-API.md:1888`, dentro de la muestra `GET /rest/risk/accountReport/REM7374` en `:1817-1895`. Procedencia: vendor-documented, UNMEASURED (D-04a, tercera clase) -- nunca presentado como captura.
 - **Actual:** No existe observacion en vivo de este payload en ningun lado del repo; `grep -rn 'accountData' .planning/verification/schemas/` no matchea. Los subarboles diferidos por D-07 (`currencyBalance` en `:1828-1859`, con su mapa open-keyed `detailedCurrencyBalance`; y `availableToOperate` en `:1860-1887`, con su objeto `cash` y su mapa open-keyed `detailedCash`) llegan como divergencias `extra` no-fatales y quedan descartados del surface tipado. Fila hermana: `AccountReport.portfolio` se retipo a `float | None` (D-02) sobre la misma clase de evidencia -- numero pelado en `:1894`, corroborado por el `totalMarketValue` identico de la misma cuenta en `:1706`.
 - **Diff:** Causa bloqueante: LIVE-MATZ-33 -- el hostname assert D-MATZ-33 en `main_matriz.py:2548-2556` aborta cualquier corrida cuyo `base_url` no sea remarkets, y no fue bypasseado (T-37-16). Sin corrida en vivo no hay captura, y sin captura el roster no puede confirmarse ni corregirse en este ciclo. Destino nombrado: Phase 39 / LIVE-NOBJ-01, donde se mide el payload real y se ensancha o corrige el roster.
+
+### F-13 -- no trades for MERV - XMEV - XLC - CI in last 7 days
+
+**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** al menos 1 trade en ventana de 7 días (símbolo líquido)
+- **Actual:** trades list vacía
+- **Diff:** símbolo ilíquido o ventana sin actividad
+
+### F-14 -- get_order_status levantó PrimaryAPIError inesperado
+
+**Class:** `ERROR-MAP` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** 200 OK con envelope {order: ...}
+- **Actual:** PrimaryAPIError: Order 520900296000570:ISV_PBCP doesn't exist
+- **Diff:** error upstream o envelope key ausente / status='ERROR'
+
+### F-15 -- get_order_history levantó PrimaryAPIError inesperado
+
+**Class:** `ERROR-MAP` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** 200 OK con envelope {orders: ...}
+- **Actual:** PrimaryAPIError: Order 520900296000570:ISV_PBCP doesn't exist
+- **Diff:** error upstream o envelope key ausente / status='ERROR'
+
+### F-16 -- get_order_by_exec_id levantó PrimaryAPIError inesperado
+
+**Class:** `ERROR-MAP` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** 200 OK con envelope {order: ...}
+- **Actual:** PrimaryAPIError: Parameter 'execId' not found
+- **Diff:** error upstream o envelope key ausente / status='ERROR'
+
+### F-17 -- .instrument_detail.securityId: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `securityId` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-18 -- .instrument_detail.securityIdSource: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `securityIdSource` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-19 -- .instrument_detail.securityType: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `securityType` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-20 -- .instrument_detail.settlType: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `settlType` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-21 -- .instrument_detail.strike: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `strike` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-22 -- .instrument_detail.symbol: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `symbol` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-23 -- .instrument_detail.underlying: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `underlying` presente en wire bajo `.instrument_detail`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-24 -- .account_report.hasError: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `hasError` presente en wire bajo `.account_report`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-25 -- .account_report.lastCalculation: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `lastCalculation` presente en wire bajo `.account_report`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-26 -- .account_report.detailedAccountReports{}.availableToOperate: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `availableToOperate` presente en wire bajo `.account_report.detailedAccountReports{}`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-27 -- .account_report.detailedAccountReports{}.currencyBalance: wire emite, model ignora (info)
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declara el superset del wire
+- **Actual:** key `currencyBalance` presente en wire bajo `.account_report.detailedAccountReports{}`
+- **Diff:** backend posiblemente agregó campo nuevo; candidato a extender model
+
+### F-28 -- prod-vs-sandbox divergence acknowledged
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `EXPECTED`
+
+- **Expected:** verification limited to a venue in the D-MATZ-33 hostname allowlist (this run: bbsa) by safety policy; the allowlist is widened only by explicit operator decision (Phase 39 D-02)
+- **Actual:** prod (api.primary.com.ar) shape unverified; sandbox shape (bbsa) committed in .planning/verification/schemas/matriz-client/
+- **Diff:** N/A (acknowledged limitation, not detected drift)
+
+### F-29 -- InstrumentDetail.securityId: extra (declared=-, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at InstrumentDetail.securityId via /rest/instruments/details
+
+### F-30 -- InstrumentDetail.securityIdSource: extra (declared=-, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at InstrumentDetail.securityIdSource via /rest/instruments/details
+
+### F-31 -- InstrumentDetail.securityType: extra (declared=-, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at InstrumentDetail.securityType via /rest/instruments/details
+
+### F-32 -- InstrumentDetail.settlType: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at InstrumentDetail.settlType via /rest/instruments/details
+
+### F-33 -- InstrumentDetail.strike: extra (declared=-, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at InstrumentDetail.strike via /rest/instruments/details
+
+### F-34 -- InstrumentDetail.symbol: extra (declared=-, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at InstrumentDetail.symbol via /rest/instruments/details
+
+### F-35 -- InstrumentDetail.underlying: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at InstrumentDetail.underlying via /rest/instruments/details
+
+### F-43 -- Instrument.marketId: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.marketId via /rest/instruments/byCFICode
+
+### F-44 -- Instrument.symbol: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.symbol via /rest/instruments/byCFICode
+
+### F-63 -- aio.get_order_status_async levantó PrimaryAPIError inesperado
+
+**Class:** `ERROR-MAP` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** 200 OK + surface-typed payload
+- **Actual:** PrimaryAPIError: Order 520900296000570:ISV_PBCP doesn't exist
+- **Diff:** error upstream o status='ERROR' inesperado
+
+### F-64 -- aio.get_order_history_async levantó PrimaryAPIError inesperado
+
+**Class:** `ERROR-MAP` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** 200 OK + surface-typed payload
+- **Actual:** PrimaryAPIError: Order 520900296000570:ISV_PBCP doesn't exist
+- **Diff:** error upstream o status='ERROR' inesperado
+
+### F-65 -- aio.get_order_by_exec_id_async levantó PrimaryAPIError inesperado
+
+**Class:** `ERROR-MAP` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** 200 OK + surface-typed payload
+- **Actual:** PrimaryAPIError: Parameter 'execId' not found
+- **Diff:** error upstream o status='ERROR' inesperado
 <!-- END AUTO-GENERATED -->
 
 ## Cycle Closure

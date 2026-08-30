@@ -1,0 +1,15 @@
+{
+  "slug": "ambito-financiero-client",
+  "driver": "main_ambito_financiero.py",
+  "captured_at": "2026-08-30T02:41:29.655806+00:00",
+  "counts": {
+    "PASS": 6,
+    "FAIL": 0,
+    "SKIPPED": 1,
+    "FINDING": 0
+  },
+  "probes_executed": 7,
+  "n_triples": 0,
+  "triples": [],
+  "skipped": null
+}

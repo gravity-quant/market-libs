@@ -1,0 +1,54 @@
+{
+  "endpoint": "/rest/instruments/detail",
+  "client_function": "get_instrument_detail",
+  "captured_at": "2026-08-30T02:38:47.132666+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {
+    "symbol": "{symbol}"
+  },
+  "schema": {
+    "cficode": "str",
+    "contractMultiplier": "float",
+    "currency": "str",
+    "highLimitPrice": "float",
+    "instrumentId": {
+      "marketId": "str",
+      "symbol": "str"
+    },
+    "instrumentPricePrecision": "int",
+    "instrumentSizePrecision": "int",
+    "lowLimitPrice": "float",
+    "maturityDate": "NoneType",
+    "maxTradeVol": "int",
+    "minPriceIncrement": "float",
+    "minTradeVol": "int",
+    "orderTypes": [
+      "str"
+    ],
+    "priceConvertionFactor": "float",
+    "roundLot": "float",
+    "securityDescription": "str",
+    "securityId": "NoneType",
+    "securityIdSource": "NoneType",
+    "securityType": "NoneType",
+    "segment": {
+      "marketId": "str",
+      "marketSegmentId": "str"
+    },
+    "settlType": "str",
+    "strike": "NoneType",
+    "symbol": "NoneType",
+    "tickPriceRanges": {
+      "0": {
+        "lowerLimit": "int",
+        "tick": "float",
+        "upperLimit": "NoneType"
+      }
+    },
+    "tickSize": "float",
+    "timesInForce": [
+      "str"
+    ],
+    "underlying": "str"
+  }
+}
