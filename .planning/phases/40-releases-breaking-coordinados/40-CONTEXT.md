@@ -32,18 +32,25 @@ paquete, y no se tocan).
   dos campos `dict[str, Any]` → modelos tipados + fix de envelope-unwrap). `ambito-financiero-client`
   y `wallets-client` NO se tocan — Phase 38 (NOBJ-AUD-01) midió 0 violaciones en ambos.
 
-- **D-02 [checkpoint explícito, no resuelto en discuss]:** `higyrus-client` carga una ruptura
-  **ya shippeada en código pero nunca publicada**: `get_health()` devuelve `Health` tipado desde
-  Phase 31 (v1.5, commit `bf04b2f`), `pyproject.toml` sigue en `0.2.0`, y el README todavía dice
-  "el bump lo hace la Phase 34" — afirmación que Phase 34 mismo invalidó (D-01 de `34-CONTEXT.md`
-  excluyó higyrus explícitamente; `34-01-SUMMARY.md` clasificó el diff como "aditivo", no
-  ameritando bump). Ningún artefacto de planning reasigna esta deuda a ninguna fase. Consistente
-  con el precedente del proyecto (D-08/D-18: nunca resolver en silencio una decisión
-  scope-adjacent), esto **no se decide acá** — se presenta como pregunta explícita en el primer
-  checkpoint (pre-merge) de esta fase:
+- **D-02 [checkpoint explícito, no resuelto en discuss — corregido tras research]:**
+  `higyrus-client` carga una ruptura **ya shippeada en código pero nunca publicada**:
+  `get_health()` devuelve `Health` tipado desde Phase 31 (v1.5, commit `bf04b2f`),
+  `pyproject.toml` sigue en `0.2.0`, y el README todavía dice "el bump lo hace la Phase 34" —
+  afirmación que Phase 34 mismo invalidó (D-01 de `34-CONTEXT.md` excluyó higyrus explícitamente;
+  `34-01-SUMMARY.md` clasificó el diff como "aditivo", no ameritando bump). Ningún artefacto de
+  planning reasigna esta deuda a ninguna fase. Consistente con el precedente del proyecto
+  (D-08/D-18: nunca resolver en silencio una decisión scope-adjacent), esto **no se decide acá**
+  — se presenta como pregunta explícita, pero **NO** en el checkpoint pre-merge (D-07/(a)) como
+  se pensó originalmente: la fase de research (`40-RESEARCH.md`, OQ-1) encontró que resolver esto
+  *después* del bump/lock/push rompería D-10 (un "aprobar" ahí exigiría un **segundo** `uv lock`
+  para el cuarto paquete). **Corrección:** este checkpoint se **hoistea a un gate bloqueante al
+  inicio mismo del primer plan** (antes de tocar cualquier `pyproject.toml` o correr `uv lock`),
+  para que el conjunto final de paquetes a bumpear (3 o 4) y el único `uv lock` de D-10 se
+  calculen correctamente desde el arranque — no como un ítem más del checkpoint (a).
   - Si el operador aprueba foldear: higyrus se suma como **cuarto** paquete bumpeado
     (`0.2.0 → 0.3.0`), con su sección de changelog reescrita al formato `## Unreleased —
-    BREAKING` (reemplazando la sección obsoleta `### v0.3.0 — sin publicar todavía`).
+    BREAKING` (reemplazando la sección obsoleta `### v0.3.0 — sin publicar todavía`), y entra en
+    el mismo `uv lock` único de D-10.
   - Si el operador declina: la sección del README se corrige de todos modos (deja de citar
     "Phase 34" como ejecutor, ya shippeada sin este cambio) y se reasigna a un destino concreto
     o se marca explícitamente "pendiente, sin fase asignada" — no se re-difiere en silencio una
@@ -89,14 +96,22 @@ paquete, y no se tocan).
   `pre-commit`, `typecheck`, `test` — este último fan-out en 12), no 4 jobs adicionales sobre el
   matrix.
 
-### Ops irreversibles — dos gates, no tres
+### Ops irreversibles — dos gates, no tres (más un gate de alcance previo)
 
-- **D-07:** Exactamente **dos checkpoints humanos bloqueantes**, implementados como dos
-  `PLAN.md` separados (`autonomous: false` cada uno), espejando literalmente el split
-  `34-02-PLAN.md`/`34-03-PLAN.md`: (a) antes de mergear el PR, (b) antes de pushear los tags.
-  Nunca colapsados, nunca auto-aprobados pese a `auto_advance: true` + `mode: yolo` (confirmados
-  activos en `.planning/config.json`). El checkpoint (a) incluye la pregunta D-02 (higyrus)
-  explícitamente.
+- **D-07 [corregido tras research]:** Exactamente **dos checkpoints humanos bloqueantes** para
+  las operaciones irreversibles, implementados como dos `PLAN.md` separados (`autonomous: false`
+  cada uno), espejando literalmente el split `34-02-PLAN.md`/`34-03-PLAN.md`: (a) antes de
+  mergear el PR, (b) antes de pushear los tags. Nunca colapsados, nunca auto-aprobados pese a
+  `auto_advance: true` + `mode: yolo` (confirmados activos en `.planning/config.json`). **Las
+  preguntas D-02 (higyrus) y D-12 (market_id/active) NO viven en el checkpoint (a)** — la
+  investigación (`40-RESEARCH.md` OQ-1) encontró que resolverlas ahí, después del bump/lock/push,
+  rompe D-10 (exigiría un segundo `uv lock`) y enrojecería tests ya verdes. Ambas se resuelven en
+  un **gate de alcance independiente, previo, al inicio del primer plan** (`checkpoint:decision`
+  bloqueante antes de tocar cualquier `pyproject.toml`) — decisión del operador confirmada en
+  discuss-phase (2026-08-30): hoistear, no dejarlas en el checkpoint (a). Este gate de alcance no
+  cuenta contra el "exactamente dos" de operaciones irreversibles del criterio 4 del ROADMAP —
+  no mergea ni taggea nada, solo fija el conjunto de paquetes/cambios antes de que el resto de la
+  fase corra.
 
 - **D-08:** El merge usa **merge commit real** (`gh pr merge --merge`) — nunca squash, nunca
   rebase.
@@ -114,15 +129,21 @@ paquete, y no se tocan).
 
 ### Divergencia sin corregir de `market-data-client` (`market_id`/`active`)
 
-- **D-12 [checkpoint explícito, no resuelto en discuss]:** `36-DEFERRED-market-data-leaves.md`
-  documenta una divergencia medida y no corregida (`market_id`/`active` llegan `null` sobre
-  campos no-`Optional`, `strict_decode` levanta) y nombra explícitamente "el bump coordinado de
-  Phase 40" como el checkpoint natural para resolverla. Pero el alcance de esta fase
-  (`PUB-NOBJ-01`) es **publicar rupturas ya decididas**, no decidir rupturas nuevas — Phase 39 no
-  tocó ni resolvió este ítem. No se resuelve en silencio en ninguna dirección: se presenta como
-  ítem adicional en el checkpoint (a) (pre-merge).
+- **D-12 [checkpoint explícito, no resuelto en discuss — corregido tras research]:**
+  `36-DEFERRED-market-data-leaves.md` documenta una divergencia medida y no corregida
+  (`market_id`/`active` llegan `null` sobre campos no-`Optional`, `strict_decode` levanta) y
+  nombra explícitamente "el bump coordinado de Phase 40" como el checkpoint natural para
+  resolverla. Pero el alcance de esta fase (`PUB-NOBJ-01`) es **publicar rupturas ya decididas**,
+  no decidir rupturas nuevas — Phase 39 no tocó ni resolvió este ítem. No se resuelve en silencio
+  en ninguna dirección — pero, igual que D-02, **no vive en el checkpoint (a)**: aprobar el
+  ensanche ahí (después del bump/lock/push) dejaría ≥6 aserciones ya verdes de
+  `packages/market-data-client/tests/test_snapshot_no_data_row.py` rojas sin ruta de vuelta
+  limpia. Se resuelve en el **mismo gate de alcance previo que D-02** (inicio del primer plan,
+  antes de tocar `pyproject.toml`/`uv lock`).
   - Si el operador aprueba ensanchar los campos ahora: se suma como una fila más a la tabla de
-    migración de `market-data-client`, dentro del mismo bump breaking.
+    migración de `market-data-client`, dentro del mismo bump breaking, y el plan incluye
+    actualizar las ≥6 aserciones de `test_snapshot_no_data_row.py` (sync + async) como parte del
+    mismo ciclo — no una regresión post-hoc.
   - Si declina: la nota "espera checkpoint del operador" del README se corrige para no seguir
     apuntando a "Phase 40" como destino futuro (esta fase deja de ser un destino vigente en
     cuanto se publique) — se reasigna a una fase concreta o se marca "pendiente, sin fase
