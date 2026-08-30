@@ -88,7 +88,8 @@ jobs:
             verification/test_run_evidence.py \
             verification/test_main_iol_deep_chain.py \
             verification/test_main_higyrus_deep_chain.py \
-            verification/test_main_matriz_deep_chain.py
+            verification/test_main_matriz_deep_chain.py \
+            verification/test_cycle_closure_phase33.py
 
   pre-commit:
     name: pre-commit hooks
