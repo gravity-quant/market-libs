@@ -1160,9 +1160,69 @@ def probe_get_market_data(client: Client) -> tuple[ProbeResult, dict[str, Any] |
             base_url=base_url,
         )
         return (ProbeResult("get_market_data", "FINDING", f"{fid} (OPEN)"), None)
+    # ------------------------------------------------------------------
+    # D-05: gastar los SEIS alias de `MarketDataSnapshot` (Phase 37 / NOBJ-MTZ-02).
+    # ------------------------------------------------------------------
+    #
+    # El snapshot se construye sobre el sub-dict `marketData` YA obtenido: CERO
+    # llamadas HTTP adicionales. `MarketDataSnapshot.from_api` es exactamente el
+    # constructor que `_core.parse_get_market_data_response` invoca sobre este mismo
+    # sub-dict, así que enruta por el mismo walker, el mismo sink y el mismo contexto
+    # de decode estricto que el parser del cliente: la construcción emite exactamente
+    # los registros que la función tipada habría emitido, gratis. Un segundo round
+    # trip al endpoint tipado duplicaría el request del concepto market-data y la
+    # emisión de divergencias; `verification/test_main_matriz_deep_chain.py` lo
+    # prohíbe por AST.
+    #
+    # Los seis alias son propiedades de SÓLO LECTURA, invisibles a
+    # `typing.get_type_hints` y a `dataclasses.fields` (Phase 35 criterio 5, D-16) y
+    # por lo tanto invisibles a `_decode.walk_model`: desreferenciarlas NO agrega
+    # camino de decode y NO puede fabricar un `missing` ni mover el conteo de
+    # divergencias. El censo NO debe atribuirle a esta cadena un cambio de números que
+    # estructuralmente no puede causar.
+    #
+    # Con entradas ausentes o `null` cada Null Object es falsy y ninguna
+    # desreferencia lanza — la semántica de borde está pinneada por la suite mockeada
+    # `packages/matriz-client/tests/test_deep_chain_edges.py` (plan 39-02).
+    #
+    # `MatrizDecodeError` NO se captura acá a propósito: no es subclase de nada en
+    # `_RESIDUAL_PROBE_EXCEPTIONS`, así que un raise de modo estricto desde `from_api`
+    # sigue viajando al decorador `probe_context(..., on_decode_error=...)` y produce
+    # el finding SHAPE de siempre, sin doble emisión bajo otro título.
+    try:
+        snapshot = MarketDataSnapshot.from_api(md)
+        last_price = snapshot.last.price
+        bid_levels = len(snapshot.bids)
+        offer_levels = len(snapshot.offers)
+        settlement_price = snapshot.settlement.price
+        close_price = snapshot.close.price
+        open_interest_size = snapshot.open_interest.size
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"get_market_data: la cadena tipada levantó {type(exc).__name__}",
+            expected="los 6 alias de MarketDataSnapshot desreferenciables sin excepción",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="eslabón roto en MarketDataSnapshot -> MarketDataEntryValue/MarketDataLevel",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_market_data", "FINDING", f"{fid} (OPEN)"), md)
+    chain = (
+        f"last={last_price} bids={bid_levels} offers={offer_levels} "
+        f"settlement={settlement_price} close={close_price} oi={open_interest_size}"
+    )
     # D-MATZ-5 market-hours guard: inspecciona LA.date.
+    #
+    # D-12: la guarda de antigüedad de `LA.date` sigue siendo el ÚNICO discriminador
+    # entre "mercado cerrado" y "campo mal modelado". Los valores de la cadena de
+    # arriba se REPORTAN, nunca se usan para clasificar.
     la = md.get("LA")
-    detail = f"symbol={_resolved_symbol}, entries={len(md)}"
+    detail = f"symbol={_resolved_symbol}, entries={len(md)}, {chain}"
     if isinstance(la, dict):
         la_date = la.get("date")
         if isinstance(la_date, int):
@@ -2158,7 +2218,20 @@ async def probe_get_instruments_by_segment_async(aclient: AsyncClient) -> ProbeR
     on_decode_error=_shape_probe_result,
 )
 async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
-    """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it)."""
+    """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it).
+
+    **Cuerpo propio en vez de ``_ainvoke`` (D-05).** El helper genérico sólo mapea
+    excepciones y DESCARTA el resultado, así que la mitad async no podía gastar los seis
+    alias: ése era el gap. El mapeo de excepciones se replica byte-paralelo al del
+    helper —la misma familia (``PrimaryAPIError`` primero, ``_RESIDUAL_PROBE_EXCEPTIONS``
+    después), el mismo ``append_finding`` con ``surface="async"``, los mismos títulos y el
+    mismo nombre de probe (clave de findings)— para no perder cobertura de error-mapping.
+
+    ``AsyncClient.get_market_data`` ya devuelve un ``MarketDataSnapshot`` TIPADO, así que
+    esta superficie no construye nada: la única llamada emisora de request es la que ya
+    tenía. Ver el comentario extenso en ``probe_get_market_data`` para por qué los seis
+    alias son observación pura y no pueden mover el conteo de divergencias.
+    """
     if _auth_failed:
         return ProbeResult(
             "get_market_data_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
@@ -2166,10 +2239,51 @@ async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
     if _resolved_symbol is None:
         return ProbeResult("get_market_data_async", "SKIPPED", "no _resolved_symbol from probe #3")
     sym = _resolved_symbol
-    return await _ainvoke(
-        aclient,
+    base_url = aclient._state.base_url
+    expected = "200 OK + surface-typed payload"
+    try:
+        snapshot = await aclient.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI"))
+        last_price = snapshot.last.price
+        bid_levels = len(snapshot.bids)
+        offer_levels = len(snapshot.offers)
+        settlement_price = snapshot.settlement.price
+        close_price = snapshot.close.price
+        open_interest_size = snapshot.open_interest.size
+    except PrimaryAPIError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="aio.get_market_data_async levantó PrimaryAPIError inesperado",
+            expected=expected,
+            actual=f"PrimaryAPIError: {exc}",
+            diff="error upstream o status='ERROR' inesperado",
+            base_url=base_url,
+        )
+        return ProbeResult("get_market_data_async", "FINDING", f"{fid} (OPEN)")
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"aio.get_market_data_async levantó {type(exc).__name__} no mapeado",
+            expected=expected,
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="transporte async devolvió excepción no mapeada a PrimaryAPIError",
+            base_url=base_url,
+        )
+        return ProbeResult("get_market_data_async", "FINDING", f"{fid} (OPEN)")
+    return ProbeResult(
         "get_market_data_async",
-        lambda: aclient.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI")),
+        "PASS",
+        f"symbol={sym}, last={last_price} bids={bid_levels} offers={offer_levels} "
+        f"settlement={settlement_price} close={close_price} oi={open_interest_size}",
     )
 
 
