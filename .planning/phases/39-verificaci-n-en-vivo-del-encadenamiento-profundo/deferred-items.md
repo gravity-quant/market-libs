@@ -45,3 +45,56 @@ fase siguiente los encuentre predichos en vez de redescubrirlos.
   `json.decoder.JSONDecodeError`. No es `PrimaryAPIError`.
 - **Mismo razonamiento de alcance y misma disposición que D39-01.** Asertado
   explícitamente en `test_market_data_204_empty_body_does_not_break_the_chain`.
+
+---
+
+## D39-03 — `append_finding` de los probes NO es content-addressed cross-run
+
+- **Descubierto en:** 39-07 Task 1, corriendo el driver de matriz dos veces (el plan
+  pide correr cada driver individualmente **y después** `main_verify.py`, que los
+  vuelve a correr a todos).
+- **Premisa falsificada:** el plan 39-07 afirma —y el 39-01 lo asumía— que "la
+  deduplicación por título es content-addressed cross-run". **Lo es sólo donde el
+  llamador lo pide.** `verification/findings.py:597` declara
+  `idempotent_by_title: bool = False` y los ~40 call sites de probe de los drivers
+  usan el default; el único sitio que lo activa es el finding terminal
+  (`main_matriz.py:3071`, HARN-10). Como `_seed_fid_counter()` sube el contador por
+  encima del máximo fid ya registrado (D-16/D-24), **cada re-corrida re-emite cada
+  finding no-terminal bajo un fid nuevo**, duplicando su bloque.
+- **Medido:** dos corridas consecutivas de `main_matriz.py` produjeron 16 bloques
+  duplicados por título (F-57..F-59 de F-16..F-18, F-61..F-66 de F-03..F-08,
+  F-67..F-70 de F-19..F-22, F-106..F-108 de F-53..F-55). El par F-02 / F-10
+  (`prod-vs-remarkets divergence acknowledged`), que existía en el ledger desde antes
+  de esta fase, es el mismo síntoma con años de antigüedad. Una corrida de
+  `main_verify.py` agregó además 40+ bloques `OPEN` duplicados al ledger de
+  `market-data-client`, un paquete que D-07 declara fuera de alcance.
+- **Cómo se manejó en 39-07:** los ledgers se restauraron a su estado previo y se
+  produjo **una sola** corrida autoritativa por paquete, de modo que el censo del
+  39-08 no herede duplicados que son un artefacto del procedimiento de ejecución y no
+  una medición. El ledger de `market-data-client` quedó byte-idéntico (D-07).
+- **Por qué NO se arregla acá:** activar `idempotent_by_title=True` en los call sites
+  de probe toca los cuatro `main_*.py` —ninguno está en `files_modified` del plan, y
+  `main_market_data.py` está explícitamente prohibido por D-07— y tiene un tradeoff
+  real: un finding cuyo **contenido** cambia con el título igual dejaría de
+  actualizarse. Es una decisión de diseño del harness, no un fix mecánico.
+- **Destino sugerido:** deuda de harness junto a `HARN-VERIF-01`. Elevado al operador
+  en el checkpoint de la Task 3 del plan 39-07.
+
+---
+
+## D39-04 — un mock que codificaba una forma que el vendor no emite
+
+- **Descubierto en:** 39-07 Task 2, al escribir la regresión de F-43/F-44.
+- **Medido:** `packages/matriz-client/tests/test_client.py::test_get_instruments_by_segment_url_invariant_phase5`
+  mockea `/rest/instruments/bySegment` con el elemento **anidado**
+  (`{"instrumentId": {...}, "cficode": ...}`). Los baselines en vivo de los dos
+  venues registran el elemento **plano** (`{marketId, symbol}`) desde 2026-06-10. El
+  test pasaba en verde mientras el método perdía el 100% de su payload en producción.
+- **Por qué importa más allá de este bug:** es el modo de falla que justifica la fase.
+  Una suite mockeada sólo puede confirmar la forma que quien la escribió supuso; sólo
+  la corrida en vivo la falsifica. El mock **no** se corrigió en 39-07 porque su
+  aserción declarada es la URL, no la forma del elemento, y la forma real ya quedó
+  pinneada por `test_instruments_flat_identifier_shape.py` contra las capturas.
+- **Destino sugerido:** barrido de mocks contra los baselines committeados — un guard
+  que compare la forma de cada payload mockeado contra
+  `.planning/verification/schemas/` cerraría esta clase entera.
