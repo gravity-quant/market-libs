@@ -5,15 +5,15 @@ milestone_name: API tipada con Null Objects
 current_phase: 40
 current_phase_name: Releases breaking coordinados
 status: executing
-stopped_at: Phase 40 context gathered (assumptions mode)
-last_updated: "2026-08-30T07:21:22.797Z"
+stopped_at: 40-01 complete; next 40-02 (PR + gate pre-merge)
+last_updated: "2026-08-30T11:52:28.476Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 40 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 25
+  completed_plans: 26
   percent: 83
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 40 (Releases breaking coordinados) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 40
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-08-30 — Phase 40 execution started
 
 ## Performance Metrics
@@ -194,6 +194,7 @@ Last activity: 2026-08-30 — Phase 40 execution started
 | Phase 39 P06 | 6min | 3 tasks | 5 files |
 | Phase 39 P07 | 1h 25m | 3 tasks | 23 files |
 | Phase 39 P08 | 22m | 3 tasks | 2 files |
+| Phase 40 P01 | 35m | 4 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -452,6 +453,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 39-08]: El delta entre las dos costuras del censo (9 vs 7 triples de matriz) NO se resuelve eligiendo una: son los dos triples que el fix in-cycle F-43/F-44 cerro entre la emision pre-fix y la captura post-fix del sobre de evidencia. El delta ES el fix.
 - [Phase ?]: [Phase 39-08]: La resta de matriz cierra exacta en las DOS columnas de unidad — 14 - 5 (colapso de politica NOBJ-02) - 2 (correccion real) = 7 triples distintos medidos, y 24 - 6 - 4 = 14 registros. Ninguna de las 14 divergencias del piso queda sin columna (SC-4 / D-11).
 - [Phase ?]: [Phase 39-08]: NOBJ-RETIRE-3637 registra la deuda de retiro no saldada de las Fases 36 y 37 (no existe artefacto 36-RETIRED ni 37-RETIRED), a saldar con un addendum al ledger de la Phase 35 en el cierre del milestone v1.7. Etiqueta de bookkeeping, no decision nueva de alcance.
+- [Phase 40]: 40-01: D-02 resuelto A-fold-higyrus — higyrus-client entra como cuarto paquete bumpeado (0.2.0 -> 0.3.0)
+- [Phase 40]: 40-01: D-12 resuelto B-widen-now — MarketDataSnapshot.market_id -> str | None y .active -> bool | None dentro del mismo bump breaking
 
 ### Pending Todos
 
@@ -536,9 +539,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T04:42:49.613Z
-Stopped at: Phase 40 context gathered (assumptions mode)
-Resume file: .planning/phases/40-releases-breaking-coordinados/40-CONTEXT.md
+Last session: 2026-08-30T11:52:28.471Z
+Stopped at: 40-01 complete; next 40-02 (PR + gate pre-merge)
+Resume file: None
 
 ## Operator Next Steps
 
