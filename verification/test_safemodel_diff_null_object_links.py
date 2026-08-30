@@ -115,14 +115,26 @@ def test_an_absent_market_data_key_is_not_a_divergence_either() -> None:
 
 
 def test_an_absent_scalar_leaf_is_still_reported() -> None:
-    """The half that must NOT be amnestied: ``market_id`` is a ``str`` LEAF.
+    """The half that must NOT be amnestied: ``symbol`` is a required ``str`` LEAF.
 
     ``walk_field`` substitutes a typed zero for it, which the caller cannot tell
     apart from data — that is exactly what ``model-only`` exists to surface.
+
+    The exemplar used to be ``market_id``. Phase 40 D-12 widened that field to
+    ``str | None``, so an absent key is now a legitimate ``None`` and correctly
+    reports nothing. ``symbol`` is the required scalar leaf that survived the
+    widening, so it carries the same evidence unchanged.
     """
+    row = {k: v for k, v in _PARTIAL_MARKET_DATA_ROW.items() if k != "symbol"}
+
+    assert ("", "model-only", "symbol") in _model_only(row, MarketDataSnapshot)
+
+
+def test_an_absent_widened_leaf_is_no_longer_reported() -> None:
+    """The D-12 counterpart: a nullable leaf absent is data, not a divergence."""
     row = {k: v for k, v in _PARTIAL_MARKET_DATA_ROW.items() if k != "market_id"}
 
-    assert ("", "model-only", "market_id") in _model_only(row, MarketDataSnapshot)
+    assert ("", "model-only", "market_id") not in _model_only(row, MarketDataSnapshot)
 
 
 def test_a_leaf_absent_inside_the_nested_container_is_still_reported() -> None:
@@ -205,10 +217,14 @@ def test_emit_shape_returns_zero_for_a_partial_market_data_row(
 def test_emit_shape_still_reports_an_absent_scalar_leaf(
     captured_findings: list[dict[str, Any]],
 ) -> None:
-    """Non-vacuity of the guard above: the driver did not simply stop emitting."""
+    """Non-vacuity of the guard above: the driver did not simply stop emitting.
+
+    Exemplar switched from ``market_id`` to ``symbol`` for the D-12 reason spelled
+    out in :func:`test_an_absent_scalar_leaf_is_still_reported`.
+    """
     import main_market_data
 
-    row = {k: v for k, v in _PARTIAL_MARKET_DATA_ROW.items() if k != "market_id"}
+    row = {k: v for k, v in _PARTIAL_MARKET_DATA_ROW.items() if k != "symbol"}
 
     emitted = main_market_data._emit_shape(
         row,
@@ -219,4 +235,4 @@ def test_emit_shape_still_reports_an_absent_scalar_leaf(
     )
 
     assert emitted == 1
-    assert "market_id" in captured_findings[0]["title"]
+    assert "symbol" in captured_findings[0]["title"]
