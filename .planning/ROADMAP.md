@@ -221,7 +221,7 @@ Plans:
   3. Un tag anotado por paquete queda sobre el SHA del merge commit re-resuelto en vivo, `release.yml` **sin editar** publica wheel + sdist por paquete, y la publicación se verifica **post-publicación instalando desde el wheel público** y ejerciendo una cadena profunda en el paquete instalado.
   4. Merge y push de tags quedan detrás de **dos checkpoints humanos independientes**, nunca colapsados en uno solo y nunca auto-aprobados pese a `auto_advance: true` + `mode: yolo` activos en config (precedente D-08 / D-18).
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 **Wave 1**
 
@@ -229,7 +229,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 40-02-PLAN.md — PR nuevo a `main`, CI verde asertado por conteo (15/15 + 2 filas por paquete bumpeado), primer checkpoint humano bloqueante y merge commit real — wave 2
+- [x] 40-02-PLAN.md — PR nuevo a `main`, CI verde asertado por conteo (15/15 + 2 filas por paquete bumpeado), primer checkpoint humano bloqueante y merge commit real — wave 2
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -244,7 +244,7 @@ Plans:
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
-| 40. Releases breaking coordinados                            | v1.7      | 1/3 | In Progress|  |
+| 40. Releases breaking coordinados                            | v1.7      | 2/3 | In Progress|  |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 
