@@ -170,7 +170,7 @@ Plans:
   3. Toda divergencia CONFIRMED se corrige **in-cycle** con espejo sync/async y un test de regresión mockeado que la pinea, y `verify_cycle_closure` devuelve PASS **no-vacuo** para cada paquete medido (con la evidencia positiva de que el driver corrió, no la mera ausencia de findings).
   4. El censo de esta corrida se contrasta explícitamente contra el de la Fase 33 y contra el piso ratificado de `29-SIZING.md`, **declarando cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas desaparecieron por corrección — para que la baja de números no pueda leerse como un falso limpio.
 
-**Plans**: 5/8 plans executed
+**Plans**: 6/8 plans executed
 
 > **Secuenciación (recomendación de `39-RESEARCH.md`, seguida al pie).** Correr en vivo **antes**
 > de que aterricen las correcciones de harness escribe basura en ledgers versionados y puede
@@ -199,7 +199,7 @@ Plans:
 
 - [x] 39-04-PLAN.md — iol: cadena `.puntas` en los 4 probes tipados + lock AST (D-03) — wave 3
 - [x] 39-05-PLAN.md — higyrus: cadena tipada `Posicion.parking` sin HTTP adicional + lock AST (D-04) — wave 4
-- [ ] 39-06-PLAN.md — matriz: los 6 alias en sync y async + segregación por venue de los baselines write-once + lock AST (D-05, Open Question 1) — wave 5
+- [x] 39-06-PLAN.md — matriz: los 6 alias en sync y async + segregación por venue de los baselines write-once + lock AST (D-05, Open Question 1) — wave 5
 
 **Wave 6** *(bloqueado por 39-01…39-06)*
 
@@ -231,7 +231,7 @@ Plans:
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
-| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 5/8 | In Progress|  |
+| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 6/8 | In Progress|  |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
