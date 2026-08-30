@@ -511,12 +511,78 @@ def build_get_instruments_by_cfi_request(
     )
 
 
+#: Las dos claves que ``byCFICode`` y ``bySegment`` emiten al ras del elemento,
+#: en vez de anidadas bajo ``instrumentId`` como hace ``/rest/instruments/all``.
+_FLAT_IDENTIFIER_KEYS = ("marketId", "symbol")
+
+
+def _normalize_instrument_element(element: Any) -> Any:
+    """Sube ``{marketId, symbol}`` planos a ``{"instrumentId": {...}}``.
+
+    Phase 39 / LIVE-NOBJ-01 (plan 39-07) — divergencia CONFIRMED medida en vivo.
+
+    ``GET /rest/instruments/byCFICode`` y ``GET /rest/instruments/bySegment``
+    **no** devuelven la forma de ``GET /rest/instruments/all``. Sus elementos
+    son planos::
+
+        {"marketId": "ROFX", "symbol": "MERV - XMEV - RAGH - CI"}
+
+    mientras que ``/rest/instruments/all`` devuelve::
+
+        {"cficode": "EMXXXX", "instrumentId": {"marketId": ..., "symbol": ...}}
+
+    Medido en los **dos** venues del allowlist D-MATZ-33 —el baseline
+    ``get-instruments-by-cfi-esxxxx.remarkets.json`` /
+    ``get-instruments-by-segment.remarkets.json`` capturado el 2026-06-10 contra
+    remarkets, y las capturas ``*.bbsa.json`` del 2026-08-30— así que **no** es
+    una deriva entre venues: es la forma real del vendor para esos dos endpoints.
+
+    Sin esta normalización, ``Instrument.from_api`` no encuentra la clave
+    ``instrumentId`` y la política Null Object (Phase 35 / NOBJ-02) colapsa el
+    eslabón no-opcional ausente a ``InstrumentId.empty()`` **sin emitir
+    divergencia**, mientras ``marketId``/``symbol`` —los únicos datos que el
+    wire trajo— se descartan como divergencias ``extra``. La corrida en vivo del
+    plan 39-07 midió el efecto: ``386`` y ``9160`` objetos ``Instrument`` con
+    ``marketId=None, symbol=None, cficode=None``, es decir el 100% del payload
+    de dos métodos públicos perdido en silencio en las cuatro superficies.
+
+    La función es **aditiva y conservadora**: si el elemento ya trae
+    ``instrumentId`` (la forma anidada, o un ``null`` explícito) se devuelve tal
+    cual, así que ``/rest/instruments/all`` no cambia y una migración futura del
+    vendor a la forma anidada en estos dos endpoints sigue funcionando. Tampoco
+    fabrica un ``cficode``: esos endpoints no lo emiten y el llamador de
+    ``byCFICode`` ya conoce el valor porque es el parámetro que pasó.
+
+    Un elemento que no es ``dict``, o que no trae ninguna de las dos claves
+    planas, se devuelve intacto — la tolerancia del walker se preserva.
+
+    Regresión: ``packages/matriz-client/tests/test_instruments_flat_identifier_shape.py``.
+    """
+    if not isinstance(element, dict) or "instrumentId" in element:
+        return element
+    identifier = {key: element[key] for key in _FLAT_IDENTIFIER_KEYS if key in element}
+    if not identifier:
+        return element
+    normalized: dict[str, Any] = {
+        key: value for key, value in element.items() if key not in _FLAT_IDENTIFIER_KEYS
+    }
+    normalized["instrumentId"] = identifier
+    return normalized
+
+
 @_decode._response_parser
 def parse_get_instruments_by_cfi_response(resp: httpx.Response) -> list[Instrument]:
-    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
+    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``.
+
+    Los elementos vienen con el identificador PLANO; ver
+    :func:`_normalize_instrument_element`.
+    """
     path = "/rest/instruments/byCFICode"
     data = parse_envelope_response(resp, path)
-    return [Instrument.from_api(i) for i in unwrap(data, "instruments", path)]
+    return [
+        Instrument.from_api(_normalize_instrument_element(i))
+        for i in unwrap(data, "instruments", path)
+    ]
 
 
 def build_get_instruments_by_segment_request(
@@ -536,10 +602,17 @@ def build_get_instruments_by_segment_request(
 
 @_decode._response_parser
 def parse_get_instruments_by_segment_response(resp: httpx.Response) -> list[Instrument]:
-    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
+    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``.
+
+    Mismo identificador PLANO que ``byCFICode``; ver
+    :func:`_normalize_instrument_element`.
+    """
     path = "/rest/instruments/bySegment"
     data = parse_envelope_response(resp, path)
-    return [Instrument.from_api(i) for i in unwrap(data, "instruments", path)]
+    return [
+        Instrument.from_api(_normalize_instrument_element(i))
+        for i in unwrap(data, "instruments", path)
+    ]
 
 
 # --- §6 Orders ----------------------------------------------------------

@@ -1,7 +1,7 @@
 {
   "slug": "matriz-client",
   "driver": "main_matriz.py",
-  "captured_at": "2026-08-30T02:41:28.621686+00:00",
+  "captured_at": "2026-08-30T02:49:48.185760+00:00",
   "counts": {
     "PASS": 39,
     "FAIL": 0,
@@ -9,20 +9,8 @@
     "FINDING": 7
   },
   "probes_executed": 50,
-  "n_triples": 9,
+  "n_triples": 7,
   "triples": [
-    [
-      "matriz-client",
-      "Instrument",
-      ".marketId",
-      "extra"
-    ],
-    [
-      "matriz-client",
-      "Instrument",
-      ".symbol",
-      "extra"
-    ],
     [
       "matriz-client",
       "InstrumentDetail",
