@@ -6,14 +6,14 @@ current_phase: 39
 current_phase_name: verificaci-n-en-vivo-del-encadenamiento-profundo
 status: executing
 stopped_at: Completed 39-02-PLAN.md
-last_updated: "2026-08-30T02:29:12.902Z"
+last_updated: "2026-08-30T03:07:19.510Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 39 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 25
-  completed_plans: 23
+  completed_plans: 24
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 39 (verificaci-n-en-vivo-del-encadenamiento-profundo) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 39 execution started
 
@@ -192,6 +192,7 @@ Last activity: 2026-08-30 — Phase 39 execution started
 | Phase 39 P04 | 3min | 2 tasks | 3 files |
 | Phase 39 P05 | 6min | 2 tasks | 3 files |
 | Phase 39 P06 | 6min | 3 tasks | 5 files |
+| Phase 39 P07 | 1h 25m | 3 tasks | 23 files |
 
 ## Accumulated Context
 
@@ -444,6 +445,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 39-06: probe_get_market_data_async recibe cuerpo propio en vez de extender _ainvoke — el helper genérico lo comparten ~16 probes de paridad y descartaba el resultado; el mapeo de excepciones se replicó byte-paralelo
 - [Phase ?]: 39-06: los baselines write-once de schema de matriz se keyean por (func_name, venue) con el token del allowlist D-MATZ-33 — sin esto la primera corrida bbsa emitiría hasta 8 findings SHAPE OPEN que describen una diferencia entre venues, no un defecto del cliente
 - [Phase ?]: 39-06: 'ambas superficies' para matriz es client.py + aio.py, NO REST+WS — la premisa de CONTEXT está vencida y un test AST prohíbe reintroducir el import de ws_client en el driver
+- [Phase ?]: 39-07: la divergencia CONFIRMED del identificador plano de byCFICode/bySegment se corrige en _core (sitio unico que ambos shells atraviesan por REFAC-03), no en cada shell — el espejo sync/async sale por construccion
+- [Phase ?]: 39-07: F-11 queda NO-FIX medido a medias con destino nombrado LIVE-POS-39; F-01 de iol se mantiene OPEN arrastrado con destino LIVE-NOBJ-01 (el operador no firmo la promocion a terminal)
+- [Phase ?]: 39-07: una sola corrida autoritativa por paquete — el harness re-emite findings por corrida (idempotent_by_title default False, D39-03), asi que correr dos veces contamina el ledger
 
 ### Pending Todos
 
@@ -528,7 +532,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T02:28:57.724Z
+Last session: 2026-08-30T03:07:14.956Z
 Stopped at: Completed 39-02-PLAN.md
 Resume file: None
 
