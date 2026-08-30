@@ -76,6 +76,8 @@ from verification import (
     diff_safemodel_bidirectional,
     divergence_capture,
     probe_context,
+    probes_executed,
+    read_run_evidence,
     require_env,
     safe_print,
     schema_of,
@@ -162,6 +164,65 @@ _CYCLE_CLOSURE_DESTINATION: dict[str, str] = {
     "matriz-client": "LIVE-MATZ-33",
 }
 _CYCLE_CLOSURE_DEFAULT_DESTINATION = "LIVE-NOBJ-01"
+
+
+def _cycle_closure_destination(pkg: str) -> str:
+    """Destino nombrado al que se repara la falta de evidencia de corrida de ``pkg``."""
+    return _CYCLE_CLOSURE_DESTINATION.get(pkg, _CYCLE_CLOSURE_DEFAULT_DESTINATION)
+
+
+def _cycle_closure_verdict(
+    pkg: str,
+    *,
+    probes: int,
+    evidence: dict[str, Any] | None,
+    ok: bool,
+    missing: list[str],
+) -> tuple[str, str]:
+    """``(status, detail)`` del cierre de ciclo de ``pkg`` — el predicado D-09.
+
+    Función de módulo, anotada y testeable por import: el predicado se verifica
+    sin correr el driver, igual que :func:`_venue_token` (patrón de la Phase 39
+    plan 01). El sitio de decisión —el loop de ``main()``— sólo hace la IO.
+
+    Tabla:
+
+    - ``probes <= 0`` (sobre ausente, o corrida saltada) ⇒ ``SKIPPED`` con la
+      causa medida que el sobre trae —o ``"sin evidencia de corrida"`` si no
+      trae ninguna— y el destino nombrado. **No** se escribe finding: no correr
+      no es un defecto del paquete.
+    - ``probes > 0`` y ``ok`` ⇒ ``PASS``, con el conteo de probes y el
+      ``captured_at`` del sobre. Ese par ES la evidencia positiva que el censo
+      transcribe.
+    - ``probes > 0`` y no ``ok`` ⇒ ``FAIL`` con las regresiones faltantes
+      (comportamiento previo, preservado).
+
+    El criterio NO es "al menos un finding CONFIRMED/FIXED" —el que usa
+    ``main_market_data.py``—: ámbito tiene cero por declarar cero clases de
+    modelo y higyrus tiene cero por no haber sido medido nunca. Un predicado
+    basado en promociones reprobaría a los dos, uno por estar limpio y el otro
+    por no haber corrido, dándole el mismo veredicto a dos causas opuestas.
+    """
+    if probes <= 0:
+        cause = ""
+        if evidence is not None:
+            raw = evidence.get("skipped")
+            if isinstance(raw, str) and raw:
+                cause = raw
+        if not cause:
+            cause = "sin evidencia de corrida"
+        destination = _cycle_closure_destination(pkg)
+        # La causa que escriben los caminos de skip de los drivers ya termina en
+        # su destino; no se concatena dos veces.
+        detail = cause if destination in cause else f"{cause} — {destination}"
+        return ("SKIPPED", detail)
+
+    if ok:
+        captured_at = evidence.get("captured_at") if evidence is not None else None
+        stamp = captured_at if isinstance(captured_at, str) and captured_at else "<sin timestamp>"
+        return ("PASS", f"{probes} probes ejecutados, evidencia de {stamp}")
+
+    return ("FAIL", f"missing regressions: {', '.join(missing)}")
 
 
 def _venue_token(base_url: str) -> str | None:
@@ -2763,16 +2824,36 @@ def main() -> None:
             counts=interim_counts,
         )
 
-        # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
+        # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02), endurecido
+        # contra el PASS vacuo (Phase 39 D-09). Cada veredicto se decide sobre
+        # EVIDENCIA POSITIVA DE CORRIDA —el conteo de probes del sobre— y no
+        # sobre la ausencia de findings: `verify_cycle_closure` devuelve
+        # `(True, [])` también cuando el archivo de findings no existe, así que
+        # su `ok` solo, sin el sobre al lado, no distingue "todo enlazado" de
+        # "nada que validar".
+        #
+        # ACOPLAMIENTO DECLARADO: el cierre de ciclo de los CUATRO paquetes vive
+        # dentro del driver de matriz, así que si matriz sale temprano por el
+        # gate D-MATZ-33 este loop no corre y NINGUNO de los cuatro recibe
+        # veredicto de cierre. En ese caso el censo de la fase debe registrar
+        # `cycle_closure: NO CORRIÓ — LIVE-MATZ-33` para los cuatro paquetes,
+        # nunca un silencio que un lector tome por limpio.
         for pkg in (
             "ambito-financiero-client",
             "iol-client",
             "higyrus-client",
             "matriz-client",
         ):
+            evidence = read_run_evidence(pkg)
+            probes = probes_executed(pkg)
             ok, missing = verify_cycle_closure(pkg)
-            status_str = "PASS" if ok else "FAIL"
-            detail = "" if ok else f"missing regressions: {', '.join(missing)}"
+            status_str, detail = _cycle_closure_verdict(
+                pkg,
+                probes=probes,
+                evidence=evidence,
+                ok=ok,
+                missing=missing,
+            )
             results.append(
                 ProbeResult(
                     f"cycle_closure_{pkg.replace('-', '_')}",
@@ -2780,7 +2861,9 @@ def main() -> None:
                     detail,
                 )
             )
-            if not ok:
+            # Sólo el camino FAIL escribe finding: un paquete que no corrió sale
+            # SKIPPED y no toca el ledger — no medir no es un defecto.
+            if status_str == "FAIL":
                 fid = _next_fid()
                 append_finding(
                     pkg,
