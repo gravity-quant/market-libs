@@ -28,7 +28,7 @@ replica. Ésta es la mitad mockeada de "mercado cerrado vs campo mal modelado":
 la que dice que un book viejo no es una cadena rota.
 
 **CR-02 — el payload ES el baseline committeado.** Las constantes se derivan de
-``.planning/verification/schemas/matriz-client/get-market-data.json`` verbatim
+``.planning/verification/schemas/matriz-client/get-market-data.remarkets.json`` verbatim
 (capturado contra remarkets el 2026-06-10): ``BI`` y ``OF`` en lista vacía,
 ``LA``/``SE``/``OI``/``CL``/``OP`` en ``null``, sin ``HI``/``LO``/``TV``. Poblar
 un campo que el baseline manda vacío es el defecto que CR-02 midió; cuando una
@@ -63,7 +63,7 @@ from matriz_client.models import MarketDataSnapshot
 
 _SYMBOL = "AAA/ZZZ26"
 
-# ``.planning/verification/schemas/matriz-client/get-market-data.json`` VERBATIM.
+# ``.planning/verification/schemas/matriz-client/get-market-data.remarkets.json`` VERBATIM.
 # Las siete claves que el capture registró, en el estado en que las registró.
 _MD_BASELINE: dict[str, Any] = {
     "BI": [],

@@ -566,7 +566,7 @@ class TickPriceRange(_SafeModel):
     """One tick-size band inside :attr:`InstrumentDetail.tickPriceRanges` (§5.2).
 
     Live-capture provenance (D-04a class ``baseline``): field set taken verbatim
-    from ``.planning/verification/schemas/matriz-client/get-instrument-detail.json``,
+    from ``.planning/verification/schemas/matriz-client/get-instrument-detail.remarkets.json``,
     captured 2026-06-10T01:01:55Z against ``https://api.remarkets.primary.com.ar``
     (reMarkets, symbol ``SOJ.ROS/NOV26 308 P``). The capture records exactly one
     key ``"0"`` carrying exactly these three names. Not from the vendor doc and

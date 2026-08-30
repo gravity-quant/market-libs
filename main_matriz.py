@@ -270,26 +270,35 @@ _RESIDUAL_PROBE_EXCEPTIONS = (
     KeyError,
 )
 
-# D-21 envelope: mapping cada probe func_name a su archivo de schema snapshot.
-_SCHEMA_FILES: dict[str, Path] = {
-    "get_segments": _SCHEMA_DIR / "get-segments.json",
-    "get_all_instruments": _SCHEMA_DIR / "get-all-instruments.json",
-    "get_instruments_details": _SCHEMA_DIR / "get-instruments-details.json",
-    "get_instrument_detail": _SCHEMA_DIR / "get-instrument-detail.json",
-    "get_instruments_by_cfi_ESXXXX": _SCHEMA_DIR / "get-instruments-by-cfi-esxxxx.json",
-    "get_instruments_by_segment": _SCHEMA_DIR / "get-instruments-by-segment.json",
-    "get_market_data": _SCHEMA_DIR / "get-market-data.json",
-    "get_trades": _SCHEMA_DIR / "get-trades.json",
-    "get_active_orders": _SCHEMA_DIR / "get-active-orders.json",
-    "get_filled_orders": _SCHEMA_DIR / "get-filled-orders.json",
-    "get_all_orders": _SCHEMA_DIR / "get-all-orders.json",
-    "get_order_status": _SCHEMA_DIR / "get-order-status.json",
-    "get_order_history": _SCHEMA_DIR / "get-order-history.json",
-    "get_order_by_exec_id": _SCHEMA_DIR / "get-order-by-exec-id.json",
-    "get_positions": _SCHEMA_DIR / "get-positions.json",
-    "get_detailed_positions": _SCHEMA_DIR / "get-detailed-positions.json",
-    "get_account_report": _SCHEMA_DIR / "get-account-report.json",
+# D-21 envelope: mapping cada probe func_name al SLUG de su archivo de schema snapshot
+# (nombre base, sin directorio ni extensión). La ruta completa la arma
+# :func:`_schema_path`, que le intercala el token de venue — ver ahí el porqué.
+_SCHEMA_FILES: dict[str, str] = {
+    "get_segments": "get-segments",
+    "get_all_instruments": "get-all-instruments",
+    "get_instruments_details": "get-instruments-details",
+    "get_instrument_detail": "get-instrument-detail",
+    "get_instruments_by_cfi_ESXXXX": "get-instruments-by-cfi-esxxxx",
+    "get_instruments_by_segment": "get-instruments-by-segment",
+    "get_market_data": "get-market-data",
+    "get_trades": "get-trades",
+    "get_active_orders": "get-active-orders",
+    "get_filled_orders": "get-filled-orders",
+    "get_all_orders": "get-all-orders",
+    "get_order_status": "get-order-status",
+    "get_order_history": "get-order-history",
+    "get_order_by_exec_id": "get-order-by-exec-id",
+    "get_positions": "get-positions",
+    "get_detailed_positions": "get-detailed-positions",
+    "get_account_report": "get-account-report",
 }
+
+# Token que reemplaza al de venue cuando el hostname NO está en `_VENUE_ALLOWLIST`.
+# Camino INALCANZABLE en producción —el gate D-MATZ-33 de `main()` sale con SKIPPED
+# antes de que corra ningún probe—, pero el helper no debe lanzar por eso: fail-safe,
+# no fail-hard. Es un literal cerrado, nunca un fragmento de la URL de entrada
+# (T-39-20).
+_VENUE_SENTINEL = "unknown-venue"
 
 # D-21 path templates por endpoint canonical (con {account_id} placeholder donde aplica).
 _ENDPOINT_TEMPLATES: dict[str, str] = {
@@ -498,6 +507,37 @@ def _first_dict(payload: Any, *, fname: str | None = None) -> dict[str, Any] | N
     return None
 
 
+def _schema_path(func_name: str, base_url: str) -> Path:
+    """Ruta del baseline write-once de ``func_name`` SEGREGADA POR VENUE.
+
+    El nombre es ``<slug>.<venue>.json``: el slug sale de :data:`_SCHEMA_FILES` y el
+    token de venue de :func:`_venue_token` sobre la ``base_url`` que
+    :func:`_write_or_check_schema` **ya recibe**. Esa función es la ÚNICA fuente de
+    verdad de venues del driver (allowlist D-MATZ-33, plan 39-01): acá no hay una
+    segunda tabla, y por eso el token nunca puede ser un fragmento arbitrario de la
+    URL de entrada — sale de un dict cerrado de valores literales (T-39-20). El
+    directorio se deriva de ``__file__`` vía :data:`_SCHEMA_DIR`.
+
+    **Por qué el venue es parte de la clave (Phase 39, Open Question 1 / Pitfall 1).**
+    Los baselines son write-once y D-25 prohíbe sobrescribir uno que difiere: si el
+    archivo se eligiera sólo por nombre de función —como hasta la Phase 39— la primera
+    corrida contra el sandbox **bbsa** diffearía sus formas contra las líneas base
+    capturadas contra **remarkets** el 2026-06-10, y emitiría hasta 8 findings
+    ``SHAPE OPEN`` que describen una diferencia **entre venues**, no un defecto del
+    cliente. Ése es exactamente el ruido que SC-4 existe para evitar (precedente: la
+    Phase 33 ya tuvo que separar findings de censo de findings de deriva). Con la
+    segregación, esa primera corrida **captura baselines frescos** para bbsa y los de
+    remarkets quedan intactos y siguen siendo válidos para una futura corrida contra
+    remarkets. El censo del plan 39-08 debe transcribir este caveat.
+
+    Un hostname fuera del allowlist cae en :data:`_VENUE_SENTINEL` en vez de lanzar:
+    camino inalcanzable en producción porque el gate D-MATZ-33 sale antes de que corra
+    ningún probe.
+    """
+    venue = _venue_token(base_url) or _VENUE_SENTINEL
+    return _SCHEMA_DIR / f"{_SCHEMA_FILES[func_name]}.{venue}.json"
+
+
 def _write_or_check_schema(
     func_name: str,
     endpoint_template: str,
@@ -513,6 +553,11 @@ def _write_or_check_schema(
     Si existe y difiere → emite finding ``SHAPE OPEN`` con expected/actual
     JSON, **NO sobreescribe** el baseline (D-25), retorna FINDING con fid.
 
+    Phase 39: el archivo se elige por ``(func_name, venue)`` vía :func:`_schema_path`,
+    no sólo por nombre de función. ``base_url`` sigue registrándose DENTRO del sobre
+    —ahora además es parte de la clave del nombre, lo que hace el artefacto
+    autoconsistente—. La política D-25 no cambia.
+
     Returns ``(status, detail)`` donde ``status`` es ``"PASS"`` o ``"FINDING"``.
     """
     actual_schema = schema_of(raw_payload)
@@ -525,7 +570,7 @@ def _write_or_check_schema(
         "schema": actual_schema,
     }
     _SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = _SCHEMA_FILES[func_name]
+    file_path = _schema_path(func_name, base_url)
     if not file_path.exists():
         file_path.write_text(
             json.dumps(envelope, indent=2, ensure_ascii=False) + "\n",
