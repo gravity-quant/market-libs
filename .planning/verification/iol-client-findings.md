@@ -92,6 +92,13 @@ contabilizarlo explícitamente: su permanencia **no** es una regresión nueva, y
 **no** es un fix declarado. NO es un cambio de status ni una entrada AUTO-GENERATED nueva
 (D-05 / HARN-09).
 
+**Operator signoff:** sebadlf, 2026-08-30, via /gsd-execute-phase 39 (checkpoint bloqueante de la
+Task 3 del plan 39-07, respuesta verbatim: "Approved"). De las dos lecturas planteadas arriba, el
+operador **no** firmó la promoción a terminal: F-01 se **mantiene OPEN arrastrado** con destino
+nombrado `LIVE-NOBJ-01` y con el fundamento preexistente citado, que es exactamente la disposición
+por defecto que el plan proponía. La decisión (a)-vs-(b) queda abierta para el ciclo que mida de
+nuevo `get_quote`.
+
 ## Cycle Closure
 
 **Cycle ID:** `verification-cycle-2026-Q2`

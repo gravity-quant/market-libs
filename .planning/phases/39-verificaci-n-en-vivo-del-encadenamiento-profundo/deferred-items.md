@@ -79,6 +79,12 @@ fase siguiente los encuentre predichos en vez de redescubrirlos.
   actualizarse. Es una decisión de diseño del harness, no un fix mecánico.
 - **Destino sugerido:** deuda de harness junto a `HARN-VERIF-01`. Elevado al operador
   en el checkpoint de la Task 3 del plan 39-07.
+- **Resuelto por el operador (checkpoint Task 3, 2026-08-30, respuesta verbatim
+  "Approved"):** confirmado **fuera de alcance de la Phase 39**, tracked acá junto a
+  `HARN-VERIF-01`. No es una divergencia entre cliente y API —es una propiedad del
+  harness de verificación— así que D-08 no aplica y no requiere destino nombrado de
+  fase. Se mantiene la mitigación de procedimiento ya aplicada: una sola corrida
+  autoritativa por paquete.
 
 ---
 
