@@ -1,0 +1,16 @@
+{
+  "endpoint": "/rest/instruments/all",
+  "client_function": "get_all_instruments",
+  "captured_at": "2026-08-30T02:34:58.394450+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {},
+  "schema": [
+    {
+      "cficode": "str",
+      "instrumentId": {
+        "marketId": "str",
+        "symbol": "str"
+      }
+    }
+  ]
+}

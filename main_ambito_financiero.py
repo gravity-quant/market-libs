@@ -46,7 +46,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-from verification import divergence_capture, probe_context, safe_print, schema_of, write_findings
+from verification import (
+    divergence_capture,
+    probe_context,
+    safe_print,
+    schema_of,
+    write_findings,
+    write_run_evidence,
+)
 from verification.findings import append_finding, max_existing_fid
 
 import ambito_financiero_client as ambito
@@ -841,6 +848,19 @@ def main() -> None:
         f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=[],
+    )
+
+    # Phase 39 (D-09 + D-10): el sobre persiste los MIEMBROS de ``handler.seen``
+    # (acá se espera la lista vacía, por D-12) junto con el conteo de probes.
+    # Para este paquete el sobre es justamente lo que separa "cero divergencias
+    # porque el paquete declara cero clases de modelo" de "cero divergencias
+    # porque el driver no corrió": el primero lleva ``probes_executed > 0``, el
+    # segundo lleva 0. Sin ese número, los dos ceros son indistinguibles.
+    write_run_evidence(
+        _PKG,
+        driver="main_ambito_financiero.py",
+        triples=sorted(handler.seen),
+        counts={"PASS": n_pass, "FAIL": n_fail, "SKIPPED": n_skip, "FINDING": n_find},
     )
 
 

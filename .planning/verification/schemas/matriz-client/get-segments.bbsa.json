@@ -1,0 +1,13 @@
+{
+  "endpoint": "/rest/segment/all",
+  "client_function": "get_segments",
+  "captured_at": "2026-08-30T02:34:58.392967+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {},
+  "schema": [
+    {
+      "marketId": "str",
+      "marketSegmentId": "str"
+    }
+  ]
+}

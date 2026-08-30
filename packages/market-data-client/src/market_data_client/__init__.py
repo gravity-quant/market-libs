@@ -71,10 +71,12 @@ from market_data_client.exceptions import (  # noqa: E402
 )
 from market_data_client.models import (  # noqa: E402
     AddHolidaysResult,
+    BookLevel,
     CalendarConfig,
     CalendarConfigPreview,
     CalendarDay,
     DeleteHolidayResult,
+    EntryValue,
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
@@ -85,6 +87,7 @@ from market_data_client.models import (  # noqa: E402
     HolidaysIn,
     Instrument,
     LatestRequest,
+    MarketDataEntries,
     MarketDataSnapshot,
     MarketHoursIn,
     NewSymbol,
@@ -101,11 +104,13 @@ from market_data_client.models import (  # noqa: E402
 __all__ = [
     "AddHolidaysResult",
     "AsyncClient",
+    "BookLevel",
     "CalendarConfig",
     "CalendarConfigPreview",
     "CalendarDay",
     "Client",
     "DeleteHolidayResult",
+    "EntryValue",
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",
@@ -119,6 +124,7 @@ __all__ = [
     "MarketDataAPIError",
     "MarketDataAuthError",
     "MarketDataDecodeError",
+    "MarketDataEntries",
     "MarketDataError",
     "MarketDataMutationNotAllowedError",
     "MarketDataRateLimitError",
@@ -154,4 +160,4 @@ __all__ = [
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

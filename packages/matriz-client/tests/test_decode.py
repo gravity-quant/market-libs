@@ -19,9 +19,11 @@ with a dedicated test below:
    reporting.
 
 Plus the matriz-only **mapping axis**: a ``dict``-declared field falls back to
-``{}``. The canonical walker has no ``dict`` branch (higyrus and market-data
-declare no mapping fields), so that axis lives in ``models.py`` at the call
-site — see ``_apply_mapping_policy`` and the tests under "Mapping axis".
+``{}``, and since Phase 37 its VALUES are decoded against the declared element
+type (with recursion for a nested mapping hint). The canonical walker has no
+``dict`` branch (higyrus and market-data declare no mapping fields), so both
+halves live in ``models.py`` at the call site — see ``_apply_mapping_policy``
+and the tests under "Mapping axis".
 
 Model fixtures are declared module-locally so the suite never depends on a
 shipped model's field list — a shipped model gaining or losing a field must not
@@ -33,11 +35,12 @@ are *about* a shipped class's contract (``UnknownFrame``, the nine
 from __future__ import annotations
 
 import ast
+import collections
 import dataclasses
 import inspect
 import logging
 import pathlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, get_args
 
@@ -128,6 +131,83 @@ class _Mapping(_SafeModel):
 
     meta: dict[str, Any] = field(default_factory=dict)
     label: str | None = None
+
+
+@dataclass(frozen=True)
+class _TickLike(_SafeModel):
+    """Element model for the typed-mapping fixtures (Phase 37).
+
+    Mirrors the shape of the live ``tickPriceRanges`` entry without depending on
+    the shipped ``TickPriceRange`` class, so a shipped-model field change cannot
+    turn an axis regression green.
+    """
+
+    lowerLimit: float | None = None
+    upperLimit: float | None = None
+    tick: float | None = None
+
+
+@dataclass(frozen=True)
+class _TypedMapping(_SafeModel):
+    """One level of open keys: ``dict[str, Model]`` — the ``tickPriceRanges`` shape."""
+
+    ranges: dict[str, _TickLike] = field(default_factory=dict)
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class _NestedMapping(_SafeModel):
+    """Two levels of open keys — the shape Plan 37-03's ``report`` field needs."""
+
+    report: dict[str, dict[str, _TickLike]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _AbcMapping(_SafeModel):
+    """``Mapping[str, Model]`` — the alias the SURFACE GATE steers authors toward.
+
+    Phase 37 code review, WR-01. ``tools/check_surface_types.py`` blesses
+    ``Mapping`` and ``MutableMapping`` as mapping bases so the ratchet cannot be
+    bypassed by respelling ``dict[str, Any]``; the runtime axis recognised only
+    ``dict``. The combination was a trap, not a gap: reddening
+    ``Mapping[str, Any]`` at the gate invites the "fix" to ``Mapping[str, Model]``,
+    which turned the gate green while the runtime handed back raw payload dicts.
+    """
+
+    m: Mapping[str, _TickLike] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _MutableAbcMapping(_SafeModel):
+    """``MutableMapping[str, Model]`` — the second blessed alias (WR-01)."""
+
+    m: MutableMapping[str, _TickLike] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _BareMapping(_SafeModel):
+    """An UNPARAMETERISED ``dict`` annotation (WR-02).
+
+    ``get_origin(dict)`` is ``None``, so this field was invisible to the axis
+    while stating strictly LESS than the ``dict[str, Any]`` the axis did handle.
+    The ``type: ignore`` is the point of the fixture rather than an accident:
+    mypy discourages the annotation, which is exactly why nobody noticed the
+    runtime hole behind it, and the gate now reddens the spelling too (CR-02).
+    """
+
+    meta: dict = field(default_factory=dict)  # type: ignore[type-arg]
+
+
+@dataclass(frozen=True)
+class _OptionalMapping(_SafeModel):
+    """``dict[str, Model] | None`` — the nullable opt-in (WR-03).
+
+    ``_is_mapping`` strips the optional wrapper, so this field enters the axis
+    like any other mapping; what it must NOT lose on the way is the declaration
+    that ``None`` is a legal value.
+    """
+
+    m: dict[str, _TickLike] | None = None
 
 
 @dataclass(frozen=True)
@@ -332,14 +412,22 @@ def test_int_into_a_float_field_widens_and_is_not_reported() -> None:
     assert isinstance(models.MarketDataLevel.from_api({"size": 1000}).size, int)
 
 
-def test_missing_list_field_returns_empty_list_and_reports(
+def test_missing_list_field_returns_empty_list_without_reporting(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """A ``list[X]`` field absent from the payload stays ``[]`` and reports NOTHING.
+
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. A null or absent value on a non-optional list link is the
+    legitimate shape the milestone declares, so it collapses to ``[]`` with no
+    record. The wrong-TYPE half is untouched and stays pinned by the wrong-type
+    tests further down this module.
+    """
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
         obj = _Nested.from_api({"leaf": {"name": "n", "count": 1}})
 
     assert obj.rows == []
-    assert (".rows", "missing") in _pairs(caplog)
+    assert (".rows", "missing") not in _pairs(caplog)
 
 
 def test_extra_wire_key_reports_at_info_and_leaves_the_model_untouched(
@@ -454,12 +542,233 @@ def test_dict_hint_present_mapping_is_returned_verbatim(
     assert [p for p, _ in _pairs(caplog)] == []
 
 
+def test_abc_mapping_aliases_decode_their_values_like_dict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-01: ``Mapping``/``MutableMapping`` are handled IDENTICALLY to ``dict``.
+
+    Measured before the fix::
+
+        AbcMap.from_api({"m": {"0": {"tick": 1}}})  ->  AbcMap(m={'0': {'tick': 1}})
+
+    — raw payload dicts under a ``Mapping[str, _TickLike]`` annotation, the exact
+    type lie ``_mapping_value`` exists to remove.
+    """
+    for cls in (_AbcMapping, _MutableAbcMapping):
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            obj = cls.from_api({"m": {"0": {"tick": 0.1, "lowerLimit": 2.0}}})
+
+        assert obj.m["0"] == _TickLike(lowerLimit=2.0, upperLimit=None, tick=0.1)
+        assert isinstance(obj.m["0"], _TickLike), f"{cls.__name__} handed back a raw dict"
+
+
+def test_abc_mapping_absent_key_falls_back_to_empty_dict_not_none(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-01: the module docstring's "missing dicts become ``{}``" holds for aliases.
+
+    Measured before the fix: ``AbcMap.from_api({}) -> AbcMap(m=None)``, which
+    breaks every ``.items()`` / ``.values()`` chain the safe-access contract
+    promises will never raise.
+    """
+    for cls in (_AbcMapping, _MutableAbcMapping):
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            obj = cls.from_api({})
+
+        assert obj.m == {}
+        assert (".m", "missing") in _pairs(caplog)
+
+
+def test_a_bare_dict_annotation_gets_the_full_mapping_axis(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-02: an unparameterised ``dict`` no longer bypasses the axis.
+
+    Measured before the fix::
+
+        models._is_mapping(dict)            -> False
+        Bare.from_api({"meta": "garbage"})  -> Bare(meta='garbage')
+        Bare.from_api({})                   -> Bare(meta=None)
+
+    Three of the four guarantees the module docstring makes for a mapping field
+    were void for this spelling: no ``{}`` fallback, no divergence report, and
+    garbage passed through verbatim.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        garbage = _BareMapping.from_api({"meta": "garbage"})
+    assert garbage.meta == {}
+    assert (".meta", "type") in _pairs(caplog)
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        absent = _BareMapping.from_api({})
+    assert absent.meta == {}
+    assert (".meta", "missing") in _pairs(caplog)
+
+    # The element hint of an unparameterised base is ``Any``, so a present
+    # mapping still passes through verbatim — the documented behaviour for an
+    # untyped mapping, now actually reachable.
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        present = _BareMapping.from_api({"meta": {"a": 1}})
+    assert present.meta == {"a": 1}
+
+
+def test_the_runtime_mapping_vocabulary_covers_the_gates() -> None:
+    """WR-01: gate and runtime agree on what a mapping IS, not merely by accident.
+
+    ``tools/check_surface_types.py`` and ``models._is_mapping`` are two
+    independent answers to the same question; the review found them disagreeing.
+    Every base the gate recognises must be a base the axis recognises, or the
+    gate is steering authors into a runtime hole.
+    """
+    from tools.check_surface_types import _MAPPING_BASES
+
+    unhandled = []
+    for base in sorted(_MAPPING_BASES):
+        resolved = {
+            "dict": dict,
+            "Dict": dict,
+            "Mapping": Mapping,
+            "MutableMapping": MutableMapping,
+            "defaultdict": collections.defaultdict,
+            "DefaultDict": collections.defaultdict,
+            "OrderedDict": collections.OrderedDict,
+        }[base]
+        if not models._is_mapping(resolved[str, _TickLike]):
+            unhandled.append(base)
+    assert unhandled == [], (
+        f"the surface gate blesses {unhandled} as mapping bases but "
+        "`models._is_mapping` does not recognise them — a green gate would be "
+        "steering authors into a runtime type lie (WR-01)."
+    )
+
+
+def test_optional_mapping_absent_stays_none_and_emits_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-03: a declared-nullable mapping can actually hold ``None``.
+
+    Measured before the fix::
+
+        OptMap.from_api({}) -> OptMap(m={}) + WARNING "decode divergence" (missing)
+
+    ``walk_field`` had already returned the right answer — *"Optional[T] /
+    T | None: explicit opt-in to nullable — a missing value stays None ... and is
+    NOT a divergence"* — and the mapping pass was overwriting it.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({})
+
+    assert obj.m is None
+    assert _pairs(caplog) == []
+
+
+def test_optional_mapping_explicit_null_stays_none_and_is_not_a_divergence(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-03: an explicit ``null`` on a nullable field is well-formed, not a defect."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({"m": None})
+
+    assert obj.m is None
+    assert _pairs(caplog) == []
+
+
+def test_optional_mapping_null_is_not_fatal_under_strict_mode() -> None:
+    """WR-03's teeth: the spurious ``missing`` record was FATAL under strict mode.
+
+    ``DecodeScope.__call__`` raises on a non-exempt divergence when
+    ``strict_decode`` is set, so before the fix a strict driver run crashed on a
+    perfectly well-formed payload — the failure mode strict mode exists to
+    surface, fabricated by the decoder itself.
+    """
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+
+    assert _OptionalMapping.from_api({"m": None}).m is None
+
+
+def test_optional_mapping_still_reports_a_non_null_garbage_value(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-03's upper bound: nullable means "may be absent", never "may be anything".
+
+    A non-``None``, non-mapping value on an optional field is NOT skipped by the
+    guard: it falls through to ``_mapping_value``, substitutes ``{}`` and reports
+    a ``type`` divergence exactly as the non-optional spelling does.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({"m": "garbage"})
+
+    assert obj.m == {}
+    assert (".m", "type") in _pairs(caplog)
+
+
+def test_optional_mapping_present_value_decodes_its_elements(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The guard must not cost the optional spelling its element decoding."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _OptionalMapping.from_api({"m": {"0": {"tick": 0.5}}})
+
+    assert obj.m is not None
+    assert obj.m["0"] == _TickLike(lowerLimit=None, upperLimit=None, tick=0.5)
+
+
+def test_convert_shim_inherits_the_nullable_guard() -> None:
+    """WR-03: the shim answers the same thing ``from_api`` does for one annotation.
+
+    The non-optional pin from F-17 is asserted alongside it, because the whole
+    risk of touching the shim is moving that one.
+    """
+    assert models._convert(dict[str, Any] | None, None) is None
+    assert models._convert(dict[str, Any], None) == {}
+
+
+def test_tickPriceRanges_undeclared_inner_key_is_one_non_fatal_extra(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-37-08 (accept): the closed roster DISCARDS extras but never hides them.
+
+    ``TickPriceRange``'s three keys are exactly what the committed capture shows.
+    A fourth key the vendor adds later is dropped from the model, reported as an
+    ``extra`` divergence attributed to ``TickPriceRange``, and — lock 4 — is NOT
+    fatal even under strict mode, because vendor field growth is not our outage.
+    """
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        detail = models.InstrumentDetail.from_api(
+            {"tickPriceRanges": {"0": {"tick": 0.1, "vendorNew": 1}}}
+        )
+
+    assert detail.tickPriceRanges["0"].tick == 0.1
+    assert not hasattr(detail.tickPriceRanges["0"], "vendorNew")
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    assert len(extras) == 1
+    # WR-04: the open key is a DATA segment and no longer enters the path; the
+    # index-free ``{}`` marker is what makes N identically-diverging entries
+    # collapse into one record (lock 5), exactly as ``[]`` does for lists.
+    assert extras[0].field_path == ".tickPriceRanges{}.vendorNew"  # type: ignore[attr-defined]
+    assert extras[0].model == "TickPriceRange"  # type: ignore[attr-defined]
+
+
 def test_shipped_mapping_fields_still_default_to_empty_dict() -> None:
-    """The four shipped mapping fields — the ones ``test_models.py`` pins."""
+    """The THREE shipped mapping fields — the ones ``test_models.py`` pins.
+
+    Was four until Phase 37 D-02 demoted ``AccountReport.portfolio`` to a
+    ``float | None`` scalar; its assertion is kept here, inverted, because this
+    is where the old ``{}`` claim lived and an inverted assertion records the
+    change better than a deleted one.
+    """
     assert models.InstrumentDetail.from_api({}).tickPriceRanges == {}
     assert models.DetailedPosition.from_api({"account": "x"}).report == {}
     report = models.AccountReport.from_api({"accountName": "x"})
-    assert report.portfolio == {}
+    # D-02: NOT ``{}`` any more — an absent scalar leaf answers ``None``.
+    assert report.portfolio is None
     assert report.detailedAccountReports == {}
 
 
@@ -471,7 +780,42 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
     reached as another model's field. That is harmless only while no
     mapping-carrying model is ever declared as a field type. If a future plan
     nests one, this test fails and the pass needs to move into the walker.
+
+    **The walk is DEPTH-AGNOSTIC as of the Phase 37 code review (WR-08).** It
+    used to walk exactly one level of ``__args__``, which the phase itself had
+    measured as a blind spot (F-11) and answered by hand: for
+    ``report: dict[str, dict[str, InstrumentPositionReport]]`` the ``__args__``
+    are ``(str, dict[str, InstrumentPositionReport])``, so the leaf model never
+    entered the guarded set, and the job was handed to two per-class assertions
+    in ``test_models.py`` that enumerate today's depth-2 models BY NAME.
+
+    That is a checklist, not a guard. Plan 39 (``LIVE-NOBJ-01``) is scheduled to
+    add the deferred ``detailedPositions`` / ``currencyBalance`` /
+    ``availableToOperate`` subtrees, which are themselves open-keyed maps —
+    exactly the shape that would carry a mapping field at depth 2 — and nothing
+    would have failed. ``_model_types_in`` below recurses instead of naming
+    classes, closing F-11 option (b) at test cost only, with no production
+    change, and subsuming both hand-written assertions.
     """
+
+    def _model_types_in(hint: Any) -> Iterator[type]:
+        """Every ``_SafeModel`` subclass reachable anywhere inside ``hint``.
+
+        Recurses through ``get_args`` at any depth, so ``dict[str, dict[str,
+        Model]]``, ``list[dict[str, Model]]`` and any future container yield the
+        leaf without the walk needing to know the container's shape.
+        """
+        inner = models._strip_optional(hint)
+        if (
+            isinstance(inner, type)
+            and dataclasses.is_dataclass(inner)
+            and issubclass(inner, _SafeModel)
+        ):
+            yield inner
+            return
+        for arg in get_args(inner):
+            yield from _model_types_in(arg)
+
     shipped = [
         obj
         for obj in vars(models).values()
@@ -497,19 +841,528 @@ def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
     }
     assert carriers, "expected at least InstrumentDetail / DetailedPosition / AccountReport"
 
-    nested_types: set[str] = set()
-    for cls in shipped:
-        for hint in _decode.hints_for(cls).values():  # type: ignore[arg-type]
-            inner = models._strip_optional(hint)
-            for candidate in (inner, *getattr(inner, "__args__", ())):
-                if (
-                    isinstance(candidate, type)
-                    and dataclasses.is_dataclass(candidate)
-                    and issubclass(candidate, _SafeModel)
-                ):
-                    nested_types.add(candidate.__name__)
+    nested_types = {
+        nested.__name__
+        for cls in shipped
+        for hint in _decode.hints_for(cls).values()  # type: ignore[arg-type]
+        for nested in _model_types_in(hint)
+    }
+
+    # Non-vacuity: the depth-2 leaves Plan 37-03 introduced must actually be IN
+    # the guarded set now. The one-level walk this replaces did not contain them,
+    # which is precisely why the guard had degraded into a hand-maintained
+    # checklist of today's two classes (WR-08).
+    assert {"InstrumentPositionReport", "DetailedAccountReport"} <= nested_types
 
     assert carriers & nested_types == set()
+
+
+# ---------------------------------------------------------------------------
+# Mapping axis, Phase 37 — element typing + recursion (D-05 / D-06)
+# ---------------------------------------------------------------------------
+
+
+def test_typed_mapping_values_decode_into_models(caplog: pytest.LogCaptureFixture) -> None:
+    """A ``dict[str, Model]`` field yields model instances, not raw dicts.
+
+    The inversion of the bug: before Phase 37 the axis returned the incoming dict
+    verbatim, so every value arrived as the raw payload dict — the walker has no
+    ``dict`` branch to decode them for it (D-06).
+    """
+    payload = {"ranges": {"0": {"lowerLimit": 0, "tick": 0.1, "upperLimit": None}}, "label": "x"}
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _TypedMapping.from_api(payload)
+
+    assert isinstance(obj.ranges["0"], _TickLike)
+    # Silently widened ``int`` -> ``float`` by the walker's float arm, which
+    # widens BEFORE consulting ``scalar_passthrough`` — no divergence.
+    assert obj.ranges["0"].lowerLimit == 0.0
+    assert isinstance(obj.ranges["0"].lowerLimit, float)
+    assert obj.ranges["0"].tick == 0.1
+    assert obj.ranges["0"].upperLimit is None
+    assert obj.label == "x"
+    assert _divergences(caplog) == []
+
+
+def test_typed_mapping_recurses_on_a_nested_mapping_hint(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``dict[str, dict[str, Model]]`` decodes to models at depth 2 (Plan 37-03's shape)."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _NestedMapping.from_api({"report": {"OUTER": {"0": {"tick": 0.05}}}})
+
+    inner = obj.report["OUTER"]
+    assert isinstance(inner, dict)
+    assert isinstance(inner["0"], _TickLike)
+    assert inner["0"].tick == 0.05
+    assert _divergences(caplog) == []
+
+
+def test_nested_mapping_divergence_path_marks_both_open_key_levels(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A divergence two levels down names its field and both open-key levels.
+
+    Phase 37 code review, WR-04, changed the segment from the KEY to an
+    index-free ``{}`` marker — the counterpart of the walker's ``[]`` for list
+    elements. This assertion is no weaker than the one it replaces (still an
+    exact full-path match); what it pins is the corrected path. An open-keyed
+    mapping is an unbounded axis exactly like a list, and interpolating the key
+    opted the axis out of lock 5's dedupe collapse.
+    """
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        _NestedMapping.from_api({"report": {"OUTER": {"0": {"tick": "nope"}}}})
+
+    paths = [p for p, _ in _pairs(caplog)]
+    assert ".report{}{}.tick" in paths
+
+
+def test_the_axis_emits_through_the_sink_it_was_handed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-37-10: the axis never reaches for ``current_sink()``.
+
+    A bound, EMITTING scope is in place; the axis is handed ``SILENT_SINK``
+    instead. If it resolved its own sink the divergence below would be reported.
+    """
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        out = models._mapping_value(
+            {"0": {"tick": "nope"}},
+            _TickLike,
+            path=".ranges",
+            model="_TypedMapping",
+            sink=_decode.SILENT_SINK,
+        )
+
+    assert isinstance(out["0"], _TickLike)
+    assert out["0"].tick == "nope"  # type: ignore[comparison-overlap]  # scalar_passthrough=True keeps the wire value
+    assert _divergences(caplog) == []
+
+
+def test_the_axis_helpers_never_reference_current_sink() -> None:
+    """T-37-10, stated structurally: ``current_sink`` belongs to ``from_api`` alone."""
+    tree = ast.parse(pathlib.Path(models.__file__).read_text(encoding="utf-8"))
+    total = sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "current_sink"
+    )
+    owners = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(sub, ast.Attribute) and sub.attr == "current_sink" for sub in ast.walk(node)
+        )
+    }
+    assert owners == {"from_api"}
+    assert total == 1
+
+
+def test_typed_mapping_dedupes_within_one_scope(caplog: pytest.LogCaptureFixture) -> None:
+    """Lock 5 still fires through the axis: one scope, one record for one triple."""
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    payload = {"ranges": {"0": {"tick": "nope"}}}
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        _TypedMapping.from_api(payload)
+        first = len(_divergences(caplog))
+        _TypedMapping.from_api(payload)
+        second = len(_divergences(caplog))
+
+    assert first == 1
+    assert second == first, "the second decode joined the same scope and deduped"
+
+
+def test_non_dict_payload_on_a_mapping_carrier_emits_one_terminal_record(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Lock 8 survives the retype: no per-field record on top of ``non_dict``."""
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _TypedMapping.from_api(None)
+
+    assert [kind for _, kind in _pairs(caplog)] == ["non_dict"]
+    assert obj == _TypedMapping.empty()
+    assert obj.ranges == {}
+
+
+def test_typed_mapping_non_dict_value_still_substitutes_and_reports(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The preserved container contract, now on an element-TYPED field."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _TypedMapping.from_api({"ranges": "not-a-mapping"})
+
+    assert obj.ranges == {}
+    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    observed = {r.field_path: r.observed_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".ranges", "type") in _pairs(caplog)
+    assert declared[".ranges"] == "dict"
+    assert observed[".ranges"] == "str"
+
+
+def test_typed_mapping_non_dict_value_is_fatal_under_strict_mode() -> None:
+    """Strict mode is still fatal on the container record, as on every other axis."""
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MatrizDecodeError):
+        _TypedMapping.from_api({"ranges": "not-a-mapping"})
+
+
+def test_convert_shim_inherits_the_element_routing(caplog: pytest.LogCaptureFixture) -> None:
+    """F-17: the shim gets the new routing rather than bypassing it."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        out = models._convert(dict[str, _TickLike], {"0": {"tick": 0.1}})
+
+    assert isinstance(out["0"], _TickLike)
+    assert out["0"].tick == 0.1
+    # And the legacy bare hint still answers ``{}`` for ``None`` (test_convert_shim_still_coerces).
+    assert models._convert(dict[str, Any], None) == {}
+
+
+# ---------------------------------------------------------------------------
+# Risk mapping — ``DetailedPosition.report`` at TWO levels (Phase 37, D-07)
+# ---------------------------------------------------------------------------
+
+# PROVENANCE: **vendor-documented, UNMEASURED** — D-04a's third class, NOT a
+# live capture. Every value below is transcribed from
+# ``packages/matriz-client/documentation/Primary-API.md:1701-1791`` (the
+# ``GET /rest/risk/detailedPosition/REM7374`` sample), trimmed to the first of
+# its two symbols. No capture of either Risk endpoint exists anywhere in this
+# repo and none can be produced: ``main_matriz.py`` asserts the remarkets
+# hostname (D-MATZ-33 / ``LIVE-MATZ-33``) and that assert is not bypassed.
+# Real verification is deferred to Phase 39 / ``LIVE-NOBJ-01``.
+#
+# The body is ENVELOPED under ``detailedPosition`` in the doc; these fixtures
+# drive ``DetailedPosition.from_api`` directly, i.e. the already-unwrapped
+# inner object, because Plan 37-01 ratified ``strict-unwrap`` — the parser is
+# what removes the envelope, and a flat body raises ``PrimaryAPIError`` there
+# rather than reaching the model at all.
+_VENDOR_REPORT_SYMBOL = "SOJ.ROS/MAY23 380 C"
+
+#: The deferred subtree (``Primary-API.md:1710-1744``): a ~21-field array
+#: element carrying an 8-field ``detailedDailyDiff``. D-07 defers BOTH until a
+#: real capture exists; they must arrive as ``extra`` divergences, not as an
+#: invented model.
+_VENDOR_REPORT_LEAF: dict[str, Any] = {
+    "detailedPositions": [
+        {
+            "symbolReference": "SOJ.ROS/MAY23 380 C",
+            "contractType": "FUTURE_OPTION_CALL",
+            "totalCurrentSize": -2,
+            "detailedDailyDiff": {"totalDailyDiff": -100},
+        }
+    ],
+    # The declared roster — ``Primary-API.md:1745-1747``.
+    "instrumentInitialSize": -2,
+    "instrumentFilledSize": 0,
+    "instrumentCurrentSize": -2,
+}
+
+_VENDOR_DETAILED_POSITION: dict[str, Any] = {
+    "account": "REM7374",
+    "totalDailyDiffPlain": -184777,
+    "totalMarketValue": 60240,
+    "report": {"FUTURE_OPTION_CALL": {_VENDOR_REPORT_SYMBOL: _VENDOR_REPORT_LEAF}},
+    # ``lastCalculation`` (``:1791``) is DELIBERATELY omitted. The wire carries
+    # an epoch ``int`` while the field is annotated ``str | None`` — a
+    # pre-existing mismatch inherited from 37-01's follow-ups and explicitly out
+    # of scope here. Including it would add an unrelated ``type`` divergence
+    # that makes the strict-mode assertions below fail for the wrong reason.
+}
+
+# How the two open-key levels of ``report`` appear in a ``field_path``.
+#
+# Phase 37 code review, WR-04: they appear as index-free ``{}`` markers, NOT as
+# the keys themselves. An open-keyed mapping is an unbounded axis exactly like a
+# list, so it gets the same treatment the walker gives a list index — which is
+# what makes lock 5's dedupe collapse fire on it. Interpolating the symbol used
+# to produce one record PER SYMBOL for a fact that is true of the field.
+#
+# The ``_decode._safe_key`` sanitisation this constant used to encode (lock 11:
+# a key carrying ``.``, ``/`` or a newline could forge a path segment or a log
+# line) is no longer reachable from this axis, because no payload key reaches a
+# path from it at all. The walker still applies it where a wire key genuinely
+# does enter a path — on ``extra`` keys.
+_REPORT_OPEN_KEYS = "{}{}"
+
+
+def test_detailed_position_report_decodes_the_vendor_sample_at_depth_two() -> None:
+    """``report[contractType][symbol]`` yields a model, not a raw dict, at BOTH levels."""
+    obj = models.DetailedPosition.from_api(_VENDOR_DETAILED_POSITION)
+
+    assert set(obj.report) == {"FUTURE_OPTION_CALL"}
+    inner = obj.report["FUTURE_OPTION_CALL"]
+    assert isinstance(inner, dict)
+    assert set(inner) == {_VENDOR_REPORT_SYMBOL}
+
+    leaf = inner[_VENDOR_REPORT_SYMBOL]
+    assert isinstance(leaf, models.InstrumentPositionReport)
+    # Silently widened ``int`` -> ``float`` by the walker's float arm.
+    assert leaf.instrumentInitialSize == -2.0
+    assert isinstance(leaf.instrumentInitialSize, float)
+    assert leaf.instrumentFilledSize == 0.0
+    assert leaf.instrumentCurrentSize == -2.0
+
+
+def test_report_deferred_detailedPositions_is_one_non_fatal_extra(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-07 / T-37-12: the deferred subtree is REPORTED, never silently dropped."""
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.DetailedPosition.from_api(_VENDOR_DETAILED_POSITION)
+
+    leaf = obj.report["FUTURE_OPTION_CALL"][_VENDOR_REPORT_SYMBOL]
+    assert not hasattr(leaf, "detailedPositions")
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    assert len(extras) == 1
+    assert extras[0].model == "InstrumentPositionReport"  # type: ignore[attr-defined]
+    assert extras[0].field_path == f".report{_REPORT_OPEN_KEYS}.detailedPositions"  # type: ignore[attr-defined]
+
+
+def test_report_divergence_path_marks_both_open_key_levels(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The path names the field and both open-key levels, not the keys (WR-04)."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        models.DetailedPosition.from_api(
+            {
+                "report": {
+                    "FUTURE_OPTION_CALL": {_VENDOR_REPORT_SYMBOL: {"instrumentFilledSize": "x"}}
+                }
+            }
+        )
+
+    paths = [p for p, _ in _pairs(caplog)]
+    assert f".report{_REPORT_OPEN_KEYS}.instrumentFilledSize" in paths
+
+
+def test_an_n_key_mapping_emits_o1_records_not_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WR-04's measurement, turned into a lock: record count is O(1) in key count.
+
+    The review measured 1000 records for a 500-symbol ``report`` carrying two
+    identically-diverging facts per leaf, where the equivalent ``list[Model]``
+    shape produces 2. ``test_report_deferred_detailedPositions_is_one_non_fatal_
+    extra`` proves the ``detailedPositions`` extra fires for EVERY leaf, so this
+    was live: every real ``get_detailed_positions`` call flooded the package
+    logger in proportion to the account's position count.
+
+    Two sizes are decoded rather than one absolute bound asserted, so the test
+    fails on a REGRESSION TO O(N) rather than on a change in how many distinct
+    facts a leaf happens to carry.
+    """
+    counts = []
+    for n in (5, 200):
+        _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+        caplog.clear()
+        payload = {
+            "report": {
+                "FUTURE_OPTION_CALL": {
+                    f"SYM{i}": {"detailedPositions": [], "instrumentFilledSize": "x"}
+                    for i in range(n)
+                }
+            }
+        }
+        with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+            models.DetailedPosition.from_api(payload)
+        counts.append(len(_divergences(caplog)))
+
+    assert counts[0] == counts[1], (
+        f"record count grew with key count ({counts[0]} -> {counts[1]}): an "
+        "open-keyed mapping is an unbounded axis and must collapse under lock 5 "
+        "exactly as a list does."
+    )
+    # Two facts about the leaf: the deferred `detailedPositions` extra and the
+    # non-numeric `instrumentFilledSize`. Both are true of the FIELD, so both
+    # are reported once regardless of how many symbols carry them.
+    assert counts[0] == 2
+
+
+def test_report_non_dict_still_substitutes_and_reports(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The container contract survives the retype: ``{}`` plus exactly one record."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.DetailedPosition.from_api({"account": "x", "report": "not-a-mapping"})
+
+    assert obj.report == {}
+    assert (".report", "type") in _pairs(caplog)
+
+
+def test_report_non_dict_is_fatal_under_strict_mode() -> None:
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MatrizDecodeError):
+        models.DetailedPosition.from_api({"account": "x", "report": "not-a-mapping"})
+
+
+def test_report_chain_over_two_open_key_levels_never_raises() -> None:
+    """T-37-13: no payload shape makes an attribute chain through ``report`` raise."""
+    for payload in (
+        {"account": "x"},
+        {"report": None},
+        {"report": "not-a-mapping"},
+        {"report": {"FUTURE_OPTION_CALL": "not-a-mapping"}},
+        {"report": {"FUTURE_OPTION_CALL": {_VENDOR_REPORT_SYMBOL: None}}},
+        _VENDOR_DETAILED_POSITION,
+    ):
+        obj = models.DetailedPosition.from_api(payload)
+        for outer in obj.report.values():
+            for leaf in outer.values():
+                assert leaf.instrumentCurrentSize is None or isinstance(
+                    leaf.instrumentCurrentSize, float
+                )
+
+
+# ---------------------------------------------------------------------------
+# Risk mapping — ``AccountReport`` at ONE level + ``portfolio`` as a scalar
+# (Phase 37, D-02 / D-07)
+# ---------------------------------------------------------------------------
+
+# PROVENANCE: **vendor-documented, UNMEASURED**, exactly as for ``report``
+# above. Transcribed from ``documentation/Primary-API.md:1817-1895`` (the
+# ``GET /rest/risk/accountReport/REM7374`` sample). No live capture of this
+# endpoint exists and none can be produced while ``LIVE-MATZ-33`` stands.
+# Destination for real verification: Phase 39 / ``LIVE-NOBJ-01``.
+#
+# ``detailedAccountReports`` is ONE level of open keys (``:1826-1890``), NOT
+# two — the asymmetry with ``report`` is measured (37-RESEARCH F-7/F-8) and must
+# not be collapsed in either direction.
+_VENDOR_ACCOUNT_ENTRY: dict[str, Any] = {
+    # Deferred per D-07: two nested open-keyed objects, ``:1828-1859`` and
+    # ``:1860-1887``. They must arrive as non-fatal ``extra`` divergences.
+    "currencyBalance": {"detailedCurrencyBalance": {"ARS": {"consumed": 0, "available": 1}}},
+    "availableToOperate": {"cash": {"totalCash": 103250600}, "movements": 0, "credit": None},
+    # The declared roster — ``Primary-API.md:1888``.
+    "settlementDate": 1669950000000,
+}
+
+_VENDOR_ACCOUNT_DATA: dict[str, Any] = {
+    "accountName": "REM7374",
+    "marketMember": "PrimaryVenture",
+    "marketMemberIdentity": "PMYVTR",
+    "collateral": 0,
+    "margin": 2923811.299985,
+    "availableToCollateral": 100202251.700015,
+    "detailedAccountReports": {"0": _VENDOR_ACCOUNT_ENTRY},
+    # D-02 evidence: a NUMBER at ``:1894``, not an object — and the same value
+    # appears as ``totalMarketValue`` for the same account in the
+    # detailed-position sample (``:1706``), which is what makes "account market
+    # value" the reading rather than "an object we failed to model".
+    "portfolio": 60240,
+    "ordersMargin": 0,
+    "currentCash": 103065823,
+    "dailyDiff": -184777,
+    "uncoveredMargin": 0,
+    # ``hasError`` / ``errorDetail`` / ``lastCalculation`` (``:1891-1893``) are
+    # DELIBERATELY omitted: none is a declared ``AccountReport`` field, so each
+    # would add an ``extra`` record at the OUTER model and blur the inner-extra
+    # count the strict-mode test below asserts. Their absence is not a claim
+    # that the vendor omits them.
+}
+
+
+def test_account_report_detailedAccountReports_decodes_the_vendor_sample_at_one_level() -> None:
+    """ONE level of open keys: the entry is a model, not a mapping of models (F-7)."""
+    obj = models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    assert set(obj.detailedAccountReports) == {"0"}
+    entry = obj.detailedAccountReports["0"]
+    assert isinstance(entry, models.DetailedAccountReport)
+    assert not isinstance(entry, dict)
+    assert entry.settlementDate == 1669950000000
+
+
+def test_detailedAccountReports_deferred_objects_are_non_fatal_extras(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-07 / T-37-12: the two deferred nested objects are reported, never raised."""
+    _decode.STRICT_DECODE.set(True)
+    _decode.DECODE_SCOPE.set(_decode.DecodeScope())
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    entry = obj.detailedAccountReports["0"]
+    assert not hasattr(entry, "currencyBalance")
+    extras = [r for r in _divergences(caplog) if r.divergence == "extra"]  # type: ignore[attr-defined]
+    # WR-04: ONE level of open keys here (vs. two on ``report``), rendered as the
+    # index-free ``{}`` marker rather than the key itself.
+    assert {r.field_path for r in extras} == {  # type: ignore[attr-defined]
+        ".detailedAccountReports{}.currencyBalance",
+        ".detailedAccountReports{}.availableToOperate",
+    }
+    assert {r.model for r in extras} == {"DetailedAccountReport"}  # type: ignore[attr-defined]
+
+
+def test_account_report_portfolio_decodes_as_a_float_scalar(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """D-02: ``60240`` is an account market value, silently widened to ``60240.0``."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    assert obj.portfolio == 60240.0
+    assert isinstance(obj.portfolio, float)
+    assert ".portfolio" not in [p for p, _ in _pairs(caplog)]
+
+
+def test_account_report_portfolio_absent_is_none_not_an_empty_mapping() -> None:
+    """The inversion D-02 causes: an absent scalar leaf is ``None``, never ``{}``."""
+    assert models.AccountReport.from_api({"accountName": "x"}).portfolio is None
+
+
+def test_portfolio_non_numeric_reports_a_type_divergence_and_is_fatal_under_strict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """T-37-14: a malformed amount is now REPORTED instead of silently becoming ``{}``."""
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        models.AccountReport.from_api({"accountName": "x", "portfolio": "not-a-number"})
+
+    declared = {r.field_path: r.declared_type for r in _divergences(caplog)}  # type: ignore[attr-defined]
+    assert (".portfolio", "type") in _pairs(caplog)
+    assert declared[".portfolio"] == "float"
+
+    _decode.STRICT_DECODE.set(True)
+    with pytest.raises(MatrizDecodeError):
+        models.AccountReport.from_api({"accountName": "x", "portfolio": "not-a-number"})
+
+
+def test_the_mapping_axis_touches_exactly_one_field_on_account_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-02, stated executably: ``portfolio`` LEFT the mapping axis.
+
+    This is what stops a future reader from re-adding it. If ``portfolio`` were
+    still ``dict``-declared, the axis would visit two fields here.
+    """
+    seen: list[str] = []
+    real = models._mapping_value
+
+    def spy(value: Any, element: Any, *, path: str, model: str, sink: Any) -> Any:
+        seen.append(path)
+        return real(value, element, path=path, model=model, sink=sink)
+
+    monkeypatch.setattr(models, "_mapping_value", spy)
+    models.AccountReport.from_api(_VENDOR_ACCOUNT_DATA)
+
+    assert seen == [".detailedAccountReports"]
+
+
+def test_account_report_chain_never_raises_for_any_payload_shape() -> None:
+    """T-37-13 for the one-level container."""
+    for payload in (
+        {"accountName": "x"},
+        {"detailedAccountReports": None},
+        {"detailedAccountReports": "not-a-mapping"},
+        {"detailedAccountReports": {"0": None}},
+        _VENDOR_ACCOUNT_DATA,
+    ):
+        obj = models.AccountReport.from_api(payload)
+        for entry in obj.detailedAccountReports.values():
+            assert entry.settlementDate is None or isinstance(entry.settlementDate, int)
 
 
 # ---------------------------------------------------------------------------
@@ -1231,16 +2084,23 @@ def test_two_standalone_from_api_calls_after_a_response_parse_both_report(
 # ---------------------------------------------------------------------------
 
 
-def test_absent_nested_model_key_is_missing_on_the_outer_model(
+def test_absent_nested_model_key_collapses_silently_on_the_outer_model(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """WR-02: lock 2's definition of ``missing``, and lock 1's ``model`` pairing.
+    """An absent nested-model key becomes the empty instance and reports NOTHING.
 
     matriz is the package this hits hardest — roughly ten nested-model fields,
-    every one of them defaulted via ``field(default_factory=X.empty)``. Each used
-    to emit a ``non_dict`` record attributed to the NESTED class at a path rooted
-    in the OUTER decode: a pair naming a decode site that does not exist, which
-    lock 10 then freezes into a Phase 33 finding identity.
+    every one of them defaulted via ``field(default_factory=X.empty)``.
+
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. WR-02's classification order is still in force — the branch still
+    classifies BEFORE recursing, so an absent key never reaches ``walk_model`` as
+    ``payload=None`` and can never be emitted as ``non_dict`` attributed to the
+    NESTED class at a path rooted in the OUTER decode, which lock 10 would freeze
+    into a Phase 33 finding identity. That is why the trailing ``non_dict``
+    assertion below stays exactly as it was: it is the half NOBJ-02 does not
+    touch. What NOBJ-02 retires is only the ``missing`` record; the returned
+    VALUE is unchanged, which is the whole point.
     """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="matriz_client"):
@@ -1248,7 +2108,7 @@ def test_absent_nested_model_key_is_missing_on_the_outer_model(
 
     assert instance.leaf == _Leaf.empty()
     triples = [(r.model, r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
-    assert ("_Nested", ".leaf", "missing") in triples
+    assert ("_Nested", ".leaf", "missing") not in triples
     assert not [t for t in triples if t[2] == "non_dict"]
 
 
@@ -1262,6 +2122,65 @@ def test_non_dict_nested_payload_keeps_the_nested_attribution(
 
     triples = [(r.model, r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert ("_Leaf", ".leaf", "non_dict") in triples
+
+
+def test_wrong_typed_list_field_still_reports_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ROADMAP Phase 35 criterio 2, falsification half: the list site still reports.
+
+    A ``str`` where a ``list[Model]`` is declared is NOT the legitimate-null case
+    Phase 35 blesses: it is a wrong-typed value and it must keep emitting a
+    ``type`` record, with the same ``[]`` return value it has today.
+
+    This test is GREEN before plan 35-05 edits the walker and must stay GREEN
+    after it. Its whole job is to redden if that edit's silencing over-reaches
+    from ``value is None`` to every non-list value. Unlike most assertions in
+    this module the check is an EQUALITY against a one-element list rather than
+    a membership test, so a second, spurious record emitted by a mis-scoped
+    walker edit would fail it too.
+    """
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="matriz_client"):
+        obj = _Nested.from_api({"leaf": {"name": "n", "count": 1}, "rows": "garbage", "tag": "t"})
+
+    records = _divergences(caplog)
+    assert obj.rows == []
+    triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+    assert triples == [("_Nested", ".rows", "type")]
+    assert records[0].declared_type == "list"  # type: ignore[attr-defined]
+    assert records[0].observed_type == "str"  # type: ignore[attr-defined]
+
+
+def test_strict_mode_still_raises_on_a_wrong_typed_list() -> None:
+    """ROADMAP Phase 35 criterio 2: the list site stays FATAL under strict mode.
+
+    The other half of the same falsification argument. Reporting and fatality
+    are two separate dispositions in this walker — ``_INFO_KINDS`` exempts
+    ``extra`` from the raise while still emitting it — so a walker edit could
+    conceivably keep the record and lose the raise. Both are pinned.
+
+    Green before plan 35-05's edit, and required to stay green after it. The
+    assertion reaches into the exception's attributes rather than settling for
+    its type, because an exception raised for a DIFFERENT divergence of the same
+    payload would satisfy a bare check on the exception class alone.
+    """
+    token = _decode.STRICT_DECODE.set(True)
+    try:
+        with pytest.raises(MatrizDecodeError) as excinfo:
+            walk_model(
+                _Nested,
+                {"leaf": {"name": "n", "count": 1}, "rows": "garbage", "tag": "t"},
+                policy=POLICY,
+                sink=DecodeScope(),
+            )
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+    assert excinfo.value.field_path == ".rows"
+    assert excinfo.value.declared_type == "list"
+    assert excinfo.value.observed_type == "str"
+    assert excinfo.value.model == "_Nested"
 
 
 # ---------------------------------------------------------------------------

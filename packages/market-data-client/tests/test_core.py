@@ -24,13 +24,14 @@ import json
 import logging
 import pathlib
 import time
+import types
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import Any, Union, cast, get_args, get_origin
 
 import httpx
 import pytest
 
-from market_data_client import _core, _decode, models
+from market_data_client import _core, _decode
 from market_data_client._state import (
     _TOKEN_TTL_BUFFER_SECONDS,
     _TOKEN_TTL_FALLBACK_SECONDS,
@@ -57,6 +58,29 @@ from market_data_client.models import (
 )
 
 _DUMMY_REQUEST = httpx.Request("GET", "http://t")
+
+
+def _strip_optional(tp: Any) -> Any:
+    """Return ``T`` from ``T | None`` / ``Optional[T]``; pass through otherwise.
+
+    **Module-local copy on purpose** (Phase 36, D-05). Until this phase the two
+    Optional locks below borrowed ``models._strip_optional``, which was never a
+    mapping helper — it was the generic Optional detector that ``_is_mapping``
+    happened to sit on top of. Phase 36 retires this paquete's mapping machinery
+    outright, so the detector loses its home in ``models.py`` and the locks that
+    only ever wanted the detector get their own six-line copy instead of keeping
+    dead code alive in a shipped module to import from.
+
+    The copy must NOT be replaced by an import from another paquete nor from the
+    repo-root harness: this monorepo has no shared internal package by design
+    (DT-03), the same rationale ``test_null_object.py`` states for its own
+    module-local helpers.
+    """
+    if get_origin(tp) in (Union, types.UnionType):
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return tp
 
 
 def _resp(status_code: int, *, json_body: dict[str, object] | None = None) -> httpx.Response:
@@ -1056,7 +1080,7 @@ def test_health_from_api_missing_auth_yields_zero_valued_nested_model(
     health, records = _from_api(Health.from_api, caplog, {"status": "ok"})
     assert health.status == "ok"
     assert health.auth == HealthAuth(configured=False, enabled=False, issuer="")
-    assert [(r.field_path, r.divergence) for r in records] == [(".auth", "missing")]  # type: ignore[attr-defined]
+    assert [(r.field_path, r.divergence) for r in records] == []  # type: ignore[attr-defined]
 
 
 def test_health_feed_from_api_reaches_all_three_nesting_levels() -> None:
@@ -1148,15 +1172,14 @@ def test_health_models_declare_no_from_api_override(model_cls: type[SafeModel]) 
 @pytest.mark.parametrize(
     "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
 )
-def test_health_models_declare_no_mapping_field_and_no_received_at(
+def test_health_models_declare_no_received_at(
     model_cls: type[SafeModel],
 ) -> None:
-    """No ``dict[...]`` field (4 of the 6 are nested field types) and no staleness stamp."""
+    """No staleness stamp: a health probe is not a snapshot."""
     # ``cast(Any, ...)`` is the walker's own mypy-strict discipline for
-    # ``get_type_hints``-driven code (``models._apply_mapping_policy`` does the same).
+    # ``get_type_hints``-driven code (``_decode.hints_for`` does the same).
     hints = _decode.hints_for(cast(Any, model_cls))
     assert "received_at" not in hints
-    assert not any(models._is_mapping(h) for h in hints.values())
 
 
 def test_health_models_declare_exactly_the_two_locked_optionals() -> None:
@@ -1171,7 +1194,7 @@ def test_health_models_declare_exactly_the_two_locked_optionals() -> None:
         f"{cls.__name__}.{name}"
         for cls in (Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline)
         for name, hint in _decode.hints_for(cls).items()
-        if models._strip_optional(hint) is not hint
+        if _strip_optional(hint) is not hint
     }
     assert optionals == {"FeedIngestor.last_error", "FeedPipeline.last_write_error"}
 
@@ -1438,10 +1461,10 @@ def test_mutation_result_models_declare_no_from_api_override(
 
 
 @pytest.mark.parametrize("model_cls", [AddHolidaysResult, DeleteHolidayResult])
-def test_mutation_result_models_declare_no_mapping_field_no_received_at_no_optional(
+def test_mutation_result_models_declare_no_received_at_and_no_optional(
     model_cls: type[SafeModel],
 ) -> None:
-    """No ``dict[...]`` field, no staleness stamp, and no Optional on either model.
+    """No staleness stamp and no Optional on either model.
 
     A mutation acknowledgement is not a snapshot, so ``received_at`` has no
     meaning here; and every field of both models came back populated and
@@ -1450,8 +1473,7 @@ def test_mutation_result_models_declare_no_mapping_field_no_received_at_no_optio
     """
     hints = _decode.hints_for(cast(Any, model_cls))
     assert "received_at" not in hints
-    assert not any(models._is_mapping(h) for h in hints.values())
-    assert not any(models._strip_optional(h) is not h for h in hints.values())
+    assert not any(_strip_optional(h) is not h for h in hints.values())
 
 
 def test_add_holidays_result_declares_days_as_the_shipped_calendar_day() -> None:

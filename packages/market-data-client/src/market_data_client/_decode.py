@@ -17,7 +17,11 @@ matriz's own converter already use.
 
 The two behaviours the walker adds over ``_coerce``:
 
-- **reporting** — a sink call immediately before every substituted default;
+- **reporting** — a sink call immediately before every substituted default,
+  except the two collapses Phase 35 / NOBJ-02 declares legitimate: a null or
+  absent value on a non-optional list-typed or model-typed field substitutes
+  ``[]`` or the empty instance silently. A wrong-TYPED value on either site
+  still reports and is still fatal under strict mode;
 - **extra wire keys** — undetectable inside ``_coerce``, which never sees the
   payload's own key set. That capability lives in :func:`walk_model`.
 
@@ -441,7 +445,8 @@ def walk_field(
 
     if origin is list:
         if not isinstance(value, list):
-            sink(model, path, _kind_of(value), _name_of(hint), type(value).__name__)
+            if value is not None:
+                sink(model, path, "type", _name_of(hint), type(value).__name__)
             return []
         inner = args[0] if args else Any
         # Lock 5: the element path segment carries no index, so identical
@@ -470,17 +475,31 @@ def walk_field(
         # fail loudly the day an overriding model becomes another model's field
         # type, which is the day this branch would have to change.
         #
-        # WR-02: classify BEFORE recursing. A declared
-        # nested-model field whose key the payload simply omits is a ``missing``
-        # divergence of the OUTER model (lock 2: "the model declares the field but
-        # the payload has no key for it"). Recursing unconditionally turned it into
-        # a ``non_dict`` record attributed to the NESTED class at a path rooted in
+        # Phase 35, NOBJ-02: a null or absent value on a NON-OPTIONAL nested-model
+        # link is a legitimate payload shape, not a divergence — it collapses to
+        # the empty instance and NOTHING is reported. The ``Union`` branch at the
+        # top of this function returns early for every optional annotation, so
+        # anything reaching this point is non-optional by construction and the
+        # collapse cannot swallow a nullable field's own null. A genuinely
+        # non-dict, non-null payload is untouched by this: it still falls through
+        # to the recursion below, still earns its record with the nested-model
+        # attribution, and is still fatal under strict mode, because the raise
+        # lives downstream of the sink and the sink is still called for it. The
+        # returned VALUE is unchanged — the same all-defaults instance built with
+        # the same silent sink (lock 8) this branch always produced; only the
+        # reporting went away, which is the whole of NOBJ-02.
+        #
+        # This supersedes the reporting half of WR-02, kept on record here so the
+        # history stays legible. WR-02 classified BEFORE recursing so that a
+        # declared nested-model field whose key the payload simply omits counted
+        # as a ``missing`` divergence of the OUTER model (lock 2: "the model
+        # declares the field but the payload has no key for it") rather than as a
+        # ``non_dict`` record attributed to the NESTED class at a path rooted in
         # the outer decode — a (model, field_path) pair naming a decode site that
         # does not exist, which lock 10 then freezes into a Phase 33 finding
-        # identity. The returned VALUE is unchanged: the same all-defaults instance
-        # the ``non_dict`` branch produced, built with the same silent sink (lock 8).
+        # identity. That classification order is still load-bearing and still
+        # here; what NOBJ-02 retires is only the record it used to emit.
         if value is None:
-            sink(model, path, "missing", _name_of(hint), "NoneType")
             return hint(**walk_model(hint, {}, path=path, policy=policy, sink=SILENT_SINK))
         # A genuinely non-dict (not ``None``) nested payload keeps the ``non_dict``
         # kind and the nested-model attribution, which is correct for that case.

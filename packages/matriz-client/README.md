@@ -135,3 +135,71 @@ uv run pytest packages/matriz-client
 uv run ruff check packages/matriz-client
 uv run mypy packages/matriz-client/src
 ```
+
+## Changelog
+
+### v0.3.0
+
+**Cuatro campos `dict[str, Any]` de los modelos de riesgo pasan a tipos concretos, y
+`get_detailed_positions`/`get_account_report` dejan de decodificar desde el nivel de
+anidamiento equivocado** (breaking, minor bump en línea 0.x — todo consumidor que lea
+estos campos por clave necesita migrar).
+
+**Ruptura: acceso por clave → atributo tipado**
+
+| Antes (0.2.0 publicado) | Ahora (0.3.0) |
+| --- | --- |
+| `report.portfolio` era `dict[str, Any]` (siempre `{}` en la práctica) | `report.portfolio` es `float \| None` — chequear `is None`, no `== {}` |
+| `detail.tickPriceRanges["0"]["tick"]` | `detail.tickPriceRanges["0"].tick` (`dict[str, TickPriceRange]`) |
+| `pos.report["<acct>"]["<sym>"]["instrumentCurrentSize"]` | `pos.report["<acct>"]["<sym>"].instrumentCurrentSize` (`dict[str, dict[str, InstrumentPositionReport]]` — **dos** niveles) |
+| `acct.detailedAccountReports["<k>"]["settlementDate"]` | `acct.detailedAccountReports["<k>"].settlementDate` (`dict[str, DetailedAccountReport]` — **un** nivel) |
+
+Los cuatro campos afectados son `portfolio` y `detailedAccountReports` sobre
+`AccountReport`, `tickPriceRanges` sobre `InstrumentDetail`, y `report` sobre
+`DetailedPosition`.
+
+`tickPriceRanges`, `report` y `detailedAccountReports` conservan el `dict` externo (la
+clave sigue siendo el número de cuenta, el símbolo o el índice del rango, que viaja
+como dato); lo que deja de ser `dict` es la **hoja**. Un acceso por clave sobre esa
+hoja levanta `TypeError`: los modelos son dataclasses *frozen* con `slots` y no son
+subscriptables.
+
+**Corrección de comportamiento: unwrap del envelope de Risk**
+
+`get_detailed_positions` y `get_account_report` decodificaban desde el nivel de
+anidamiento equivocado y devolvían modelos con **todos** los campos en su default —
+un `DetailedPosition` o un `AccountReport` vacío, sin error y sin registro de
+divergencia. La corrección desenvuelve las claves de envelope del proveedor
+`detailedPosition` y `accountData` antes de decodificar.
+
+Bajo la disposición `strict-unwrap`, un body de Risk **plano** (sin envelope) ahora
+**levanta** en lugar de decodificar en silencio. El efecto para el consumidor es de
+dos caras: quien venía tolerando modelos de Risk todos-en-default ahora ve datos
+reales — o un `PrimaryAPIError` donde antes veía un modelo vacío. Es un cambio de
+comportamiento, no sólo de tipo, y no aparece en la tabla de arriba.
+
+**Flip de truthiness — la parte que el typechecker NO atrapa**
+
+`portfolio`, sobre `AccountReport`, era un `dict` que en la práctica llegaba
+**siempre** `{}`, y
+un dict vacío es falsy. Ahora es un escalar `float | None`. Un consumidor que ramifique
+por comparación contra el dict vacío (`if report.portfolio == {}:`, `if not
+report.portfolio:` escrito para atrapar ese `{}`) **deja de tomar esa rama, en
+silencio**: no levanta, no rompe el build y mypy no dice una palabra, porque el tipo
+declarado ahora es correcto. Revisar a mano cada chequeo sobre este campo antes de
+actualizar, y migrar a `is None`.
+
+**Aditivo, no breaking**
+
+Nada de lo que sigue rompe código existente; se lista aparte de la tabla de migración
+a propósito.
+
+- **Seis alias `@property` sobre `MarketDataSnapshot`**, vistas de sólo lectura sobre
+  las claves de wire ya existentes: `bids`/`offers` → `list[MarketDataLevel]` sobre
+  `BI`/`OF`, y `last`/`settlement`/`close`/`open_interest` → `MarketDataEntryValue`
+  sobre `LA`/`SE`/`CL`/`OI`. El acceso por clave sigue funcionando igual que antes.
+  `OP` y los siete escalares extra de matriz quedaron **deliberadamente excluidos**.
+- **Tipos nuevos en `__all__`:** `TickPriceRange`, `InstrumentPositionReport`,
+  `DetailedAccountReport` y `MatrizDecodeError`.
+- **Parámetro keyword-only `strict_decode`** (`bool | None`) en `Client`, `AsyncClient`
+  y `configure`.

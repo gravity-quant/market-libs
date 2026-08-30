@@ -53,15 +53,21 @@ delegation verbatim: :meth:`MarketDataSnapshot.from_api` keeps its extended
 signature and its ``received_at`` injection bypass, and :meth:`Symbol.from_api`
 keeps its wire-key mirror and its explicit two-argument ``super()``.
 
-Phase 29 code review (CR-03): the **mapping axis** lives here too, as
-:func:`_mapping_value` / :func:`_apply_mapping_policy` — a verbatim copy of
-matriz's pair. The canonical walker has no ``dict`` branch by design (it must stay
-byte-identical across five paquetes), so a ``dict``-declared field needs a
-call-site pass to be decoded at all. :attr:`MarketDataSnapshot.market_data` is
-such a field and had no pass, so an absent or wrong-typed ``market_data``
-substituted ``None`` silently: no divergence record, no strict raise, and a value
-contradicting its own ``dict[str, Any]`` annotation. It now falls back to ``{}``
-and reports, exactly as every other declared field falls back to its typed zero.
+Phase 36 (NOBJ-MD-01, D-05): the **mapping axis is retired from this paquete**.
+Phase 29's code review (CR-03) had added ``_mapping_value`` /
+``_apply_mapping_policy`` here — a verbatim copy of matriz's pair — because the
+canonical walker has no ``dict`` branch by design (it must stay byte-identical
+across five paquetes) and :attr:`MarketDataSnapshot.market_data` was declared
+``dict[str, Any]``, so it needed a call-site pass to be decoded at all. That
+field is now the typed Null Object :class:`MarketDataEntries`, so the walker's
+own nested-model branch owns it and the compensating pass has nothing left to
+compensate for. **This paquete therefore takes form A of D-07**: both
+:meth:`SafeModel.from_api` and :meth:`SafeModel.empty` are a bare walk — take
+the sink, walk, construct — with nothing between. The form-B paquetes keep
+their pass, and a form-A paquete must NOT grow a no-op one to look identical:
+per-paquete ``from_api`` differences are declared policy axes
+(``29-SEMANTICS-MATRIX.md``, "never harmonize"). The CR-03 contract itself was
+retired by name in plan 36-01, recorded at ``tests/test_decode.py``.
 
 Phase 31 (TYP-02, D-02): :meth:`SafeModel.to_dict` is added to the base — a
 per-package VERBATIM COPY of ``iol_client.models.SafeModel.to_dict``, never an
@@ -81,18 +87,19 @@ call sites ONLY; every driver schema-snapshot site must keep feeding RAW WIRE
 from __future__ import annotations
 
 import dataclasses
-import types
-from dataclasses import dataclass, fields
-from typing import Any, Self, Union, cast, get_args, get_origin
+from dataclasses import dataclass, field
+from typing import Any, Self, cast
 
 from market_data_client import _decode, _params
 
 __all__ = [
     "AddHolidaysResult",
+    "BookLevel",
     "CalendarConfig",
     "CalendarConfigPreview",
     "CalendarDay",
     "DeleteHolidayResult",
+    "EntryValue",
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",
@@ -103,6 +110,7 @@ __all__ = [
     "HolidaysIn",
     "Instrument",
     "LatestRequest",
+    "MarketDataEntries",
     "MarketDataSnapshot",
     "MarketHoursIn",
     "NewSymbol",
@@ -113,92 +121,6 @@ __all__ = [
     "Symbol",
     "SymbolPatch",
 ]
-
-
-def _strip_optional(tp: Any) -> Any:
-    """Return ``T`` from ``T | None`` / ``Optional[T]``; pass through otherwise."""
-    if get_origin(tp) in (Union, types.UnionType):
-        args = [a for a in get_args(tp) if a is not type(None)]
-        if len(args) == 1:
-            return args[0]
-    return tp
-
-
-def _is_mapping(tp: Any) -> bool:
-    """True for a ``dict[...]``-declared field, ``Optional`` unwrapped first."""
-    return get_origin(_strip_optional(tp)) is dict
-
-
-def _mapping_value(value: Any, *, path: str, model: str, sink: _decode.DecodeScope) -> Any:
-    """market-data's mapping axis: a non-mapping wire value falls back to ``{}``.
-
-    Phase 29 code review, CR-03. The canonical walker has **no** ``dict`` branch —
-    that is sanctioned (``29-SEMANTICS-MATRIX.md`` Section 2 records the mapping
-    axis as a call-site concern, so ``_decode.py`` can stay byte-verbatim across
-    the five paquetes) — but the compensating call-site pass was only ever built
-    for matriz. market-data declares a mapping field too
-    (:attr:`MarketDataSnapshot.market_data`), so without this pass ``walk_field``
-    fell through every arm to its bare ``return value`` and handed back whatever
-    the payload had: ``None`` when the key is absent. That produced **no**
-    divergence record in observable mode, **no** raise in strict mode, and an
-    instance holding ``None`` where ``dict[str, Any]`` is annotated — the exact
-    class of silent substitution DEC-01 exists to surface.
-
-    Reporting matches what the walker emits for any other substituted default —
-    ``missing`` when the payload carried nothing, ``type`` otherwise — so lock 2's
-    kind, lock 3's WARNING level and lock 4's strict disposition all apply here
-    exactly as they do on every other axis. This is a verbatim port of matriz's
-    ``_mapping_value``; keeping the two identical is deliberate.
-    """
-    if isinstance(value, dict):
-        return value
-    sink(model, path, "missing" if value is None else "type", "dict", type(value).__name__)
-    return {}
-
-
-def _apply_mapping_policy(
-    cls: type[Any], kwargs: dict[str, Any], *, sink: _decode.DecodeScope
-) -> None:
-    """Apply :func:`_mapping_value` to every mapping-declared field of ``cls``.
-
-    Runs after :func:`market_data_client._decode.walk_model` and mutates its
-    kwargs in place. It reaches TOP-LEVEL fields only: ``walk_field`` recurses
-    into a nested model through ``walk_model`` directly, so a mapping field on a
-    model reached as another model's field type would be missed. No shipped
-    market-data model that declares a mapping field is ever another model's field
-    type — ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` pins
-    that precondition, and fails loudly if a future plan nests one.
-
-    **``None`` under an OPTIONAL mapping hint is left alone (Phase 33, SC-2).**
-    :func:`_is_mapping` unwraps ``Optional`` before testing the origin — it has
-    to, or a ``dict[...] | None`` field would skip the pass entirely and go back
-    to holding whatever the payload had. But that unwrap made the pass blind to
-    the very distinction the annotation encodes, so once
-    :attr:`MarketDataSnapshot.market_data` widened to ``dict[str, Any] | None``
-    the pass kept substituting ``{}`` and kept emitting a ``missing`` record for
-    a ``null`` the vendor sends legitimately — silently undoing the widening one
-    line after the walker honoured it. The guard restores the walker's own
-    contract at this call site: under ``T | None`` a ``None`` "stays ``None``
-    instead of collapsing to a typed zero, and is NOT a divergence"
-    (``_decode.walk_field``). A NON-optional mapping field is untouched by the
-    guard, so an absent ``market_data`` on a model that declares it required is
-    still reported exactly as before (CR-03), and a WRONG-TYPED value under
-    either annotation still routes through :func:`_mapping_value` and is still
-    reported. The guard admits ``None`` under an explicit ``| None`` and nothing
-    else.
-    """
-    # ``cast(Any, cls)`` is the walker's own mypy-strict discipline for
-    # ``get_type_hints``-driven code. No ``type: ignore`` is introduced.
-    target = cast(Any, cls)
-    hints = _decode.hints_for(target)
-    model = cls.__name__
-    for f in fields(target):
-        hint = hints[f.name]
-        if not _is_mapping(hint):
-            continue
-        if kwargs[f.name] is None and _strip_optional(hint) is not hint:
-            continue
-        kwargs[f.name] = _mapping_value(kwargs[f.name], path=f".{f.name}", model=model, sink=sink)
 
 
 class SafeModel:
@@ -213,14 +135,76 @@ class SafeModel:
         """Build an instance from an API payload, with safe defaults."""
         sink = _decode.current_sink()
         kwargs = _decode.walk_model(cls, payload, policy=_decode.POLICY, sink=sink)
-        # Lock 8: under a non-dict payload the walker already swapped its field
-        # sink to ``SILENT_SINK``, so the mapping pass must be silent too —
-        # otherwise a 204 body would emit one extra record per mapping field on
-        # top of the terminal ``non_dict`` one.
-        _apply_mapping_policy(
-            cls, kwargs, sink=sink if isinstance(payload, dict) else _decode.SILENT_SINK
-        )
         return cls(**kwargs)
+
+    @classmethod
+    def empty(cls) -> Self:
+        """Build an all-defaults instance. Emits nothing (T-29-33).
+
+        ``empty()`` does not decode wire data: it is the shape a model converges
+        on when it carries nothing, and it is the reference value
+        :meth:`__bool__` compares against. Routing it through an emitting sink
+        would produce one spurious ``missing`` record per field on every call —
+        records about a payload that was never received.
+
+        Phase 35 D-07 prohibits expressing this constructor as
+        ``cls.from_api(None)``, which would look equivalent and is not: the
+        tolerant entry point emits a terminal ``non_dict`` record for a
+        non-``dict`` payload, so ``empty()`` would stop being silent, and in the
+        matriz twin — whose ``from_api`` falls back to ``cls.empty()`` for a
+        non-``dict`` payload — the two would recurse without end. The walker is
+        reached directly instead, with the same ``SILENT_SINK`` the walker's own
+        nested-model default uses, so an ``empty()`` instance and a nested
+        default are the same object by construction.
+
+        **This is form A of D-07** since Phase 36 (D-05). It was form B until
+        then: this paquete carried a mapping pass after the walk in both
+        constructors, because the walker has no ``dict`` branch and would
+        otherwise have handed back whatever the payload held for the one
+        ``dict``-declared field it shipped. That field —
+        :attr:`MarketDataSnapshot.market_data` — is now the typed Null Object
+        :class:`MarketDataEntries`, so the walker's own nested-model branch owns
+        it and the pass has nothing left to compensate for. Both constructors
+        are a bare walk now, and they cannot disagree on any field because
+        neither post-processes one. The form-B paquetes keep their pass and a
+        form-A paquete must NOT grow a no-op one to look identical — per-paquete
+        ``from_api`` differences are declared policy axes
+        (``29-SEMANTICS-MATRIX.md``, "never harmonize").
+
+        The result is deliberately **not** memoized. Several shipped classes in
+        this workspace declare mutable ``list`` / ``dict`` fields, and a cached
+        instance handed to every caller would be process-wide shared mutable
+        state that any one of them could corrupt for all the others.
+        """
+        kwargs = _decode.walk_model(cls, {}, policy=_decode.POLICY, sink=_decode.SILENT_SINK)
+        return cls(**kwargs)
+
+    def __bool__(self) -> bool:
+        """Null Object truthiness (NOBJ-01): falsy iff the model carries nothing.
+
+        A model equal to its own :meth:`empty` answers ``False``; any instance
+        differing in at least one field answers ``True``. This is what lets a
+        caller write ``if snapshot.entries:`` instead of threading ``None``
+        checks through a chain of nested models.
+
+        Two recorded facts about the semantics, both load-bearing for callers:
+
+        - **Cost is proportional to the subtree.** Each call rebuilds the whole
+          empty instance, measured at roughly 11 µs for a two-level shipped
+          model and 19 µs for a three-level one — not the ~2.6 µs of a flat
+          synthetic dataclass. It is cheap at a branch and expensive inside a
+          hot loop over hundreds of snapshots; hoist it if that is the shape of
+          the call site.
+        - **Emptiness is a field-level question, not an envelope-level one**
+          (D-09). :class:`MarketDataSnapshot` is this workspace's live example
+          and it lives in this module: its ``from_api`` stamps the client-side
+          ``received_at`` AFTER the walk, so a snapshot decoded by the shipped
+          client always differs from its ``empty()`` and is **truthy even when
+          the wire carried nothing at all**. Ask about the field you care about
+          — ``snapshot.entries``, ``snapshot.market_data`` — never about the
+          envelope that wraps it.
+        """
+        return self != type(self).empty()
 
     def to_dict(self) -> dict[str, Any]:
         """Re-project the model as the plain wire dict (D-08).
@@ -263,6 +247,168 @@ def _coerce(value: Any, hint: Any) -> Any:
     )
 
 
+# ----------------------------------------------------------------------
+# Market data entries (Phase 36 — NOBJ-MD-01, D-01 / D-02 / D-03)
+# ----------------------------------------------------------------------
+#
+# A LOCAL copy of the Null Object container pattern matriz ships at
+# ``matriz_client/models.py:387-428``. It is a copy of the PATTERN and never an
+# import: C-2 / D-NO-06 forbid cross-package imports and there is no shared
+# internal package by design. Three axes differ from the matriz original and
+# none of them is optional: the decorator carries ``slots=True`` (C-6), the base
+# is this paquete's own :class:`SafeModel`, and the roster is the TEN keys the
+# Phase 33 live capture actually measured rather than matriz's fourteen (D-02).
+#
+# Definition order is load-bearing: :class:`MarketDataEntries` reads
+# ``EntryValue.empty`` as a ``default_factory`` at class-body execution time.
+#
+# None of the three declares a ``from_api`` or an ``empty`` of its own. They
+# inherit both, which is what keeps them out of the WR-03 exemption set — they
+# enter ``nested_types`` and the intersection with the overriding models stays
+# empty. None carries a ``received_at`` either: these are sub-structures of a
+# snapshot, not snapshots.
+
+
+@dataclass(frozen=True, slots=True)
+class BookLevel(SafeModel):
+    """One price level inside an order-book entry (``BI`` / ``OF``).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-market-data.json``,
+    captured 2026-07-31 against ``market-data-develop``. Not from the OpenAPI and
+    not from a mock.
+
+    ``price`` is declared ``float`` although the capture shows ``int`` on the
+    wire: ``_decode.walk_field``'s ``float`` arm widens ``int`` to ``float``
+    BEFORE consulting ``scalar_passthrough``, so the widening is silent and
+    fabricates no divergence (36-RESEARCH F-3). ``size`` stays ``int`` and is
+    not widened.
+    """
+
+    price: float | None = None
+    size: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EntryValue(SafeModel):
+    """A scalar market-data entry (``LA``, ``SE``, ``CL``, ``OI``).
+
+    Live-capture provenance: field set taken verbatim from
+    ``.planning/verification/schemas/market-data-client/get-market-data.json``,
+    captured 2026-07-31 against ``market-data-develop``. The capture shows the
+    three keys distributed unevenly across entries — ``SE`` carried only
+    ``price``, ``CL`` carried ``price`` + ``date``, ``LA`` carried all three —
+    so all three are nullable and an absent one answers ``None`` rather than a
+    typed zero.
+    """
+
+    price: float | None = None
+    size: int | None = None
+    date: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataEntries(SafeModel):
+    """The ``market_data`` object of a ``/marketdata`` row (D-01, NOBJ-MD-01).
+
+    Live-capture provenance: the ten declared keys are exactly the ten observed
+    in ``.planning/verification/schemas/market-data-client/get-market-data.json``,
+    captured 2026-07-31 against ``market-data-develop``. Declared in wire order.
+
+    The roster is deliberately NOT widened to matriz's ``IV`` / ``EV`` / ``NV`` /
+    ``ACP`` (D-02): this paquete declares what its own capture measured. A key
+    outside the roster arrives as a non-fatal ``extra`` divergence — reported,
+    never raised, not even under ``strict_decode`` — and is corrected in-cycle
+    when a live run finds one.
+
+    **The cost of that roster, recorded (Phase 36 code review, WR-02).** This
+    field used to be a ``dict[str, Any]`` passthrough where every key the vendor
+    sent was readable. It is a closed dataclass now, so an eleventh key is
+    DISCARDED: its value never reaches the caller. Two halves, with different
+    dispositions:
+
+    * *Detection is NOT silent* in this repo's pipeline, contrary to what the
+      ``NullHandler`` on the package logger (``__init__.py``) would suggest on
+      its own. The driver's SHAPE-diff recurses into this container and emits a
+      ``wire-only`` tuple at path ``.market_data`` for every undeclared key,
+      which ``main_market_data._emit_shape`` writes into the append-only
+      ``.planning/verification/market-data-client-findings.md`` — committed to
+      git, and the artifact the milestone's divergence census is measured from.
+      Pinned by ``verification/test_safemodel_diff_null_object_links.py``.
+    * *The data loss is real and is deferred*, not fixed. All three mitigations
+      the review proposed are blocked by signed decisions of this repo: widening
+      the roster to matriz's fourteen reverses D-02 and would type four keys this
+      paquete never measured (D-10 forbids retyping on another source's authority
+      alone); a captured-extras field plus an ``unknown`` property would put a
+      ``dict[str, Any]`` back on a model that IS a nested field type, which
+      ``tests/test_decode.py::test_no_mapping_carrying_model_is_ever_a_nested_field_type``
+      and ``tools/check_surface_types.py`` (Phase 32 GATE-TYP-01) both forbid and
+      which is the very mapping axis D-05 retired; and promoting ``extra`` from
+      INFO to WARNING means editing ``_decode.py``, whose five copies are locked
+      byte-identical by ``tools/check_decode_intactness.py`` and whose lock 3
+      ("an extra wire key is normal vendor growth, not a defect") is a signed
+      Phase 29 decision affecting all six paquetes. Widening the roster is the
+      right answer once a live run MEASURES one of the extra keys, which is
+      exactly what Phase 39 is for.
+
+    Every field is a Null Object or a nullable leaf, so a chain such as
+    ``snapshot.market_data.last.price`` answers a value or ``None`` and never
+    raises, for every payload the vendor can produce.
+
+    That last claim is MEASURED, not argued (Phase 36 code review, CR-02): it is
+    asserted against the one payload this repo has actually captured — the
+    no-data row of
+    ``.planning/verification/schemas/market-data-client/get-latest.json`` — by
+    ``tests/test_market_data_chain.py::test_the_measured_no_data_row_keeps_the_chain_walkable_and_the_links_silent``,
+    whose fixture is in turn pinned against that JSON file key for key. It is a
+    claim about the CHAIN only: the same row still produces two divergences on
+    the over-declared scalar LEAVES of the enclosing
+    :class:`MarketDataSnapshot` (``market_id``, ``active``), which are deferred
+    rather than fixed here — see ``36-DEFERRED-market-data-leaves.md``.
+    """
+
+    BI: list[BookLevel] = field(default_factory=list)
+    CL: EntryValue = field(default_factory=EntryValue.empty)
+    HI: float | None = None
+    LA: EntryValue = field(default_factory=EntryValue.empty)
+    LO: float | None = None
+    OF: list[BookLevel] = field(default_factory=list)
+    OI: EntryValue = field(default_factory=EntryValue.empty)
+    OP: float | None = None
+    SE: EntryValue = field(default_factory=EntryValue.empty)
+    TV: float | None = None
+
+    @property
+    def bids(self) -> list[BookLevel]:
+        """Human-facing alias over the wire-named field ``BI`` (D-03)."""
+        return self.BI
+
+    @property
+    def offers(self) -> list[BookLevel]:
+        """Human-facing alias over the wire-named field ``OF`` (D-03)."""
+        return self.OF
+
+    @property
+    def last(self) -> EntryValue:
+        """Human-facing alias over the wire-named field ``LA`` (D-03)."""
+        return self.LA
+
+    @property
+    def settlement(self) -> EntryValue:
+        """Human-facing alias over the wire-named field ``SE`` (D-03)."""
+        return self.SE
+
+    @property
+    def close(self) -> EntryValue:
+        """Human-facing alias over the wire-named field ``CL`` (D-03)."""
+        return self.CL
+
+    @property
+    def open_interest(self) -> EntryValue:
+        """Human-facing alias over the wire-named field ``OI`` (D-03)."""
+        return self.OI
+
+
 @dataclass(frozen=True, slots=True)
 class MarketDataSnapshot(SafeModel):
     """A market-data snapshot returned by the ``/marketdata`` read endpoints.
@@ -297,13 +443,56 @@ class MarketDataSnapshot(SafeModel):
     All three keep their positional slot and stay REQUIRED constructor
     arguments — only the annotation widens, so no field order moves and no
     default masks an absent key.
+
+    **REVOKED IN PART since Phase 36 (NOBJ-MD-01 / NOBJ-MD-02, D-04).** The
+    widening above is revoked BY FIELD ROLE, not rolled back: the two CHAIN
+    LINKS return to required while the two LEAVES keep their ``| None``.
+
+    - :attr:`entries` is ``list[str]`` again and :attr:`market_data` is the
+      typed Null Object :class:`MarketDataEntries`. A link never needs ``None``:
+      a ``null`` or absent value on a non-optional list or nested-model field
+      collapses to ``[]`` / the empty instance and emits NOTHING (NOBJ-02,
+      Phase 35) — so the honest shape is now the non-nullable one, and the
+      33-05 divergences that motivated the widening cannot come back.
+    - :attr:`staleness_seconds` and :attr:`note` stay ``| None`` (D-NO-03).
+      They are scalar leaves with nothing to point at when the row carries no
+      data; manufacturing ``0.0`` for them would be the silent typed zero this
+      milestone exists to remove.
+
+    The checkpoint being revoked is 33-07 Task 1, ``SC-2 = fix-shape-now``, and
+    the source plan for the revocation is
+    ``.future_plans/api-tipada-null-objects.md``. The Phase 33 block above is
+    kept deliberately: this is an ADDITIVE record of what each phase decided and
+    why, not an erasure of the earlier verdict. What survives both phases
+    untouched is the property neither was ever allowed to amnesty — a
+    WRONG-TYPED value is still a divergence and still fatal under
+    ``strict_decode``, pinned by
+    ``tests/test_snapshot_no_data_row.py::test_a_wrong_typed_value_is_still_a_divergence``.
+
+    Both revoked fields keep their positional slot and stay REQUIRED
+    constructor arguments, so :attr:`note` does not move and no default masks
+    an absent key.
+
+    **BREAKING since 0.6.0 (Phase 40, D-12).** The two remaining OVER-DECLARED
+    leaves are widened: :attr:`market_id` is ``str | None`` and :attr:`active`
+    is ``bool | None``. On the ``GET /marketdata/latest`` no-data row both
+    arrive ``null`` over non-``Optional`` declarations, so the walker
+    manufactured ``""`` / ``False`` and ``strict_decode`` raised on
+    ``.market_id`` — the measured divergence filed as
+    ``36-DEFERRED-market-data-leaves.md``. Both are scalar leaves with nothing
+    to point at when the row carries no data, so D-NO-03 admits ``| None``
+    rather than a Null Object, exactly as :attr:`staleness_seconds` and
+    :attr:`note` already do. The widening admits ``None`` and nothing else: a
+    wrong-TYPED value is still a divergence and still fatal under
+    ``strict_decode``. Both keep their positional slot and stay REQUIRED
+    constructor arguments.
     """
 
     symbol: str
-    market_id: str
-    active: bool
-    entries: list[str] | None
-    market_data: dict[str, Any] | None
+    market_id: str | None
+    active: bool | None
+    entries: list[str]
+    market_data: MarketDataEntries
     staleness_seconds: float | None
     received_at: float
     note: str | None = None
@@ -342,14 +531,6 @@ class MarketDataSnapshot(SafeModel):
         stamped: Any = {**payload, "received_at": received_at} if isinstance(payload, dict) else payload  # fmt: skip
         sink = _decode.current_sink()
         kwargs = _decode.walk_model(cls, stamped, policy=_decode.POLICY, sink=sink)
-        # CR-03: ``market_data`` is declared ``dict[str, Any]`` and the walker has
-        # no ``dict`` branch, so without this pass an absent or wrong-typed
-        # ``market_data`` was substituted silently — no record, no strict raise,
-        # and a ``None`` held under a non-Optional annotation. Lock 8 again: the
-        # pass is silent under a non-dict payload.
-        _apply_mapping_policy(
-            cls, kwargs, sink=sink if isinstance(stamped, dict) else _decode.SILENT_SINK
-        )
         kwargs["received_at"] = received_at  # INJECT — skip the walker (D-01)
         return cls(**kwargs)
 
@@ -362,18 +543,29 @@ class LatestRequest:
     PROVISIONAL field names (A1/A2 — Phase 23 reconciles). :meth:`to_dict` drops
     ``None``-valued optionals so the wire body stays minimal and Phase 23 can
     adjust field names in one place.
+
+    Phase 36 (D-06): :attr:`entries` is aligned with the revoked
+    :attr:`MarketDataSnapshot.entries` — ``list[str]`` defaulting to ``[]``
+    rather than ``None``. The wire semantics is UNCHANGED: :meth:`to_dict`
+    tests the list for truthiness, so an empty one still omits the key and the
+    server still reads "no ``entries`` key" as "every entry type". The literal
+    ``{"entries": []}`` never reaches the wire — there is no evidence in this
+    repo that the server distinguishes it from absence, so introducing it would
+    be a wire change disguised as a type change. This is a different ``entries``
+    from ``_core.build_latest_request``'s, which is a GET query-param string in
+    a different layer and is NOT touched by this phase.
     """
 
     symbols: list[str]
     marketId: str | None = None
-    entries: list[str] | None = None
+    entries: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a wire dict, dropping ``None``-valued optional fields."""
+        """Serialize to a wire dict, dropping empty and ``None``-valued optionals."""
         out: dict[str, Any] = {"symbols": self.symbols}
         if self.marketId is not None:
             out["marketId"] = self.marketId
-        if self.entries is not None:
+        if self.entries:
             out["entries"] = self.entries
         return out
 

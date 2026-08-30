@@ -675,6 +675,30 @@ def _unwrap_rows(raw: Any, key: str) -> list[Any]:
     return rows if isinstance(rows, list) else []
 
 
+# Posición del ``last price`` dentro de la tupla que arman los cuatro probes de
+# lectura. La tupla queda LOCAL al probe (T-36-03-01: al detail sólo sube un
+# conteo), así que el índice se nombra acá una sola vez en vez de repetirse
+# crudo en los cuatro sitios.
+_CHAINED_LAST_PRICE = 1
+
+
+def _with_last(chained: list[tuple[Any, ...]]) -> int:
+    """Cuántas de las filas encadenadas traen un last price REAL (no ``None``).
+
+    Phase 36 code review, WR-05: el detail rendereaba ``chained={len(chained)}``,
+    que por construcción NUNCA puede diferir de la cantidad de filas — la
+    comprensión que arma ``chained`` no tiene filtro. Se leía como una medición
+    independiente ("N filas traídas, N cadenas caminadas") en un artefacto que un
+    humano lee para juzgar una corrida en vivo, y no podía reportar otra cosa: si
+    la cadena se rompiera, el probe sería un FINDING y la línea ni se rendearía.
+
+    Este conteo SÍ es independiente del row count: distingue "traje N filas" de
+    "N de esas filas tenían precio", que es exactamente lo que un operador
+    necesita para juzgar si el mercado estaba cerrado o si el feed está mudo.
+    """
+    return sum(1 for row in chained if row[_CHAINED_LAST_PRICE] is not None)
+
+
 def _emit_shape(
     sample: Any,
     model_cls: type,
@@ -829,6 +853,24 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
     base_url = client._state.base_url
     try:
         snapshots = client.get_market_data(active=True)
+        # D-09 / SC-5: el encadenamiento profundo va DENTRO del try. SC-5 exige que
+        # el driver EJERZA la cadena tipada (``market_data`` -> alias -> hoja) en sus
+        # sitios reales en vez de contar filas: contar filas pasaría en verde con
+        # todos los eslabones rotos. Si un eslabón fuera ``None`` esto lanzaría y el
+        # probe degradaría a FINDING por la escalera de excepciones, nunca a crash.
+        # La tupla queda LOCAL: al detail sólo sube el CONTEO (T-36-03-01).
+        chained = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in snapshots
+        ]
         raw = _raw_via_request_sync(
             client, _core.build_market_data_request(client._state, active=True)
         )
@@ -852,7 +894,9 @@ def probe_market_data_sync(client: Client) -> ProbeResult:
             base_url=base_url,
             surface="sync",
         )
-        return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
+        return ProbeResult(
+            name, "PASS", f"snapshots={len(snapshots)} with_last={_with_last(chained)}"
+        )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
@@ -865,6 +909,38 @@ def probe_latest_sync(client: Client) -> ProbeResult:
     try:
         latest = client.get_latest(symbol=_SAMPLE_SYMBOLS[0])
         batch = client.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
+        # D-09 / SC-5: encadenamiento profundo dentro del try (mismo criterio que
+        # ``probe_market_data_sync``). Con una lista vacía la comprensión es un
+        # no-op y el probe sigue devolviendo PASS: cero filas no es un fallo.
+        chained = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in latest
+        ]
+        # WR-06: ``batch`` es una SEGUNDA coleccion de ``MarketDataSnapshot`` (el
+        # body del POST) y hasta la review se consumia solo con ``len()`` — el
+        # patron exacto que el lock de deep-chain existe para prohibir. El guard
+        # contaba dereferencias por FUNCION y no por coleccion traida, asi que
+        # reportaba el probe como cubierto con la mitad del decode sin ejercer.
+        chained_batch = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in batch
+        ]
         raw = _raw_via_request_sync(
             client, _core.build_latest_request(client._state, symbol=_SAMPLE_SYMBOLS[0])
         )
@@ -879,7 +955,12 @@ def probe_latest_sync(client: Client) -> ProbeResult:
             base_url=base_url,
             surface="sync",
         )
-        return ProbeResult(name, "PASS", f"latest={len(latest)} batch={len(batch)}")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"latest={len(latest)} batch={len(batch)} "
+            f"with_last={_with_last(chained)} batch_with_last={_with_last(chained_batch)}",
+        )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="sync", base_url=base_url)
 
@@ -1140,6 +1221,22 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
     base_url = aclient._state.base_url
     try:
         snapshots = await aclient.get_market_data(active=True)
+        # D-09 / SC-5: encadenamiento profundo dentro del try (espejo sync). El
+        # driver EJERCE la cadena tipada en vez de contar filas; un eslabón ``None``
+        # degradaría a FINDING, nunca a crash. La tupla no se renderiza: al detail
+        # sólo sube el conteo (T-36-03-01).
+        chained = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in snapshots
+        ]
         raw = await _raw_via_request_async(
             aclient, _core.build_market_data_request(aclient._state, active=True)
         )
@@ -1161,7 +1258,9 @@ async def probe_market_data_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
             surface="async",
         )
-        return ProbeResult(name, "PASS", f"snapshots={len(snapshots)}")
+        return ProbeResult(
+            name, "PASS", f"snapshots={len(snapshots)} with_last={_with_last(chained)}"
+        )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 
@@ -1174,6 +1273,37 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
     try:
         latest = await aclient.get_latest(symbol=_SAMPLE_SYMBOLS[0])
         batch = await aclient.get_latest_batch(LatestRequest(symbols=_SAMPLE_SYMBOLS))
+        # D-09 / SC-5: encadenamiento profundo dentro del try (espejo sync). Con una
+        # lista vacía es un no-op y el probe sigue devolviendo PASS.
+        chained = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in latest
+        ]
+        # WR-06: ``batch`` es una SEGUNDA coleccion de ``MarketDataSnapshot`` (el
+        # body del POST) y hasta la review se consumia solo con ``len()`` — el
+        # patron exacto que el lock de deep-chain existe para prohibir. El guard
+        # contaba dereferencias por FUNCION y no por coleccion traida, asi que
+        # reportaba el probe como cubierto con la mitad del decode sin ejercer.
+        chained_batch = [
+            (
+                s.symbol,
+                s.market_data.last.price,
+                len(s.market_data.bids),
+                len(s.market_data.offers),
+                s.market_data.settlement.price,
+                s.market_data.close.price,
+                s.market_data.open_interest.price,
+            )
+            for s in batch
+        ]
         raw = await _raw_via_request_async(
             aclient, _core.build_latest_request(aclient._state, symbol=_SAMPLE_SYMBOLS[0])
         )
@@ -1188,7 +1318,12 @@ async def probe_latest_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
             surface="async",
         )
-        return ProbeResult(name, "PASS", f"latest={len(latest)} batch={len(batch)}")
+        return ProbeResult(
+            name,
+            "PASS",
+            f"latest={len(latest)} batch={len(batch)} "
+            f"with_last={_with_last(chained)} batch_with_last={_with_last(chained_batch)}",
+        )
     except Exception as exc:  # D-09
         return _finding_for_exc(exc, name=name, surface="async", base_url=base_url)
 

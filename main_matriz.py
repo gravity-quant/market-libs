@@ -1,8 +1,8 @@
 """Phase 5 live verification driver para ``matriz-client`` (Primary API / MATBA ROFEX).
 
-Driver de verificación en vivo contra el sandbox de remarkets
-(``https://api.remarkets.primary.com.ar``). Ejercita ~25 probes nombrados en
-orden D-MATZ-29 cubriendo:
+Driver de verificación en vivo contra un sandbox de Primary del allowlist
+D-MATZ-33 (``_VENUE_ALLOWLIST``: remarkets o bbsa; nunca producción). Ejercita
+~25 probes nombrados en orden D-MATZ-29 cubriendo:
 
 - ``MATZ-01`` — login sync vs. servicio real.
 - ``MATZ-02`` — happy-path sweep de los 18 endpoints REST públicos.
@@ -28,8 +28,10 @@ PASS/FINDING/SKIPPED outcome sets between sync and async.
 **Security gates aplicados al inicio de ``main()``** (D-MATZ-33):
 
 1. ``require_env(_PKG, ["PRIMARY_USER", "PRIMARY_PASSWORD"])`` — HARN-01 path.
-2. Hostname assert remarkets: si ``"remarkets" not in primary.client._base_url``
-   → ``ABORT`` con exit 1 (belt-and-suspenders contra prod por mis-configuración).
+2. Allowlist de venue por igualdad exacta de hostname (Phase 39 D-02): si el
+   hostname de la base URL resuelta no está en ``_VENUE_ALLOWLIST`` se emite la
+   línea ``SKIPPED matriz-client: …`` a **stdout** y se sale con código 0
+   (Phase 39 D-01: un bloqueo de política no es una falla del driver).
 
 Output verbatim (D-02 mirror Phase 2-4): cada probe emite una línea
 ``PROBE <name>: <status> <detail>`` y al final ``SUMMARY: PASS=N FAIL=N
@@ -66,6 +68,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import httpx
 from verification import (
@@ -73,10 +76,13 @@ from verification import (
     diff_safemodel_bidirectional,
     divergence_capture,
     probe_context,
+    probes_executed,
+    read_run_evidence,
     require_env,
     safe_print,
     schema_of,
     write_findings,
+    write_run_evidence,
 )
 from verification.cycle_report import verify_cycle_closure
 from verification.findings import max_existing_fid
@@ -106,6 +112,141 @@ _PKG = "matriz-client"
 _REPO_ROOT = Path(__file__).resolve().parent
 _SCHEMA_DIR = _REPO_ROOT / ".planning" / "verification" / "schemas" / _PKG
 
+# ---------------------------------------------------------------------------
+# D-MATZ-33 venue allowlist (Phase 39 D-02)
+# ---------------------------------------------------------------------------
+#
+# Hostnames CONFIRMADOS como no-producción, mapeados a su token de venue. La
+# autorización de la segunda entrada es una decisión explícita del operador del
+# 2026-08-29 (Phase 39 D-02, registrada en `39-CONTEXT.md`): `api.bbsa.matrizoms.com.ar`
+# es un sandbox real, distinto de remarkets, con `login()` y `get_segments()` ya
+# verificados ahí.
+#
+# La comparación es por IGUALDAD EXACTA de hostname — nunca por pertenencia de
+# substring ni por `endswith`. El chequeo anterior (`"remarkets" not in base`)
+# habría dejado pasar `https://api.remarkets.primary.com.ar.attacker.example`, y
+# un `endswith` deja pasar la misma clase de sufijo hostil; además
+# `https://<host-confirmado>@attacker.example` mete el host confirmado en el
+# userinfo y no en el authority (T-39-01, misma clase que documenta
+# `verification/mutation_gate.py`).
+#
+# Ampliar este mapping NO es un cambio de rutina: cada host nuevo exige un
+# checkpoint humano bloqueante (prohibición P-05 del milestone).
+#
+# `verification/mutation_gate.py` NO se toca: su `_SANDBOX_HOST` remarkets-only
+# deja el order entry fail-closed automáticamente bajo bbsa, sin cambio de
+# código (T-39-02).
+_VENUE_ALLOWLIST: dict[str, str] = {
+    "api.remarkets.primary.com.ar": "remarkets",
+    "api.bbsa.matrizoms.com.ar": "bbsa",
+}
+
+# Línea verbatim que el driver emite a STDOUT cuando la base URL cae fuera del
+# allowlist. Es un literal a propósito: `main_verify.py` clasifica por la forma
+# `^SKIPPED \S.*:` (los dos puntos son load-bearing) y NO interpolar la base URL
+# ni el hostname es lo que garantiza que el veredicto de política no filtre el
+# dato de entrada (T-39-04). Antes de D-01 esta condición salía como `ABORT` a
+# stderr con exit 1, que el clasificador reportaba `FAILED` — un bloqueo de
+# política contado como falla.
+_HOST_SKIP_LINE = "SKIPPED matriz-client: base URL fuera del allowlist D-MATZ-33 — LIVE-MATZ-33"
+
+# Causa medida + destino nombrado que viaja en el sobre de evidencia de corrida
+# (Phase 39 D-09). Es la línea SKIPPED sin su prefijo de veredicto: ni base URL
+# ni hostname, por la misma razón que ella (T-39-04/T-39-10).
+_HOST_SKIP_EVIDENCE = "base URL fuera del allowlist D-MATZ-33 — LIVE-MATZ-33"
+
+# Destino nombrado por paquete para el veredicto SKIPPED del cierre de ciclo
+# (Phase 39 D-09). Tres entradas explícitas; el resto cae al default. Un
+# deferral sin destino es lo que P-03 prohíbe: "no corrió" tiene que decir
+# hacia dónde se repara.
+_CYCLE_CLOSURE_DESTINATION: dict[str, str] = {
+    "higyrus-client": "LIVE-HIGY-33",
+    "matriz-client": "LIVE-MATZ-33",
+}
+_CYCLE_CLOSURE_DEFAULT_DESTINATION = "LIVE-NOBJ-01"
+
+
+def _cycle_closure_destination(pkg: str) -> str:
+    """Destino nombrado al que se repara la falta de evidencia de corrida de ``pkg``."""
+    return _CYCLE_CLOSURE_DESTINATION.get(pkg, _CYCLE_CLOSURE_DEFAULT_DESTINATION)
+
+
+def _cycle_closure_verdict(
+    pkg: str,
+    *,
+    probes: int,
+    evidence: dict[str, Any] | None,
+    ok: bool,
+    missing: list[str],
+) -> tuple[str, str]:
+    """``(status, detail)`` del cierre de ciclo de ``pkg`` — el predicado D-09.
+
+    Función de módulo, anotada y testeable por import: el predicado se verifica
+    sin correr el driver, igual que :func:`_venue_token` (patrón de la Phase 39
+    plan 01). El sitio de decisión —el loop de ``main()``— sólo hace la IO.
+
+    Tabla:
+
+    - ``probes <= 0`` (sobre ausente, o corrida saltada) ⇒ ``SKIPPED`` con la
+      causa medida que el sobre trae —o ``"sin evidencia de corrida"`` si no
+      trae ninguna— y el destino nombrado. **No** se escribe finding: no correr
+      no es un defecto del paquete.
+    - ``probes > 0`` y ``ok`` ⇒ ``PASS``, con el conteo de probes y el
+      ``captured_at`` del sobre. Ese par ES la evidencia positiva que el censo
+      transcribe.
+    - ``probes > 0`` y no ``ok`` ⇒ ``FAIL`` con las regresiones faltantes
+      (comportamiento previo, preservado).
+
+    El criterio NO es "al menos un finding CONFIRMED/FIXED" —el que usa
+    ``main_market_data.py``—: ámbito tiene cero por declarar cero clases de
+    modelo y higyrus tiene cero por no haber sido medido nunca. Un predicado
+    basado en promociones reprobaría a los dos, uno por estar limpio y el otro
+    por no haber corrido, dándole el mismo veredicto a dos causas opuestas.
+    """
+    if probes <= 0:
+        cause = ""
+        if evidence is not None:
+            raw = evidence.get("skipped")
+            if isinstance(raw, str) and raw:
+                cause = raw
+        if not cause:
+            cause = "sin evidencia de corrida"
+        destination = _cycle_closure_destination(pkg)
+        # La causa que escriben los caminos de skip de los drivers ya termina en
+        # su destino; no se concatena dos veces.
+        detail = cause if destination in cause else f"{cause} — {destination}"
+        return ("SKIPPED", detail)
+
+    if ok:
+        captured_at = evidence.get("captured_at") if evidence is not None else None
+        stamp = captured_at if isinstance(captured_at, str) and captured_at else "<sin timestamp>"
+        return ("PASS", f"{probes} probes ejecutados, evidencia de {stamp}")
+
+    return ("FAIL", f"missing regressions: {', '.join(missing)}")
+
+
+def _venue_token(base_url: str) -> str | None:
+    """Devuelve el token de venue del allowlist D-MATZ-33, o ``None`` (fail-closed).
+
+    Extrae el hostname REAL con :func:`urllib.parse.urlsplit` y lo compara por
+    igualdad contra :data:`_VENUE_ALLOWLIST`. Una base URL sin esquema (forma que
+    admiten los ``.env`` históricos) se re-parsea como authority puro para que la
+    variante userinfo tampoco pase por ahí. Cualquier entrada imparseable, sin
+    host, o con un host que no esté en el allowlist devuelve ``None``.
+    """
+    try:
+        parts = urlsplit(base_url)
+        if not parts.netloc:
+            parts = urlsplit(f"//{base_url}")
+        host = parts.hostname
+    except ValueError:
+        # URL imparseable (p.ej. `https://[oops/api`): fail closed, nunca crash.
+        return None
+    if host is None:
+        return None
+    return _VENUE_ALLOWLIST.get(host)
+
+
 # Phase 11 CR-06: tuple de excepciones residuales para los catch-all post-mapeo
 # en los probe boundaries. Los probes capturan primero ``AuthenticationError``
 # y/o ``httpx.HTTPStatusError`` específico cuando aplica; este catch-all
@@ -129,26 +270,35 @@ _RESIDUAL_PROBE_EXCEPTIONS = (
     KeyError,
 )
 
-# D-21 envelope: mapping cada probe func_name a su archivo de schema snapshot.
-_SCHEMA_FILES: dict[str, Path] = {
-    "get_segments": _SCHEMA_DIR / "get-segments.json",
-    "get_all_instruments": _SCHEMA_DIR / "get-all-instruments.json",
-    "get_instruments_details": _SCHEMA_DIR / "get-instruments-details.json",
-    "get_instrument_detail": _SCHEMA_DIR / "get-instrument-detail.json",
-    "get_instruments_by_cfi_ESXXXX": _SCHEMA_DIR / "get-instruments-by-cfi-esxxxx.json",
-    "get_instruments_by_segment": _SCHEMA_DIR / "get-instruments-by-segment.json",
-    "get_market_data": _SCHEMA_DIR / "get-market-data.json",
-    "get_trades": _SCHEMA_DIR / "get-trades.json",
-    "get_active_orders": _SCHEMA_DIR / "get-active-orders.json",
-    "get_filled_orders": _SCHEMA_DIR / "get-filled-orders.json",
-    "get_all_orders": _SCHEMA_DIR / "get-all-orders.json",
-    "get_order_status": _SCHEMA_DIR / "get-order-status.json",
-    "get_order_history": _SCHEMA_DIR / "get-order-history.json",
-    "get_order_by_exec_id": _SCHEMA_DIR / "get-order-by-exec-id.json",
-    "get_positions": _SCHEMA_DIR / "get-positions.json",
-    "get_detailed_positions": _SCHEMA_DIR / "get-detailed-positions.json",
-    "get_account_report": _SCHEMA_DIR / "get-account-report.json",
+# D-21 envelope: mapping cada probe func_name al SLUG de su archivo de schema snapshot
+# (nombre base, sin directorio ni extensión). La ruta completa la arma
+# :func:`_schema_path`, que le intercala el token de venue — ver ahí el porqué.
+_SCHEMA_FILES: dict[str, str] = {
+    "get_segments": "get-segments",
+    "get_all_instruments": "get-all-instruments",
+    "get_instruments_details": "get-instruments-details",
+    "get_instrument_detail": "get-instrument-detail",
+    "get_instruments_by_cfi_ESXXXX": "get-instruments-by-cfi-esxxxx",
+    "get_instruments_by_segment": "get-instruments-by-segment",
+    "get_market_data": "get-market-data",
+    "get_trades": "get-trades",
+    "get_active_orders": "get-active-orders",
+    "get_filled_orders": "get-filled-orders",
+    "get_all_orders": "get-all-orders",
+    "get_order_status": "get-order-status",
+    "get_order_history": "get-order-history",
+    "get_order_by_exec_id": "get-order-by-exec-id",
+    "get_positions": "get-positions",
+    "get_detailed_positions": "get-detailed-positions",
+    "get_account_report": "get-account-report",
 }
+
+# Token que reemplaza al de venue cuando el hostname NO está en `_VENUE_ALLOWLIST`.
+# Camino INALCANZABLE en producción —el gate D-MATZ-33 de `main()` sale con SKIPPED
+# antes de que corra ningún probe—, pero el helper no debe lanzar por eso: fail-safe,
+# no fail-hard. Es un literal cerrado, nunca un fragmento de la URL de entrada
+# (T-39-20).
+_VENUE_SENTINEL = "unknown-venue"
 
 # D-21 path templates por endpoint canonical (con {account_id} placeholder donde aplica).
 _ENDPOINT_TEMPLATES: dict[str, str] = {
@@ -357,6 +507,37 @@ def _first_dict(payload: Any, *, fname: str | None = None) -> dict[str, Any] | N
     return None
 
 
+def _schema_path(func_name: str, base_url: str) -> Path:
+    """Ruta del baseline write-once de ``func_name`` SEGREGADA POR VENUE.
+
+    El nombre es ``<slug>.<venue>.json``: el slug sale de :data:`_SCHEMA_FILES` y el
+    token de venue de :func:`_venue_token` sobre la ``base_url`` que
+    :func:`_write_or_check_schema` **ya recibe**. Esa función es la ÚNICA fuente de
+    verdad de venues del driver (allowlist D-MATZ-33, plan 39-01): acá no hay una
+    segunda tabla, y por eso el token nunca puede ser un fragmento arbitrario de la
+    URL de entrada — sale de un dict cerrado de valores literales (T-39-20). El
+    directorio se deriva de ``__file__`` vía :data:`_SCHEMA_DIR`.
+
+    **Por qué el venue es parte de la clave (Phase 39, Open Question 1 / Pitfall 1).**
+    Los baselines son write-once y D-25 prohíbe sobrescribir uno que difiere: si el
+    archivo se eligiera sólo por nombre de función —como hasta la Phase 39— la primera
+    corrida contra el sandbox **bbsa** diffearía sus formas contra las líneas base
+    capturadas contra **remarkets** el 2026-06-10, y emitiría hasta 8 findings
+    ``SHAPE OPEN`` que describen una diferencia **entre venues**, no un defecto del
+    cliente. Ése es exactamente el ruido que SC-4 existe para evitar (precedente: la
+    Phase 33 ya tuvo que separar findings de censo de findings de deriva). Con la
+    segregación, esa primera corrida **captura baselines frescos** para bbsa y los de
+    remarkets quedan intactos y siguen siendo válidos para una futura corrida contra
+    remarkets. El censo del plan 39-08 debe transcribir este caveat.
+
+    Un hostname fuera del allowlist cae en :data:`_VENUE_SENTINEL` en vez de lanzar:
+    camino inalcanzable en producción porque el gate D-MATZ-33 sale antes de que corra
+    ningún probe.
+    """
+    venue = _venue_token(base_url) or _VENUE_SENTINEL
+    return _SCHEMA_DIR / f"{_SCHEMA_FILES[func_name]}.{venue}.json"
+
+
 def _write_or_check_schema(
     func_name: str,
     endpoint_template: str,
@@ -372,6 +553,11 @@ def _write_or_check_schema(
     Si existe y difiere → emite finding ``SHAPE OPEN`` con expected/actual
     JSON, **NO sobreescribe** el baseline (D-25), retorna FINDING con fid.
 
+    Phase 39: el archivo se elige por ``(func_name, venue)`` vía :func:`_schema_path`,
+    no sólo por nombre de función. ``base_url`` sigue registrándose DENTRO del sobre
+    —ahora además es parte de la clave del nombre, lo que hace el artefacto
+    autoconsistente—. La política D-25 no cambia.
+
     Returns ``(status, detail)`` donde ``status`` es ``"PASS"`` o ``"FINDING"``.
     """
     actual_schema = schema_of(raw_payload)
@@ -384,7 +570,7 @@ def _write_or_check_schema(
         "schema": actual_schema,
     }
     _SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = _SCHEMA_FILES[func_name]
+    file_path = _schema_path(func_name, base_url)
     if not file_path.exists():
         file_path.write_text(
             json.dumps(envelope, indent=2, ensure_ascii=False) + "\n",
@@ -412,8 +598,21 @@ def _write_or_check_schema(
 
 # ---------------------------------------------------------------------------
 # CR-05 close (Phase 7 Plan 5 / D-07 / Pitfall 5):
-# `_envelope_probe` dedupea los ~13 envelope probes "limpios" + 2 risk probes
-# (envelope_key=None). Las 3 probes con side-effect / lógica especial
+# `_envelope_probe` dedupea los ~13 envelope probes "limpios" + 2 risk probes.
+#
+# Phase 37 code review CR-01: las 2 risk probes pasaban `envelope_key=None` bajo
+# el claim D-07 "el payload raíz ES el resultado". El vendor doc lo falsifica
+# (`documentation/Primary-API.md:1701-1703` y `:1817-1819` muestran los bodies
+# envueltos en `detailedPosition` / `accountData`) y 37-01 ya había corregido
+# `_core.parse_get_detailed_positions_response` / `parse_get_account_report_response`
+# para desenvolver — pero el driver se quedó con la creencia vieja, así que
+# alimentaba a `diff_safemodel_bidirectional` con el envelope crudo y habría
+# fabricado una tanda de findings SHAPE "model declara, wire no emite". El
+# parámetro `envelope_key` es ahora REQUERIDO (`str`, sin default) y la rama
+# `None` fue eliminada: la ausencia de la rama es lo que impide que la creencia
+# vuelva. Lock: `verification/test_main_matriz_risk_envelope_keys.py`.
+#
+# Las 3 probes con side-effect / lógica especial
 # (`probe_get_segments` setea `_resolved_segment`; `probe_get_all_instruments`
 # setea `_resolved_symbol`; `probe_get_market_data` tiene market-hours guard)
 # permanecen custom — A4 honesty flag. `probe_get_instruments_by_cfi_sanity`
@@ -456,7 +655,7 @@ def _envelope_probe(
     name: str,
     path: str,
     *,
-    envelope_key: str | None = None,
+    envelope_key: str,
     request_params: dict[str, Any] | None = None,
     auth_basic_fn: Callable[[], tuple[str, str]] | None = None,
     pass_detail: Callable[[Any], str] | None = None,
@@ -469,8 +668,12 @@ def _envelope_probe(
             instead of the module singleton shim).
         name: ProbeResult label.
         path: REST path (e.g. ``/rest/segment/all``).
-        envelope_key: Envelope key to unwrap. ``None`` para risk probes (D-07)
-            donde el payload raíz ES el resultado.
+        envelope_key: Envelope key to unwrap. **Requerido** — Phase 37 code
+            review CR-01: no hay endpoint sin envelope. Las 2 risk probes
+            (``detailedPosition`` / ``accountData``) pasaban ``None`` bajo un
+            claim D-07 que el vendor doc falsifica
+            (``documentation/Primary-API.md:1701-1703``, ``:1817-1819``); el
+            parámetro ya no admite ``None`` para que la creencia no pueda volver.
         request_params: Forwarded to ``_sync_matriz_request(client, "GET", path,
             params=...)``.
         auth_basic_fn: Returns ``(user, pass)`` for Risk API HTTP Basic; ``None``
@@ -493,11 +696,7 @@ def _envelope_probe(
         raw = _sync_matriz_request(client, "GET", path, params=request_params, auth_basic=auth)
     except PrimaryAPIError as exc:
         fid = _next_fid()
-        expected = (
-            f"200 OK con envelope {{{envelope_key}: ...}}"
-            if envelope_key
-            else "200 OK con dict raíz (sin envelope key, D-07)"
-        )
+        expected = f"200 OK con envelope {{{envelope_key}: ...}}"
         append_finding(
             _PKG,
             fid=fid,
@@ -511,33 +710,18 @@ def _envelope_probe(
             base_url=base_url,
         )
         return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
-    if envelope_key is None:
-        # Risk probe (D-07): payload raíz ES el resultado.
-        if not isinstance(raw, dict):
-            fid = _next_fid()
-            append_finding(
-                _PKG,
-                fid=fid,
-                class_="SHAPE",
-                surface="sync",
-                status="OPEN",
-                title=f"{name} payload shape incorrecto",
-                expected="payload raíz es dict (sin envelope key, D-07)",
-                actual=f"raw={type(raw).__name__}",
-                diff="payload raíz no es dict",
-                base_url=base_url,
-            )
-            return (ProbeResult(name, "FINDING", f"{fid} (OPEN)"), None)
-        detail = pass_detail(raw) if pass_detail is not None else "received"
-        return (ProbeResult(name, "PASS", detail), raw)
     # Envelope probe: unwrap key, validate shape (list o dict según el endpoint).
     payload = raw.get(envelope_key)
     # Para single-resource envelopes (instrument, order, marketData), `payload` es dict;
     # para list envelopes (instruments, segments, orders, trades, positions), es list.
+    # Phase 37 code review CR-01: las 2 risk probes también son single-resource
+    # — `detailedPosition` y `accountData` envuelven un dict, no una lista.
     expected_dict = name in {
         "get_instrument_detail",
         "get_order_status",
         "get_order_by_exec_id",
+        "get_detailed_positions",
+        "get_account_report",
     }
     if expected_dict:
         if not isinstance(payload, dict):
@@ -1021,9 +1205,69 @@ def probe_get_market_data(client: Client) -> tuple[ProbeResult, dict[str, Any] |
             base_url=base_url,
         )
         return (ProbeResult("get_market_data", "FINDING", f"{fid} (OPEN)"), None)
+    # ------------------------------------------------------------------
+    # D-05: gastar los SEIS alias de `MarketDataSnapshot` (Phase 37 / NOBJ-MTZ-02).
+    # ------------------------------------------------------------------
+    #
+    # El snapshot se construye sobre el sub-dict `marketData` YA obtenido: CERO
+    # llamadas HTTP adicionales. `MarketDataSnapshot.from_api` es exactamente el
+    # constructor que `_core.parse_get_market_data_response` invoca sobre este mismo
+    # sub-dict, así que enruta por el mismo walker, el mismo sink y el mismo contexto
+    # de decode estricto que el parser del cliente: la construcción emite exactamente
+    # los registros que la función tipada habría emitido, gratis. Un segundo round
+    # trip al endpoint tipado duplicaría el request del concepto market-data y la
+    # emisión de divergencias; `verification/test_main_matriz_deep_chain.py` lo
+    # prohíbe por AST.
+    #
+    # Los seis alias son propiedades de SÓLO LECTURA, invisibles a
+    # `typing.get_type_hints` y a `dataclasses.fields` (Phase 35 criterio 5, D-16) y
+    # por lo tanto invisibles a `_decode.walk_model`: desreferenciarlas NO agrega
+    # camino de decode y NO puede fabricar un `missing` ni mover el conteo de
+    # divergencias. El censo NO debe atribuirle a esta cadena un cambio de números que
+    # estructuralmente no puede causar.
+    #
+    # Con entradas ausentes o `null` cada Null Object es falsy y ninguna
+    # desreferencia lanza — la semántica de borde está pinneada por la suite mockeada
+    # `packages/matriz-client/tests/test_deep_chain_edges.py` (plan 39-02).
+    #
+    # `MatrizDecodeError` NO se captura acá a propósito: no es subclase de nada en
+    # `_RESIDUAL_PROBE_EXCEPTIONS`, así que un raise de modo estricto desde `from_api`
+    # sigue viajando al decorador `probe_context(..., on_decode_error=...)` y produce
+    # el finding SHAPE de siempre, sin doble emisión bajo otro título.
+    try:
+        snapshot = MarketDataSnapshot.from_api(md)
+        last_price = snapshot.last.price
+        bid_levels = len(snapshot.bids)
+        offer_levels = len(snapshot.offers)
+        settlement_price = snapshot.settlement.price
+        close_price = snapshot.close.price
+        open_interest_size = snapshot.open_interest.size
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"get_market_data: la cadena tipada levantó {type(exc).__name__}",
+            expected="los 6 alias de MarketDataSnapshot desreferenciables sin excepción",
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="eslabón roto en MarketDataSnapshot -> MarketDataEntryValue/MarketDataLevel",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_market_data", "FINDING", f"{fid} (OPEN)"), md)
+    chain = (
+        f"last={last_price} bids={bid_levels} offers={offer_levels} "
+        f"settlement={settlement_price} close={close_price} oi={open_interest_size}"
+    )
     # D-MATZ-5 market-hours guard: inspecciona LA.date.
+    #
+    # D-12: la guarda de antigüedad de `LA.date` sigue siendo el ÚNICO discriminador
+    # entre "mercado cerrado" y "campo mal modelado". Los valores de la cadena de
+    # arriba se REPORTAN, nunca se usan para clasificar.
     la = md.get("LA")
-    detail = f"symbol={_resolved_symbol}, entries={len(md)}"
+    detail = f"symbol={_resolved_symbol}, entries={len(md)}, {chain}"
     if isinstance(la, dict):
         la_date = la.get("date")
         if isinstance(la_date, int):
@@ -1266,8 +1510,15 @@ def probe_get_positions(client: Client) -> tuple[ProbeResult, list[dict[str, Any
 def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 18 (D-MATZ-29 #18): ``GET /rest/risk/detailedPosition/{account}``.
 
-    Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
-    el dict completo. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
+    Risk API HTTP Basic Auth. **Envelope key ``detailedPosition``**
+    (``documentation/Primary-API.md:1701-1703``), igual que ya desenvuelve
+    ``_core.parse_get_detailed_positions_response`` desde 37-01 (D-03,
+    ``strict-unwrap``). El claim previo de esta docstring — "SIN envelope key
+    (D-07), el payload raíz es el dict completo" — lo falsifica el vendor doc; el
+    code review de la Phase 37 (CR-01) lo encontró sobreviviendo acá después de
+    que 37-01 lo corrigiera en el cliente. Sin este fix el driver alimentaba a
+    ``diff_safemodel_bidirectional`` (probe 20) con el envelope crudo.
+    SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (
@@ -1278,7 +1529,7 @@ def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str,
         client,
         "get_detailed_positions",
         f"/rest/risk/detailedPosition/{_PRIMARY_ACCOUNT}",
-        envelope_key=None,
+        envelope_key="detailedPosition",
         auth_basic_fn=client._risk_auth,
         # WR-01: no insertamos accountId completo en detail string.
         pass_detail=lambda _: "account received",
@@ -1294,8 +1545,13 @@ def probe_get_detailed_positions(client: Client) -> tuple[ProbeResult, dict[str,
 def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any] | None]:
     """Probe 19 (D-MATZ-29 #19): ``GET /rest/risk/accountReport/{account}``.
 
-    Risk API HTTP Basic Auth. **SIN envelope key (D-07)** — el payload raíz es
-    el dict completo. SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
+    Risk API HTTP Basic Auth. **Envelope key ``accountData``**
+    (``documentation/Primary-API.md:1817-1819``), igual que ya desenvuelve
+    ``_core.parse_get_account_report_response`` desde 37-01 (D-03,
+    ``strict-unwrap``). Gemelo exacto de ``probe_get_detailed_positions``: mismo
+    claim D-07 previo, misma falsificación por el vendor doc, mismo hallazgo del
+    code review de la Phase 37 (CR-01).
+    SKIPPED si ``PRIMARY_ACCOUNT`` ausente (D-MATZ-3).
     """
     if _PRIMARY_ACCOUNT is None and not _auth_failed:
         return (
@@ -1306,7 +1562,7 @@ def probe_get_account_report(client: Client) -> tuple[ProbeResult, dict[str, Any
         client,
         "get_account_report",
         f"/rest/risk/accountReport/{_PRIMARY_ACCOUNT}",
-        envelope_key=None,
+        envelope_key="accountData",
         auth_basic_fn=client._risk_auth,
         # WR-01: no insertamos accountName real en detail string.
         pass_detail=lambda _: "accountName received",
@@ -2007,7 +2263,20 @@ async def probe_get_instruments_by_segment_async(aclient: AsyncClient) -> ProbeR
     on_decode_error=_shape_probe_result,
 )
 async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
-    """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it)."""
+    """D-06 async pair of ``probe_get_market_data`` (no market-hours guard async — sync owns it).
+
+    **Cuerpo propio en vez de ``_ainvoke`` (D-05).** El helper genérico sólo mapea
+    excepciones y DESCARTA el resultado, así que la mitad async no podía gastar los seis
+    alias: ése era el gap. El mapeo de excepciones se replica byte-paralelo al del
+    helper —la misma familia (``PrimaryAPIError`` primero, ``_RESIDUAL_PROBE_EXCEPTIONS``
+    después), el mismo ``append_finding`` con ``surface="async"``, los mismos títulos y el
+    mismo nombre de probe (clave de findings)— para no perder cobertura de error-mapping.
+
+    ``AsyncClient.get_market_data`` ya devuelve un ``MarketDataSnapshot`` TIPADO, así que
+    esta superficie no construye nada: la única llamada emisora de request es la que ya
+    tenía. Ver el comentario extenso en ``probe_get_market_data`` para por qué los seis
+    alias son observación pura y no pueden mover el conteo de divergencias.
+    """
     if _auth_failed:
         return ProbeResult(
             "get_market_data_async", "SKIPPED", f"auth failed: {_auth_failure_reason}"
@@ -2015,10 +2284,51 @@ async def probe_get_market_data_async(aclient: AsyncClient) -> ProbeResult:
     if _resolved_symbol is None:
         return ProbeResult("get_market_data_async", "SKIPPED", "no _resolved_symbol from probe #3")
     sym = _resolved_symbol
-    return await _ainvoke(
-        aclient,
+    base_url = aclient._state.base_url
+    expected = "200 OK + surface-typed payload"
+    try:
+        snapshot = await aclient.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI"))
+        last_price = snapshot.last.price
+        bid_levels = len(snapshot.bids)
+        offer_levels = len(snapshot.offers)
+        settlement_price = snapshot.settlement.price
+        close_price = snapshot.close.price
+        open_interest_size = snapshot.open_interest.size
+    except PrimaryAPIError as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title="aio.get_market_data_async levantó PrimaryAPIError inesperado",
+            expected=expected,
+            actual=f"PrimaryAPIError: {exc}",
+            diff="error upstream o status='ERROR' inesperado",
+            base_url=base_url,
+        )
+        return ProbeResult("get_market_data_async", "FINDING", f"{fid} (OPEN)")
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"aio.get_market_data_async levantó {type(exc).__name__} no mapeado",
+            expected=expected,
+            actual=f"{type(exc).__name__}: {exc}",
+            diff="transporte async devolvió excepción no mapeada a PrimaryAPIError",
+            base_url=base_url,
+        )
+        return ProbeResult("get_market_data_async", "FINDING", f"{fid} (OPEN)")
+    return ProbeResult(
         "get_market_data_async",
-        lambda: aclient.get_market_data(sym, ("BI", "OF", "LA", "OP", "CL", "SE", "OI")),
+        "PASS",
+        f"symbol={sym}, last={last_price} bids={bid_levels} offers={offer_levels} "
+        f"settlement={settlement_price} close={close_price} oi={open_interest_size}",
     )
 
 
@@ -2514,7 +2824,8 @@ def main() -> None:
 
     Secuencia:
     1. HARN-01 ``require_env`` gate — exit 0 si faltan credenciales.
-    2. D-MATZ-33 hostname assert remarkets — exit 1 si base_url no es remarkets.
+    2. D-MATZ-33 venue allowlist (Phase 39 D-02/D-01) — línea SKIPPED a stdout y
+       exit 0 si el hostname de base_url no está en ``_VENUE_ALLOWLIST``.
     3. ``write_findings(_PKG)`` para inicializar el findings file.
     3b. ``_seed_fid_counter()`` (Phase 33, P-3): sube el allocator por encima de
        los diez fids ya committeados. Orden obligatorio: DESPUÉS de
@@ -2545,15 +2856,30 @@ def main() -> None:
     # justamente para no abrir un segundo sitio de construcción.
     client = Client(strict_decode=_STRICT)
 
-    # D-MATZ-33 belt-and-suspenders hostname assert: prevention contra prod.
+    # D-MATZ-33 belt-and-suspenders hostname gate: prevención contra prod.
+    # Phase 39 D-02: allowlist por igualdad exacta de hostname (dos venues
+    # confirmados por el operador), en vez del substring `"remarkets" in base`.
+    # Phase 39 D-01: un host fuera del allowlist NO es una falla del driver — es
+    # un bloqueo de política. Se emite la línea SKIPPED a STDOUT (el único stream
+    # que `main_verify.py` escanea) y se sale con código 0, ANTES de
+    # `write_findings(_PKG)` y del primer probe: la rama de skip no escribe ni un
+    # finding (T-39-03).
     base = client._state.base_url
-    if "remarkets" not in base:
-        print(
-            f"ABORT: PRIMARY_BASE_URL={base!r} is not a remarkets sandbox URL — "
-            "Phase 5 verification is remarkets-only by safety policy",
-            file=sys.stderr,
+    venue = _venue_token(base)
+    if venue is None:
+        print(_HOST_SKIP_LINE)
+        # Phase 39 (D-09 / T-39-12): el sobre se REESCRIBE con cero probes y la
+        # causa medida. Sin esto, el sobre de una corrida anterior quedaría en
+        # pie y el loop de cierre de ciclo de abajo lo leería como evidencia de
+        # ESTA corrida. Una corrida saltada invalida el sobre.
+        write_run_evidence(
+            _PKG,
+            driver="main_matriz.py",
+            triples=[],
+            counts={},
+            skipped=_HOST_SKIP_EVIDENCE,
         )
-        sys.exit(1)
+        sys.exit(0)
 
     write_findings(_PKG)
 
@@ -2640,16 +2966,53 @@ def main() -> None:
         # Probe 24: schema snapshots (DRIFT-01 mirror, D-MATZ-24 después de errors).
         results.append(probe_schema_snapshot(payloads, base))
 
-        # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
+        # Phase 39 (D-09): sobre interino de matriz, ANTES del loop de cierre de
+        # ciclo. El loop lee la evidencia de los CUATRO paquetes —matriz
+        # incluido— y a esta altura del run el sobre en disco todavía es el de
+        # la corrida ANTERIOR. Sin esta escritura, matriz se juzgaría a sí mismo
+        # por una corrida vieja (o, en el primer run, se reportaría SKIPPED "sin
+        # evidencia" en el mismo output donde acaba de imprimir 24 probes). El
+        # bloque del SUMMARY lo reescribe al final con los conteos completos.
+        interim_counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "SKIPPED": 0, "FINDING": 0}
+        for r in results:
+            interim_counts[r.status] = interim_counts.get(r.status, 0) + 1
+        write_run_evidence(
+            _PKG,
+            driver="main_matriz.py",
+            triples=sorted(handler.seen),
+            counts=interim_counts,
+        )
+
+        # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02), endurecido
+        # contra el PASS vacuo (Phase 39 D-09). Cada veredicto se decide sobre
+        # EVIDENCIA POSITIVA DE CORRIDA —el conteo de probes del sobre— y no
+        # sobre la ausencia de findings: `verify_cycle_closure` devuelve
+        # `(True, [])` también cuando el archivo de findings no existe, así que
+        # su `ok` solo, sin el sobre al lado, no distingue "todo enlazado" de
+        # "nada que validar".
+        #
+        # ACOPLAMIENTO DECLARADO: el cierre de ciclo de los CUATRO paquetes vive
+        # dentro del driver de matriz, así que si matriz sale temprano por el
+        # gate D-MATZ-33 este loop no corre y NINGUNO de los cuatro recibe
+        # veredicto de cierre. En ese caso el censo de la fase debe registrar
+        # `cycle_closure: NO CORRIÓ — LIVE-MATZ-33` para los cuatro paquetes,
+        # nunca un silencio que un lector tome por limpio.
         for pkg in (
             "ambito-financiero-client",
             "iol-client",
             "higyrus-client",
             "matriz-client",
         ):
+            evidence = read_run_evidence(pkg)
+            probes = probes_executed(pkg)
             ok, missing = verify_cycle_closure(pkg)
-            status_str = "PASS" if ok else "FAIL"
-            detail = "" if ok else f"missing regressions: {', '.join(missing)}"
+            status_str, detail = _cycle_closure_verdict(
+                pkg,
+                probes=probes,
+                evidence=evidence,
+                ok=ok,
+                missing=missing,
+            )
             results.append(
                 ProbeResult(
                     f"cycle_closure_{pkg.replace('-', '_')}",
@@ -2657,7 +3020,9 @@ def main() -> None:
                     detail,
                 )
             )
-            if not ok:
+            # Sólo el camino FAIL escribe finding: un paquete que no corrió sale
+            # SKIPPED y no toca el ledger — no medir no es un defecto.
+            if status_str == "FAIL":
                 fid = _next_fid()
                 append_finding(
                     pkg,
@@ -2671,7 +3036,7 @@ def main() -> None:
                     diff="see verify_cycle_closure output",
                 )
 
-        # D-MATZ-27 EXPECTED terminal: prod-vs-remarkets divergence acknowledged.
+        # D-MATZ-27 EXPECTED terminal: prod-vs-sandbox divergence acknowledged.
         # Esta ES la última invocación de append_finding sobre _PKG en main()
         # (Assumption A3 del plan).
         # HARN-10 (Phase 11): idempotent_by_title=True evita que el terminal se
@@ -2684,14 +3049,22 @@ def main() -> None:
             class_="SHAPE",
             surface="sync",
             status="EXPECTED",
-            title="prod-vs-remarkets divergence acknowledged",
+            # Phase 39 (Pitfall 5): el título anterior
+            # ("prod-vs-remarkets divergence acknowledged") y su `expected`
+            # citaban una fila de REQUIREMENTS.md que ya no existe y afirmaban
+            # que la verificación era remarkets-only — falso bajo D-02. Como el
+            # dedupe es `idempotent_by_title=True`, el título nuevo crea un
+            # finding NUEVO: el anterior queda superseded en el ledger y recibe
+            # disposición explícita en el plan 39-07 (no se borra).
+            title="prod-vs-sandbox divergence acknowledged",
             expected=(
-                "verification limited to remarkets sandbox by safety policy "
-                "(REQUIREMENTS.md Out of Scope)"
+                "verification limited to a venue in the D-MATZ-33 hostname "
+                f"allowlist (this run: {venue}) by safety policy; the allowlist "
+                "is widened only by explicit operator decision (Phase 39 D-02)"
             ),
             actual=(
                 "prod (api.primary.com.ar) shape unverified; sandbox shape "
-                "committed in .planning/verification/schemas/matriz-client/"
+                f"({venue}) committed in .planning/verification/schemas/matriz-client/"
             ),
             diff="N/A (acknowledged limitation, not detected drift)",
             base_url=base,
@@ -2723,6 +3096,18 @@ def main() -> None:
         f"SKIPPED={counts['SKIPPED']} FINDING={counts['FINDING']} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
+    )
+
+    # Phase 39 (D-09 + D-10): la línea SUMMARY imprime el CONTEO de triples y se
+    # va con el proceso; el sobre persiste los MIEMBROS —la unidad del censo— y
+    # el conteo de probes. Esta escritura REEMPLAZA la interina que el sweep
+    # hizo antes del loop de cierre de ciclo: acá los conteos ya incluyen los
+    # probes async y el propio veredicto de cierre.
+    write_run_evidence(
+        _PKG,
+        driver="main_matriz.py",
+        triples=sorted(handler.seen),
+        counts=counts,
     )
 
     # Phase 10 LIVE-02 paridad reporter (D-06): compare PASS/FINDING/SKIPPED

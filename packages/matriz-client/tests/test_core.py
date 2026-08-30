@@ -176,10 +176,68 @@ def test_unwrap_raises_on_missing_key() -> None:
     assert "missing envelope key 'segments'" in (exc_info.value.description or "")
 
 
+def test_unwrap_failure_names_the_keys_the_body_actually_carried() -> None:
+    """WR-05: el mensaje trae el key set observado, o la corrida no se auto-diagnostica.
+
+    ``strict-unwrap`` (37-01, D-03) se apoya ENTERAMENTE en el vendor doc: los
+    dos endpoints Risk no tienen ninguna captura viva en el repo y no puede
+    producirse ninguna mientras ``LIVE-MATZ-33`` esté en pie. Si el nombre real
+    de la key fuera otro, el key set observado es el único dato que distingue
+    "el vendor usa otra key" de "el vendor cambió la forma" — y sin él la primera
+    corrida en vivo sólo dice que algo falló.
+
+    Ordenado: un mensaje reproducible es lo que permite dedupear findings.
+    """
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.unwrap(
+            {"status": "OK", "detailedPositionData": {}},
+            "detailedPosition",
+            "/rest/risk/detailedPosition/REM7374",
+        )
+    description = exc_info.value.description or ""
+    assert "body carried: ['detailedPositionData', 'status']" in description
+
+
+def test_unwrap_raises_on_a_null_envelope_value() -> None:
+    """WR-05: ``null`` es una violación de forma igual que una key ausente.
+
+    ``{"status":"OK","detailedPosition": null}`` pasaba el guard y producía un
+    modelo all-defaults en silencio — reintroduciendo el modo de falla exacto que
+    ``strict-unwrap`` se adoptó para eliminar ("la cuenta no tiene nada"). Para
+    los envelopes de lista tampoco era benigno: reventaba con un ``TypeError``
+    crudo en la comprehension del caller, fuera del contrato de excepciones
+    tipadas (D-MATZ-9). Las dos disposiciones convergen en la misma respuesta.
+
+    El mensaje es DISTINTO del de la key ausente a propósito: en un log en vivo
+    "ausente" y "presente pero null" apuntan a causas distintas del vendor.
+    """
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.unwrap(
+            {"status": "OK", "detailedPosition": None},
+            "detailedPosition",
+            "/rest/risk/detailedPosition/REM7374",
+        )
+    description = exc_info.value.description or ""
+    assert "envelope key 'detailedPosition' is null" in description
+    assert "missing envelope key" not in description
+
+
 def test_unwrap_returns_value_when_key_present() -> None:
     """Envelope key presente → retorna el value."""
     value = _core.unwrap({"segments": [{"x": 1}]}, "segments", "/rest/segment/all")
     assert value == [{"x": 1}]
+
+
+def test_unwrap_does_not_reject_a_falsy_but_present_value() -> None:
+    """Cota superior de la guarda de ``null``: vacío NO es lo mismo que ausente.
+
+    Una lista vacía es una respuesta perfectamente bien formada ("la cuenta no
+    tiene posiciones"), y un ``{}`` también. Sólo ``None`` — la ausencia de
+    payload bajo una key presente — es la violación de forma.
+    """
+    assert _core.unwrap({"positions": []}, "positions", "/p") == []
+    assert _core.unwrap({"order": {}}, "order", "/p") == {}
+    assert _core.unwrap({"n": 0}, "n", "/p") == 0
 
 
 # ----------------------------------------------------------------------
@@ -324,19 +382,155 @@ def test_build_new_order_request_omits_optional_params() -> None:
     assert "expireDate" not in spec.params
 
 
-def test_parse_get_detailed_positions_response_returns_model() -> None:
-    """Risk parser: payload raíz → ``DetailedPosition`` (NO envelope unwrap)."""
+# ----------------------------------------------------------------------
+# Phase 37 D-03 — Risk parsers DO unwrap the vendor envelope
+#
+# Disposición ratificada por el operator: ``strict-unwrap``. Un body SIN la
+# envelope key levanta ``PrimaryAPIError`` en vez de decodificar en silencio a
+# un modelo all-defaults que se lee como "la cuenta no tiene nada". Es la misma
+# forma que el endpoint hermano ``parse_get_positions_response`` (_core.py:884-889)
+# ya usaba, así que la capa Risk queda uniforme.
+#
+# Hasta Phase 37 ambos parsers pasaban el body RAÍZ a ``from_api`` bajo el
+# claim "NO envelope key, D-07" — un claim que el propio vendor doc falsifica
+# (Primary-API.md:1701-1703 y :1817-1819 muestran el body envuelto).
+# ----------------------------------------------------------------------
+
+
+def test_parse_get_detailed_positions_response_unwraps_envelope() -> None:
+    """Body ENVUELTO ``{detailedPosition: {...}}`` → escalares declarados poblados.
+
+    Este mismo body decodificaba ``account is None`` antes de Phase 37: la raíz
+    llegaba a ``from_api``, ``detailedPosition`` entraba como key ``extra`` y
+    ningún campo declarado se encontraba jamás. La aserción de abajo es la
+    inversión de ese bug, no sólo la confirmación del valor nuevo.
+    """
+    # Provenance: vendor-documented, UNMEASURED — derivado de
+    # packages/matriz-client/documentation/Primary-API.md:1701-1706 y :1791.
+    # No existe captura viva: matriz está bloqueado para vivo por D-MATZ-33.
     resp = _make_response(
         json_body={
-            "account": "ACC1",
-            "totalDailyDiffPlain": 1.5,
-            "totalMarketValue": 1000.0,
-            "lastCalculation": "2025-01-01T00:00:00Z",
+            "status": "OK",
+            "detailedPosition": {
+                "account": "REM7374",
+                "totalDailyDiffPlain": -184777,
+                "totalMarketValue": 60240,
+                "lastCalculation": 1669996294136,
+            },
         }
     )
-    result = _core.parse_get_detailed_positions_response(resp, "ACC1")
-    assert result.account == "ACC1"
-    assert result.totalDailyDiffPlain == 1.5
+    result = _core.parse_get_detailed_positions_response(resp, "REM7374")
+    assert result.account == "REM7374"
+    assert result.totalMarketValue == 60240.0
+    assert result.totalDailyDiffPlain == -184777.0
+    # ``lastCalculation`` está anotado ``str | None`` pero el wire trae un epoch
+    # int (:1791). matriz corre con ``scalar_passthrough=True`` (_decode.py:140),
+    # así que el valor llega verbatim y la divergencia queda REPORTADA, no
+    # tragada. Poblado — que es lo que este test defiende — no ausente.
+    assert result.lastCalculation == 1669996294136  # type: ignore[comparison-overlap]
+    assert bool(result) is True
+
+
+def test_parse_get_account_report_response_unwraps_envelope() -> None:
+    """Body ENVUELTO ``{accountData: {...}}`` → escalares declarados poblados."""
+    # Provenance: vendor-documented, UNMEASURED — derivado de
+    # packages/matriz-client/documentation/Primary-API.md:1817-1825 y :1895-1898.
+    resp = _make_response(
+        json_body={
+            "status": "OK",
+            "accountData": {
+                "accountName": "REM7374",
+                "marketMember": "PrimaryVenture",
+                "margin": 2923811.299985,
+                "currentCash": 103065823,
+                "uncoveredMargin": 0,
+            },
+        }
+    )
+    result = _core.parse_get_account_report_response(resp, "REM7374")
+    assert result.accountName == "REM7374"
+    assert result.margin == 2923811.299985
+    assert result.currentCash == 103065823.0
+    assert bool(result) is True
+
+
+def test_parse_get_detailed_positions_response_raises_on_flat_body() -> None:
+    """``strict-unwrap`` en forma ejecutable: un body PLANO ya no decodifica en silencio.
+
+    Ésta es la disposición que el operator ratificó en el checkpoint de 37-01.
+    Un cambio de forma real se vuelve ruidoso vía el contrato de excepción
+    tipado (D-MATZ-9) en vez de producir un ``DetailedPosition`` all-defaults.
+    """
+    resp = _make_response(json_body={"status": "OK", "account": "REM7374"})
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.parse_get_detailed_positions_response(resp, "REM7374")
+    assert "missing envelope key 'detailedPosition'" in (exc_info.value.description or "")
+
+
+def test_risk_parsers_on_a_null_envelope_value_do_not_read_as_an_empty_account() -> None:
+    """WR-05: un envelope ``null`` no puede leerse como "la cuenta no tiene nada".
+
+    Éste es el hueco que el code review de la Phase 37 midió en ``strict-unwrap``:
+    el body pasaba el guard, ``from_api(None)`` devolvía un modelo all-defaults y
+    el caller no tenía forma de distinguirlo de una cuenta vacía real —
+    exactamente el modo de falla que la disposición se adoptó para eliminar. Se
+    pinnea la disposición consistente: levanta, igual que la key ausente.
+
+    Ambos parsers Risk, porque son gemelos y una divergencia entre ellos sería
+    invisible de otro modo.
+    """
+    detailed = _make_response(json_body={"status": "OK", "detailedPosition": None})
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.parse_get_detailed_positions_response(detailed, "REM7374")
+    assert "envelope key 'detailedPosition' is null" in (exc_info.value.description or "")
+
+    account = _make_response(json_body={"status": "OK", "accountData": None})
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.parse_get_account_report_response(account, "REM7374")
+    assert "envelope key 'accountData' is null" in (exc_info.value.description or "")
+
+
+def test_parse_get_account_report_response_raises_on_flat_body() -> None:
+    """``strict-unwrap``: gemelo del anterior sobre la envelope key ``accountData``."""
+    resp = _make_response(json_body={"status": "OK", "accountName": "REM7374"})
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.parse_get_account_report_response(resp, "REM7374")
+    assert "missing envelope key 'accountData'" in (exc_info.value.description or "")
+
+
+def test_risk_parsers_raise_on_status_error_before_the_envelope_lookup() -> None:
+    """Contrato preservado: ``status == "ERROR"`` gana sobre el envelope-key check.
+
+    El error del vendor debe llegar verbatim al caller; si el orden se
+    invirtiera, un body de error legítimo se reportaría como
+    "missing envelope key", enmascarando la causa real.
+    """
+    for parser in (
+        _core.parse_get_detailed_positions_response,
+        _core.parse_get_account_report_response,
+    ):
+        resp = _make_response(
+            json_body={"status": "ERROR", "description": "Invalid account", "message": "msg-1"}
+        )
+        with pytest.raises(PrimaryAPIError) as exc_info:
+            parser(resp, "REM7374")
+        assert exc_info.value.description == "Invalid account"
+        # El ctor kwarg es ``message`` pero el atributo público es ``api_message``
+        # (exceptions.py:23-26) — ``message`` colisionaría con ``BaseException``.
+        assert exc_info.value.api_message == "msg-1"
+
+
+def test_risk_parsers_raise_on_non_dict_body_naming_the_endpoint() -> None:
+    """Contrato preservado: body JSON no-dict → raise que nombra el path del endpoint."""
+    resp = _make_response(json_body=[1, 2, 3])
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.parse_get_detailed_positions_response(resp, "REM7374")
+    assert "/rest/risk/detailedPosition/REM7374" in (exc_info.value.description or "")
+
+    resp = _make_response(json_body=[1, 2, 3])
+    with pytest.raises(PrimaryAPIError) as exc_info:
+        _core.parse_get_account_report_response(resp, "REM7374")
+    assert "/rest/risk/accountReport/REM7374" in (exc_info.value.description or "")
 
 
 # ----------------------------------------------------------------------

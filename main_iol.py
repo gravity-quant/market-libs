@@ -98,6 +98,7 @@ from verification import (
     safe_print,
     schema_of,
     write_findings,
+    write_run_evidence,
 )
 from verification.findings import append_finding, max_existing_fid
 
@@ -649,6 +650,20 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
     base_url = client._state.base_url
     try:
         quote = client.get_quote(_SAMPLE_SYMBOL)
+        # SC-1 / NOBJ-IOL-01: la cadena tipada se GASTA acá, dentro del cuerpo del
+        # ``try``. La Phase 38 declaró ``Cotizacion.puntas`` como ``list[Punta]``
+        # —no-Optional, con la rama de colapso NOBJ-02 cubriendo el ``null`` del
+        # wire y la clave ausente—, así que ``quote.puntas[0].precioCompra`` no
+        # necesita guard de nulidad: la pregunta "¿vino libro?" se hace por
+        # truthiness de la lista (models.py:203-205). Un ``len()`` solo dejaría el
+        # decode de ``Punta`` sin ejercitar y el probe reportaría PASS igual.
+        #
+        # D-09 (never-FAILED): la ubicación es load-bearing. Fuera del ``try`` un
+        # eslabón roto se propagaría sin capturar y tumbaría iol-client a FAILED en
+        # vez de degradar a FINDING.
+        niveles_libro = len(quote.puntas)
+        mejor_compra = quote.puntas[0].precioCompra if quote.puntas else None
+        mejor_venta = quote.puntas[0].precioVenta if quote.puntas else None
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -727,7 +742,15 @@ def probe_get_quote_sync(client: Client) -> tuple[ProbeResult, Cotizacion | None
             ProbeResult("get_quote_sync", "FINDING", f"{fid} (OPEN)"),
             quote,
         )
-    return (ProbeResult("get_quote_sync", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
+    return (
+        ProbeResult(
+            "get_quote_sync",
+            "PASS",
+            f"ultimoPrecio={ultimo!r} puntas={niveles_libro} "
+            f"compra={mejor_compra!r} venta={mejor_venta!r}",
+        ),
+        quote,
+    )
 
 
 @probe_context(endpoint=_ENDPOINT_TEMPLATES["get_quote"], surface="async")
@@ -743,6 +766,12 @@ async def probe_get_quote_async(
     base_url = aclient._state.base_url
     try:
         quote = await aclient.get_quote(_SAMPLE_SYMBOL)
+        # SC-1 / NOBJ-IOL-01: espejo exacto del sitio sync — misma cadena, misma
+        # ubicación dentro del cuerpo del ``try`` (D-09), misma guarda por
+        # truthiness sobre la lista.
+        niveles_libro = len(quote.puntas)
+        mejor_compra = quote.puntas[0].precioCompra if quote.puntas else None
+        mejor_venta = quote.puntas[0].precioVenta if quote.puntas else None
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -796,7 +825,15 @@ async def probe_get_quote_async(
         return (ProbeResult("get_quote_async", "FINDING", f"{fid} (OPEN)"), None)
     # TYP-01: acceso por atributo tipado (espejo async del sitio sync).
     ultimo = quote.ultimoPrecio
-    return (ProbeResult("get_quote_async", "PASS", f"ultimoPrecio={ultimo!r}"), quote)
+    return (
+        ProbeResult(
+            "get_quote_async",
+            "PASS",
+            f"ultimoPrecio={ultimo!r} puntas={niveles_libro} "
+            f"compra={mejor_compra!r} venta={mejor_venta!r}",
+        ),
+        quote,
+    )
 
 
 @probe_context(endpoint=_ENDPOINT_TEMPLATES["get_historical_quotes"], surface="sync")
@@ -1137,6 +1174,20 @@ def probe_get_instruments_by_type_sync(
     base_url = client._state.base_url
     try:
         wrapper_result = client.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
+        # SC-1 / NOBJ-IOL-01: acá ``puntas`` es un ``Punta`` **singular**, no una
+        # lista (models.py D-02: la misma clave con dos formas en el mismo corpus).
+        # Declarado sin ``| None``, así que ``titulo.puntas.precioCompra`` nunca
+        # levanta y una guarda ``is None`` sería código muerto que contradice el
+        # tipo que la Phase 38 entregó; la pregunta "¿vino libro?" se hace por
+        # truthiness del Null Object, que es falsy exactamente cuando iguala a
+        # ``Punta.empty()``.
+        #
+        # La comprensión es sobre la colección obtenida, no un ``len()``: con
+        # ``len(wrapper_result)`` solo, el decode de cada ``Punta`` de cada fila
+        # viajaría sin ejercitar y el probe reportaría PASS igual (WR-06). Dentro
+        # del cuerpo del ``try`` por D-09.
+        compras_libro = [titulo.puntas.precioCompra for titulo in wrapper_result]
+        mejor_compra = compras_libro[0] if compras_libro else None
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -1254,7 +1305,8 @@ def probe_get_instruments_by_type_sync(
         ProbeResult(
             "get_instruments_by_type_sync",
             "PASS",
-            f"sample={_SAMPLE_INSTRUMENT_TYPE} len={len(wrapper_result)}; 6 types OK",
+            f"sample={_SAMPLE_INSTRUMENT_TYPE} len={len(wrapper_result)}; 6 types OK; "
+            f"compra={mejor_compra!r}",
         ),
         wrapper_result,
     )
@@ -1277,6 +1329,11 @@ async def probe_get_instruments_by_type_async(
     base_url = aclient._state.base_url
     try:
         wrapper_result = await aclient.get_instruments_by_type(_SAMPLE_INSTRUMENT_TYPE)
+        # SC-1 / NOBJ-IOL-01: espejo exacto del sitio sync — ``Punta`` singular,
+        # rama por truthiness del Null Object, comprensión sobre la colección
+        # obtenida y no un ``len()``, todo dentro del cuerpo del ``try`` (D-09).
+        compras_libro = [titulo.puntas.precioCompra for titulo in wrapper_result]
+        mejor_compra = compras_libro[0] if compras_libro else None
     except IOLAuthError as exc:
         fid = _next_fid()
         append_finding(
@@ -1343,7 +1400,7 @@ async def probe_get_instruments_by_type_async(
         ProbeResult(
             "get_instruments_by_type_async",
             "PASS",
-            f"sample={_SAMPLE_INSTRUMENT_TYPE} len={len(wrapper_result)}",
+            f"sample={_SAMPLE_INSTRUMENT_TYPE} len={len(wrapper_result)}; compra={mejor_compra!r}",
         ),
         wrapper_result,
     )
@@ -2260,6 +2317,19 @@ def main() -> None:
         f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
+    )
+
+    # Phase 39 (D-09 + D-10): la línea SUMMARY de arriba imprime el CONTEO de
+    # triples y se va con el proceso. El sobre persiste los MIEMBROS —lo único
+    # con lo que se puede computar la diferencia de conjuntos contra el censo—
+    # y el conteo de probes, que es la evidencia positiva de que este driver
+    # corrió. ``handler`` sigue ligado después del bloque ``with``, así que la
+    # llamada va acá, junto al SUMMARY.
+    write_run_evidence(
+        _PKG,
+        driver="main_iol.py",
+        triples=sorted(handler.seen),
+        counts={"PASS": n_pass, "FAIL": n_fail, "SKIPPED": n_skip, "FINDING": n_find},
     )
 
 

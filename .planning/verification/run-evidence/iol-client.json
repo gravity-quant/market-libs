@@ -1,0 +1,15 @@
+{
+  "slug": "iol-client",
+  "driver": "main_iol.py",
+  "captured_at": "2026-08-30T02:41:17.282170+00:00",
+  "counts": {
+    "PASS": 14,
+    "FAIL": 0,
+    "SKIPPED": 1,
+    "FINDING": 0
+  },
+  "probes_executed": 15,
+  "n_triples": 0,
+  "triples": [],
+  "skipped": null
+}

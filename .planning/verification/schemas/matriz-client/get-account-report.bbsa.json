@@ -1,0 +1,39 @@
+{
+  "endpoint": "/rest/risk/accountReport/{account_id}",
+  "client_function": "get_account_report",
+  "captured_at": "2026-08-30T02:34:58.403471+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {
+    "account_id": "{account_id}"
+  },
+  "schema": {
+    "accountName": "str",
+    "availableToCollateral": "float",
+    "collateral": "int",
+    "currentCash": "float",
+    "dailyDiff": "float",
+    "detailedAccountReports": {
+      "0": {
+        "availableToOperate": {
+          "cash": {
+            "detailedCash": {},
+            "totalCash": "float"
+          },
+          "movements": "float",
+          "pendingMovements": "float",
+          "total": "float"
+        },
+        "currencyBalance": {
+          "detailedCurrencyBalance": {}
+        },
+        "settlementDate": "int"
+      }
+    },
+    "hasError": "bool",
+    "lastCalculation": "int",
+    "margin": "int",
+    "ordersMargin": "float",
+    "portfolio": "int",
+    "uncoveredMargin": "float"
+  }
+}

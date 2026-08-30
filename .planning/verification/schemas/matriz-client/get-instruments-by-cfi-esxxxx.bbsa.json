@@ -1,0 +1,15 @@
+{
+  "endpoint": "/rest/instruments/byCFICode",
+  "client_function": "get_instruments_by_cfi_ESXXXX",
+  "captured_at": "2026-08-30T02:34:58.396522+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {
+    "CFICode": "ESXXXX"
+  },
+  "schema": [
+    {
+      "marketId": "str",
+      "symbol": "str"
+    }
+  ]
+}

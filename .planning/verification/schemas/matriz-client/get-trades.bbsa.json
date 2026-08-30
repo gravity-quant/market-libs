@@ -1,0 +1,11 @@
+{
+  "endpoint": "/rest/data/getTrades",
+  "client_function": "get_trades",
+  "captured_at": "2026-08-30T02:34:58.398161+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {
+    "symbol": "{symbol}",
+    "windowDays": 7
+  },
+  "schema": []
+}

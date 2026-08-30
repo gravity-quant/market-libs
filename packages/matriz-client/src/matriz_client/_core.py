@@ -222,20 +222,56 @@ def raise_for_response(resp: httpx.Response) -> None:
 
 
 def unwrap(data: dict[str, Any], key: str, endpoint: str) -> Any:
-    """Return ``data[key]`` or raise ``PrimaryAPIError`` if missing.
+    """Return ``data[key]``, o levanta ``PrimaryAPIError`` si falta o es ``null``.
 
     Surface a typed ``PrimaryAPIError`` (status ``"ERROR"``) cuando la
     Primary API response no trae el envelope key que el wrapper espera. Sin
     este guard, el caller vería un ``KeyError`` opaco fuera del contrato
     de excepciones del cliente (D-MATZ-9).
+
+    **El mensaje lista las keys que el body SÍ traía (Phase 37 code review,
+    WR-05).** El cambio a ``strict-unwrap`` de 37-01 se apoya enteramente en el
+    vendor doc: los dos endpoints Risk no tienen NINGUNA captura viva en
+    ``.planning/verification/schemas/matriz-client/`` y no puede producirse
+    ninguna mientras ``LIVE-MATZ-33`` esté en pie. Si el nombre de la key
+    resultara ser otro, el operator necesita exactamente un dato para distinguir
+    "el vendor usa otra key" de "el vendor cambió la forma" — y es el key set
+    observado. Emitirlo acá es lo que hace que una corrida en vivo sea
+    auto-diagnosticable en el primer intento en vez del segundo.
+
+    **``null`` es una violación de forma igual que una key ausente (WR-05).** El
+    review midió que ``{"status":"OK","detailedPosition": null}`` pasaba este
+    guard y producía un modelo all-defaults en silencio — reintroduciendo
+    exactamente el modo de falla que ``strict-unwrap`` se adoptó para eliminar
+    ("la cuenta no tiene nada"). Para los envelopes de lista el ``None`` tampoco
+    era benigno: reventaba con un ``TypeError`` crudo en la comprehension del
+    caller, fuera del contrato de excepciones. Las dos disposiciones convergen en
+    la misma respuesta, y la excepción tipada es la correcta para ambas.
+
+    Los dos casos llevan mensajes distintos a propósito: en un log en vivo
+    "ausente" y "presente pero null" apuntan a causas distintas del lado del
+    vendor.
     """
     if key not in data:
         raise PrimaryAPIError(
             status="ERROR",
-            description=f"missing envelope key '{key}' in response from {endpoint}",
+            description=(
+                f"missing envelope key '{key}' in response from {endpoint} "
+                f"(body carried: {sorted(data)})"
+            ),
             message=None,
         )
-    return data[key]
+    value = data[key]
+    if value is None:
+        raise PrimaryAPIError(
+            status="ERROR",
+            description=(
+                f"envelope key '{key}' is null in response from {endpoint} "
+                f"(body carried: {sorted(data)})"
+            ),
+            message=None,
+        )
+    return value
 
 
 def parse_envelope_response(resp: httpx.Response, endpoint: str) -> dict[str, Any]:
@@ -254,34 +290,20 @@ def parse_envelope_response(resp: httpx.Response, endpoint: str) -> dict[str, An
     ``httpx.Client(http2=True)`` introduce stream leak en el connection
     pool. Tests/test_core.py ``test_parse_envelope_consumes_body_before_raise``
     es el guard.
+
+    Historia (Phase 37, D-03): matriz llevaba una SEGUNDA copia de este parser,
+    ``_parse_risk_response``, byte-idéntica salvo por la llamada a ``unwrap``
+    que le faltaba. Existía porque se creía que los endpoints Risk
+    (``detailedPosition`` / ``accountReport``) respondían con el payload en la
+    raíz — una creencia que el propio vendor doc committeado en el paquete
+    falsifica: ``documentation/Primary-API.md:1701-1703`` y ``:1817-1819``
+    muestran ambos bodies envueltos. Corregido el unwrap bajo la opción
+    ratificada ``strict-unwrap``, la copia quedó sin diferencia y sin callers,
+    y se eliminó. Los dos parsers Risk usan esta función. Si vuelve a aparecer
+    la tentación de una variante sin unwrap, la evidencia contraria está en las
+    dos líneas de vendor doc citadas arriba.
     """
     # CR-03 FIX (D-06): consume body EXPLICITLY antes de cualquier raise.
-    resp.read()
-    raise_for_response(resp)
-    raw = resp.json()
-    if not isinstance(raw, dict):
-        raise PrimaryAPIError(
-            status="ERROR",
-            description=f"expected JSON object body at {endpoint}, got {type(raw).__name__}",
-            message=None,
-        )
-    data: dict[str, Any] = raw
-    if data.get("status") == "ERROR":
-        raise PrimaryAPIError(
-            status="ERROR",
-            description=data.get("description"),
-            message=data.get("message"),
-        )
-    return data
-
-
-def _parse_risk_response(resp: httpx.Response, endpoint: str) -> dict[str, Any]:
-    """Risk API parser — payload raíz ES el resultado (NO envelope key, D-07).
-
-    Mismo orden CR-03 que ``parse_envelope_response`` pero sin envelope
-    unwrap: ``DetailedPosition`` / ``AccountReport`` se construyen
-    directamente con ``Model.from_api(raw)``.
-    """
     resp.read()
     raise_for_response(resp)
     raw = resp.json()
@@ -489,12 +511,78 @@ def build_get_instruments_by_cfi_request(
     )
 
 
+#: Las dos claves que ``byCFICode`` y ``bySegment`` emiten al ras del elemento,
+#: en vez de anidadas bajo ``instrumentId`` como hace ``/rest/instruments/all``.
+_FLAT_IDENTIFIER_KEYS = ("marketId", "symbol")
+
+
+def _normalize_instrument_element(element: Any) -> Any:
+    """Sube ``{marketId, symbol}`` planos a ``{"instrumentId": {...}}``.
+
+    Phase 39 / LIVE-NOBJ-01 (plan 39-07) — divergencia CONFIRMED medida en vivo.
+
+    ``GET /rest/instruments/byCFICode`` y ``GET /rest/instruments/bySegment``
+    **no** devuelven la forma de ``GET /rest/instruments/all``. Sus elementos
+    son planos::
+
+        {"marketId": "ROFX", "symbol": "MERV - XMEV - RAGH - CI"}
+
+    mientras que ``/rest/instruments/all`` devuelve::
+
+        {"cficode": "EMXXXX", "instrumentId": {"marketId": ..., "symbol": ...}}
+
+    Medido en los **dos** venues del allowlist D-MATZ-33 —el baseline
+    ``get-instruments-by-cfi-esxxxx.remarkets.json`` /
+    ``get-instruments-by-segment.remarkets.json`` capturado el 2026-06-10 contra
+    remarkets, y las capturas ``*.bbsa.json`` del 2026-08-30— así que **no** es
+    una deriva entre venues: es la forma real del vendor para esos dos endpoints.
+
+    Sin esta normalización, ``Instrument.from_api`` no encuentra la clave
+    ``instrumentId`` y la política Null Object (Phase 35 / NOBJ-02) colapsa el
+    eslabón no-opcional ausente a ``InstrumentId.empty()`` **sin emitir
+    divergencia**, mientras ``marketId``/``symbol`` —los únicos datos que el
+    wire trajo— se descartan como divergencias ``extra``. La corrida en vivo del
+    plan 39-07 midió el efecto: ``386`` y ``9160`` objetos ``Instrument`` con
+    ``marketId=None, symbol=None, cficode=None``, es decir el 100% del payload
+    de dos métodos públicos perdido en silencio en las cuatro superficies.
+
+    La función es **aditiva y conservadora**: si el elemento ya trae
+    ``instrumentId`` (la forma anidada, o un ``null`` explícito) se devuelve tal
+    cual, así que ``/rest/instruments/all`` no cambia y una migración futura del
+    vendor a la forma anidada en estos dos endpoints sigue funcionando. Tampoco
+    fabrica un ``cficode``: esos endpoints no lo emiten y el llamador de
+    ``byCFICode`` ya conoce el valor porque es el parámetro que pasó.
+
+    Un elemento que no es ``dict``, o que no trae ninguna de las dos claves
+    planas, se devuelve intacto — la tolerancia del walker se preserva.
+
+    Regresión: ``packages/matriz-client/tests/test_instruments_flat_identifier_shape.py``.
+    """
+    if not isinstance(element, dict) or "instrumentId" in element:
+        return element
+    identifier = {key: element[key] for key in _FLAT_IDENTIFIER_KEYS if key in element}
+    if not identifier:
+        return element
+    normalized: dict[str, Any] = {
+        key: value for key, value in element.items() if key not in _FLAT_IDENTIFIER_KEYS
+    }
+    normalized["instrumentId"] = identifier
+    return normalized
+
+
 @_decode._response_parser
 def parse_get_instruments_by_cfi_response(resp: httpx.Response) -> list[Instrument]:
-    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
+    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``.
+
+    Los elementos vienen con el identificador PLANO; ver
+    :func:`_normalize_instrument_element`.
+    """
     path = "/rest/instruments/byCFICode"
     data = parse_envelope_response(resp, path)
-    return [Instrument.from_api(i) for i in unwrap(data, "instruments", path)]
+    return [
+        Instrument.from_api(_normalize_instrument_element(i))
+        for i in unwrap(data, "instruments", path)
+    ]
 
 
 def build_get_instruments_by_segment_request(
@@ -514,10 +602,17 @@ def build_get_instruments_by_segment_request(
 
 @_decode._response_parser
 def parse_get_instruments_by_segment_response(resp: httpx.Response) -> list[Instrument]:
-    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``."""
+    """Parse envelope ``{instruments: [...]}`` → ``list[Instrument]``.
+
+    Mismo identificador PLANO que ``byCFICode``; ver
+    :func:`_normalize_instrument_element`.
+    """
     path = "/rest/instruments/bySegment"
     data = parse_envelope_response(resp, path)
-    return [Instrument.from_api(i) for i in unwrap(data, "instruments", path)]
+    return [
+        Instrument.from_api(_normalize_instrument_element(i))
+        for i in unwrap(data, "instruments", path)
+    ]
 
 
 # --- §6 Orders ----------------------------------------------------------
@@ -895,7 +990,10 @@ def build_get_detailed_positions_request(
 ) -> RequestSpec:
     """``GET /rest/risk/detailedPosition/{account_name}`` con HTTP Basic Auth (D-07).
 
-    Risk §9.2 sin envelope key — payload raíz ES el resultado.
+    Risk §9.2 responde ENVUELTO en la key ``detailedPosition``
+    (``documentation/Primary-API.md:1701-1703``). El claim previo de esta
+    docstring — "sin envelope key, payload raíz ES el resultado" — lo falsifica
+    el propio vendor doc; corregido en Phase 37 (D-03, ``strict-unwrap``).
     """
     return RequestSpec(
         method="GET",
@@ -912,10 +1010,23 @@ def build_get_detailed_positions_request(
 def parse_get_detailed_positions_response(
     resp: httpx.Response, account_name: str
 ) -> DetailedPosition:
-    """Parse risk payload raíz (NO envelope key, D-07) → ``DetailedPosition``."""
+    """Parse envelope ``{detailedPosition: {...}}`` → ``DetailedPosition``.
+
+    Phase 37 D-03, opción ratificada ``strict-unwrap``. Hasta esta fase el
+    parser pasaba el body RAÍZ a ``from_api`` bajo un claim de ausencia de
+    envelope que el vendor doc falsifica, así que ``detailedPosition`` entraba
+    como key ``extra`` y ningún campo declarado se encontraba jamás. El vendor doc
+    (``documentation/Primary-API.md:1701-1703``) muestra el body envuelto, y el
+    endpoint hermano ``parse_get_positions_response`` ya desenvolvía.
+
+    Un body SIN la envelope key levanta ``PrimaryAPIError`` vía ``unwrap`` —
+    disposición ratificada por el operator en el checkpoint de 37-01: una
+    respuesta de forma equivocada se vuelve ruidosa en vez de producir un
+    modelo all-defaults que se lee como "la cuenta no tiene nada".
+    """
     path = f"/rest/risk/detailedPosition/{account_name}"
-    raw = _parse_risk_response(resp, path)
-    return DetailedPosition.from_api(raw)
+    data = parse_envelope_response(resp, path)
+    return DetailedPosition.from_api(unwrap(data, "detailedPosition", path))
 
 
 def build_get_account_report_request(
@@ -924,7 +1035,10 @@ def build_get_account_report_request(
 ) -> RequestSpec:
     """``GET /rest/risk/accountReport/{account_name}`` con HTTP Basic Auth (D-07).
 
-    Risk §9.3 sin envelope key — payload raíz ES el resultado.
+    Risk §9.3 responde ENVUELTO en la key ``accountData``
+    (``documentation/Primary-API.md:1817-1819``). El claim previo de esta
+    docstring — "sin envelope key, payload raíz ES el resultado" — lo falsifica
+    el propio vendor doc; corregido en Phase 37 (D-03, ``strict-unwrap``).
     """
     return RequestSpec(
         method="GET",
@@ -939,7 +1053,14 @@ def build_get_account_report_request(
 
 @_decode._response_parser
 def parse_get_account_report_response(resp: httpx.Response, account_name: str) -> AccountReport:
-    """Parse risk payload raíz (NO envelope key, D-07) → ``AccountReport``."""
+    """Parse envelope ``{accountData: {...}}`` → ``AccountReport``.
+
+    Phase 37 D-03, opción ratificada ``strict-unwrap`` — gemelo exacto de
+    ``parse_get_detailed_positions_response``. El claim previo de ausencia de
+    envelope lo falsifica ``documentation/Primary-API.md:1817-1819``, que muestra
+    el body envuelto en ``accountData``. Un body SIN la key levanta
+    ``PrimaryAPIError`` vía ``unwrap``.
+    """
     path = f"/rest/risk/accountReport/{account_name}"
-    raw = _parse_risk_response(resp, path)
-    return AccountReport.from_api(raw)
+    data = parse_envelope_response(resp, path)
+    return AccountReport.from_api(unwrap(data, "accountData", path))

@@ -8,6 +8,11 @@ Fija el comportamiento que D-01..D-04 y D-08 especifican para `Cotizacion`,
   divergencia. Es el mismo modelo: ambos endpoints traen las mismas 20 claves y
   difieren sólo en cuáles llegan nulas (D-03).
 - `puntas` en sus 3 formas observadas del corpus (`[]`, `None`, lista poblada).
+  Las 3 formas del WIRE siguen siendo esas; lo que cambió en la Phase 38 es a
+  qué decodifican. Desde NOBJ-IOL-01 el campo es `list[Punta]` **no-Optional**,
+  así que el `null` del wire y la clave ausente ya no producen un atributo nulo:
+  colapsan a `[]` por la rama NOBJ-02 del walker (`_decode.py:448-452`), sin
+  emitir registro.
 - La asimetría D-04 de `cantidadOperaciones`: declarado `int` en `Cotizacion`,
   la rama entera del walker es **estricta** — un decimal del wire sustituye el
   typed zero y emite un registro de clase ``type``.
@@ -18,7 +23,10 @@ Plan 30-02 agrega `Titulo`, cada fila del envelope `titulos` de
 `get-instruments-by-type.json`, y con él las dos asimetrías que el corpus
 impone contra `Cotizacion`:
 
-- `puntas` es acá un `Punta` **singular**, no una colección (D-02).
+- `puntas` es acá un `Punta` **singular**, no una colección (D-02). Desde
+  NOBJ-IOL-01 es además **no-Optional**: un `null` del wire (o la clave ausente)
+  decodifica a un `Punta` vacío y falsy — el Null Object — por la rama de modelo
+  anidado del walker (`_decode.py:504-505`), nunca a `None`.
 - `cantidadOperaciones` es acá `float`, y la rama decimal del walker
   **ensancha en silencio** un entero del wire — el contraste exacto con el
   test de `Cotizacion`, donde la rama entera sustituye typed-zero y reporta
@@ -199,14 +207,22 @@ def test_from_api_get_quote_payload_has_zero_divergences(
 def test_from_api_historical_row_has_zero_divergences(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """D-03: la rama Optional del walker devuelve ``None`` sin emitir registro."""
+    """Cero registros, y desde la Phase 38 por **dos** ramas distintas del walker.
+
+    ``descripcionTitulo`` y ``plazo`` siguen siendo Optional: la rama Union
+    devuelve ``None`` sin emitir registro (D-03). ``puntas`` ya no pasa por ahí —
+    NOBJ-IOL-01 lo declaró ``list[Punta]`` no-Optional, así que su cero viene de
+    la rama de colapso NOBJ-02 en ``_decode.py:448-452``, cuyo ``sink(...)`` está
+    guardado por ``if value is not None``: un ``None`` devuelve ``[]`` en
+    silencio.
+    """
     with caplog.at_level(logging.DEBUG, logger="iol_client"):
         row = Cotizacion.from_api(_HISTORICAL_ROW)
 
     assert _divergences(caplog) == []
     assert row.descripcionTitulo is None
     assert row.plazo is None
-    assert row.puntas is None
+    assert row.puntas == []
     assert row.ultimoPrecio == 1234.5
 
 
@@ -226,13 +242,13 @@ def test_from_api_empty_dict_yields_typed_zeros() -> None:
     assert quote.moneda == ""
     assert quote.descripcionTitulo is None
     assert quote.plazo is None
-    assert quote.puntas is None
+    assert quote.puntas == []
 
 
 def test_from_api_none_does_not_raise() -> None:
     quote = Cotizacion.from_api(None)
     assert quote.ultimoPrecio == 0.0
-    assert quote.puntas is None
+    assert quote.puntas == []
 
 
 # ---------------------------------------------------------------------------
@@ -244,8 +260,8 @@ def test_puntas_lista_vacia_queda_vacia() -> None:
     assert Cotizacion.from_api({**_QUOTE_PAYLOAD, "puntas": []}).puntas == []
 
 
-def test_puntas_nula_queda_nula() -> None:
-    assert Cotizacion.from_api({**_QUOTE_PAYLOAD, "puntas": None}).puntas is None
+def test_puntas_nula_colapsa_a_lista_vacia() -> None:
+    assert Cotizacion.from_api({**_QUOTE_PAYLOAD, "puntas": None}).puntas == []
 
 
 def test_puntas_poblada_construye_modelos_punta() -> None:
@@ -351,8 +367,17 @@ def test_round_trip_reproduce_el_schema_committeado_de_get_quote() -> None:
 
 
 def test_round_trip_reproduce_el_schema_committeado_de_serie_historica() -> None:
+    # ``puntas`` es la única clave donde el round-trip NO reproduce la captura, y
+    # desde NOBJ-IOL-01 esa deriva es esperada: ``to_dict()`` reproduce la forma
+    # **declarada**, no la recibida, así que el ``null`` que el wire mandó vuelve
+    # como ``[]`` (el link colapsado) y no como ``NoneType``. Es exactamente la
+    # lossiness ya publicada en ``packages/iol-client/README.md`` ("Escape hatch:
+    # to_dict()", ~línea 157), que esta fase vuelve observable por primera vez.
+    # La captura 2026-06-06 es el corpus de record y NO se toca: la deriva se
+    # absorbe acá, en el valor ESPERADO, con la causa dicha.
     row = Cotizacion.from_api(_HISTORICAL_ROW)
-    assert schema_of(row.to_dict()) == _committed_schema("get-historical-quotes")[0]
+    esperado = {**_committed_schema("get-historical-quotes")[0], "puntas": []}
+    assert schema_of(row.to_dict()) == esperado
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +434,8 @@ def test_titulo_from_api_empty_dict_yields_typed_zeros() -> None:
     assert titulo.fechaVencimiento is None
     assert titulo.precioEjercicio is None
     assert titulo.tipoOpcion is None
-    assert titulo.puntas is None
+    assert bool(titulo.puntas) is False
+    assert titulo.puntas == Punta.empty()
 
 
 def test_titulo_puntas_es_singular_no_una_lista() -> None:
@@ -434,11 +460,22 @@ def test_titulo_puntas_es_singular_no_una_lista() -> None:
 
 
 def test_titulo_puntas_nula_no_emite_registro(caplog: pytest.LogCaptureFixture) -> None:
-    """La rama Optional del walker devuelve ``None`` sin reportar."""
+    """El cero viene de la rama de colapso NOBJ-02, no de la rama Optional.
+
+    Desde NOBJ-IOL-01 el campo es ``Punta`` no-Optional, así que la rama Union
+    del walker ya no se ejecuta para él. Un ``null`` del wire cae en la rama de
+    modelo anidado de ``_decode.py:504-505``, que construye la instancia vacía
+    con ``SILENT_SINK`` y no reporta nada.
+
+    Las dos aserciones del par D-06 van siempre juntas: la de truthiness sola la
+    satisface cualquier valor falsy que no sea el Null Object, y esa es
+    precisamente la regresión que este par existe para atrapar.
+    """
     with caplog.at_level(logging.DEBUG, logger="iol_client"):
         titulo = Titulo.from_api({**_TITULO_ROW, "puntas": None})
 
-    assert titulo.puntas is None
+    assert bool(titulo.puntas) is False
+    assert titulo.puntas == Punta.empty()
     assert _divergences(caplog) == []
 
 

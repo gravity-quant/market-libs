@@ -1,0 +1,14 @@
+{
+  "endpoint": "/rest/risk/detailedPosition/{account_id}",
+  "client_function": "get_detailed_positions",
+  "captured_at": "2026-08-30T02:34:58.402652+00:00",
+  "base_url": "https://api.bbsa.matrizoms.com.ar",
+  "sample_params": {
+    "account_id": "{account_id}"
+  },
+  "schema": {
+    "account": "str",
+    "lastCalculation": "int",
+    "report": {}
+  }
+}

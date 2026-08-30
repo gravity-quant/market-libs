@@ -105,6 +105,7 @@ from verification import (
     safe_print,
     schema_of,
     write_findings,
+    write_run_evidence,
 )
 from verification.findings import max_existing_fid
 
@@ -223,6 +224,34 @@ _fid_counter: int = 0
 # emiten SKIPPED.
 _auth_failed: bool = False
 _auth_failure_reason: str = ""
+
+# Phase 39 D-01: el vendor no está *rechazando* — no está *ahí*. Un
+# ``httpx.ConnectError`` de ``login()`` (caso DNS ``gaierror``) no es un hallazgo
+# sobre el cliente: es la ausencia de la contraparte contra la que se verifica.
+# Hasta D-01 caía en ``_RESIDUAL_PROBE_EXCEPTIONS`` (que incluye
+# ``httpx.HTTPError``, superclase de ``ConnectError``) y se escribía como finding
+# ``AUTH OPEN`` en un ledger versionado, mientras el driver salía 0 sin decir
+# nada: ``main_verify.py`` lo clasificaba ``RAN``. Falso limpio en los dos
+# sentidos. Con estas globales, ``main()`` corta temprano y lo dice.
+_vendor_unreachable: bool = False
+_vendor_unreachable_reason: str = ""
+
+# Línea verbatim que el driver emite a STDOUT cuando el vendor no es alcanzable.
+# Literal a propósito: ``main_verify.py`` clasifica por la forma
+# ``^SKIPPED \S.*:`` (los dos puntos son load-bearing) y no interpolar el
+# hostname ni la base URL es lo que evita que el veredicto filtre el dato de
+# entrada (T-39-04).
+_VENDOR_UNREACHABLE_SKIP_LINE = (
+    "SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33"
+)
+
+# Causa medida que viaja en el ``ProbeResult`` del login (no en la línea SKIPPED).
+_VENDOR_UNREACHABLE_DETAIL = "vendor host unreachable (DNS)"
+
+# Causa medida + destino nombrado que viaja en el sobre de evidencia de corrida
+# (Phase 39 D-09). Es la línea SKIPPED sin su prefijo de veredicto: ni hostname
+# ni base URL, igual que ella (T-39-04/T-39-10).
+_VENDOR_UNREACHABLE_EVIDENCE = "vendor host unreachable (DNS) — LIVE-HIGY-33"
 
 # D-HIGY-11: id de cuenta resuelto por probe 5 (probe_get_listado_cuentas_sync)
 # para que los downstream que requieren id_cuenta tengan un sample real. El
@@ -615,6 +644,7 @@ def probe_login_sync(client: Client) -> ProbeResult:
     el ``Decode`` nunca fue intencional acá. Ahora lo intercepta ``probe_context``.
     """
     global _auth_failed, _auth_failure_reason
+    global _vendor_unreachable, _vendor_unreachable_reason
     base_url = client._state.base_url
     try:
         client.login()
@@ -636,6 +666,22 @@ def probe_login_sync(client: Client) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_sync", "FINDING", f"{fid} (OPEN)")
+    except httpx.ConnectError as exc:
+        # Phase 39 D-01: host inalcanzable != cliente defectuoso. Va DESPUÉS de
+        # ``HigyrusAPIError`` (un rechazo real del vendor sigue produciendo su
+        # finding AUTH) y ANTES de ``_RESIDUAL_PROBE_EXCEPTIONS`` (que incluye
+        # ``httpx.HTTPError``, superclase de ``ConnectError``: invertir el orden
+        # deja esta rama inalcanzable). NO llama ``append_finding``: un AUTH OPEN
+        # fabricado enrojece la rama de exención de higyrus en
+        # ``verification/test_cycle_closure_phase33.py`` y ensucia un ledger
+        # versionado con un hallazgo que no es sobre el cliente.
+        # ``httpx.ConnectTimeout`` NO entra acá (no es subclase): un timeout
+        # sigue cayendo en el bracket residual.
+        _vendor_unreachable = True
+        _vendor_unreachable_reason = f"sync login: {type(exc).__name__}: {exc}"
+        _auth_failed = True
+        _auth_failure_reason = f"sync login: {_VENDOR_UNREACHABLE_DETAIL}"
+        return ProbeResult("login_sync", "SKIPPED", _VENDOR_UNREACHABLE_DETAIL)
     except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"sync login: unexpected {type(exc).__name__}: {exc}"
@@ -679,6 +725,7 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
     del sweep. Lo intercepta ``probe_context``.
     """
     global _auth_failed, _auth_failure_reason
+    global _vendor_unreachable, _vendor_unreachable_reason
     base_url = aclient._state.base_url
     try:
         await aclient.login()
@@ -700,6 +747,14 @@ async def probe_login_async(aclient: AsyncClient) -> ProbeResult:
             base_url=base_url,
         )
         return ProbeResult("login_async", "FINDING", f"{fid} (OPEN)")
+    except httpx.ConnectError as exc:
+        # Espejo byte-paralelo del handler sync (CLAUDE.md dual sync/async, D-08).
+        # Mismo orden de los tres brackets y misma ausencia de ``append_finding``.
+        _vendor_unreachable = True
+        _vendor_unreachable_reason = f"async login: {type(exc).__name__}: {exc}"
+        _auth_failed = True
+        _auth_failure_reason = f"async login: {_VENDOR_UNREACHABLE_DETAIL}"
+        return ProbeResult("login_async", "SKIPPED", _VENDOR_UNREACHABLE_DETAIL)
     except _RESIDUAL_PROBE_EXCEPTIONS as exc:
         _auth_failed = True
         _auth_failure_reason = f"async login: unexpected {type(exc).__name__}: {exc}"
@@ -1809,13 +1864,66 @@ def probe_get_posiciones_sync(
             base_url=base_url,
         )
         return (ProbeResult("get_posiciones_sync", "FINDING", f"{fid} (OPEN)"), None)
+    # D-04: cadena tipada ``Posicion.parking[...].diasParking`` sobre el payload
+    # QUE YA ESTÁ EN LA MANO — cero llamadas HTTP adicionales.
+    # ``SafeModel.from_api`` enruta por el mismo walker, el mismo sink y el mismo
+    # camino de emisión que el parser del propio cliente, y hereda la ContextVar de
+    # modo estricto que ``Client._request`` bindea y deliberadamente NO resetea, así
+    # que construir el wrapper acá emite exactamente los mismos registros de
+    # divergencia que habría emitido la función tipada, gratis. Eso es lo que hace
+    # que la cadena respete la convención "una llamada HTTP por concepto de probe";
+    # ``test_the_typed_chain_adds_no_http_call`` lo pinea estructuralmente.
+    #
+    # ``raw`` ya está normalizado a lista (``None`` de 204/cuerpo vacío → ``[]``), así
+    # que la comprensión tolera el payload nulo sin rama defensiva. ``.parking`` es
+    # ``list[Parking]`` no-Optional: con la clave ausente o ``null`` el Null Object
+    # entrega ``[]``, nunca ``None`` — por eso la guarda es por veracidad, no ``is None``.
+    #
+    # LIMITACIÓN DE COBERTURA MEDIDA (transcribir al censo del plan 39-08, NO es un
+    # detalle de implementación): el probe sigue enviando ``incluirParking=False`` y
+    # este plan deliberadamente NO lo cambia — flipearlo alteraría la forma de la
+    # respuesta y quemaría el baseline write-once de ``get_posiciones`` por deriva de
+    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-33).
+    # Consecuencia explícita: **en una corrida en vivo la rama poblada de ``parking``
+    # no se ejercita**. La evidencia de esa rama es la suite mockeada del plan 39-02,
+    # ``packages/higyrus-client/tests/test_deep_chain_edges.py``.
+    try:
+        posiciones = [Posicion.from_api(row) for row in raw]
+        parking_entries = sum(len(posicion.parking) for posicion in posiciones)
+        primer_dias_parking = next(
+            (posicion.parking[0].diasParking for posicion in posiciones if posicion.parking),
+            None,
+        )
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"get_posiciones_sync cadena .parking unexpected {type(exc).__name__}",
+            expected="Posicion.parking: list[Parking] (Null Object, nunca None)",
+            actual=repr(exc),
+            diff=f"type={type(exc).__name__}",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_posiciones_sync", "FINDING", f"{fid} (OPEN)"), None)
     if not raw:
         return (
-            ProbeResult("get_posiciones_sync", "PASS", "0 items — empty path verified"),
+            ProbeResult(
+                "get_posiciones_sync",
+                "PASS",
+                f"0 items — empty path verified (parking={parking_entries})",
+            ),
             raw,
         )
     return (
-        ProbeResult("get_posiciones_sync", "PASS", f"{len(raw)} items"),
+        ProbeResult(
+            "get_posiciones_sync",
+            "PASS",
+            f"{len(raw)} items parking={parking_entries} diasParking={primer_dias_parking}",
+        ),
         raw,
     )
 
@@ -1922,13 +2030,66 @@ async def probe_get_posiciones_async(
             base_url=base_url,
         )
         return (ProbeResult("get_posiciones_async", "FINDING", f"{fid} (OPEN)"), None)
+    # D-04 mirror: cadena tipada ``Posicion.parking[...].diasParking`` sobre el payload
+    # QUE YA ESTÁ EN LA MANO — cero llamadas HTTP adicionales.
+    # ``SafeModel.from_api`` enruta por el mismo walker, el mismo sink y el mismo
+    # camino de emisión que el parser del propio cliente, y hereda la ContextVar de
+    # modo estricto que ``AsyncClient._request`` bindea y deliberadamente NO resetea,
+    # así que construir el wrapper acá emite exactamente los mismos registros de
+    # divergencia que habría emitido la función tipada, gratis. Eso es lo que hace
+    # que la cadena respete la convención "una llamada HTTP por concepto de probe";
+    # ``test_the_typed_chain_adds_no_http_call`` lo pinea estructuralmente.
+    #
+    # ``raw`` ya está normalizado a lista (``None`` de 204/cuerpo vacío → ``[]``), así
+    # que la comprensión tolera el payload nulo sin rama defensiva. ``.parking`` es
+    # ``list[Parking]`` no-Optional: con la clave ausente o ``null`` el Null Object
+    # entrega ``[]``, nunca ``None`` — por eso la guarda es por veracidad, no ``is None``.
+    #
+    # LIMITACIÓN DE COBERTURA MEDIDA (transcribir al censo del plan 39-08, NO es un
+    # detalle de implementación): el probe sigue enviando ``incluirParking=False`` y
+    # este plan deliberadamente NO lo cambia — flipearlo alteraría la forma de la
+    # respuesta y quemaría el baseline write-once de ``get_posiciones`` por deriva de
+    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-33).
+    # Consecuencia explícita: **en una corrida en vivo la rama poblada de ``parking``
+    # no se ejercita**. La evidencia de esa rama es la suite mockeada del plan 39-02,
+    # ``packages/higyrus-client/tests/test_deep_chain_edges.py``.
+    try:
+        posiciones = [Posicion.from_api(row) for row in raw]
+        parking_entries = sum(len(posicion.parking) for posicion in posiciones)
+        primer_dias_parking = next(
+            (posicion.parking[0].diasParking for posicion in posiciones if posicion.parking),
+            None,
+        )
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"get_posiciones_async cadena .parking unexpected {type(exc).__name__}",
+            expected="Posicion.parking: list[Parking] (Null Object, nunca None)",
+            actual=repr(exc),
+            diff=f"type={type(exc).__name__}",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_posiciones_async", "FINDING", f"{fid} (OPEN)"), None)
     if not raw:
         return (
-            ProbeResult("get_posiciones_async", "PASS", "0 items — empty path verified"),
+            ProbeResult(
+                "get_posiciones_async",
+                "PASS",
+                f"0 items — empty path verified (parking={parking_entries})",
+            ),
             raw,
         )
     return (
-        ProbeResult("get_posiciones_async", "PASS", f"{len(raw)} items"),
+        ProbeResult(
+            "get_posiciones_async",
+            "PASS",
+            f"{len(raw)} items parking={parking_entries} diasParking={primer_dias_parking}",
+        ),
         raw,
     )
 
@@ -2735,6 +2896,32 @@ def main() -> None:
 
         # (a) Probe 1 sync (login_sync) — puede setear _auth_failed.
         results["login_sync"] = probe_login_sync(client)
+
+        # Phase 39 D-01: si el vendor no es alcanzable, el driver NO corrió.
+        # Se emite la línea SKIPPED a STDOUT (el único stream que
+        # ``main_verify.py`` escanea) y se sale con código 0, antes de que
+        # ningún probe downstream cascadee 17 SKIPPED y antes de cualquier
+        # ``append_finding``: la rama no escribe nada en el ledger. El
+        # ``sys.exit`` adentro del ``with`` es seguro — ``divergence_capture``
+        # es un ``@contextmanager`` con ``try/finally``, así que el
+        # ``SystemExit`` propaga por el ``yield`` y los loggers se restauran.
+        if _vendor_unreachable:
+            print(_VENDOR_UNREACHABLE_SKIP_LINE)
+            # Phase 39 (D-09 / T-39-12): el sobre se REESCRIBE con cero probes y
+            # la causa medida. Sin esto, el sobre de una corrida anterior
+            # quedaría en pie y el cierre de ciclo lo leería como evidencia de
+            # ESTA corrida — que es precisamente el repudio que la costura de
+            # no-vacuidad existe para cerrar. Una corrida saltada invalida el
+            # sobre; no lo deja intacto.
+            write_run_evidence(
+                _PKG,
+                driver="main_higyrus.py",
+                triples=[],
+                counts={},
+                skipped=_VENDOR_UNREACHABLE_EVIDENCE,
+            )
+            sys.exit(0)
+
         _sync_token_snapshot = (
             client._state.token if results["login_sync"].status == "PASS" else None
         )
@@ -2847,6 +3034,16 @@ def main() -> None:
         f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
+    )
+
+    # Phase 39 (D-09 + D-10): la línea SUMMARY imprime el CONTEO de triples y se
+    # va con el proceso; el sobre persiste los MIEMBROS —la unidad del censo— y
+    # el conteo de probes, la evidencia positiva de que este driver corrió.
+    write_run_evidence(
+        _PKG,
+        driver="main_higyrus.py",
+        triples=sorted(handler.seen),
+        counts={"PASS": n_pass, "FAIL": n_fail, "SKIPPED": n_skip, "FINDING": n_find},
     )
 
 

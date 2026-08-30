@@ -62,11 +62,13 @@ from matriz_client.exceptions import (  # noqa: E402
 from matriz_client.models import (  # noqa: E402
     AccountId,
     AccountReport,
+    DetailedAccountReport,
     DetailedPosition,
     ExecutionReportFrame,
     Instrument,
     InstrumentDetail,
     InstrumentId,
+    InstrumentPositionReport,
     MarketDataEntryValue,
     MarketDataFrame,
     MarketDataLevel,
@@ -77,6 +79,7 @@ from matriz_client.models import (  # noqa: E402
     Position,
     PrimaryWsMessage,
     Segment,
+    TickPriceRange,
     Trade,
     UnknownFrame,
 )
@@ -117,11 +120,13 @@ __all__ = [
     # REST Client class (Phase 6 Plan 06)
     "Client",
     "Currency",
+    "DetailedAccountReport",
     "DetailedPosition",
     "ExecutionReportFrame",
     "Instrument",
     "InstrumentDetail",
     "InstrumentId",
+    "InstrumentPositionReport",
     "MarketDataEntry",
     "MarketDataEntryValue",
     "MarketDataFrame",
@@ -141,6 +146,7 @@ __all__ = [
     "Segment",
     "SegmentId",
     "Side",
+    "TickPriceRange",
     "TimeInForce",
     "Trade",
     "UnknownFrame",
@@ -176,3 +182,5 @@ __all__ = [
     "ws_subscribe_market_data",
     "ws_subscribe_order_reports",
 ]
+
+__version__ = "0.3.0"

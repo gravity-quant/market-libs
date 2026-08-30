@@ -8,10 +8,14 @@ result never raises ``KeyError`` or ``AttributeError``.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import FrozenInstanceError
+from typing import get_origin, get_type_hints
 
 import pytest
 
+import matriz_client
+from matriz_client import models
 from matriz_client.models import (
     AccountReport,
     DetailedPosition,
@@ -62,7 +66,67 @@ def test_instrument_detail_accepts_partial_payload() -> None:
     assert detail.instrumentId == InstrumentId.empty()
     assert detail.currency is None
     assert detail.orderTypes == []
+    # Still ``{}`` after the Phase 37 retype: the empty-mapping default survives
+    # ``dict[str, Any]`` -> ``dict[str, TickPriceRange]`` untouched.
     assert detail.tickPriceRanges == {}
+
+
+# ----------------------------------------------------------------------
+# tickPriceRanges — the one field in Phase 37 with live-capture provenance
+# ----------------------------------------------------------------------
+#
+# PROVENANCE (D-04c, class `baseline`). The payload below is shaped from the
+# committed live capture
+# `.planning/verification/schemas/matriz-client/get-instrument-detail.json`,
+# captured 2026-06-10T01:01:55Z against `https://api.remarkets.primary.com.ar`
+# (symbol `SOJ.ROS/NOV26 308 P`). That file records TYPES, and for
+# `tickPriceRanges` it records exactly one key `"0"` carrying
+# `{"lowerLimit": "int", "tick": "float", "upperLimit": "NoneType"}`.
+# The concrete VALUES are the vendor-documented samples at
+# `packages/matriz-client/documentation/Primary-API.md:330,378,454`, which agree
+# with the capture on all three field names, on the single `"0"` key, and on the
+# three runtime types. The vendor doc is corroboration only — it is never
+# presented as a capture (D-04a).
+
+
+def test_instrument_detail_tickPriceRanges_decodes_the_committed_baseline() -> None:
+    """D-05: the mapping values arrive as models, not raw dicts."""
+    detail = InstrumentDetail.from_api(
+        {
+            "securityDescription": "TRI.ROS/DIC23 352 C",
+            "tickPriceRanges": {"0": {"lowerLimit": 0, "upperLimit": None, "tick": 0.1}},
+        }
+    )
+
+    assert list(detail.tickPriceRanges) == ["0"]
+    entry = detail.tickPriceRanges["0"]
+    assert not isinstance(entry, dict)
+    # The capture records ``int`` on the wire; the walker's ``float`` arm widens
+    # BEFORE consulting ``scalar_passthrough``, so this is silent and correct.
+    assert entry.lowerLimit == 0.0
+    assert isinstance(entry.lowerLimit, float)
+    assert entry.tick == 0.1
+    assert entry.upperLimit is None
+
+
+def test_tickPriceRanges_values_are_TickPriceRange_null_objects() -> None:
+    """NOBJ-01 / T-37-06: an attribute chain over the mapping never raises."""
+    tick_price_range = matriz_client.TickPriceRange
+
+    assert bool(tick_price_range.empty()) is False
+    assert tick_price_range.empty().tick is None
+    assert bool(tick_price_range.from_api({"tick": 0.05})) is True
+    # The chain a caller actually writes, on a payload that carried nothing.
+    assert (
+        InstrumentDetail.from_api({}).tickPriceRanges.get("0", tick_price_range.empty()).tick
+        is None
+    )
+
+
+def test_TickPriceRange_is_on_the_exported_surface() -> None:
+    """Plan 37-04's field gate resolves candidates from ``__all__``."""
+    assert "TickPriceRange" in matriz_client.__all__
+    assert matriz_client.TickPriceRange is models.TickPriceRange
 
 
 # ----------------------------------------------------------------------
@@ -247,7 +311,49 @@ def test_position_round_trip() -> None:
 def test_detailed_position_accepts_partial_payload() -> None:
     parsed = DetailedPosition.from_api({"account": "REM6771"})
     assert parsed.account == "REM6771"
+    # Still ``{}`` after Phase 37's retype to ``dict[str, dict[str, InstrumentPositionReport]]``:
+    # the default factory is unchanged, so this assertion did NOT flip.
     assert parsed.report == {}
+
+
+def test_InstrumentPositionReport_is_on_the_exported_surface() -> None:
+    assert "InstrumentPositionReport" in matriz_client.__all__
+    assert matriz_client.InstrumentPositionReport is models.InstrumentPositionReport
+
+
+def test_InstrumentPositionReport_declares_only_the_vendor_documented_scalars() -> None:
+    """D-07's MINIMAL disposition, stated executably.
+
+    The roster is exactly the three sibling scalars of
+    ``Primary-API.md:1745-1747``. The deferred ``detailedPositions`` array and
+    its ``detailedDailyDiff`` object are NOT modelled — shipping them would
+    present an unobserved model as observed (SC-1).
+    """
+    names = [f.name for f in dataclasses.fields(models.InstrumentPositionReport)]
+    assert names == [
+        "instrumentInitialSize",
+        "instrumentFilledSize",
+        "instrumentCurrentSize",
+    ]
+    hints = get_type_hints(models.InstrumentPositionReport)
+    assert all(hints[n] == (float | None) for n in names)
+    # F-11: this class sits at depth 2, and
+    # ``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` used to walk
+    # exactly ONE level of ``__args__``, so a mapping field here was invisible to
+    # it and this per-class assertion was the actual guard. The Phase 37 code
+    # review (WR-08) made that walk depth-agnostic, so the general guard now
+    # covers this class by construction rather than by name. Kept anyway: it is
+    # cheap, it states the constraint where the class is defined, and deleting a
+    # correct assertion to celebrate a better one elsewhere is how coverage
+    # quietly shrinks.
+    assert [n for n, t in hints.items() if get_origin(t) is dict] == []
+
+
+def test_InstrumentPositionReport_empty_is_falsy_and_chain_safe() -> None:
+    empty = models.InstrumentPositionReport.empty()
+    assert not empty
+    assert empty.instrumentCurrentSize is None
+    assert models.InstrumentPositionReport.from_api({"instrumentFilledSize": 3})
 
 
 def test_account_report_accepts_partial_payload() -> None:
@@ -255,8 +361,41 @@ def test_account_report_accepts_partial_payload() -> None:
         {"accountName": "REM6771", "collateral": 1000.0, "margin": 250.0}
     )
     assert parsed.accountName == "REM6771"
-    assert parsed.portfolio == {}
+    # Phase 37 D-02: ``portfolio`` is a ``float | None`` scalar leaf now, not a
+    # mapping. An absent scalar answers ``None``; this assertion FLIPPED.
+    assert parsed.portfolio is None
+    # Unchanged: still a mapping, so an absent one is still ``{}``.
     assert parsed.detailedAccountReports == {}
+
+
+def test_DetailedAccountReport_is_on_the_exported_surface() -> None:
+    assert "DetailedAccountReport" in matriz_client.__all__
+    assert matriz_client.DetailedAccountReport is models.DetailedAccountReport
+
+
+def test_DetailedAccountReport_declares_only_the_vendor_documented_scalar() -> None:
+    """D-07's MINIMAL disposition for the one-level container.
+
+    The roster is the single scalar of ``Primary-API.md:1888``. The two nested
+    open-keyed objects the same sample shows (``currencyBalance`` at
+    ``:1828-1859`` and ``availableToOperate`` at ``:1860-1887``) are DEFERRED —
+    modelling them would present an unobserved tree as observed (SC-1).
+    """
+    names = [f.name for f in dataclasses.fields(models.DetailedAccountReport)]
+    assert names == ["settlementDate"]
+    hints = get_type_hints(models.DetailedAccountReport)
+    assert hints["settlementDate"] == (int | None)
+    # F-11, same constraint as InstrumentPositionReport: mapping-free. Also
+    # subsumed by the now depth-agnostic general guard (WR-08), and kept for the
+    # same reason.
+    assert [n for n, t in hints.items() if get_origin(t) is dict] == []
+
+
+def test_DetailedAccountReport_empty_is_falsy_and_chain_safe() -> None:
+    empty = models.DetailedAccountReport.empty()
+    assert not empty
+    assert empty.settlementDate is None
+    assert models.DetailedAccountReport.from_api({"settlementDate": 1})
 
 
 # ----------------------------------------------------------------------

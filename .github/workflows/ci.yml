@@ -64,6 +64,32 @@ jobs:
         # explícito que pisa `testpaths`, así que ese directorio nunca corrió en CI.
         # D-05: step en `lint`, NO job nuevo (Phase 31 D-12 supersede ROADMAP.md:25).
         run: uv run python tools/check_surface_types.py
+      - name: driver locks de market-data y matriz (Phase 36 SC-5 + CR-01; Phase 37 CR-01)
+        # Viven bajo `verification/`, que NUNCA corrió en CI por la misma razón
+        # que documentan los tres steps de arriba: el job `test` pasa un path
+        # explícito que pisa `testpaths`. Un guard nuevo metido ahí sería INERTE
+        # — que es exactamente lo que el code review de la Phase 36 encontró
+        # (WR-01) con el lock de deep-chain recién entregado. Se ejecutan acá,
+        # siguiendo el precedente de los otros gates cross-cutting.
+        #
+        # Es una lista EXPLÍCITA, no `pytest verification/`: ese directorio
+        # arrastra fallas pre-existentes ajenas a market-data (ver
+        # `36-.../deferred-items.md`, backlog `HARN-VERIF-01`). Cada guard nuevo
+        # se agrega a esta lista a mano.
+        run: |
+          uv run pytest -q \
+            verification/test_main_market_data_deep_chain.py \
+            verification/test_safemodel_diff_null_object_links.py \
+            verification/test_main_matriz_risk_envelope_keys.py \
+            verification/test_safemodel_diff_mapping_recursion.py \
+            verification/test_main_verify_classification.py \
+            verification/test_main_matriz_skip_line_shape.py \
+            verification/test_main_higyrus_skip_line_shape.py \
+            verification/test_run_evidence.py \
+            verification/test_main_iol_deep_chain.py \
+            verification/test_main_higyrus_deep_chain.py \
+            verification/test_main_matriz_deep_chain.py \
+            verification/test_cycle_closure_phase33.py
 
   pre-commit:
     name: pre-commit hooks

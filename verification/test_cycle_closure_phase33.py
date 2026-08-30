@@ -24,8 +24,11 @@ file exists to prevent; it would read like a bound and mean nothing. Those two
 rows carry an argued, positive exemption instead, so a later reader can tell an
 exemption from an oversight.
 
-Structural only: regex over markdown plus ``ast.parse`` over one source file. No
-package is imported, no network is touched, no client is constructed.
+Structural only: regex over markdown, ``ast.parse`` sobre ``main_matriz.py``, y
+—desde la Phase 39— import del predicado de cierre de ciclo de ese mismo driver,
+que es una función de módulo pura (mismo patrón que ``_venue_token``: el
+predicado se verifica sin correr el driver). No se toca la red, no se construye
+ningún cliente y no se ejecuta ``main()``.
 """
 
 from __future__ import annotations
@@ -80,10 +83,16 @@ _PHASE_33_PROMOTIONS = {
 
 _LOWER_BOUND = {pkg: _PRE_PHASE_BASELINE[pkg] + _PHASE_33_PROMOTIONS[pkg] for pkg in _PACKAGES}
 
+# El censo de la Phase 33 fue archivado con su milestone: la ruta original bajo
+# ``.planning/phases/`` ya no existe y las dos exenciones argumentadas —las
+# únicas que lo leen— fallaban con ``FileNotFoundError``. Un guard que muere por
+# una ruta obsoleta no es un guard: es un rojo permanente que se aprende a
+# ignorar. Repuntado, no relajado (Phase 39).
 _CENSUS = (
     _REPO_ROOT
     / ".planning"
-    / "phases"
+    / "milestones"
+    / "v1.6-phases"
     / "33-verificaci-n-en-vivo-en-modo-estricto-fixes"
     / "33-CENSUS.md"
 )
@@ -251,6 +260,256 @@ def _assert_zero_contribution_is_argued(pkg: str) -> None:
     raise AssertionError(  # pragma: no cover - guards the exemption list itself
         f"{pkg} has a zero lower bound but no argued exemption. Add one, or give "
         "it a real numeric floor — a silent `>= 0` is not available."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 39 D-09 — el cierre de ciclo decide por EVIDENCIA POSITIVA DE CORRIDA
+# ---------------------------------------------------------------------------
+#
+# Los tests de arriba pinean que el green no es vacuo *para el estado
+# committeado del repo*. Los de abajo pinean la costura que lo impide a futuro:
+# el loop de cuatro paquetes de ``main_matriz.py`` sólo puede emitir PASS con un
+# conteo de probes > 0 en el sobre de evidencia, y sin sobre emite SKIPPED con
+# destino nombrado en vez de un PASS que no significa nada.
+#
+# El predicado NO es "al menos un finding CONFIRMED/FIXED" — el que usa
+# ``main_market_data.py``. Ese criterio reprobaría a ámbito (cero por declarar
+# cero clases de modelo) y a higyrus (cero por no haber sido medido): dos causas
+# opuestas con el mismo veredicto. Esa distinción es lo que estos tests fijan.
+
+
+def _matriz_source() -> str:
+    return (_REPO_ROOT / "main_matriz.py").read_text(encoding="utf-8")
+
+
+def _cycle_closure_loop() -> ast.For:
+    """El ``for pkg in (...)`` de cuatro slugs dentro de ``main()``.
+
+    Localizado por su iterable —una tupla de constantes string que contiene los
+    cuatro slugs—, no por número de línea: el número se mueve con cada edición y
+    un guard que apunta a una línea vieja se apaga solo.
+    """
+    tree = ast.parse(_matriz_source())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.For) or not isinstance(node.iter, ast.Tuple):
+            continue
+        slugs = [
+            e.value
+            for e in node.iter.elts
+            if isinstance(e, ast.Constant) and isinstance(e.value, str)
+        ]
+        if set(_PACKAGES) - {"market-data-client"} <= set(slugs):
+            return node
+    raise AssertionError(
+        "no se encontró el loop de cierre de ciclo de 4 paquetes en main_matriz.py. "
+        "Si se movió o se renombró, este guard quedó apuntando a nada."
+    )
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    return {
+        n.func.id
+        for n in ast.walk(node)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+
+
+def test_el_loop_consulta_la_evidencia_de_corrida() -> None:
+    """El loop lee ``probes_executed`` — la evidencia positiva — antes de decidir."""
+    called = _called_names(_cycle_closure_loop())
+
+    assert "probes_executed" in called, (
+        "el loop de cierre de ciclo dejó de consultar el conteo de probes. Sin "
+        "ese predicado, verify_cycle_closure devuelve (True, []) también cuando "
+        "el archivo de findings no existe, y el PASS resultante no distingue "
+        "'todo enlazado' de 'nada que validar' — el PASS vacuo que SC-3 prohíbe."
+    )
+    assert "verify_cycle_closure" in called, (
+        "el loop dejó de llamar a verify_cycle_closure: el endurecimiento debe "
+        "ENVOLVER esa función, no rodearla. Su guard de path traversal sobre la "
+        "ruta del bullet Regression (T-39-11) tiene que seguir en el camino."
+    )
+
+
+def test_el_loop_no_decide_por_conteo_de_findings_promovidos() -> None:
+    """Pitfall 6: el predicado de market-data NO se copia acá.
+
+    ``main_market_data.py`` reprueba un cierre de ciclo con cero findings
+    CONFIRMED/FIXED. Ese criterio es correcto para market-data (50 findings
+    promovidos) y ERRÓNEO para ámbito y higyrus, cuyos ceros no son defectos.
+    """
+    loop = _cycle_closure_loop()
+    called = _called_names(loop)
+
+    assert "findings_path" not in called, (
+        "el loop de cierre de ciclo empezó a leer el archivo de findings para "
+        "contar promociones. Ese es el predicado de main_market_data.py y "
+        "reprobaría a ámbito y a higyrus por estar limpio uno y sin medir el "
+        "otro (Pitfall 6). El predicado correcto es el conteo de probes."
+    )
+    names = {n.id for n in ast.walk(loop) if isinstance(n, ast.Name)}
+    assert not any("CLOSED_STATUS" in name for name in names), (
+        f"el loop referencia un regex de estados cerrados ({sorted(names)}): el "
+        "conteo de findings promovidos volvió a ser el criterio de decisión."
+    )
+
+
+def test_sin_evidencia_el_veredicto_es_skipped_con_destino_nombrado() -> None:
+    """Cero probes ⇒ SKIPPED, nunca PASS, y siempre con destino."""
+    import main_matriz
+
+    status, detail = main_matriz._cycle_closure_verdict(
+        "iol-client", probes=0, evidence=None, ok=True, missing=[]
+    )
+
+    assert status == "SKIPPED", (
+        "un paquete sin evidencia de corrida obtuvo un veredicto distinto de "
+        "SKIPPED. verify_cycle_closure devolvió ok=True porque no había nada "
+        "que validar; promoverlo a PASS es el cero silencioso que D-09 prohíbe."
+    )
+    assert "sin evidencia de corrida" in detail
+    assert "LIVE-NOBJ-01" in detail, (
+        f"el SKIPPED perdió su destino nombrado: {detail!r}. Un deferral sin "
+        "destino es exactamente lo que P-03 prohíbe."
+    )
+
+
+def test_la_causa_medida_del_sobre_viaja_al_detalle() -> None:
+    """Un sobre de corrida saltada aporta SU causa, no una genérica."""
+    import main_matriz
+
+    status, detail = main_matriz._cycle_closure_verdict(
+        "higyrus-client",
+        probes=0,
+        evidence={"skipped": "vendor host unreachable (DNS) — LIVE-HIGY-33"},
+        ok=True,
+        missing=[],
+    )
+
+    assert status == "SKIPPED"
+    assert "vendor host unreachable (DNS)" in detail
+    assert detail.count("LIVE-HIGY-33") == 1, (
+        f"el destino se duplicó o desapareció en {detail!r}: la causa del sobre "
+        "ya lo trae, así que el veredicto no debe volver a concatenarlo."
+    )
+
+
+def test_un_paquete_limpio_que_corrio_da_pass() -> None:
+    """Cero findings promovidos + probes > 0 ⇒ PASS. Éste es el pin de Pitfall 6."""
+    import main_matriz
+
+    status, detail = main_matriz._cycle_closure_verdict(
+        "ambito-financiero-client",
+        probes=7,
+        evidence={"captured_at": "2026-08-29T12:00:00+00:00", "probes_executed": 7},
+        ok=True,
+        missing=[],
+    )
+
+    assert status == "PASS", (
+        "un paquete que CORRIÓ y no tiene findings promovidos fue reprobado. "
+        "Ámbito declara cero clases de modelo: su cero es un resultado medido, "
+        "no una ausencia de medición, y reprobarlo por estar limpio invierte el "
+        "significado del gate."
+    )
+    assert "7" in detail, f"el PASS no transcribe el conteo de probes: {detail!r}"
+    assert "2026-08-29T12:00:00+00:00" in detail, (
+        f"el PASS no transcribe el captured_at del sobre: {detail!r}. Ese par "
+        "(conteo, timestamp) ES la evidencia positiva que el censo copia."
+    )
+
+
+def test_regresiones_faltantes_siguen_dando_fail() -> None:
+    """Comportamiento previo preservado: probes > 0 y ok=False ⇒ FAIL."""
+    import main_matriz
+
+    status, detail = main_matriz._cycle_closure_verdict(
+        "matriz-client",
+        probes=24,
+        evidence={"captured_at": "2026-08-29T12:00:00+00:00"},
+        ok=False,
+        missing=["F-07", "F-11"],
+    )
+
+    assert status == "FAIL"
+    assert "F-07" in detail
+    assert "F-11" in detail
+
+
+def test_no_correr_no_escribe_finding() -> None:
+    """El camino SKIPPED no es un defecto, así que no toca el ledger."""
+    loop = _cycle_closure_loop()
+    append_calls = [
+        n
+        for n in ast.walk(loop)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "append_finding"
+    ]
+
+    assert len(append_calls) == 1, (
+        f"el loop tiene {len(append_calls)} llamadas a append_finding; debe "
+        "tener exactamente una, la del camino FAIL."
+    )
+    guards = [
+        n
+        for n in ast.walk(loop)
+        if isinstance(n, ast.If)
+        and any(
+            isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Name)
+            and c.func.id == "append_finding"
+            for c in ast.walk(n)
+        )
+    ]
+    assert guards, (
+        "la llamada a append_finding del loop quedó sin guarda: se escribiría un "
+        "finding ERROR-MAP también en el camino SKIPPED, convirtiendo 'no corrió' "
+        "en un defecto del paquete."
+    )
+    guard_src = ast.unparse(guards[0].test)
+    assert "FAIL" in guard_src, (
+        f"la guarda del append_finding es {guard_src!r}: ya no discrimina el "
+        "camino FAIL del camino SKIPPED."
+    )
+
+
+def test_los_destinos_nombrados_son_tres_mas_default() -> None:
+    """Higyrus y matriz tienen destino propio; el resto cae al default."""
+    import main_matriz
+
+    assert main_matriz._cycle_closure_destination("higyrus-client") == "LIVE-HIGY-33"
+    assert main_matriz._cycle_closure_destination("matriz-client") == "LIVE-MATZ-33"
+    assert main_matriz._cycle_closure_destination("iol-client") == "LIVE-NOBJ-01"
+    assert main_matriz._cycle_closure_destination("ambito-financiero-client") == "LIVE-NOBJ-01"
+
+
+def test_el_acoplamiento_del_loop_esta_documentado() -> None:
+    """El loop vive en el driver de matriz: si matriz no corre, nadie recibe veredicto.
+
+    El acoplamiento es una consecuencia deliberada de dónde se implantó la
+    costura (Open Question 2 de RESEARCH). Declararlo en el fuente es lo que
+    separa una limitación conocida de una sorpresa: sin la nota, un lector del
+    censo tomaría el silencio de los cuatro paquetes por un resultado limpio.
+    """
+    source = _matriz_source()
+
+    assert "NO CORRIÓ — LIVE-MATZ-33" in source, (
+        "main_matriz.py perdió la nota que declara qué debe registrar el censo "
+        "cuando el gate D-MATZ-33 impide que el loop corra: 'cycle_closure: NO "
+        "CORRIÓ — LIVE-MATZ-33' para los cuatro paquetes, nunca un silencio."
+    )
+
+
+def test_el_sobre_de_evidencia_es_la_entrada_del_predicado() -> None:
+    """El predicado se apoya en ``verification.run_evidence``, no en un contador local."""
+    source = _matriz_source()
+
+    assert "probes_executed" in source
+    assert "read_run_evidence" in source, (
+        "main_matriz.py dejó de leer el sobre de evidencia: sin él no puede "
+        "transcribir ni la causa medida del skip ni el captured_at del PASS."
     )
 
 

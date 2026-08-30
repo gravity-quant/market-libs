@@ -12,11 +12,18 @@ substitutes safe defaults per type:
 - ``X | None`` -> ``None`` when missing (explicit opt-in to nullable)
 
 Extra keys in the payload are ignored; missing keys fall back to defaults.
-Chained access like ``quote.puntas[0].precioCompra`` never raises on a
-*declared* attribute — the worst case is a final ``None`` or a zero-valued
-primitive. A **misspelled** attribute, by contrast, is a hard error in both
-directions: mypy rejects it statically and ``slots=True`` raises
-``AttributeError`` at runtime. That is the whole point of TYP-01.
+Chained access like ``quote.puntas[0].precioCompra`` and
+``titulo.puntas.precioCompra`` never raises on a *declared* attribute, and since
+NOBJ-IOL-01 that holds with **no** ``None`` guard anywhere along the chain: no
+model link and no collection link in this module is nullable any more, so an
+absent or ``null`` order book collapses to ``[]`` / an empty :class:`Punta`
+rather than to ``None``. Only *scalar* leaves stay ``T | None`` (D-03), so the
+worst case at the *end* of a chain is a final ``None`` or a zero-valued
+primitive. Ask whether the wire carried anything by branching on truthiness
+(``if quote.puntas:``), not by threading null checks. A **misspelled**
+attribute, by contrast, is a hard error in both directions: mypy rejects it
+statically and ``slots=True`` raises ``AttributeError`` at runtime. That is the
+whole point of TYP-01.
 
 Field names follow the wire format (camelCase) verbatim so JSON parsing can
 stay declarative.
@@ -77,6 +84,68 @@ class SafeModel:
         )
         return cls(**kwargs)
 
+    @classmethod
+    def empty(cls) -> Self:
+        """Build an all-defaults instance. Emits nothing (T-29-33).
+
+        ``empty()`` does not decode wire data: it is the shape a model converges
+        on when it carries nothing, and it is the reference value
+        :meth:`__bool__` compares against. Routing it through an emitting sink
+        would produce one spurious ``missing`` record per field on every call —
+        records about a payload that was never received.
+
+        Phase 35 D-07 prohibits expressing this constructor as
+        ``cls.from_api(None)``, which would look equivalent and is not: the
+        tolerant entry point emits a terminal ``non_dict`` record for a
+        non-``dict`` payload, so ``empty()`` would stop being silent, and in the
+        matriz twin — whose ``from_api`` falls back to ``cls.empty()`` for a
+        non-``dict`` payload — the two would recurse without end. The walker is
+        reached directly instead, with the same ``SILENT_SINK`` the walker's own
+        nested-model default uses, so an ``empty()`` instance and a nested
+        default are the same object by construction.
+
+        This is **form A** of D-07: iol's :meth:`from_api` is a bare walk, so
+        ``empty()`` is a bare walk too. The market-data twin carries a mapping
+        pass in both, which is a declared per-paquete policy axis
+        (``29-SEMANTICS-MATRIX.md``, "never harmonize") — not a divergence to
+        close by inventing a no-op pass here.
+
+        The result is deliberately **not** memoized. Several shipped classes in
+        this workspace declare mutable ``list`` / ``dict`` fields, and a cached
+        instance handed to every caller would be process-wide shared mutable
+        state that any one of them could corrupt for all the others.
+        """
+        kwargs = _decode.walk_model(cls, {}, policy=_decode.POLICY, sink=_decode.SILENT_SINK)
+        return cls(**kwargs)
+
+    def __bool__(self) -> bool:
+        """Null Object truthiness (NOBJ-01): falsy iff the model carries nothing.
+
+        A model equal to its own :meth:`empty` answers ``False``; any instance
+        differing in at least one field answers ``True``. Since NOBJ-IOL-01 that
+        is not merely nicer than threading ``None`` checks through a chain of
+        nested models — it is the only question left to ask, because no nested
+        model link in this module is nullable: ``titulo.puntas`` is always a
+        :class:`Punta`, so ``if titulo.puntas:`` is how a caller asks whether the
+        wire carried an order book at all.
+
+        Two recorded facts about the semantics, both load-bearing for callers:
+
+        - **Cost is proportional to the subtree.** Each call rebuilds the whole
+          empty instance, measured at roughly 11 µs for a two-level shipped
+          model and 19 µs for a three-level one — not the ~2.6 µs of a flat
+          synthetic dataclass. It is cheap at a branch and expensive inside a
+          hot loop over hundreds of snapshots; hoist it if that is the shape of
+          the call site.
+        - **Emptiness is a field-level question, not an envelope-level one**
+          (D-09). A model whose ``from_api`` stamps a client-side value after
+          the walk — a receipt timestamp, say — differs from its ``empty()`` and
+          is therefore truthy even when the wire carried nothing at all.
+          Callers must ask about the field they care about, not about the
+          envelope that wraps it.
+        """
+        return self != type(self).empty()
+
     def to_dict(self) -> dict[str, Any]:
         """Re-project the model as the plain wire dict (D-08).
 
@@ -120,10 +189,22 @@ class Cotizacion(SafeModel):
 
     - Both endpoints carry the **same 20 keys**; they differ only in which ones
       arrive ``null``. One model therefore covers both (D-01).
-    - ``descripcionTitulo``, ``plazo`` and ``puntas`` are ``Optional`` because
-      the historical series sends the three of them ``null``; in ``get_quote``
-      all three arrive populated (D-03). The Optional branch of the walker
-      returns ``None`` for those **without** emitting a divergence record.
+    - ``descripcionTitulo`` and ``plazo`` are ``Optional`` because the historical
+      series sends both of them ``null``; in ``get_quote`` both arrive populated
+      (D-03). The Optional branch of the walker returns ``None`` for those
+      **without** emitting a divergence record.
+    - ``puntas`` used to sit in that list and no longer does (NOBJ-IOL-01). It is
+      declared ``list[Punta]`` — non-Optional, and with **no** dataclass default,
+      because the field sits at position 16 of 20 with four no-default fields
+      after it. The historical series' ``null``, and an absent key, take the
+      NOBJ-02 collapse arm at ``_decode.py:448-452`` instead of the Union early
+      return: that arm guards its ``sink(...)`` call with ``if value is not
+      None``, so both cases yield the empty list and neither emits a divergence
+      record. ``quote.puntas`` is therefore always a list and
+      ``quote.puntas[0].precioCompra`` needs no ``None`` guard; branch on
+      truthiness (``if quote.puntas:``) to ask whether the wire carried a book.
+      A **wrong-typed** ``puntas`` is untouched by this: it still earns its
+      ``type`` record and still raises under ``strict_decode``.
     - ``puntas`` element shape is inobservado — see :class:`Punta` (D-02).
     - ``cantidadOperaciones`` is the one field where the two IOL models
       disagree, asymmetrically (D-04): ``int`` here, ``float`` in ``Titulo``,
@@ -151,7 +232,7 @@ class Cotizacion(SafeModel):
     plazo: str | None
     precioAjuste: float
     precioPromedio: float
-    puntas: list[Punta] | None
+    puntas: list[Punta]
     tendencia: str
     ultimoPrecio: float
     variacion: float
@@ -207,7 +288,18 @@ class Titulo(SafeModel):
       pre-cargar el censo de Phase 33 con divergencias garantizadas.
     - ``puntas`` es acá un :class:`Punta` **singular**, mientras que en
       :class:`Cotizacion` es una colección: dos formas de la misma clave en el
-      mismo corpus, cada una siguiendo su propia captura (D-02).
+      mismo corpus, cada una siguiendo su propia captura (D-02). Y es un **Null
+      Object** (NOBJ-IOL-01): se declara no-Optional y sin default de dataclass
+      —el campo está en la posición 14 de 20, con seis campos sin default
+      después—, así que un ``null`` del wire, o la clave ausente, ya no toma el
+      retorno temprano de la rama Union sino la rama de colapso NOBJ-02 de
+      ``_decode.py:504-505``, que construye la instancia vacía con
+      ``SILENT_SINK`` y **no** reporta. El atributo es entonces siempre un
+      ``Punta``: ``titulo.puntas.precioCompra`` nunca levanta y no necesita
+      guard de nulidad, y la pregunta "¿vino libro?" se hace por truthiness
+      (``if titulo.puntas:``), que es falsy exactamente cuando el modelo iguala
+      a ``Punta.empty()``. Un ``puntas`` **mal tipado** queda igual que siempre:
+      emite su registro y sigue levantando bajo ``strict_decode``.
     - ``cantidadOperaciones`` es **decimal** acá y entero en
       :class:`Cotizacion` (D-04). La asimetría es deliberada y observable: la
       rama decimal del walker **ensancha en silencio** un entero del wire,
@@ -239,7 +331,7 @@ class Titulo(SafeModel):
     moneda: str
     plazo: str
     precioEjercicio: float | None
-    puntas: Punta | None
+    puntas: Punta
     simbolo: str
     tipoOpcion: str | None
     ultimoCierre: float

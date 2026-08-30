@@ -26,9 +26,10 @@ import dataclasses
 import inspect
 import logging
 import pathlib
+import types
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal, Union, cast, get_args, get_origin
 
 import pytest
 from pytest_httpx import HTTPXMock
@@ -43,6 +44,30 @@ from market_data_client.models import MarketDataSnapshot, SafeModel, Symbol
 
 _MESSAGE = "decode divergence"
 _BASE = "https://market-data-develop.test/api"
+
+
+def _strip_optional(tp: Any) -> Any:
+    """Return ``T`` from ``T | None`` / ``Optional[T]``; pass through otherwise.
+
+    **Module-local copy on purpose** (Phase 36, D-05). The WR-03 lock below
+    borrowed ``models._strip_optional``, which was never a mapping helper — it
+    was the generic Optional detector that ``_is_mapping`` happened to sit on top
+    of. Phase 36 retires this paquete's mapping machinery outright, so the
+    detector loses its home in ``models.py`` and the one lock that only ever
+    wanted the detector gets its own six-line copy instead of keeping dead code
+    alive in a shipped module to import from.
+
+    The copy must NOT be replaced by an import from another paquete nor from the
+    repo-root harness: this monorepo has no shared internal package by design
+    (DT-03), the same rationale ``test_null_object.py`` states for its own
+    module-local helpers.
+    """
+    if get_origin(tp) in (Union, types.UnionType):
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return tp
+
 
 # Phase 31 (TYP-02): ``get_health`` is used below as a THROWAWAY endpoint whose
 # only job is to drive a real ``_request`` and prove the mode is bound from the
@@ -237,14 +262,21 @@ def test_missing_scalars_return_typed_zeros_and_report(
     assert _tuples(records) == [(".s", "missing"), (".i", "missing"), (".f", "missing"), (".b", "missing")]  # fmt: skip
 
 
-def test_missing_list_field_returns_empty_list_and_reports(
+def test_missing_list_field_returns_empty_list_without_reporting(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A missing ``list[X]`` still substitutes ``[]`` — and now says so."""
+    """A missing ``list[X]`` still substitutes ``[]`` — and says NOTHING about it.
+
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. A null or absent value on a non-optional list link is the
+    legitimate shape the milestone declares, so it collapses to ``[]`` with no
+    record. The wrong-TYPE half is untouched and stays pinned by the wrong-type
+    tests further down this module.
+    """
     obj, records = _walk(_Nested, {"titulo": "t"}, caplog)
 
     assert obj.hojas == []
-    assert _tuples(records) == [(".hojas", "missing")]
+    assert _tuples(records) == []
 
 
 # ---------------------------------------------------------------------------
@@ -662,13 +694,19 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
 
     ``walk_field`` walks a nested model through ``walk_model`` directly rather
     than ``hint.from_api(value)``, so that a nested path stays dotted from the
-    decode root. The consequence is that any CALL-SITE-EXEMPT behaviour — a
-    ``from_api`` OVERRIDE, or ``models._apply_mapping_policy``'s post-walk pass
-    over a ``dict[...]``-declaring model — would be BYPASSED for a model reached
-    as another model's field type. This test asserts the precondition that makes
-    the bypass moot: no model carrying such an exemption is ever declared as
-    another model's field type. If a future plan nests one, this test fails and
-    the walker needs an explicit hook.
+    decode root. The consequence is that any CALL-SITE-EXEMPT behaviour — after
+    Phase 36 that means a ``from_api`` OVERRIDE, and nothing else — would be
+    BYPASSED for a model reached as another model's field type. This test
+    asserts the precondition that makes the bypass moot: no model carrying such
+    an exemption is ever declared as another model's field type. If a future
+    plan nests one, this test fails and the walker needs an explicit hook.
+
+    **Phase 36 (NOBJ-MD-02) NARROWING.** Exemption used to have a second source:
+    ``models._apply_mapping_policy``'s post-walk pass over a ``dict[...]``-declaring
+    model. Phase 36 retires this paquete's mapping machinery outright (D-05) —
+    ``market_data`` becomes a nested model rather than a mapping, so the walker's
+    own ``_is_model`` branch takes it over — and the disjunct goes with it. The
+    guard is narrowed to the exemption that still exists, NOT relaxed.
 
     **Phase 31 (TYP-02) NARROWING.** Until Phase 31 this was stated as the blanket
     "no shipped ``SafeModel`` is EVER a nested field type", because at the time no
@@ -680,11 +718,12 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
     :class:`~market_data_client.models.FeedIngestor`) legitimately ARE nested
     field types — and none of them carries an exemption, so nothing is bypassed.
     The guard is therefore narrowed to the invariant it actually protects, NOT
-    relaxed: the two companion tests below
-    (``test_no_mapping_carrying_model_is_ever_a_nested_field_type`` and
-    ``test_models_with_a_from_api_override_are_never_a_nested_field_type``) pin
-    the same two exemption sets independently, so a regression on either axis
-    still fails in three places.
+    relaxed: the companion test below
+    (``test_models_with_a_from_api_override_are_never_a_nested_field_type``) pins
+    the surviving exemption set independently, so a regression on that axis still
+    fails in two places. Its mapping counterpart
+    (``test_no_mapping_carrying_model_is_ever_a_nested_field_type``) was retired
+    with the axis in Phase 36.
     """
     shipped = [
         obj
@@ -692,16 +731,10 @@ def test_no_call_site_exempt_safemodel_appears_as_a_nested_field_type() -> None:
         if isinstance(obj, type) and issubclass(obj, SafeModel) and obj is not SafeModel
     ]
     assert shipped, "no shipped SafeModel subclasses found — the guard would be vacuous"
-    exempt = [
-        obj
-        for obj in shipped
-        if obj.__dict__.get("from_api") is not None
-        or any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, obj)).values())
-    ]
+    exempt = [obj for obj in shipped if obj.__dict__.get("from_api") is not None]
     assert exempt, "no call-site-exempt model found — the guard would be vacuous"
     for cls in shipped:
-        # ``cast(Any, cls)`` mirrors the ``exempt`` comprehension four lines
-        # above and ``_decode.py``'s own discipline: ``hints_for`` is
+        # ``cast(Any, cls)`` mirrors ``_decode.py``'s own discipline: ``hints_for`` is
         # ``lru_cache``-wrapped, so its parameter is ``Hashable``, which
         # ``type[SafeModel]``'s inherited ``__hash__`` signature does not satisfy.
         hints = _decode.hints_for(cast(Any, cls))
@@ -812,14 +845,16 @@ def test_snapshot_other_fields_still_report(caplog: pytest.LogCaptureFixture) ->
     _, records = _from_api(MarketDataSnapshot.from_api, caplog, {}, received_at=1.0)
 
     paths = [path for path, _ in _tuples(records)]
+    # Phase 33 SC-2 widened ``.staleness_seconds`` to ``float | None`` and Phase 40
+    # D-12 widened ``.market_id`` / ``.active``, so none of those three reports on
+    # an absent key any more. ``.symbol`` is now the only declared scalar leaf left
+    # that is non-Optional, and it carries the evidence on its own: the exemption is
+    # scoped to ``received_at``, and every OTHER declared field still walks.
     assert ".symbol" in paths
-    # Phase 33 SC-2 widened ``.staleness_seconds`` to ``float | None``, so it no
-    # longer reports on an absent key. ``.active`` is still declared
-    # non-Optional and carries the same evidence: the exemption is scoped to
-    # ``received_at`` and every OTHER declared field still walks and still
-    # reports.
-    assert ".active" in paths
     assert ".received_at" not in paths
+    # The widened leaves are silent by declaration, not by exemption.
+    assert ".market_id" not in paths
+    assert ".active" not in paths
 
 
 def test_symbol_received_at_is_a_wire_field_not_a_stamp(
@@ -1172,51 +1207,36 @@ def test_extra_key_that_is_not_a_string_is_stringified_and_sanitized(
 
 
 # ---------------------------------------------------------------------------
-# Phase 29 code review, CR-03 — the mapping axis reaches market-data too
+# Phase 36 (D-05) — what remains of the CR-03 mapping block
 # ---------------------------------------------------------------------------
+#
+# CR-03's REQUIRED-mapping contract ("a ``dict[...]``-declared field is never a
+# silent ``None``: it substitutes ``{}`` and REPORTS") was RETIRED here together
+# with the machinery that implemented it — ``models._mapping_value`` /
+# ``_apply_mapping_policy`` leave the paquete in Plan 36-02. Its module-local
+# carrier ``_RequiredMapping`` and the two rows that drove it went with it: at
+# 33-07 only the contract's EXAMPLE had changed, so restating it was right; in
+# Phase 36 its IMPLEMENTATION goes, so keeping the rows would have meant keeping
+# dead code alive in a shipped module purely to assert against.
+#
+# The four rows below survive the retirement. They are ``MarketDataSnapshot``
+# rows, not mapping-machinery rows, and Plan 36-02 migrated them when
+# ``market_data`` became the typed Null Object ``MarketDataEntries`` — including
+# the lock-8 row, whose measured record set did NOT change and which is only
+# retitled here.
 
 
-@dataclass(frozen=True, slots=True)
-class _RequiredMapping(SafeModel):
-    """Module-local carrier for CR-03's REQUIRED-mapping property (Phase 33 SC-2).
-
-    CR-03's contract — a ``dict[...]``-declared field is never a silent ``None``:
-    it substitutes ``{}`` and REPORTS — used to be pinned against
-    ``MarketDataSnapshot.market_data``. Phase 33 SC-2 widened that field to
-    ``dict[str, Any] | None`` because the vendor sends ``null`` legitimately on
-    the no-data row, which left no shipped model declaring a required mapping.
-
-    The property is unchanged; only its carrier moved. Restating it here keeps
-    the mapping pass under test the day a future model declares a required
-    mapping again — the alternative, deleting the rows, would have retired a
-    live contract because its example changed.
-    """
-
-    payload: dict[str, Any]
-
-
-def test_absent_required_mapping_field_reports_missing_and_substitutes_the_empty_dict(
+def test_a_null_market_data_keeps_the_empty_container_and_reports_nothing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """CR-03: a REQUIRED ``dict[...]`` field is never a silent ``None``."""
-    caplog.clear()
-    with caplog.at_level(logging.DEBUG, logger="market_data_client"):
-        obj = _RequiredMapping.from_api({})
+    """A ``null`` link collapses to the empty container, silently (NOBJ-02).
 
-    assert obj.payload == {}
-    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
-    assert (".payload", "missing") in kinds
-
-
-def test_optional_mapping_field_keeps_none_and_reports_nothing(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Phase 33 SC-2: under ``dict[...] | None`` a ``null`` is the declared shape.
-
-    The mapping pass unwraps ``Optional`` to decide whether a field is a mapping
-    at all, so without an explicit guard it kept substituting ``{}`` and kept
-    reporting ``missing`` one line after the walker had correctly honoured the
-    ``| None``. This is the row that fails if that guard is removed.
+    Phase 33 reached this green through the ``| None`` annotation plus an
+    explicit guard in the mapping pass. Phase 36 reaches the SAME green
+    structurally: the field is a non-optional nested model now, and the walker's
+    nested-model branch collapses a ``null`` to the empty instance without
+    emitting anything. The "no record at this path" half of the assertion is
+    unchanged, verbatim — what changed is that nothing has to guard for it.
     """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
@@ -1225,53 +1245,63 @@ def test_optional_mapping_field_keeps_none_and_reports_nothing(
             received_at=1.0,
         )
 
-    assert snap.market_data is None
+    assert bool(snap.market_data) is False
+    assert snap.market_data == models.MarketDataEntries.empty()
     paths = {r.field_path for r in _divergences(caplog)}  # type: ignore[attr-defined]
     assert ".market_data" not in paths
 
 
-def test_wrong_typed_mapping_field_reports_type_and_substitutes_the_empty_dict(
+def test_wrong_typed_market_data_reports_non_dict_against_the_container(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """CR-03: a non-mapping wire value is a ``type`` divergence, not a pass-through."""
+    """A non-object wire value still diverges — the KIND and the ATTRIBUTION moved.
+
+    This row is the one real semantic change of the Phase 36 migration, and it
+    is recorded rather than smoothed over. The retired ``_mapping_value``
+    classified with ``_kind_of`` and reported ``type`` against
+    ``MarketDataSnapshot``; the walker's nested-model branch delegates to
+    ``walk_model``, which reports ``non_dict`` against ``MarketDataEntries``.
+
+    The property that matters is PRESERVED: ``non_dict`` is not in
+    ``_INFO_KINDS``, so a wrong-typed ``market_data`` is still fatal under
+    ``strict_decode`` — asserted below rather than argued.
+    """
+    payload = {
+        "symbol": "GGAL",
+        "market_id": "M",
+        "active": True,
+        "entries": [],
+        "market_data": ["not", "a", "mapping"],
+        "staleness_seconds": 0.0,
+    }
+
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
-        snap = MarketDataSnapshot.from_api(
-            {
-                "symbol": "GGAL",
-                "market_id": "M",
-                "active": True,
-                "entries": [],
-                "market_data": ["not", "a", "mapping"],
-                "staleness_seconds": 0.0,
-            },
-            received_at=1.0,
-        )
+        snap = MarketDataSnapshot.from_api(payload, received_at=1.0)
 
-    assert snap.market_data == {}
-    kinds = {(r.field_path, r.divergence) for r in _divergences(caplog)}  # type: ignore[attr-defined]
-    assert (".market_data", "type") in kinds
+    assert bool(snap.market_data) is False
+    kinds = {
+        (r.model, r.field_path, r.divergence)  # type: ignore[attr-defined]
+        for r in _divergences(caplog)
+    }
+    assert ("MarketDataEntries", ".market_data", "non_dict") in kinds
 
-
-def test_strict_mode_raises_on_an_absent_required_mapping_field() -> None:
-    """CR-03: lock 4 applies to the mapping axis exactly as to every other axis."""
+    # Still fatal in strict mode — the kind moved, the disposition did not.
     token = _decode.STRICT_DECODE.set(True)
     try:
-        with pytest.raises(MarketDataDecodeError) as excinfo:
-            _RequiredMapping.from_api({})
+        with pytest.raises(MarketDataDecodeError):
+            MarketDataSnapshot.from_api(payload, received_at=1.0)
     finally:
         _decode.STRICT_DECODE.reset(token)
 
-    assert excinfo.value.field_path == ".payload"
-    assert excinfo.value.declared_type == "dict"
 
+def test_strict_mode_does_not_raise_on_a_null_market_data() -> None:
+    """The strict raise the 33-05 run measured stays retired.
 
-def test_strict_mode_does_not_raise_on_a_null_optional_mapping_field() -> None:
-    """Phase 33 SC-2: the strict raise the 33-05 run measured stops firing.
-
-    This is the arm with teeth — the fix's whole point is that a legitimate
-    vendor ``null`` is not fatal, while a wrong-typed value still is (see
-    ``test_snapshot_no_data_row.py``).
+    This is the arm with teeth — a legitimate vendor ``null`` is not fatal,
+    while a wrong-typed value still is (see the row above and
+    ``test_snapshot_no_data_row.py``). Phase 33 bought this with an annotation;
+    Phase 36 keeps it with a policy, and the verdict is identical.
     """
     token = _decode.STRICT_DECODE.set(True)
     try:
@@ -1282,59 +1312,28 @@ def test_strict_mode_does_not_raise_on_a_null_optional_mapping_field() -> None:
     finally:
         _decode.STRICT_DECODE.reset(token)
 
-    assert snap.market_data is None
+    assert bool(snap.market_data) is False
 
 
-def test_mapping_pass_is_silent_under_a_non_dict_payload(
+def test_a_non_dict_payload_emits_exactly_one_terminal_record(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Lock 8: ``non_dict`` stays terminal — the mapping pass adds no second record."""
+    """Lock 8: ``non_dict`` is terminal — nothing downstream adds a second record.
+
+    Retitled in Phase 36: the row used to name the mapping pass as the thing
+    that had to stay silent, and that pass no longer exists. The property it
+    measures is unchanged and so is its measured record set — a ``None`` payload
+    produces exactly ``[("", "non_dict")]``, one record for the envelope and not
+    one per declared field. What guarantees it now is the walker's own
+    ``SILENT_SINK`` swap rather than a conditional at this call site.
+    """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):
         snap = MarketDataSnapshot.from_api(None, received_at=1.0)
 
-    # Phase 33 SC-2: the VALUE is now ``None`` (the field is ``| None``), but the
-    # property under test is the RECORD SET — lock 8 says ``non_dict`` is
-    # terminal and the mapping pass adds no second record. That is unchanged.
-    assert snap.market_data is None
+    assert bool(snap.market_data) is False
     kinds = [(r.field_path, r.divergence) for r in _divergences(caplog)]  # type: ignore[attr-defined]
     assert kinds == [("", "non_dict")]
-
-
-def test_no_mapping_carrying_model_is_ever_a_nested_field_type() -> None:
-    """Precondition that makes the call-site mapping pass complete (CR-03 / WR-03).
-
-    ``walk_field`` recurses into a nested model through ``walk_model`` directly,
-    so ``models.py``'s post-walk mapping pass — and every other ``from_api``
-    override — is bypassed for a model reached as another model's field type.
-    That is harmless only while no mapping-carrying model is ever declared as a
-    field type. This mirrors matriz's test of the same name.
-    """
-    shipped = [
-        obj
-        for obj in vars(models).values()
-        if isinstance(obj, type) and dataclasses.is_dataclass(obj) and issubclass(obj, SafeModel)
-    ]
-    carriers = {
-        cls.__name__
-        for cls in shipped
-        if any(models._is_mapping(h) for h in _decode.hints_for(cast(Any, cls)).values())
-    }
-    assert carriers == {"MarketDataSnapshot"}
-
-    nested_types: set[str] = set()
-    for cls in shipped:
-        for hint in _decode.hints_for(cast(Any, cls)).values():
-            inner = models._strip_optional(hint)
-            for candidate in (inner, *getattr(inner, "__args__", ())):
-                if (
-                    isinstance(candidate, type)
-                    and dataclasses.is_dataclass(candidate)
-                    and issubclass(candidate, SafeModel)
-                ):
-                    nested_types.add(candidate.__name__)
-
-    assert carriers & nested_types == set()
 
 
 def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None:
@@ -1363,7 +1362,7 @@ def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None
     nested_types: set[str] = set()
     for cls in shipped:
         for hint in _decode.hints_for(cast(Any, cls)).values():
-            inner = models._strip_optional(hint)
+            inner = _strip_optional(hint)
             for candidate in (inner, *getattr(inner, "__args__", ())):
                 if (
                     isinstance(candidate, type)
@@ -1463,22 +1462,24 @@ class _CarriesNested(SafeModel):
     hoja: _Leaf
 
 
-def test_absent_nested_model_key_is_missing_on_the_outer_model(
+def test_absent_nested_model_key_collapses_silently_on_the_outer_model(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """WR-02: lock 2's definition of ``missing``, and lock 1's ``model`` pairing.
+    """An absent nested-model key becomes the empty instance and reports NOTHING.
 
-    The walker used to recurse unconditionally, so an absent key whose declared
-    type is a nested model reached ``walk_model`` as ``payload=None`` and was
-    emitted as ``non_dict`` — attributed to the NESTED class at a path rooted in
-    the OUTER decode. That pair names a decode site that does not exist, and
-    lock 10 freezes it into a Phase 33 finding identity.
+    Phase 35, NOBJ-02 / D-13: this assertion was inverted deliberately, not
+    weakened. WR-02's classification order is still in force — the branch still
+    classifies BEFORE recursing, so an absent key never reaches ``walk_model`` as
+    ``payload=None`` and can never be emitted as ``non_dict`` attributed to the
+    NESTED class at a path rooted in the OUTER decode, which lock 10 would freeze
+    into a Phase 33 finding identity. What NOBJ-02 retires is only the record;
+    the returned VALUE below is unchanged, which is the whole point.
     """
     instance, records = _walk(_CarriesNested, {"titulo": "t"}, caplog)
 
     assert instance == _CarriesNested("t", _Leaf("", 0))
     triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
-    assert triples == [("_CarriesNested", ".hoja", "missing")]
+    assert triples == []
 
 
 def test_non_dict_nested_payload_keeps_the_nested_attribution(
@@ -1489,3 +1490,58 @@ def test_non_dict_nested_payload_keeps_the_nested_attribution(
 
     triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
     assert triples == [("_Leaf", ".hoja", "non_dict")]
+
+
+def test_wrong_typed_list_field_still_reports_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ROADMAP Phase 35 criterio 2, falsification half: the list site still reports.
+
+    A ``str`` where a ``list[Model]`` is declared is NOT the legitimate-null case
+    Phase 35 blesses: it is a wrong-typed value and it must keep emitting a
+    ``type`` record, with the same ``[]`` return value it has today.
+
+    This test is GREEN before plan 35-05 edits the walker and must stay GREEN
+    after it. Its whole job is to redden if that edit's silencing over-reaches
+    from ``value is None`` to every non-list value. The assertion is an EQUALITY
+    against a one-element list rather than a membership check, so a second,
+    spurious record would fail it too.
+    """
+    obj, records = _walk(_Nested, {"titulo": "t", "hojas": "garbage"}, caplog)
+
+    assert obj.hojas == []
+    triples = [(r.model, r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+    assert triples == [("_Nested", ".hojas", "type")]
+    assert records[0].declared_type == "list"  # type: ignore[attr-defined]
+    assert records[0].observed_type == "str"  # type: ignore[attr-defined]
+
+
+def test_strict_mode_still_raises_on_a_wrong_typed_list() -> None:
+    """ROADMAP Phase 35 criterio 2: the list site stays FATAL under strict mode.
+
+    The other half of the same falsification argument. Reporting and fatality
+    are two separate dispositions in this walker — ``_INFO_KINDS`` exempts
+    ``extra`` from the raise while still emitting it — so a walker edit could
+    conceivably keep the record and lose the raise. Both are pinned.
+
+    Green before plan 35-05's edit, and required to stay green after it. The
+    assertion reaches into the exception's attributes rather than settling for
+    its type, because an exception raised for a DIFFERENT divergence of the same
+    payload would satisfy a bare check on the exception class alone.
+    """
+    token = _decode.STRICT_DECODE.set(True)
+    try:
+        with pytest.raises(MarketDataDecodeError) as excinfo:
+            walk_model(
+                _Nested,
+                {"titulo": "t", "hojas": "garbage"},
+                policy=POLICY,
+                sink=DecodeScope(),
+            )
+    finally:
+        _decode.STRICT_DECODE.reset(token)
+
+    assert excinfo.value.field_path == ".hojas"
+    assert excinfo.value.declared_type == "list"
+    assert excinfo.value.observed_type == "str"
+    assert excinfo.value.model == "_Nested"

@@ -22,6 +22,11 @@ contra las APIs reales de forma segura:
   / ``probe_context`` / ``endpoint_scope``: puente del record de decode de seis
   claves a un finding ``SHAPE``, con el endpoint y la superficie que el record no
   lleva viajando por ``ContextVar`` (LIVE-TYP-01, D-01/D-02).
+- :mod:`verification.run_evidence` — ``write_run_evidence`` / ``read_run_evidence``
+  / ``run_evidence_path`` / ``probes_executed``: sobre de evidencia de corrida por
+  paquete. Persiste los MIEMBROS de ``DivergenceHandler.seen`` (no sólo su conteo)
+  y el número de probes ejecutados, que es el predicado de no-vacuidad del cierre
+  de ciclo (Phase 39, D-09/D-10).
 
 No es un miembro del workspace uv ni un paquete publicable: vive en la raíz del
 repo y se importa porque la raíz está en ``sys.path`` (Patrón 1). No tiene
@@ -42,6 +47,12 @@ from verification.env_gate import require_env
 from verification.findings import append_finding, new_findings, write_findings
 from verification.mutation_gate import mutating_allowed
 from verification.redaction import redact, safe_print
+from verification.run_evidence import (
+    probes_executed,
+    read_run_evidence,
+    run_evidence_path,
+    write_run_evidence,
+)
 from verification.safemodel_diff import diff_safemodel_bidirectional
 from verification.schema import schema_of
 
@@ -57,9 +68,13 @@ __all__ = [
     "mutating_allowed",
     "new_findings",
     "probe_context",
+    "probes_executed",
+    "read_run_evidence",
     "redact",
     "require_env",
+    "run_evidence_path",
     "safe_print",
     "schema_of",
     "write_findings",
+    "write_run_evidence",
 ]

@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: Tipado homogéneo de la superficie pública
-current_phase: 6
-status: Awaiting next milestone
-stopped_at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
-last_updated: "2026-08-27T23:51:25.337Z"
-last_activity: 2026-08-27
-last_activity_desc: Milestone v1.6 completed and archived
+milestone: v1.7
+milestone_name: API tipada con Null Objects
+current_phase: 40
+current_phase_name: Releases breaking coordinados
+status: executing
+stopped_at: 40-01 complete; next 40-02 (PR + gate pre-merge)
+last_updated: "2026-08-30T11:52:28.476Z"
+last_activity: 2026-08-30
+last_activity_desc: Phase 40 execution started
 progress:
   total_phases: 6
-  completed_phases: 6
-  total_plans: 44
-  completed_plans: 44
-  percent: 100
-current_phase_name: releases-por-paquete
+  completed_phases: 5
+  total_plans: 28
+  completed_plans: 26
+  percent: 83
 ---
 
 # Project State
@@ -25,20 +25,20 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 34 — releases-por-paquete
+**Current focus:** Phase 40 — Releases breaking coordinados
 
 ## Current Position
 
-Phase: Milestone v1.6 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-27 — Milestone v1.6 completed and archived
+Phase: 40 (Releases breaking coordinados) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-30 — Phase 40 execution started
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 127 (v1.0)
+- Total plans completed: 152 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -159,12 +159,58 @@ Last activity: 2026-08-27 — Milestone v1.6 completed and archived
 | Phase 34 P02 | 14 min | 3 tasks | 1 files |
 | Phase 34 P03 | 5 min | 3 tasks | 1 files |
 
+**By Phase (v1.7 planned):**
+
+| Phase | Plans | Status      | Requirements | Notes |
+|-------|-------|-------------|--------------|-------|
+| 35    | ?     | Not started | NOBJ-01, NOBJ-02 | **Load-bearing, PRIMERO** y única fase transversal — `__bool__`/`empty()` en las 4 jerarquías de base (`SafeModel` de higyrus/iol/market-data + `_SafeModel` de matriz) copiadas verbatim a los 6 paquetes, más la nueva disposición del walker `_decode` (null legítimo sobre eslabón no-opcional → vacío **sin** divergencia; wrong-type sigue divergiendo y sigue fatal en strict). **Cero cambios de superficie pública**: las suites de los 6 paquetes pasan sin editar un test. Los 4 gates de v1.6 verdes, con `check_decode_intactness.py` reduciendo las 5 copias a un único hash canónico nuevo. Incluye el test de que las `@property` alias son invisibles a `get_type_hints()` (retira el riesgo antes de 36-38). |
+| 36    | ?     | Not started | NOBJ-MD-01, NOBJ-MD-02 | El disparador del milestone. `MarketDataEntries` + `BookLevel` + `EntryValue` (copia local del patrón matriz, no-shared-code) con alias D-NO-05; `market_data: dict[str, Any] \| None` → modelo Null Object; `entries` de vuelta a `list[str]` default `[]` (revoca el widening de la Fase 33, SC-2); fila no-data expresada por veracidad + `note`; baja de `_mapping_value`/`_apply_mapping_policy` sin mover el hash de `_decode.py`. Bump breaking. Paraleliza con 37 y 38. |
+| 37    | ?     | Not started | NOBJ-MTZ-01, NOBJ-MTZ-02 | `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` tipados con **procedencia declarada por campo** (baseline / captura / modelo mínimo) — matriz sigue bloqueado para vivo por D-MATZ-33 (`LIVE-MATZ-33`), que **no se rodea**; exención única y documentada `UnknownFrame.raw`; alias compartidos por REST y frames WS (daemon thread incluido). Paraleliza con 36 y 38. |
+| 38    | ?     | Not started | NOBJ-IOL-01, NOBJ-AUD-01 | `Cotizacion.puntas` → `list[Punta]` default `[]` y `Titulo.puntas` → `Punta` Null Object (espejado sync/async, snapshot de superficie regenerado, ruptura en el README de iol); más el **censo con disposición por campo** de higyrus/ámbito/wallets — cero filas sin disposición — cerrado con el grep del plan fuente reportado con comando y salida. Paraleliza con 36 y 37. |
+| 39    | ?     | Not started | LIVE-NOBJ-01 | Cadenas profundas reales en sync + async por los drivers `main_*.py`. **Arranca con dos bloqueos heredados**: `LIVE-HIGY-33` (DNS) y `LIVE-MATZ-33` (política) → se registran `SKIPPED` con causa medida y destino nombrado, nunca cero. Divergencias corregidas in-cycle con espejo + regresión mockeada; censo contrastado contra el de la Fase 33 declarando cuántas divergencias bajaron **por la política Null Object** y cuántas por corrección. Depende de 36 + 37 + 38. |
+| 40    | ?     | Not started | PUB-NOBJ-01 | Releases sólo de los paquetes cuya superficie cambió, bump breaking + callout + **tabla de migración vieja→nueva**; `uv.lock` refrescado una sola vez; CI asertado por conteo; merge commit real (nunca squash); tags anotados; verificación post-publicación instalando desde el wheel público. **Doble gate humano independiente** (D-08/D-18), nunca colapsado ni auto-aprobado pese a `auto_advance: true` + `mode: yolo`. Depende de 39. |
+| Phase 35 P01 | 7min | 3 tasks | 3 files |
+| Phase 35 P02 | 18min | 2 tasks | 1 files |
+| Phase 35 P03 | 14min | 2 tasks | 6 files |
+| Phase 35 P04 | 15 min | 3 tasks | 6 files |
+| Phase 35 P05 | 10min | 2 tasks | 13 files |
+| Phase 36 P01 | 15min | 3 tasks | 2 files |
+| Phase 36 P02 | 55min | 3 tasks | 7 files |
+| Phase 36 P03 | 18min | 3 tasks | 3 files |
+| Phase 37 P01 | 10min | 3 tasks | 3 files |
+| Phase 37 P02 | ~11 min | 2 tasks | 5 files |
+| Phase 37 P03 | ~22 min | 3 tasks | 6 files |
+| Phase 37 P04 | 34min | 2 tasks | 2 files |
+| Phase 37 P05 | ~8 min | 2 tasks | 2 files |
+| Phase 38 P01 | 6min | 3 tasks | 4 files |
+| Phase 38 P02 | 7min | 3 tasks | 2 files |
+| Phase 38 P03 | 8min | 2 tasks | 2 files |
+| Phase 38 P04 | 8min | 2 tasks | 1 files |
+| Phase 39 P01 | 42min | 3 tasks | 6 files |
+| Phase 39 P02 | 38min | 3 tasks | 4 files |
+| Phase 39 P03 | 8min | 3 tasks | 9 files |
+| Phase 39 P04 | 3min | 2 tasks | 3 files |
+| Phase 39 P05 | 6min | 2 tasks | 3 files |
+| Phase 39 P06 | 6min | 3 tasks | 5 files |
+| Phase 39 P07 | 1h 25m | 3 tasks | 23 files |
+| Phase 39 P08 | 22m | 3 tasks | 2 files |
+| Phase 40 P01 | 35m | 4 tasks | 20 files |
+
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v1.7 Roadmap]: Phase numbering CONTINUES from v1.6 (última fase = 34) — v1.7 arranca en **Phase 35** (no resetea). Sequential `phase_naming` per config.json.
+- [v1.7 Roadmap]: **6 fases (35-40)** pese a granularity `coarse`, con una compresión deliberada respecto del plan fuente: las Fases D (iol) y E (auditoría del resto) de `.future_plans/api-tipada-null-objects.md` se **funden en la Phase 38** — iol son dos campos y la auditoría es un barrido sobre tres paquetes casi limpios; ninguna de las dos sostiene una fase propia. La Fase F del plan fuente se **parte en 39 (vivo) + 40 (release)** siguiendo el precedente de v1.4/v1.5/v1.6: el release tiene doble gate humano y no puede compartir fase con la verificación que lo habilita. 10 requisitos → 6 fases, 2:1 salvo 39 y 40.
+- [v1.7 Roadmap]: **Phase 35 es load-bearing y la única fase transversal** — es la que toca las 4 jerarquías de base y las 5 copias verbatim de `_decode.py`, y es la única que puede romper los 4 gates de CI de v1.6 de un golpe. Entrega política y capacidad con **cero** cambios de superficie pública (suites de los 6 paquetes verdes sin editar un test); si algo de la superficie se mueve ahí, el scope se corrió.
+- [v1.7 Roadmap]: **Phases 36, 37 y 38 paralelizan** (las tres dependen sólo de la 35 y tocan paquetes disjuntos: market-data / matriz / iol+higyrus+ámbito+wallets). Phase 39 depende de las tres; Phase 40 depende de la 39.
+- [v1.7 Roadmap]: La restricción **no-shared-code (DT-03)** sigue vigente y es lo que hace cara a la Phase 35: cada cambio a la base `SafeModel` y al walker se **copia verbatim** por paquete, y `tools/check_decode_intactness.py` lo verifica por hash. No hay atajo por `market-libs-core` — está listado en Out of Scope.
+- [v1.7 Roadmap]: La cobertura en vivo de la **Phase 39 arranca con dos bloqueos heredados de la Phase 33** que ninguna fase resuelve desde adentro: `LIVE-HIGY-33` (el host de higyrus no resuelve por DNS desde esta red) y `LIVE-MATZ-33` (el assert de política remarkets-only D-MATZ-33 de `main_matriz.py`, que **no se rodea** — la superficie de matriz incluye entrada de órdenes). El registro correcto es `SKIPPED` con causa medida y destino nombrado, nunca un cero que se lea como limpio (precedente D-13 / 33-05).
+- [v1.7 Roadmap]: La Phase 39 debe declarar **cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas por corrección real, contrastando contra el censo de la Fase 33 y el piso ratificado de `29-SIZING.md`. Sin esa separación, la baja de números de la política se lee como un falso limpio — exactamente lo que v1.6 existió para eliminar.
+- [v1.7 Roadmap]: **La Fase 33 (SC-2, checkpoint 33-07 "fix-shape-now") queda formalmente revocada sólo donde rompe cadenas**: `MarketDataSnapshot.entries` y `.market_data` vuelven a ser no-opcionales en la Phase 36, mientras que `.staleness_seconds` y `.note` **se quedan** `| None` por ser hojas escalares (D-NO-03). La revocación es parcial y por rol del campo (eslabón vs hoja), no un rollback del checkpoint.
 
 - [v1.6 / Phase 29 P04 — **D-lock (a) FIRMADO, NO-GO**]: **msgspec queda afuera; stdlib-only, un solo motor (el walker con caché de hints).** Firmado `no-go-stdlib-only` por **sebadlf** el **2026-08-19** en `29-DLOCK-MSGSPEC.md`. Criterio: **presupuesto absoluto de 100 ms** para el decode de una respuesta de catálogo de referencia de 5.000 filas medida sobre el arm B (el walker ya shippeado) — **no** un ratio, porque no existe requisito de throughput contra el cual un ratio sea decidible. Medido: **19,37 ms** (`matriz.Instrument` end-to-end) y **20,69 ms** (`market_data.Symbol`) → 4,8× de holgura, la condición de GO (que el arm B se pase del presupuesto) nunca se cumplió. La ventaja real de msgspec sobre el arm B es de **13-24×** (no 123×: ese número sale de comparar contra el arm A sin caché y fabricaría un GO por una mejora que el `lru_cache` de la Plan 29-02 ya entrega gratis). Rechazado igual porque: no puede implementar el modo observable, **violaría el lock D-09 de RESPONSE-`Literal`** firmado en esta misma fase (msgspec valida pertenencia a `Literal` y levanta excepción), descarta claves extra en silencio, reporta un error por decode e ignora el rename de campos en dataclasses del stdlib (`market_data.Symbol`). **Consecuencia:** los 6 wheels siguen siendo un closure 100% puro-Python, `uv.lock` no se toca, el set de releases de la Phase 34 queda como estaba, y las Phases 30-34 avanzan con un único motor de decode. Revisitar exige un requisito de throughput declarado: sólo un presupuesto por debajo de ~20,7 ms a 5.000 filas daría vuelta el veredicto.
 - [v1.6 Roadmap]: Phase numbering CONTINUES from v1.5 (última fase = 28) — v1.6 arranca en **Phase 29** (no resetea). Sequential `phase_naming` per config.json.
@@ -342,6 +388,73 @@ Recent decisions affecting current work:
 - [Phase 34]: [Phase 34-03]: Dos tags anotados (iol-client-v0.3.0 + market-data-client-v0.5.0) sobre el MISMO merge commit a89fa45 re-resuelto en vivo con git rev-parse origin/main, pusheados POR NOMBRE uno por uno — nunca --tags, porque existía un tag local-only v1.3 que un push masivo habría publicado; dos runs independientes de release.yml (33118792322 + 33118800550) en verde, cuatro assets verificados por separado
 - [Phase 34]: [Phase 34-03]: Se refrescó la memory existente market-data-client-releases.md en sus seis regiones (commit 60fc58b en milestone/v1.5-mutations, llega a main en un PR futuro); NO se creó iol-client-releases.md — ese era el item diferido en CONTEXT y queda intacto y disponible para que una fase futura lo tome deliberadamente
 - [Phase 34]: [Phase 34-03]: La aserción (f) del plan (diff dir-wide de .github/workflows contra el tag de release anterior) usa baseline obsoleto y falla sobre ci.yml por commits de Phases 24/29/31/32; el invariante real de D-11 se asertó por sha256 de release.yml (7109ff0b… idéntico en los 4 refs) y por diff desde el commit base de la fase (0 archivos, 0 commits) — tercera aparición del mismo baseline obsoleto en la fase, conviene corregir la forma de la aserción en el patrón
+- [Phase ?]: 35-01: _perturb needs a seventh nested-SafeModel branch that RESEARCH Pitfall 3 omits — in higyrus a nested-model default is an empty INSTANCE, not None, so Administrador (3 nested fields, 0 scalars) falls through every declared branch; 35-03/35-04 fan-out must copy that branch.
+- [Phase ?]: 35-01: the criterio-5 alias-vs-twin equality is asserted on (field_path, divergence, declared_type, observed_type) and EXCLUDES the model key — the two fixture classes necessarily disagree on their own class name and on nothing else.
+- [Phase ?]: 35-01: canonical digest UNCHANGED (ac14868282ad0a5c) — no byte of any _decode.py moved; all 4 v1.6 gates green, surface snapshots byte-identical, 1810 workspace tests passing.
+- [Phase ?]: [Phase 35 / 35-02]: 29-SIZING.md's corpus run predates WR-02 (36b79e2 is not a descendant of 2c31790), so its non_dict labels for matriz's five model-link records differ from today's walker in BOTH the model and kind components of the 4-tuple — Phase 39 must match on (slug, field_path) and read kind from 35-RETIRED-TRIPLES.md
+- [Phase ?]: [Phase 35 / 35-02]: 'triples retired' is the INTERSECTION of the 35-field roster with a measured census, never the row count — only 7 of 35 rows intersect a ratified floor (higyrus 2, matriz 5); matriz's answer is column-dependent (6 records vs 5 distinct triples)
+- [Phase ?]: 35-04: matriz's base declares __dataclass_fields__ as a ClassVar, so get_type_hints reports one name dataclasses.fields omits — the criterio-5 hint assertion pins that single extra as an equality rather than relaxing to a subset check
+- [Phase ?]: 35-04: a zero roster is asserted as a positive structural property (AST class count, empty __all__, import discipline, absent walker) in ambito and wallets — never a >= 0 bound, never an empty parametrize pytest would skip
+- [Phase ?]: 35-04: matriz needed __bool__ only; its Phase-29 empty() was verified against the plan and left byte-unchanged (one removed source line total, the UnknownFrame docstring method count)
+- [Phase ?]: [Phase 35-05]: la disposicion NOBJ-02 se compuerta por identidad contra null (if value is not None:), NUNCA por falsedad — cadena vacia, 0, dict vacio y lista vacia son falsy y son wrong-types legitimos que siguen divergiendo y siguen siendo fatales bajo strict_decode; los 10 tripwires de wrong-type de las olas 1-2 son la falsificacion de esa mitad
+- [Phase ?]: [Phase 35-05]: CANONICAL_DIGEST ac14868282ad0a5c -> a1f00c824348164c, leido VERBATIM del mensaje de falla del propio gate (que reporto UN solo hash distinto en las 5 copias), nunca del digest cd937d17 de RESEARCH F-6, que corresponde a una variante sin reescritura del comentario
+- [Phase ?]: [Phase 35-05]: los docstrings de modulo de _decode.py NO estan hasheados (la regla 1 de normalizacion los strippea) — la revision manual x5 que exige D-10 encontro un bullet podrido y se enmendo byte-identico x5 sin mover el digest
+- [Phase ?]: [Phase 36-01]: CR-03 disposition = retire — la maquinaria de mapping se retira entera, así que conservar _RequiredMapping y sus dos tests habría exigido mantener _mapping_value vivo como código muerto en un módulo shipeado (contradice D-05 y hace SC-5 inalcanzable). Auto-resuelto bajo auto-mode (primera opción = recomendación de RESEARCH), no por veredicto humano; punto de revert = de7614a
+- [Phase ?]: [Phase 36-01]: _strip_optional copiado módulo-local en test_core.py y test_decode.py (DT-03 no-shared-code); _is_mapping no se copia a ningún lado. Las 3 locks que sólo pedían prestado el detector (T-31-17, mutation-result no-Optional, WR-03) sobreviven intactas — edición por censo per-call-site, nunca por rango de líneas (Pitfall 1). 663 → 660 tests; models.py intacto (dea0dec)
+- [Phase 36]: la revocación del widening de la Fase 33 es POR ROL DE CAMPO y ADITIVA — entries y market_data (eslabones) vuelven a required, staleness_seconds y note (hojas) se quedan | None, y el bloque de docstring de la Fase 33 se CONSERVA junto al nuevo en vez de borrarse
+- [Phase 36]: un market_data wrong-typed cambia de KIND (type -> non_dict) y de ATRIBUCIÓN (MarketDataSnapshot -> MarketDataEntries), pero NO de disposición — sigue siendo fatal en strict decode, ahora aseverado con pytest.raises en vez de argumentado en prosa
+- [Phase 36]: market-data-client pasa de form B a form A de D-07 (la maquinaria de mapping sale del paquete); el roster SafeModel va de 16 a 19 clases y el hash de _decode.py no se movió (a1f00c824348164c)
+- [Phase 36]: los nombres test_no_data_row_keeps_its_nulls / _async son anclas de trazabilidad load-bearing — sostienen los bullets Regression: de F-72/73/75 y F-92/93/95 en el ledger append-only; se migran las ASERCIONES, nunca el nombre
+- [Phase 36]: consecuencia semver para la Phase 40 — 3 nombres públicos ADITIVOS (BookLevel, EntryValue, MarketDataEntries) MÁS un cambio SOURCE-BREAKING (market_data: dict|None -> MarketDataEntries; subíndice -> cadena de atributos, con int ensanchado a float). Sin bump en esta fase (D-09)
+- [Phase ?]: 36-03: _ENDPOINT_OPTIONAL stays unchanged — measured evidence (Pitfall 7 / F-6) shows removing 'entries' would manufacture a false model-only SHAPE finding on every /marketdata/latest run; CONTEXT's open discretion item is RESOLVED
+- [Phase ?]: 36-03: SC-5 driver consumption locked structurally by AST (verification/test_main_market_data_deep_chain.py, 4 tests, non-vacuity floor 24) — a row-counting probe passes green with every chain link broken
+- [Phase ?]: [Phase 37-01]: D-03 ratificado strict-unwrap por el operator — un body Risk SIN envelope key levanta PrimaryAPIError en vez de decodificar a all-defaults; la forma ENVUELTA queda canonica para los payloads de test de 37-02/37-03
+- [Phase ?]: 37-02: the mapping axis takes the element hint as its 2nd POSITIONAL parameter, mirroring _decode.walk_field(value, hint, *, ...)
+- [Phase ?]: 37-02: payload-supplied mapping keys are neutralized with _decode._safe_key before entering field_path (lock 11 extended to the axis)
+- [Phase ?]: 37-02: F-11 depth-2 blind spot answered with option (a) - every Phase 37 inner model is kept mapping-free; the __args__ walk is NOT deepened
+- [Phase ?]: 37-03: DetailedPosition.report typed at TWO levels and AccountReport.detailedAccountReports at ONE — the vendor samples show different depths (F-7/F-8); forcing a shared shape would fabricate a level of keys
+- [Phase ?]: 37-03: both new inner models declare D-04a's third provenance class 'vendor-documented, UNMEASURED' — no live capture exists, LIVE-MATZ-33 blocks producing one, destination Phase 39 LIVE-NOBJ-01 (ledger rows F-11/F-12)
+- [Phase ?]: 37-03: _safemodel_classes() is now 20; Plan 37-05 raises test_null_object.py's roster floor from 17 to it
+- [Phase ?]: 37-04: el predicado de campo del gate no restringe el tipo de la KEY del mapping — más estricto que la letra del plan, cierra dict[int, Any] como bypass
+- [Phase ?]: 37-04: el guard anti-vacuidad pasa de 'cero definiciones' a 'cero definiciones Y cero campos'; sin cláusula dura de cero-campos (reenrojecería los fixtures de iol)
+- [Phase ?]: 37-04: la exención de campo se prueba por nombre (exempted_by_reason['ws-catch-all'] == 1), no subiendo el piso total de exenciones
+- [Phase ?]: 37-05: los seis alias de MarketDataSnapshot citan NOBJ-MTZ-02/D-16, no el D-03 de market-data — D-03 en matriz es el envelope unwrap de Risk
+- [Phase ?]: 37-05: la disjunción de nombres se argumenta como name shadowing silencioso (matriz no usa slots), no como colisión de slots
+- [Phase ?]: 37-05: sin tarea WS y sin tocar ws_client.py — MarketDataFrame.marketData ES un MarketDataSnapshot (F-12), ahora aseverado
+- [Phase ?]: 38-01: Cotizacion.puntas es list[Punta] y Titulo.puntas es Punta — no-Optional, sin default de dataclass; el colapso lo produce el walker NOBJ-02 congelado, no Python
+- [Phase ?]: 38-01: la deriva del round-trip se absorbe en el valor ESPERADO del test con la causa dicha; la captura live 2026-06-06 nunca se reescribe
+- [Phase ?]: 38-01: sin edit espejo en client.py/aio.py — ambas superficies delegan en _core.py; la obligación sync/async se descarga con surface_parity, no duplicando decode
+- [Phase ?]: 38-02: el discriminador de modelo del gate es estatico (conjunto de nombres ClassDef por import root) - issubclass/get_type_hints exigirian importar un modulo de paquete, lo que dispararia load_dotenv() en el job lint
+- [Phase ?]: 38-02: dict[str, Model] | None queda fuera del ratchet como exclusion declarada; agregarlo despues es una adicion declarada, no un bug fix
+- [Phase ?]: 38-03: las refs de models.py en 35-RETIRED-TRIPLES.md se escriben :235/:334 (verificadas en HEAD), no :213/:301 — la tabla del plan se midio en cf79e65, antes del drift de docstrings de 38-01
+- [Phase ?]: 38-03: la fila de cero explicito de iol en 35-RETIRED-TRIPLES.md se conserva y las 2 filas nuevas van en un addendum delimitado — reemplazarla habria roto la igualdad de 35 filas con el conteo D-17
+- [Phase ?]: 38-04: la cita 35-RETIRED-TRIPLES.md:184-197 del plan estaba stale — el parrafo de ausencia enumerada esta en :169-180; el censo escribe el numero medido y registra la discrepancia
+- [Phase ?]: 38-04: las uniones PEP-604 se sacaron de toda celda de tabla del censo — un pipe dentro de una celda rompe el conteo de columnas del awk de verificacion; las firmas de _request van en bloque de codigo verbatim
+- [Phase ?]: 38-04: el cross-check de los 142 campos de higyrus se hizo scopeando el gate a un solo paquete (semilla D-04 inyectable), no comparando contra el total workspace de 442 fields scanned
+- [Phase ?]: 39-01: allowlist D-MATZ-33 por igualdad exacta de hostname, ampliado sólo a api.bbsa.matrizoms.com.ar con aprobación humana explícita (D-02)
+- [Phase ?]: 39-01: verification/mutation_gate.py queda byte-idéntico — su _SANDBOX_HOST remarkets-only deja el order entry fail-closed bajo bbsa sin cambio de código
+- [Phase ?]: 39-01: las líneas SKIPPED de los drivers son literales de módulo sin interpolación — veredicto de política y destino, nunca el hostname ni la base URL
+- [Phase ?]: 39-01: el finding terminal EXPECTED de matriz queda superseded en el ledger y recibe disposición explícita en 39-07 (no se borra)
+- [Phase ?]: [Phase 39-02]: Las tres suites de casos límite viven bajo packages/<pkg>/tests/ y no bajo verification/ — es el único árbol que el job test de CI corre de verdad (verification/ sólo corre por allowlist explícita), así que las tres entran a CI en 3.12 y 3.13 sin tocar ci.yml.
+- [Phase ?]: [Phase 39-02]: iol y matriz NO tienen tolerancia a 204/cuerpo vacío — resp.json() levanta json.JSONDecodeError, que escapa IOLClientError/PrimaryAPIError; higyrus sí devuelve su zero-value. La asimetría se assertea explícitamente por tipo y se difiere como D39-01/D39-02: cambiarla es un cambio de superficie del paquete, fuera del alcance de un plan que sólo crea tests.
+- [Phase ?]: 39-03: la costura de no-vacuidad vive en el loop de main_matriz.py, no en verification/cycle_report.py (que queda byte-identico)
+- [Phase ?]: 39-03: el predicado de cierre de ciclo es probes_executed > 0 (evidencia positiva de corrida), NO el conteo de findings promovidos
+- [Phase ?]: 39-03: el sobre de evidencia se reescribe en cada corrida, incluidos los dos caminos de skip (T-39-12)
+- [Phase ?]: 39-04: la allowlist de driver locks de ci.yml vive en el job lint, no en el test — el job test corre per-package y nunca ve verification/
+- [Phase ?]: 39-04: la rama de la cadena .puntas se decide por truthiness (lista vacia / Null Object falsy), nunca por is None — ambos campos estan declarados sin | None desde la Phase 38
+- [Phase ?]: 39-05: la cadena tipada de higyrus se construye sobre el payload ya obtenido (Posicion.from_api), no llamando a la funcion tipada — enruta por el mismo walker, sink y ContextVar de modo estricto, asi que cuesta CERO llamadas HTTP adicionales
+- [Phase ?]: 39-05: incluirParking sigue en False — flipearlo quemaria el baseline write-once de get_posiciones por deriva de schema; la rama poblada de parking no se ejercita en vivo y su evidencia es la suite mockeada de 39-02
+- [Phase ?]: 39-06: probe_get_market_data_async recibe cuerpo propio en vez de extender _ainvoke — el helper genérico lo comparten ~16 probes de paridad y descartaba el resultado; el mapeo de excepciones se replicó byte-paralelo
+- [Phase ?]: 39-06: los baselines write-once de schema de matriz se keyean por (func_name, venue) con el token del allowlist D-MATZ-33 — sin esto la primera corrida bbsa emitiría hasta 8 findings SHAPE OPEN que describen una diferencia entre venues, no un defecto del cliente
+- [Phase ?]: 39-06: 'ambas superficies' para matriz es client.py + aio.py, NO REST+WS — la premisa de CONTEXT está vencida y un test AST prohíbe reintroducir el import de ws_client en el driver
+- [Phase ?]: 39-07: la divergencia CONFIRMED del identificador plano de byCFICode/bySegment se corrige en _core (sitio unico que ambos shells atraviesan por REFAC-03), no en cada shell — el espejo sync/async sale por construccion
+- [Phase ?]: 39-07: F-11 queda NO-FIX medido a medias con destino nombrado LIVE-POS-39; F-01 de iol se mantiene OPEN arrastrado con destino LIVE-NOBJ-01 (el operador no firmo la promocion a terminal)
+- [Phase ?]: 39-07: una sola corrida autoritativa por paquete — el harness re-emite findings por corrida (idempotent_by_title default False, D39-03), asi que correr dos veces contamina el ledger
+- [Phase ?]: [Phase 39-08]: El delta entre las dos costuras del censo (9 vs 7 triples de matriz) NO se resuelve eligiendo una: son los dos triples que el fix in-cycle F-43/F-44 cerro entre la emision pre-fix y la captura post-fix del sobre de evidencia. El delta ES el fix.
+- [Phase ?]: [Phase 39-08]: La resta de matriz cierra exacta en las DOS columnas de unidad — 14 - 5 (colapso de politica NOBJ-02) - 2 (correccion real) = 7 triples distintos medidos, y 24 - 6 - 4 = 14 registros. Ninguna de las 14 divergencias del piso queda sin columna (SC-4 / D-11).
+- [Phase ?]: [Phase 39-08]: NOBJ-RETIRE-3637 registra la deuda de retiro no saldada de las Fases 36 y 37 (no existe artefacto 36-RETIRED ni 37-RETIRED), a saldar con un addendum al ledger de la Phase 35 en el cierre del milestone v1.7. Etiqueta de bookkeeping, no decision nueva de alcance.
+- [Phase 40]: 40-01: D-02 resuelto A-fold-higyrus — higyrus-client entra como cuarto paquete bumpeado (0.2.0 -> 0.3.0)
+- [Phase 40]: 40-01: D-12 resuelto B-widen-now — MarketDataSnapshot.market_id -> str | None y .active -> bool | None dentro del mismo bump breaking
 
 ### Pending Todos
 
@@ -367,6 +480,7 @@ Recent decisions affecting current work:
 - ~~[v1.6 / Phase 31 deferred-items D-2/D-3]~~ **RESUELTO 2026-08-25 (Plan 32-01, commits `5ce4e87` + `f08b7f2`).** Texto original: *ambito's test_decode.py has 2 live mypy --strict errors that the typecheck CI job DOES run; mypy packages/higyrus-client/tests is RED on 2 pre-existing errors in the byte-frozen test_decode.py copy (deferred-items D-3); typecheck CI iterates higyrus first under set -e, so it masks the identical ambito D-2. Needs a five-copy repair plan before v1.6 ships.* Los 33 errores (29 matriz + 2 higyrus + 2 ambito) se arreglaron **en código de test únicamente** — `pyproject.toml` byte-idéntico, cero tests borrados/skippeados. El loop per-package de `ci.yml:92-99` imprime `Success: no issues found` **seis veces**; el job `typecheck` está verde por primera vez desde 2026-08-18. Baseline completo de los 4 jobs en `.planning/phases/32-gates-de-homogeneidad-d-16/32-01-SUMMARY.md` § CI-green baseline (Wave 0 close).
 - ~~Criterio 1 de la Phase 33 PARCIAL (registrado por 33-05): 33-07 debe surfacearlo en vez de dar el criterio 1 por cerrado.~~ **SURFACEADO 2026-08-27 por el plan 33-07** en tres lugares: `33-CENSUS.md` § Criterio 1 (declarado GATE HUMANO ABIERTO), `33-07-SUMMARY.md`, y una asercion EJECUTABLE dentro de `verification/test_cycle_closure_phase33.py` que exige que el censo siga diciendo `SKIPPED — vendor inalcanzable` y que `LIVE-HIGY-33` siga nombrado. El gate en si **sigue abierto** — ver la entrada siguiente.
 - Criterio 1 de la Phase 33 **PARCIAL** — 3 de 5 paquetes medidos en vivo. `higyrus-client` (host que no resuelve por DNS) y `matriz-client` (assert de politica remarkets-only D-MATZ-33) no pudieron correr, y ninguna causa es resoluble desde dentro de la fase. Destinos nombrados: `LIVE-HIGY-33` y `LIVE-MATZ-33`. `LIVE-TYP-01` queda Pending por esto, no por prudencia: cerrarlo exigiria afirmar el criterio 1.
+- ~~DEF-37-01: 4 errores mypy PRE-EXISTENTES en packages/matriz-client/tests/{test_core.py:372, test_decode.py:666,839,840} heredados de los retipados 37-01/02/03 — rompen el job CI typecheck; diagnóstico en 37-.../deferred-items.md~~ **RESUELTO** (commit `2e28672`, orquestador, antes de despachar 37-05): 2× `# type: ignore[comparison-overlap]` explícito en las aserciones `scalar_passthrough` + comentario `# type: ignore[attr-defined]` movido a la línea del acceso real. `uv run mypy` global y `uv run mypy packages/matriz-client/tests` limpios; 547 tests matriz verdes.
 
 ### Quick Tasks Completed
 
@@ -425,10 +539,10 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-27T21:42:04.862Z
-Stopped at: Completed 34-03-PLAN.md — both tags pushed, two public Releases live (iol-client v0.3.0 + market-data-client v0.5.0); Phase 34 complete, ready for verification
+Last session: 2026-08-30T11:52:28.471Z
+Stopped at: 40-01 complete; next 40-02 (PR + gate pre-merge)
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Planificar la primera fase con `/gsd-plan-phase 35` (Fundación Null Object — load-bearing, prerequisito de 36/37/38)
