@@ -1864,13 +1864,66 @@ def probe_get_posiciones_sync(
             base_url=base_url,
         )
         return (ProbeResult("get_posiciones_sync", "FINDING", f"{fid} (OPEN)"), None)
+    # D-04: cadena tipada ``Posicion.parking[...].diasParking`` sobre el payload
+    # QUE YA ESTÁ EN LA MANO — cero llamadas HTTP adicionales.
+    # ``SafeModel.from_api`` enruta por el mismo walker, el mismo sink y el mismo
+    # camino de emisión que el parser del propio cliente, y hereda la ContextVar de
+    # modo estricto que ``Client._request`` bindea y deliberadamente NO resetea, así
+    # que construir el wrapper acá emite exactamente los mismos registros de
+    # divergencia que habría emitido la función tipada, gratis. Eso es lo que hace
+    # que la cadena respete la convención "una llamada HTTP por concepto de probe";
+    # ``test_the_typed_chain_adds_no_http_call`` lo pinea estructuralmente.
+    #
+    # ``raw`` ya está normalizado a lista (``None`` de 204/cuerpo vacío → ``[]``), así
+    # que la comprensión tolera el payload nulo sin rama defensiva. ``.parking`` es
+    # ``list[Parking]`` no-Optional: con la clave ausente o ``null`` el Null Object
+    # entrega ``[]``, nunca ``None`` — por eso la guarda es por veracidad, no ``is None``.
+    #
+    # LIMITACIÓN DE COBERTURA MEDIDA (transcribir al censo del plan 39-08, NO es un
+    # detalle de implementación): el probe sigue enviando ``incluirParking=False`` y
+    # este plan deliberadamente NO lo cambia — flipearlo alteraría la forma de la
+    # respuesta y quemaría el baseline write-once de ``get_posiciones`` por deriva de
+    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-33).
+    # Consecuencia explícita: **en una corrida en vivo la rama poblada de ``parking``
+    # no se ejercita**. La evidencia de esa rama es la suite mockeada del plan 39-02,
+    # ``packages/higyrus-client/tests/test_deep_chain_edges.py``.
+    try:
+        posiciones = [Posicion.from_api(row) for row in raw]
+        parking_entries = sum(len(posicion.parking) for posicion in posiciones)
+        primer_dias_parking = next(
+            (posicion.parking[0].diasParking for posicion in posiciones if posicion.parking),
+            None,
+        )
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="sync",
+            status="OPEN",
+            title=f"get_posiciones_sync cadena .parking unexpected {type(exc).__name__}",
+            expected="Posicion.parking: list[Parking] (Null Object, nunca None)",
+            actual=repr(exc),
+            diff=f"type={type(exc).__name__}",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_posiciones_sync", "FINDING", f"{fid} (OPEN)"), None)
     if not raw:
         return (
-            ProbeResult("get_posiciones_sync", "PASS", "0 items — empty path verified"),
+            ProbeResult(
+                "get_posiciones_sync",
+                "PASS",
+                f"0 items — empty path verified (parking={parking_entries})",
+            ),
             raw,
         )
     return (
-        ProbeResult("get_posiciones_sync", "PASS", f"{len(raw)} items"),
+        ProbeResult(
+            "get_posiciones_sync",
+            "PASS",
+            f"{len(raw)} items parking={parking_entries} diasParking={primer_dias_parking}",
+        ),
         raw,
     )
 
@@ -1977,13 +2030,66 @@ async def probe_get_posiciones_async(
             base_url=base_url,
         )
         return (ProbeResult("get_posiciones_async", "FINDING", f"{fid} (OPEN)"), None)
+    # D-04 mirror: cadena tipada ``Posicion.parking[...].diasParking`` sobre el payload
+    # QUE YA ESTÁ EN LA MANO — cero llamadas HTTP adicionales.
+    # ``SafeModel.from_api`` enruta por el mismo walker, el mismo sink y el mismo
+    # camino de emisión que el parser del propio cliente, y hereda la ContextVar de
+    # modo estricto que ``AsyncClient._request`` bindea y deliberadamente NO resetea,
+    # así que construir el wrapper acá emite exactamente los mismos registros de
+    # divergencia que habría emitido la función tipada, gratis. Eso es lo que hace
+    # que la cadena respete la convención "una llamada HTTP por concepto de probe";
+    # ``test_the_typed_chain_adds_no_http_call`` lo pinea estructuralmente.
+    #
+    # ``raw`` ya está normalizado a lista (``None`` de 204/cuerpo vacío → ``[]``), así
+    # que la comprensión tolera el payload nulo sin rama defensiva. ``.parking`` es
+    # ``list[Parking]`` no-Optional: con la clave ausente o ``null`` el Null Object
+    # entrega ``[]``, nunca ``None`` — por eso la guarda es por veracidad, no ``is None``.
+    #
+    # LIMITACIÓN DE COBERTURA MEDIDA (transcribir al censo del plan 39-08, NO es un
+    # detalle de implementación): el probe sigue enviando ``incluirParking=False`` y
+    # este plan deliberadamente NO lo cambia — flipearlo alteraría la forma de la
+    # respuesta y quemaría el baseline write-once de ``get_posiciones`` por deriva de
+    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-33).
+    # Consecuencia explícita: **en una corrida en vivo la rama poblada de ``parking``
+    # no se ejercita**. La evidencia de esa rama es la suite mockeada del plan 39-02,
+    # ``packages/higyrus-client/tests/test_deep_chain_edges.py``.
+    try:
+        posiciones = [Posicion.from_api(row) for row in raw]
+        parking_entries = sum(len(posicion.parking) for posicion in posiciones)
+        primer_dias_parking = next(
+            (posicion.parking[0].diasParking for posicion in posiciones if posicion.parking),
+            None,
+        )
+    except _RESIDUAL_PROBE_EXCEPTIONS as exc:
+        fid = _next_fid()
+        append_finding(
+            _PKG,
+            fid=fid,
+            class_="ERROR-MAP",
+            surface="async",
+            status="OPEN",
+            title=f"get_posiciones_async cadena .parking unexpected {type(exc).__name__}",
+            expected="Posicion.parking: list[Parking] (Null Object, nunca None)",
+            actual=repr(exc),
+            diff=f"type={type(exc).__name__}",
+            base_url=base_url,
+        )
+        return (ProbeResult("get_posiciones_async", "FINDING", f"{fid} (OPEN)"), None)
     if not raw:
         return (
-            ProbeResult("get_posiciones_async", "PASS", "0 items — empty path verified"),
+            ProbeResult(
+                "get_posiciones_async",
+                "PASS",
+                f"0 items — empty path verified (parking={parking_entries})",
+            ),
             raw,
         )
     return (
-        ProbeResult("get_posiciones_async", "PASS", f"{len(raw)} items"),
+        ProbeResult(
+            "get_posiciones_async",
+            "PASS",
+            f"{len(raw)} items parking={parking_entries} diasParking={primer_dias_parking}",
+        ),
         raw,
     )
 
