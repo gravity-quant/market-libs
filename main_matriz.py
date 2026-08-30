@@ -80,6 +80,7 @@ from verification import (
     safe_print,
     schema_of,
     write_findings,
+    write_run_evidence,
 )
 from verification.cycle_report import verify_cycle_closure
 from verification.findings import max_existing_fid
@@ -146,6 +147,21 @@ _VENUE_ALLOWLIST: dict[str, str] = {
 # stderr con exit 1, que el clasificador reportaba `FAILED` — un bloqueo de
 # política contado como falla.
 _HOST_SKIP_LINE = "SKIPPED matriz-client: base URL fuera del allowlist D-MATZ-33 — LIVE-MATZ-33"
+
+# Causa medida + destino nombrado que viaja en el sobre de evidencia de corrida
+# (Phase 39 D-09). Es la línea SKIPPED sin su prefijo de veredicto: ni base URL
+# ni hostname, por la misma razón que ella (T-39-04/T-39-10).
+_HOST_SKIP_EVIDENCE = "base URL fuera del allowlist D-MATZ-33 — LIVE-MATZ-33"
+
+# Destino nombrado por paquete para el veredicto SKIPPED del cierre de ciclo
+# (Phase 39 D-09). Tres entradas explícitas; el resto cae al default. Un
+# deferral sin destino es lo que P-03 prohíbe: "no corrió" tiene que decir
+# hacia dónde se repara.
+_CYCLE_CLOSURE_DESTINATION: dict[str, str] = {
+    "higyrus-client": "LIVE-HIGY-33",
+    "matriz-client": "LIVE-MATZ-33",
+}
+_CYCLE_CLOSURE_DEFAULT_DESTINATION = "LIVE-NOBJ-01"
 
 
 def _venue_token(base_url: str) -> str | None:
@@ -2632,6 +2648,17 @@ def main() -> None:
     venue = _venue_token(base)
     if venue is None:
         print(_HOST_SKIP_LINE)
+        # Phase 39 (D-09 / T-39-12): el sobre se REESCRIBE con cero probes y la
+        # causa medida. Sin esto, el sobre de una corrida anterior quedaría en
+        # pie y el loop de cierre de ciclo de abajo lo leería como evidencia de
+        # ESTA corrida. Una corrida saltada invalida el sobre.
+        write_run_evidence(
+            _PKG,
+            driver="main_matriz.py",
+            triples=[],
+            counts={},
+            skipped=_HOST_SKIP_EVIDENCE,
+        )
         sys.exit(0)
 
     write_findings(_PKG)
@@ -2718,6 +2745,23 @@ def main() -> None:
 
         # Probe 24: schema snapshots (DRIFT-01 mirror, D-MATZ-24 después de errors).
         results.append(probe_schema_snapshot(payloads, base))
+
+        # Phase 39 (D-09): sobre interino de matriz, ANTES del loop de cierre de
+        # ciclo. El loop lee la evidencia de los CUATRO paquetes —matriz
+        # incluido— y a esta altura del run el sobre en disco todavía es el de
+        # la corrida ANTERIOR. Sin esta escritura, matriz se juzgaría a sí mismo
+        # por una corrida vieja (o, en el primer run, se reportaría SKIPPED "sin
+        # evidencia" en el mismo output donde acaba de imprimir 24 probes). El
+        # bloque del SUMMARY lo reescribe al final con los conteos completos.
+        interim_counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "SKIPPED": 0, "FINDING": 0}
+        for r in results:
+            interim_counts[r.status] = interim_counts.get(r.status, 0) + 1
+        write_run_evidence(
+            _PKG,
+            driver="main_matriz.py",
+            triples=sorted(handler.seen),
+            counts=interim_counts,
+        )
 
         # Probe 25: cycle_closure x 4 paquetes (D-MATZ-28, DRIFT-02).
         for pkg in (
@@ -2810,6 +2854,18 @@ def main() -> None:
         f"SKIPPED={counts['SKIPPED']} FINDING={counts['FINDING']} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
+    )
+
+    # Phase 39 (D-09 + D-10): la línea SUMMARY imprime el CONTEO de triples y se
+    # va con el proceso; el sobre persiste los MIEMBROS —la unidad del censo— y
+    # el conteo de probes. Esta escritura REEMPLAZA la interina que el sweep
+    # hizo antes del loop de cierre de ciclo: acá los conteos ya incluyen los
+    # probes async y el propio veredicto de cierre.
+    write_run_evidence(
+        _PKG,
+        driver="main_matriz.py",
+        triples=sorted(handler.seen),
+        counts=counts,
     )
 
     # Phase 10 LIVE-02 paridad reporter (D-06): compare PASS/FINDING/SKIPPED

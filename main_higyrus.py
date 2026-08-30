@@ -105,6 +105,7 @@ from verification import (
     safe_print,
     schema_of,
     write_findings,
+    write_run_evidence,
 )
 from verification.findings import max_existing_fid
 
@@ -246,6 +247,11 @@ _VENDOR_UNREACHABLE_SKIP_LINE = (
 
 # Causa medida que viaja en el ``ProbeResult`` del login (no en la línea SKIPPED).
 _VENDOR_UNREACHABLE_DETAIL = "vendor host unreachable (DNS)"
+
+# Causa medida + destino nombrado que viaja en el sobre de evidencia de corrida
+# (Phase 39 D-09). Es la línea SKIPPED sin su prefijo de veredicto: ni hostname
+# ni base URL, igual que ella (T-39-04/T-39-10).
+_VENDOR_UNREACHABLE_EVIDENCE = "vendor host unreachable (DNS) — LIVE-HIGY-33"
 
 # D-HIGY-11: id de cuenta resuelto por probe 5 (probe_get_listado_cuentas_sync)
 # para que los downstream que requieren id_cuenta tengan un sample real. El
@@ -2795,6 +2801,19 @@ def main() -> None:
         # ``SystemExit`` propaga por el ``yield`` y los loggers se restauran.
         if _vendor_unreachable:
             print(_VENDOR_UNREACHABLE_SKIP_LINE)
+            # Phase 39 (D-09 / T-39-12): el sobre se REESCRIBE con cero probes y
+            # la causa medida. Sin esto, el sobre de una corrida anterior
+            # quedaría en pie y el cierre de ciclo lo leería como evidencia de
+            # ESTA corrida — que es precisamente el repudio que la costura de
+            # no-vacuidad existe para cerrar. Una corrida saltada invalida el
+            # sobre; no lo deja intacto.
+            write_run_evidence(
+                _PKG,
+                driver="main_higyrus.py",
+                triples=[],
+                counts={},
+                skipped=_VENDOR_UNREACHABLE_EVIDENCE,
+            )
             sys.exit(0)
 
         _sync_token_snapshot = (
@@ -2909,6 +2928,16 @@ def main() -> None:
         f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
+    )
+
+    # Phase 39 (D-09 + D-10): la línea SUMMARY imprime el CONTEO de triples y se
+    # va con el proceso; el sobre persiste los MIEMBROS —la unidad del censo— y
+    # el conteo de probes, la evidencia positiva de que este driver corrió.
+    write_run_evidence(
+        _PKG,
+        driver="main_higyrus.py",
+        triples=sorted(handler.seen),
+        counts={"PASS": n_pass, "FAIL": n_fail, "SKIPPED": n_skip, "FINDING": n_find},
     )
 
 

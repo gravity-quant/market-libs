@@ -98,6 +98,7 @@ from verification import (
     safe_print,
     schema_of,
     write_findings,
+    write_run_evidence,
 )
 from verification.findings import append_finding, max_existing_fid
 
@@ -2260,6 +2261,19 @@ def main() -> None:
         f"SUMMARY: PASS={n_pass} FAIL={n_fail} SKIPPED={n_skip} FINDING={n_find} "
         f"DIVERGENCES={len(handler.seen)} HANDLER_ERRORS={len(handler.errors)}",
         secrets=secrets,
+    )
+
+    # Phase 39 (D-09 + D-10): la línea SUMMARY de arriba imprime el CONTEO de
+    # triples y se va con el proceso. El sobre persiste los MIEMBROS —lo único
+    # con lo que se puede computar la diferencia de conjuntos contra el censo—
+    # y el conteo de probes, que es la evidencia positiva de que este driver
+    # corrió. ``handler`` sigue ligado después del bloque ``with``, así que la
+    # llamada va acá, junto al SUMMARY.
+    write_run_evidence(
+        _PKG,
+        driver="main_iol.py",
+        triples=sorted(handler.seen),
+        counts={"PASS": n_pass, "FAIL": n_fail, "SKIPPED": n_skip, "FINDING": n_find},
     )
 
 
