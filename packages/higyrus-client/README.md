@@ -128,13 +128,7 @@ uv run mypy packages/higyrus-client/src
 
 ## Changelog
 
-### v0.3.0 — sin publicar todavía
-
-El bump de `pyproject.toml` y el tag los hace la Phase 34; esta entrada existe
-para que la ruptura quede registrada en el momento en que se introduce y no en
-el momento en que se publica. **Cualquiera que compile desde HEAD obtiene una
-rueda cuya metadata dice `0.2.0` y cuya API es incompatible con la `0.2.0`
-publicada** — hasta el bump, esa es la advertencia operativa.
+### v0.3.0
 
 **`get_health()` deja de devolver un diccionario y pasa a devolver un modelo
 tipado** (breaking, minor bump en línea 0.x — mismo criterio y misma forma que la
