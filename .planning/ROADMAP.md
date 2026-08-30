@@ -170,7 +170,7 @@ Plans:
   3. Toda divergencia CONFIRMED se corrige **in-cycle** con espejo sync/async y un test de regresión mockeado que la pinea, y `verify_cycle_closure` devuelve PASS **no-vacuo** para cada paquete medido (con la evidencia positiva de que el driver corrió, no la mera ausencia de findings).
   4. El censo de esta corrida se contrasta explícitamente contra el de la Fase 33 y contra el piso ratificado de `29-SIZING.md`, **declarando cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas desaparecieron por corrección — para que la baja de números no pueda leerse como un falso limpio.
 
-**Plans**: 2/8 plans executed
+**Plans**: 3/8 plans executed
 
 > **Secuenciación (recomendación de `39-RESEARCH.md`, seguida al pie).** Correr en vivo **antes**
 > de que aterricen las correcciones de harness escribe basura en ledgers versionados y puede
@@ -193,7 +193,7 @@ Plans:
 
 **Wave 2** *(bloqueado por 39-01)*
 
-- [ ] 39-03-PLAN.md — `verification/run_evidence.py` + los 4 drivers cableados + cierre de ciclo no-vacuo por conteo de probes (D-09) y semilla del censo (D-10) — wave 2
+- [x] 39-03-PLAN.md — `verification/run_evidence.py` + los 4 drivers cableados + cierre de ciclo no-vacuo por conteo de probes (D-09) y semilla del censo (D-10) — wave 2
 
 **Wave 3-5** *(secuenciales: los tres tocan la allowlist de `ci.yml`)*
 
@@ -231,7 +231,7 @@ Plans:
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
-| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 2/8 | In Progress|  |
+| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 3/8 | In Progress|  |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
