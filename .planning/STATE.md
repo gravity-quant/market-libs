@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 39
 current_phase_name: verificaci-n-en-vivo-del-encadenamiento-profundo
-status: executing
+status: verifying
 stopped_at: Completed 39-02-PLAN.md
-last_updated: "2026-08-30T03:07:19.510Z"
+last_updated: "2026-08-30T03:19:03.345Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 39 execution started
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 25
-  completed_plans: 24
-  percent: 67
+  completed_plans: 25
+  percent: 83
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 Phase: 39 (verificaci-n-en-vivo-del-encadenamiento-profundo) — EXECUTING
 Plan: 8 of 8
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-30 — Phase 39 execution started
 
 ## Performance Metrics
@@ -193,6 +193,7 @@ Last activity: 2026-08-30 — Phase 39 execution started
 | Phase 39 P05 | 6min | 2 tasks | 3 files |
 | Phase 39 P06 | 6min | 3 tasks | 5 files |
 | Phase 39 P07 | 1h 25m | 3 tasks | 23 files |
+| Phase 39 P08 | 22m | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -448,6 +449,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 39-07: la divergencia CONFIRMED del identificador plano de byCFICode/bySegment se corrige en _core (sitio unico que ambos shells atraviesan por REFAC-03), no en cada shell — el espejo sync/async sale por construccion
 - [Phase ?]: 39-07: F-11 queda NO-FIX medido a medias con destino nombrado LIVE-POS-39; F-01 de iol se mantiene OPEN arrastrado con destino LIVE-NOBJ-01 (el operador no firmo la promocion a terminal)
 - [Phase ?]: 39-07: una sola corrida autoritativa por paquete — el harness re-emite findings por corrida (idempotent_by_title default False, D39-03), asi que correr dos veces contamina el ledger
+- [Phase ?]: [Phase 39-08]: El delta entre las dos costuras del censo (9 vs 7 triples de matriz) NO se resuelve eligiendo una: son los dos triples que el fix in-cycle F-43/F-44 cerro entre la emision pre-fix y la captura post-fix del sobre de evidencia. El delta ES el fix.
+- [Phase ?]: [Phase 39-08]: La resta de matriz cierra exacta en las DOS columnas de unidad — 14 - 5 (colapso de politica NOBJ-02) - 2 (correccion real) = 7 triples distintos medidos, y 24 - 6 - 4 = 14 registros. Ninguna de las 14 divergencias del piso queda sin columna (SC-4 / D-11).
+- [Phase ?]: [Phase 39-08]: NOBJ-RETIRE-3637 registra la deuda de retiro no saldada de las Fases 36 y 37 (no existe artefacto 36-RETIRED ni 37-RETIRED), a saldar con un addendum al ledger de la Phase 35 en el cierre del milestone v1.7. Etiqueta de bookkeeping, no decision nueva de alcance.
 
 ### Pending Todos
 
@@ -532,7 +536,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T03:07:14.956Z
+Last session: 2026-08-30T03:18:46.003Z
 Stopped at: Completed 39-02-PLAN.md
 Resume file: None
 

@@ -42,7 +42,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 - [x] **Phase 36: `market-data-client` — `market_data` tipado + revocación de la Fase 33** — `MarketDataEntries`/`BookLevel`/`EntryValue` con alias `last`/`bids`/`offers`/`settlement`/`close`/`open_interest`, `entries` de vuelta a `list[str]`, fila no-data expresada por veracidad y baja de la maquinaria `_mapping_value` — NOBJ-MD-01, NOBJ-MD-02 (completed 2026-08-29)
 - [x] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02 (completed 2026-08-29)
 - [x] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01 (completed 2026-08-29)
-- [ ] **Phase 39: Verificación en vivo del encadenamiento profundo** — los drivers `main_*.py` ejercen cadenas profundas reales en sync y async contra las APIs en vivo, con divergencias corregidas in-cycle y censo contrastado contra el de la Fase 33 — LIVE-NOBJ-01
+- [x] **Phase 39: Verificación en vivo del encadenamiento profundo** — los drivers `main_*.py` ejercen cadenas profundas reales en sync y async contra las APIs en vivo, con divergencias corregidas in-cycle y censo contrastado contra el de la Fase 33 — LIVE-NOBJ-01 (completed 2026-08-30)
 - [ ] **Phase 40: Releases breaking coordinados** — bumps sólo de los paquetes cuya superficie cambió, con callout + tabla de migración vieja→nueva por paquete, y las dos operaciones irreversibles detrás de dos gates humanos independientes — PUB-NOBJ-01
 
 ## Phase Details (v1.7)
@@ -170,7 +170,7 @@ Plans:
   3. Toda divergencia CONFIRMED se corrige **in-cycle** con espejo sync/async y un test de regresión mockeado que la pinea, y `verify_cycle_closure` devuelve PASS **no-vacuo** para cada paquete medido (con la evidencia positiva de que el driver corrió, no la mera ausencia de findings).
   4. El censo de esta corrida se contrasta explícitamente contra el de la Fase 33 y contra el piso ratificado de `29-SIZING.md`, **declarando cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas desaparecieron por corrección — para que la baja de números no pueda leerse como un falso limpio.
 
-**Plans**: 7/8 plans executed
+**Plans**: 8/8 plans complete
 
 > **Secuenciación (recomendación de `39-RESEARCH.md`, seguida al pie).** Correr en vivo **antes**
 > de que aterricen las correcciones de harness escribe basura en ledgers versionados y puede
@@ -207,7 +207,7 @@ Plans:
 
 **Wave 7** *(bloqueado por 39-07)*
 
-- [ ] 39-08-PLAN.md — `39-CENSUS.md`: contraste contra Fase 33 y contra el piso ratificado, split colapso-de-política vs corrección real, ausencia medida de ámbito, addendum al ledger de triples retiradas (D-06, D-10, D-11) — wave 7
+- [x] 39-08-PLAN.md — `39-CENSUS.md`: contraste contra Fase 33 y contra el piso ratificado, split colapso-de-política vs corrección real, ausencia medida de ámbito, addendum al ledger de triples retiradas (D-06, D-10, D-11) — wave 7
 
 ### Phase 40: Releases breaking coordinados
 
@@ -231,7 +231,7 @@ Plans:
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
-| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 7/8 | In Progress|  |
+| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete   | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
