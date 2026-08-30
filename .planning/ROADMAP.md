@@ -170,7 +170,7 @@ Plans:
   3. Toda divergencia CONFIRMED se corrige **in-cycle** con espejo sync/async y un test de regresión mockeado que la pinea, y `verify_cycle_closure` devuelve PASS **no-vacuo** para cada paquete medido (con la evidencia positiva de que el driver corrió, no la mera ausencia de findings).
   4. El censo de esta corrida se contrasta explícitamente contra el de la Fase 33 y contra el piso ratificado de `29-SIZING.md`, **declarando cuántas divergencias desaparecieron por la nueva política Null Object** (colapso sin registro) frente a cuántas desaparecieron por corrección — para que la baja de números no pueda leerse como un falso limpio.
 
-**Plans**: 8 plans
+**Plans**: 1/8 plans executed
 
 > **Secuenciación (recomendación de `39-RESEARCH.md`, seguida al pie).** Correr en vivo **antes**
 > de que aterricen las correcciones de harness escribe basura en ledgers versionados y puede
@@ -188,7 +188,7 @@ Plans:
 
 **Wave 1** *(paralelo: no comparten archivos)*
 
-- [ ] 39-01-PLAN.md — Gate D-MATZ-33 por hostname exacto (D-02, checkpoint humano bloqueante) + clasificación SKIPPED de matriz y higyrus (D-01), con 3 locks nuevos cableados a CI — wave 1
+- [x] 39-01-PLAN.md — Gate D-MATZ-33 por hostname exacto (D-02, checkpoint humano bloqueante) + clasificación SKIPPED de matriz y higyrus (D-01), con 3 locks nuevos cableados a CI — wave 1
 - [ ] 39-02-PLAN.md — Suites mockeadas de casos límite del encadenamiento profundo en iol/higyrus/matriz, ambas superficies (SC-2 / D-12) — wave 1
 
 **Wave 2** *(bloqueado por 39-01)*
@@ -231,7 +231,7 @@ Plans:
 | 36. `market-data-client` — `market_data` tipado              | v1.7      | 3/3 | Complete    | 2026-08-29 |
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
-| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 0/8   | Planned     | -          |
+| 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 1/8 | In Progress|  |
 | 40. Releases breaking coordinados                            | v1.7      | 0/?   | Not started | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*

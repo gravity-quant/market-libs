@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 39
-current_phase_name: Verificación en vivo del encadenamiento profundo
+current_phase_name: verificaci-n-en-vivo-del-encadenamiento-profundo
 status: executing
 stopped_at: Phase 39 context gathered (assumptions mode)
-last_updated: "2026-08-30T00:22:56.739Z"
-last_activity: 2026-08-29
-last_activity_desc: Phase 38 complete, transitioned to Phase 39
+last_updated: "2026-08-30T01:38:37.410Z"
+last_activity: 2026-08-30
+last_activity_desc: Phase 39 execution started
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 25
+  completed_plans: 18
   percent: 67
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.6 lo lleva al sistema de tipos: que sea **imposible cometer un typo al consumir la lib** —acceso por atributo verificado por mypy— y que **ninguna divergencia con la API en vivo sea silenciosa** —hoy `SafeModel.from_api()` convierte un campo desaparecido en `0.0` sin que nadie se entere.)
 
-**Current focus:** Phase 38 — iol-client-auditor-a-de-higyrus-mbito-wallets
+**Current focus:** Phase 39 — verificaci-n-en-vivo-del-encadenamiento-profundo
 
 ## Current Position
 
-Phase: 39 — Verificación en vivo del encadenamiento profundo
-Plan: Not started
+Phase: 39 (verificaci-n-en-vivo-del-encadenamiento-profundo) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
-Last activity: 2026-08-29 — Phase 38 complete, transitioned to Phase 39
+Last activity: 2026-08-30 — Phase 39 execution started
 
 ## Performance Metrics
 
@@ -186,6 +186,7 @@ Last activity: 2026-08-29 — Phase 38 complete, transitioned to Phase 39
 | Phase 38 P02 | 7min | 3 tasks | 2 files |
 | Phase 38 P03 | 8min | 2 tasks | 2 files |
 | Phase 38 P04 | 8min | 2 tasks | 1 files |
+| Phase 39 P01 | 42min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -422,6 +423,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 38-04: la cita 35-RETIRED-TRIPLES.md:184-197 del plan estaba stale — el parrafo de ausencia enumerada esta en :169-180; el censo escribe el numero medido y registra la discrepancia
 - [Phase ?]: 38-04: las uniones PEP-604 se sacaron de toda celda de tabla del censo — un pipe dentro de una celda rompe el conteo de columnas del awk de verificacion; las firmas de _request van en bloque de codigo verbatim
 - [Phase ?]: 38-04: el cross-check de los 142 campos de higyrus se hizo scopeando el gate a un solo paquete (semilla D-04 inyectable), no comparando contra el total workspace de 442 fields scanned
+- [Phase ?]: 39-01: allowlist D-MATZ-33 por igualdad exacta de hostname, ampliado sólo a api.bbsa.matrizoms.com.ar con aprobación humana explícita (D-02)
+- [Phase ?]: 39-01: verification/mutation_gate.py queda byte-idéntico — su _SANDBOX_HOST remarkets-only deja el order entry fail-closed bajo bbsa sin cambio de código
+- [Phase ?]: 39-01: las líneas SKIPPED de los drivers son literales de módulo sin interpolación — veredicto de política y destino, nunca el hostname ni la base URL
+- [Phase ?]: 39-01: el finding terminal EXPECTED de matriz queda superseded en el ledger y recibe disposición explícita en 39-07 (no se borra)
 
 ### Pending Todos
 
@@ -506,7 +511,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-29T23:03:08.891Z
+Last session: 2026-08-30T01:38:32.609Z
 Stopped at: Phase 39 context gathered (assumptions mode)
 Resume file: /Users/admin/development/market-libs/.planning/phases/39-verificaci-n-en-vivo-del-encadenamiento-profundo/39-CONTEXT.md
 
