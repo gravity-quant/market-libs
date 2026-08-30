@@ -182,3 +182,5 @@ __all__ = [
     "ws_subscribe_market_data",
     "ws_subscribe_order_reports",
 ]
+
+__version__ = "0.3.0"
