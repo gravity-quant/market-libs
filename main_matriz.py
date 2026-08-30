@@ -1,8 +1,8 @@
 """Phase 5 live verification driver para ``matriz-client`` (Primary API / MATBA ROFEX).
 
-Driver de verificación en vivo contra el sandbox de remarkets
-(``https://api.remarkets.primary.com.ar``). Ejercita ~25 probes nombrados en
-orden D-MATZ-29 cubriendo:
+Driver de verificación en vivo contra un sandbox de Primary del allowlist
+D-MATZ-33 (``_VENUE_ALLOWLIST``: remarkets o bbsa; nunca producción). Ejercita
+~25 probes nombrados en orden D-MATZ-29 cubriendo:
 
 - ``MATZ-01`` — login sync vs. servicio real.
 - ``MATZ-02`` — happy-path sweep de los 18 endpoints REST públicos.
@@ -28,8 +28,10 @@ PASS/FINDING/SKIPPED outcome sets between sync and async.
 **Security gates aplicados al inicio de ``main()``** (D-MATZ-33):
 
 1. ``require_env(_PKG, ["PRIMARY_USER", "PRIMARY_PASSWORD"])`` — HARN-01 path.
-2. Hostname assert remarkets: si ``"remarkets" not in primary.client._base_url``
-   → ``ABORT`` con exit 1 (belt-and-suspenders contra prod por mis-configuración).
+2. Allowlist de venue por igualdad exacta de hostname (Phase 39 D-02): si el
+   hostname de la base URL resuelta no está en ``_VENUE_ALLOWLIST`` se emite la
+   línea ``SKIPPED matriz-client: …`` a **stdout** y se sale con código 0
+   (Phase 39 D-01: un bloqueo de política no es una falla del driver).
 
 Output verbatim (D-02 mirror Phase 2-4): cada probe emite una línea
 ``PROBE <name>: <status> <detail>`` y al final ``SUMMARY: PASS=N FAIL=N
@@ -66,6 +68,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import httpx
 from verification import (
@@ -105,6 +108,67 @@ from matriz_client.types import CFICode
 _PKG = "matriz-client"
 _REPO_ROOT = Path(__file__).resolve().parent
 _SCHEMA_DIR = _REPO_ROOT / ".planning" / "verification" / "schemas" / _PKG
+
+# ---------------------------------------------------------------------------
+# D-MATZ-33 venue allowlist (Phase 39 D-02)
+# ---------------------------------------------------------------------------
+#
+# Hostnames CONFIRMADOS como no-producción, mapeados a su token de venue. La
+# autorización de la segunda entrada es una decisión explícita del operador del
+# 2026-08-29 (Phase 39 D-02, registrada en `39-CONTEXT.md`): `api.bbsa.matrizoms.com.ar`
+# es un sandbox real, distinto de remarkets, con `login()` y `get_segments()` ya
+# verificados ahí.
+#
+# La comparación es por IGUALDAD EXACTA de hostname — nunca por pertenencia de
+# substring ni por `endswith`. El chequeo anterior (`"remarkets" not in base`)
+# habría dejado pasar `https://api.remarkets.primary.com.ar.attacker.example`, y
+# un `endswith` deja pasar la misma clase de sufijo hostil; además
+# `https://<host-confirmado>@attacker.example` mete el host confirmado en el
+# userinfo y no en el authority (T-39-01, misma clase que documenta
+# `verification/mutation_gate.py`).
+#
+# Ampliar este mapping NO es un cambio de rutina: cada host nuevo exige un
+# checkpoint humano bloqueante (prohibición P-05 del milestone).
+#
+# `verification/mutation_gate.py` NO se toca: su `_SANDBOX_HOST` remarkets-only
+# deja el order entry fail-closed automáticamente bajo bbsa, sin cambio de
+# código (T-39-02).
+_VENUE_ALLOWLIST: dict[str, str] = {
+    "api.remarkets.primary.com.ar": "remarkets",
+    "api.bbsa.matrizoms.com.ar": "bbsa",
+}
+
+# Línea verbatim que el driver emite a STDOUT cuando la base URL cae fuera del
+# allowlist. Es un literal a propósito: `main_verify.py` clasifica por la forma
+# `^SKIPPED \S.*:` (los dos puntos son load-bearing) y NO interpolar la base URL
+# ni el hostname es lo que garantiza que el veredicto de política no filtre el
+# dato de entrada (T-39-04). Antes de D-01 esta condición salía como `ABORT` a
+# stderr con exit 1, que el clasificador reportaba `FAILED` — un bloqueo de
+# política contado como falla.
+_HOST_SKIP_LINE = "SKIPPED matriz-client: base URL fuera del allowlist D-MATZ-33 — LIVE-MATZ-33"
+
+
+def _venue_token(base_url: str) -> str | None:
+    """Devuelve el token de venue del allowlist D-MATZ-33, o ``None`` (fail-closed).
+
+    Extrae el hostname REAL con :func:`urllib.parse.urlsplit` y lo compara por
+    igualdad contra :data:`_VENUE_ALLOWLIST`. Una base URL sin esquema (forma que
+    admiten los ``.env`` históricos) se re-parsea como authority puro para que la
+    variante userinfo tampoco pase por ahí. Cualquier entrada imparseable, sin
+    host, o con un host que no esté en el allowlist devuelve ``None``.
+    """
+    try:
+        parts = urlsplit(base_url)
+        if not parts.netloc:
+            parts = urlsplit(f"//{base_url}")
+        host = parts.hostname
+    except ValueError:
+        # URL imparseable (p.ej. `https://[oops/api`): fail closed, nunca crash.
+        return None
+    if host is None:
+        return None
+    return _VENUE_ALLOWLIST.get(host)
+
 
 # Phase 11 CR-06: tuple de excepciones residuales para los catch-all post-mapeo
 # en los probe boundaries. Los probes capturan primero ``AuthenticationError``
@@ -2524,7 +2588,8 @@ def main() -> None:
 
     Secuencia:
     1. HARN-01 ``require_env`` gate — exit 0 si faltan credenciales.
-    2. D-MATZ-33 hostname assert remarkets — exit 1 si base_url no es remarkets.
+    2. D-MATZ-33 venue allowlist (Phase 39 D-02/D-01) — línea SKIPPED a stdout y
+       exit 0 si el hostname de base_url no está en ``_VENUE_ALLOWLIST``.
     3. ``write_findings(_PKG)`` para inicializar el findings file.
     3b. ``_seed_fid_counter()`` (Phase 33, P-3): sube el allocator por encima de
        los diez fids ya committeados. Orden obligatorio: DESPUÉS de
@@ -2555,15 +2620,19 @@ def main() -> None:
     # justamente para no abrir un segundo sitio de construcción.
     client = Client(strict_decode=_STRICT)
 
-    # D-MATZ-33 belt-and-suspenders hostname assert: prevention contra prod.
+    # D-MATZ-33 belt-and-suspenders hostname gate: prevención contra prod.
+    # Phase 39 D-02: allowlist por igualdad exacta de hostname (dos venues
+    # confirmados por el operador), en vez del substring `"remarkets" in base`.
+    # Phase 39 D-01: un host fuera del allowlist NO es una falla del driver — es
+    # un bloqueo de política. Se emite la línea SKIPPED a STDOUT (el único stream
+    # que `main_verify.py` escanea) y se sale con código 0, ANTES de
+    # `write_findings(_PKG)` y del primer probe: la rama de skip no escribe ni un
+    # finding (T-39-03).
     base = client._state.base_url
-    if "remarkets" not in base:
-        print(
-            f"ABORT: PRIMARY_BASE_URL={base!r} is not a remarkets sandbox URL — "
-            "Phase 5 verification is remarkets-only by safety policy",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    venue = _venue_token(base)
+    if venue is None:
+        print(_HOST_SKIP_LINE)
+        sys.exit(0)
 
     write_findings(_PKG)
 
@@ -2681,7 +2750,7 @@ def main() -> None:
                     diff="see verify_cycle_closure output",
                 )
 
-        # D-MATZ-27 EXPECTED terminal: prod-vs-remarkets divergence acknowledged.
+        # D-MATZ-27 EXPECTED terminal: prod-vs-sandbox divergence acknowledged.
         # Esta ES la última invocación de append_finding sobre _PKG en main()
         # (Assumption A3 del plan).
         # HARN-10 (Phase 11): idempotent_by_title=True evita que el terminal se
@@ -2694,14 +2763,22 @@ def main() -> None:
             class_="SHAPE",
             surface="sync",
             status="EXPECTED",
-            title="prod-vs-remarkets divergence acknowledged",
+            # Phase 39 (Pitfall 5): el título anterior
+            # ("prod-vs-remarkets divergence acknowledged") y su `expected`
+            # citaban una fila de REQUIREMENTS.md que ya no existe y afirmaban
+            # que la verificación era remarkets-only — falso bajo D-02. Como el
+            # dedupe es `idempotent_by_title=True`, el título nuevo crea un
+            # finding NUEVO: el anterior queda superseded en el ledger y recibe
+            # disposición explícita en el plan 39-07 (no se borra).
+            title="prod-vs-sandbox divergence acknowledged",
             expected=(
-                "verification limited to remarkets sandbox by safety policy "
-                "(REQUIREMENTS.md Out of Scope)"
+                "verification limited to a venue in the D-MATZ-33 hostname "
+                f"allowlist (this run: {venue}) by safety policy; the allowlist "
+                "is widened only by explicit operator decision (Phase 39 D-02)"
             ),
             actual=(
                 "prod (api.primary.com.ar) shape unverified; sandbox shape "
-                "committed in .planning/verification/schemas/matriz-client/"
+                f"({venue}) committed in .planning/verification/schemas/matriz-client/"
             ),
             diff="N/A (acknowledged limitation, not detected drift)",
             base_url=base,
