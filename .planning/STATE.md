@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: API tipada con Null Objects
 current_phase: 40
 current_phase_name: Releases breaking coordinados
-status: executing
-stopped_at: 40-01 complete; next 40-02 (PR + gate pre-merge)
-last_updated: "2026-08-30T13:01:26.791Z"
+status: phase-complete
+stopped_at: 40-03 complete; Phase 40 complete; milestone v1.7 content published
+last_updated: "2026-08-30T14:09:00.000Z"
 last_activity: 2026-08-30
-last_activity_desc: Phase 40 execution started
+last_activity_desc: "Phase 40 complete — 4 tags anotados pusheados, 4 Releases públicas con wheel+sdist, verificación post-publicación verde; PUB-NOBJ-01 Complete"
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 28
-  completed_plans: 27
-  percent: 83
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 40 (Releases breaking coordinados) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-08-30 — Phase 40 execution started
+Phase: 40 (Releases breaking coordinados) — COMPLETE
+Plan: 3 of 3 (all complete)
+Status: Phase complete — milestone v1.7 content published
+Last activity: 2026-08-30 — 4 tags anotados sobre `8e0013f`, 4 Releases públicas con wheel+sdist, verificación post-publicación desde los wheels públicos en verde
 
 ## Performance Metrics
 
@@ -196,6 +196,7 @@ Last activity: 2026-08-30 — Phase 40 execution started
 | Phase 39 P08 | 22m | 3 tasks | 2 files |
 | Phase 40 P01 | 35m | 4 tasks | 20 files |
 | Phase 40 P02 | 7min | 3 tasks | 0 files |
+| Phase 40 P03 | 4min | 3 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -456,6 +457,15 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 39-08]: NOBJ-RETIRE-3637 registra la deuda de retiro no saldada de las Fases 36 y 37 (no existe artefacto 36-RETIRED ni 37-RETIRED), a saldar con un addendum al ledger de la Phase 35 en el cierre del milestone v1.7. Etiqueta de bookkeeping, no decision nueva de alcance.
 - [Phase 40]: 40-01: D-02 resuelto A-fold-higyrus — higyrus-client entra como cuarto paquete bumpeado (0.2.0 -> 0.3.0)
 - [Phase 40]: 40-01: D-12 resuelto B-widen-now — MarketDataSnapshot.market_id -> str | None y .active -> bool | None dentro del mismo bump breaking
+- [Phase 40]: 40-03: D-07(b) resuelto con un `approved` literal del operador — SEGUNDO gate bloqueante, independiente del de merge (40-02), no colapsado y no auto-emitido pese a auto_advance + _auto_chain_active + mode:yolo los tres activos
+- [Phase 40]: 40-03: PUBLICADO — 4 tags anotados (market-data-client-v0.6.0, iol-client-v0.4.0, matriz-client-v0.3.0, higyrus-client-v0.3.0) sobre el merge SHA re-resuelto en vivo 8e0013f2ac7f0361df1ad4893cf0de8f6c773751, pusheados UNO POR NOMBRE (cero `git push --tags`)
+- [Phase 40]: 40-03: 4 corridas independientes de release.yml verdes y observadas por separado (33315928885, 33315932932, 33315937584, 33315942414); concurrency.group per-tag confirmado empíricamente por solapamiento temporal
+- [Phase 40]: 40-03: release.yml byte-idéntico (sha256 7109ff0b…) en 10 refs incluyendo los 4 tags nuevos — SEXTA reutilización sin editar. La forma rota de la Phase 34 (git diff --name-only <prior-tag>..HEAD) NO se reutilizó
+- [Phase 40]: 40-03: verificación post-publicación en verde — los 4 wheels instalados desde su URL pública de Release en un venv py3.12.13 descartable fuera del repo; `__file__` en site-packages prueba que las cadenas profundas corrieron contra la distribución INSTALADA, no contra el checkout
+- [Phase 40]: 40-03: matriz_client.__version__ resuelve a 0.3.0 — sitio NUEVO (no existía antes de 40-01, OQ-4), no una baseline de regresión
+- [Phase 40]: 40-03: ámbito y wallets NO publicados (D-01, aditivos por medición); conteos de tags idénticos al baseline pre-fase (ámbito 2, wallets 1)
+- [Phase 40]: 40-03: defecto de plan confirmado — la cláusula `wallets-client-v*` == 2 del verify de la Task 2 es STALE (el conteo real es 1). Se OVERRIDEÓ con justificación; NO se creó ni borró ningún tag para hacerla pasar. Forma correcta a futuro: ámbito == 2, wallets == 1
+- [Phase 40]: 40-03: los bloques `<verify>` de los planes asumen bash word-splitting y fallan bajo zsh (`for T in $TAGS`, `uv pip install $WHEELS`). Correr los verify blocks bajo `bash -c` en esta máquina
 
 ### Pending Todos
 
@@ -540,8 +550,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T13:01:19.322Z
-Stopped at: 40-01 complete; next 40-02 (PR + gate pre-merge)
+Last session: 2026-08-30T14:09:00.000Z
+Stopped at: 40-03 complete; Phase 40 complete; milestone v1.7 content published
 Resume file: None
 
 ## Operator Next Steps

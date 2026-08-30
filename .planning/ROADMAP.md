@@ -43,7 +43,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 - [x] **Phase 37: `matriz-client` — dicts residuales tipados + alias** — `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` modelados contra payloads reales (exención única `UnknownFrame.raw`) + los mismos alias en su `MarketDataSnapshot`, compartidos por REST y frames WS — NOBJ-MTZ-01, NOBJ-MTZ-02 (completed 2026-08-29)
 - [x] **Phase 38: `iol-client` + auditoría de higyrus/ámbito/wallets** — `Cotizacion.puntas` → `list[Punta]` y `Titulo.puntas` → `Punta` Null Object, más el censo con disposición por campo de los tres paquetes restantes hasta que el grep de cierre devuelva sólo hojas escalares — NOBJ-IOL-01, NOBJ-AUD-01 (completed 2026-08-29)
 - [x] **Phase 39: Verificación en vivo del encadenamiento profundo** — los drivers `main_*.py` ejercen cadenas profundas reales en sync y async contra las APIs en vivo, con divergencias corregidas in-cycle y censo contrastado contra el de la Fase 33 — LIVE-NOBJ-01 (completed 2026-08-30)
-- [ ] **Phase 40: Releases breaking coordinados** — bumps sólo de los paquetes cuya superficie cambió, con callout + tabla de migración vieja→nueva por paquete, y las dos operaciones irreversibles detrás de dos gates humanos independientes — PUB-NOBJ-01
+- [x] **Phase 40: Releases breaking coordinados** — bumps sólo de los paquetes cuya superficie cambió, con callout + tabla de migración vieja→nueva por paquete, y las dos operaciones irreversibles detrás de dos gates humanos independientes — PUB-NOBJ-01 (completed 2026-08-30)
 
 ## Phase Details (v1.7)
 
@@ -221,7 +221,7 @@ Plans:
   3. Un tag anotado por paquete queda sobre el SHA del merge commit re-resuelto en vivo, `release.yml` **sin editar** publica wheel + sdist por paquete, y la publicación se verifica **post-publicación instalando desde el wheel público** y ejerciendo una cadena profunda en el paquete instalado.
   4. Merge y push de tags quedan detrás de **dos checkpoints humanos independientes**, nunca colapsados en uno solo y nunca auto-aprobados pese a `auto_advance: true` + `mode: yolo` activos en config (precedente D-08 / D-18).
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 **Wave 1**
 
@@ -233,7 +233,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 40-03-PLAN.md — Segundo checkpoint humano bloqueante, tags anotados sobre el SHA del merge re-resuelto en vivo, verificación de assets por Release y verificación post-publicación instalando desde los wheels públicos — wave 3
+- [x] 40-03-PLAN.md — Segundo checkpoint humano bloqueante, tags anotados sobre el SHA del merge re-resuelto en vivo, verificación de assets por Release y verificación post-publicación instalando desde los wheels públicos — wave 3
 
 ## Progress
 
@@ -244,7 +244,7 @@ Plans:
 | 37. `matriz-client` — dicts residuales + alias               | v1.7      | 5/5 | Complete    | 2026-08-29 |
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
-| 40. Releases breaking coordinados                            | v1.7      | 2/3 | In Progress|  |
+| 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 
