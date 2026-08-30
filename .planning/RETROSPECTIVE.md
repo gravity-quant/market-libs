@@ -232,6 +232,40 @@ Field-level decoder (`_decode.py` walker) retrofitted as the primary decode engi
 
 ---
 
+## Milestone: v1.7 — API tipada con Null Objects
+
+**Shipped:** 2026-08-30
+**Phases:** 6 | **Plans:** 28
+
+### What Was Built
+`SafeModel.__bool__`/`empty()` — falsy-when-empty Null Object semantics — landed verbatim across all 4 base-class hierarchies in the 6 packages, with the `_decode` walker updated so a legitimate `null`/absent value on a non-optional model/list field collapses silently to an empty instance while a wrong-typed value still diverges and stays fatal under `strict_decode` (Phase 35, zero public-surface change). `market-data-client`'s `market_data` field moved from `dict[str, Any] | None` to a typed `MarketDataEntries`/`BookLevel`/`EntryValue` model with 6 ergonomic alias properties, formally revoking the v1.6/Phase-33 `| None` widening wherever it broke a chain link (Phase 36). `matriz-client` typed its last residual `dict[str, Any]` fields and gained the same 6 aliases shared by REST and WS frames (Phase 37). `iol-client`'s `puntas` became a proper Null Object/list, and higyrus/ámbito/wallets got a field-by-field disposition census (Phase 38). Live deep-chain verification against real APIs (Phase 39) found and fixed a genuine data-loss bug — matriz silently dropping ~9160 instrument identifiers — and widened the D-MATZ-33 security gate from substring-match to an exact-hostname allowlist, unblocking matriz's first live run since v1.0. Four packages shipped breaking releases with migration tables under double human gate (Phase 40).
+
+### What Worked
+- Revoking a prior milestone's own locked decision (v1.6/F33's `| None` widening) *by field role* rather than wholesale — chain-link fields got Null Object, leaf fields kept `T | None` — preserved the parts of the prior decision that were still correct instead of reopening the whole design.
+- The load-bearing-phase-first structure (Phase 35 touches all 6 packages' base classes; 36/37/38 parallelize on disjoint packages once 35 lands) let three independent-package phases ship the same day without file conflicts.
+- Widening a security gate from substring-match to an exact-hostname allowlist (D-MATZ-33, Phase 39 D-02) unblocked real live coverage without weakening the control — the fix was *stricter*, not looser, and it's what let the matriz data-loss bug get found at all.
+- A milestone-close audit that distinguishes a **process gap** (missing retroactive VERIFICATION.md) from a **substance gap** (broken functionality) — and resolves it by actually re-verifying live state rather than just writing the missing document — kept the close honest instead of papering over an unknown.
+
+### What Was Inefficient
+- Phase 40 shipped without a retroactive `40-VERIFICATION.md`, breaking the pattern every prior release phase (Phase 28, Phase 34) had established — caught only by the milestone-close audit, not at phase-close time. A per-phase checklist item ("does this release phase have its VERIFICATION.md?") would catch this before the audit has to.
+- The installed `gsd-tools.cjs` version's `milestone complete` CLI contract (no `--archive-quick`, opt-in-only `--archive-phases` with no `--no-` variant) didn't match what the complete-milestone workflow doc assumed — required falling back to manual `git mv` for both phase and quick-task archival. A version-skew check at the top of the workflow would save a debugging detour next time.
+- 8 quick-task directories spanning v1.1 through v1.4 (2026-06-11 → 2026-07-31) had never been archived at any of the 3 intervening milestone closes — quick-task archival being opt-in-default-off means it silently accumulates unless someone explicitly opts in each time.
+
+### Patterns Established
+- **Field-role-scoped revocation**: when un-doing a prior milestone's locked decision, split the decision by the dimension that actually matters (chain-link vs. leaf) instead of reverting uniformly — keeps what worked, fixes what didn't.
+- **Security-gate widening as unblock mechanism**: converting an overly-broad-but-wrong match (substring) to a narrower-but-correct one (exact allowlist) can simultaneously tighten security *and* unblock previously-inaccessible verification coverage — these aren't in tension when the original gate was imprecise rather than appropriately conservative.
+- **Retroactive verification at milestone-close for audit-flagged process gaps**: when `/gsd-audit-milestone` finds a phase missing its VERIFICATION.md, spawn the verifier fresh against live state (git, GitHub API, actual package installs) rather than trusting the SUMMARY.md narrative — this is what separates "the document is missing" from "the thing it would have documented is actually fine."
+
+### Key Lessons
+- A backlog item can be *partially* resolved by a later milestone without becoming fully closeable — `LIVE-MATZ-33` went from fully-blocked to partially-measured (S-3/S-5 closed, S-4/RESPONSE-Literal census still open) in Phase 39; the backlog entry needs updating to reflect partial progress, not left stale claiming the original full blockage, and not prematurely marked resolved either.
+- Live verification is where structural findings from an earlier phase's *offline* sizing estimate (`29-SIZING.md`'s ratified floor) get contrasted against what actually happened — and the milestone needs to explicitly account for how many divergences vanished *by policy* (Null Object collapse) vs. by *real correction*, or a declining defect count reads as false cleanliness instead of a mix of genuine fixes and a changed measurement baseline.
+
+### Cost Observations
+- Sessions: 1 continuous session covering Phase 39 live verification through Phase 40 release through milestone close (including a mid-close detour to backfill the missing Phase 40 verification).
+- Notable: this is the first milestone where the close itself commissioned new verification work (the retroactive `40-VERIFICATION.md`) rather than just documenting what phases had already produced — the audit's gaps_found status was treated as an action item, not a formality to acknowledge past.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -243,6 +277,8 @@ Field-level decoder (`_decode.py` walker) retrofitted as the primary decode engi
 | v1.2 | ~11 days | 5 (Phase 16 dropped) | 18 | CONDITIONAL phase modeling + spike NO-GO honored + per-request `extensions` override channel |
 | v1.3 | ~1 day | 1 (Phase 19 dropped) | 3 | Milestone-scale spike-gate: entire milestone closes on a signed NO-GO; two-tool convergence before permanent shelving |
 | v1.4 | ~3 days | 5 | 16 | First greenfield package (mirror-a-proven-shape); autonomous-prep + human-gated-publish; offline-SKIP as a sanctioned verification outcome |
+| v1.6 | ~9 days | 6 | 44 | Load-bearing-phase-first decoder retrofit; count-based CI gates (`TOTAL=N && PASSED=N`); two-gate irreversible-ops pattern generalized to multi-artifact releases |
+| v1.7 | ~2 days | 6 | 28 | Null Object pattern revokes a prior milestone's locked decision *by field role*; security-gate widened (substring→exact-hostname) to unblock live coverage; retroactive verification commissioned at milestone-close to resolve an audit-flagged process gap |
 
 ### Cumulative Quality
 
@@ -253,6 +289,8 @@ Field-level decoder (`_decode.py` walker) retrofitted as the primary decode engi
 | v1.2 | ≥989 | +82 (vs v1.1 close) | 4/4 (REFAC-06 → v1.3) | platformdirs >=4.0,<5 (iol-client only) |
 | v1.3 | ≥989 (unchanged) | 0 (spike-only, zero production footprint) | 2/2 (CODEGEN-01 resolved NO-GO; REFAC-06 shelved) | (none — libcst ephemeral, never added to deps) |
 | v1.4 | ≥1,123 (+134 new package) | +134 (market-data-client suite) | 6/6 (AUTH/CORE/MD/REF/LIVE/PUB-MD; LIVE-MD-01 apparatus-verified, live sweep deferred) | (none new — httpx/python-dotenv/tenacity reused; 6th package) |
+| v1.6 | 1,760 | +637 (vs v1.2-era baseline) | 7/7 (DEC/TYP-01/TYP-02/TYP-03/GATE-TYP/LIVE-TYP/PUB-TYP) | (none new — decoder is stdlib-only, msgspec NO-GO) |
+| v1.7 | 1,947+ | net growth across 6 packages (regression suites per phase; matriz +13 for the byCFICode/bySegment fix alone) | 10/10 (NOBJ-01/02, NOBJ-MD-01/02, NOBJ-MTZ-01/02, NOBJ-IOL-01, NOBJ-AUD-01, LIVE-NOBJ-01, PUB-NOBJ-01) | (none new — pattern is stdlib `__bool__`/`empty()`, zero new deps) |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -265,3 +303,6 @@ Field-level decoder (`_decode.py` walker) retrofitted as the primary decode engi
 7. **Two independent tools before shelving an architectural limitation permanently.** v1.2 Phase 12 (unasync) and v1.3 Phase 18 (libcst) both returned a signed NO-GO on codegen single-source for the same content-absence root cause. One NO-GO says "maybe the tool"; two genuinely-different tools converging says "the source shape is intrinsic." That convergence is what let REFAC-06 be shelved *permanently* (accepted as a structural feature) rather than deferred a third time. A NO-GO milestone that produces a durable signed decision is a real deliverable — v1.3 shipped zero code and was a success.
 8. **The intentional-duplication constraint that costs on every fix pays back on every new package.** For 3 milestones the "no shared internals, logic duplicated 4×" design read as tech debt. v1.4 proved its upside: adding the 6th package (`market-data-client`) was a low-risk mirror of a fully-proven template with nothing shared to break. The same constraint that makes a logic fix a 4-6× chore makes package creation a copy-and-adapt-the-auth exercise. Weigh both directions before "fixing" an intentional duplication.
 9. **Decouple the release from the flakiest requirement.** v1.4's live-verification (LIVE-MD-01) was blocked on external access (Auth0 creds + VPN); the publish (PUB-MD-01) was scoped to not depend on it, so v0.1.0 shipped on schedule while the live sweep carries forward. When a requirement hinges on third-party access outside the team's control, make the user-visible deliverable independent of it rather than letting an environment blocker gate the ship.
+10. **Revoke by field role, not wholesale.** v1.7 formally revoked v1.6/Phase-33's `| None` widening — but only for chain-link fields (model/list), keeping it for leaf fields. Reopening a locked decision doesn't require reverting it uniformly; split by the dimension that actually distinguishes the good part from the bad part, and the prior decision's still-valid half survives.
+11. **A widened security gate can unblock verification instead of loosening it.** v1.7 Phase 39 converted matriz's substring-match hostname gate to an exact-hostname allowlist — stricter against spoofing, and simultaneously what let the first live matriz run since v1.0 happen (finding a real ~9160-record data-loss bug in the process). An imprecise gate can be both insecure-feeling *and* over-blocking at once; fixing the precision can improve both properties together.
+12. **Treat an audit's `gaps_found` as an action item, not a formality.** v1.7's milestone-close audit flagged a missing retroactive VERIFICATION.md as "process gap, not substance gap" — but rather than just writing the missing document from the existing SUMMARY.md narrative, the close spawned a fresh verifier against live git/GitHub state and an actual package install, which is what actually confirmed the gap was cosmetic. A process gap can hide a real one; only independent re-verification tells the difference.
