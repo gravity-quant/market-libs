@@ -472,11 +472,25 @@ class MarketDataSnapshot(SafeModel):
     Both revoked fields keep their positional slot and stay REQUIRED
     constructor arguments, so :attr:`note` does not move and no default masks
     an absent key.
+
+    **BREAKING since 0.6.0 (Phase 40, D-12).** The two remaining OVER-DECLARED
+    leaves are widened: :attr:`market_id` is ``str | None`` and :attr:`active`
+    is ``bool | None``. On the ``GET /marketdata/latest`` no-data row both
+    arrive ``null`` over non-``Optional`` declarations, so the walker
+    manufactured ``""`` / ``False`` and ``strict_decode`` raised on
+    ``.market_id`` — the measured divergence filed as
+    ``36-DEFERRED-market-data-leaves.md``. Both are scalar leaves with nothing
+    to point at when the row carries no data, so D-NO-03 admits ``| None``
+    rather than a Null Object, exactly as :attr:`staleness_seconds` and
+    :attr:`note` already do. The widening admits ``None`` and nothing else: a
+    wrong-TYPED value is still a divergence and still fatal under
+    ``strict_decode``. Both keep their positional slot and stay REQUIRED
+    constructor arguments.
     """
 
     symbol: str
-    market_id: str
-    active: bool
+    market_id: str | None
+    active: bool | None
     entries: list[str]
     market_data: MarketDataEntries
     staleness_seconds: float | None

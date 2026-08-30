@@ -58,13 +58,18 @@ committed baseline verbatim, and the consequence is STATED rather than hidden:
 * the two LINKS (``entries``, ``market_data``) collapse silently and the chain
   stays walkable — the property Phase 36 exists to establish, now demonstrated
   against the one payload the repo has actually measured;
-* the two LEAVES ``market_id`` (``str``) and ``active`` (``bool``) are still
-  OVER-DECLARED. The walker manufactures ``""`` / ``False`` for them and strict
-  mode raises on ``.market_id``. This is a real, measured divergence, it is NOT
-  fixed here — a source-breaking shape change needs the operator checkpoint the
-  33-07 Task 1 precedent established — and it is filed as a deferred item
-  (``36-DEFERRED-market-data-leaves.md``) so Phase 39 finds it predicted instead
-  of rediscovering it as a surprise.
+* the two LEAVES ``market_id`` and ``active`` USED TO BE over-declared: the
+  walker manufactured ``""`` / ``False`` for them and strict mode raised on
+  ``.market_id``. That was a real, measured divergence, filed as a deferred item
+  (``36-DEFERRED-market-data-leaves.md``) precisely because a source-breaking
+  shape change needs the operator checkpoint the 33-07 Task 1 precedent
+  established. **The operator granted it at the Phase 40 scope gate (D-12):**
+  both are now ``str | None`` / ``bool | None``, the wire ``null`` decodes as
+  ``None``, and strict mode walks the committed baseline without raising. The
+  assertions below were MIGRATED to pin that new behavior — none was deleted or
+  skipped, and the two ``keeps_its_nulls`` names are preserved verbatim because
+  they anchor the ``Regression:`` bullets of F-72/F-73/F-75 and F-92/F-93/F-95
+  in the append-only ledger.
 """
 
 from __future__ import annotations
@@ -147,13 +152,13 @@ def test_no_data_row_keeps_its_nulls(httpx_mock: HTTPXMock) -> None:
     # The fields that DO arrive are untouched.
     assert row.symbol == "AAA1"
     assert row.note == "sin datos para el simbolo"
-    # CR-02, stated not hidden: these two are still declared non-Optional, so the
-    # walker substitutes the silent typed zero this milestone exists to remove.
-    # Deferred (36-DEFERRED-market-data-leaves.md), NOT amnestied — when the
-    # operator widens them, these two lines turn into ``is None`` and this test
-    # is the one that reddens first.
-    assert row.market_id == ""
-    assert row.active is False
+    # CR-02, resolved: the operator widened both leaves at the Phase 40 scope gate
+    # (D-12), so the walker no longer manufactures the silent typed zero. The two
+    # lines the deferred item predicted would "turn into ``is None``" are exactly
+    # these two, and this test is the one that reddens first if the widening is
+    # ever rolled back.
+    assert row.market_id is None
+    assert row.active is None
 
 
 async def test_no_data_row_keeps_its_nulls_async(httpx_mock: HTTPXMock) -> None:
@@ -176,8 +181,8 @@ async def test_no_data_row_keeps_its_nulls_async(httpx_mock: HTTPXMock) -> None:
     assert row.symbol == "AAA1"
     assert row.note == "sin datos para el simbolo"
     # CR-02 — see the sync twin.
-    assert row.market_id == ""
-    assert row.active is False
+    assert row.market_id is None
+    assert row.active is None
 
 
 def test_no_data_row_links_are_never_fatal_under_strict_decode(httpx_mock: HTTPXMock) -> None:
@@ -226,47 +231,50 @@ async def test_no_data_row_links_are_never_fatal_under_strict_decode_async(
     assert rows[0].market_data.last.price is None
 
 
-def test_the_measured_no_data_row_still_raises_on_an_over_declared_leaf(
+def test_the_measured_no_data_row_no_longer_raises_on_a_widened_leaf(
     httpx_mock: HTTPXMock,
 ) -> None:
-    """CR-02 — the divergence the phase did NOT fix, asserted instead of hidden.
+    """CR-02 — the divergence the operator RESOLVED at the Phase 40 scope gate (D-12).
 
-    Against the committed baseline VERBATIM, strict decode raises on
-    ``.market_id`` (``str`` declared, ``NoneType`` observed) and would raise on
-    ``.active`` next. Both are scalar LEAVES with nothing to point at on a
-    no-data row — the same D-NO-03 argument that kept ``staleness_seconds``
-    nullable — but widening them is source-breaking and belongs to an operator
-    checkpoint, so it is deferred, not silently absorbed
-    (``36-DEFERRED-market-data-leaves.md``).
+    This test is the direct descendant of
+    ``test_the_measured_no_data_row_still_raises_on_an_over_declared_leaf``. Its
+    assertions are migrated, not retired: where it used to pin
+    ``field_path == ".market_id"`` on a ``MarketDataDecodeError``, it now pins
+    that the SAME committed baseline, VERBATIM and under strict decode, walks
+    all the way through without raising at all.
 
-    The ``field_path`` assertion is the load-bearing half: it pins that the raise
-    comes from a LEAF and NEVER from ``.market_data`` / ``.entries``. Should a
-    link regress into being fatal again, this test reddens on the path rather
-    than passing on the mere fact that *something* raised.
+    That inversion is the whole point of the widening. ``market_id`` and
+    ``active`` are scalar LEAVES with nothing to point at on a no-data row — the
+    same D-NO-03 argument that kept ``staleness_seconds`` nullable — so a wire
+    ``null`` over ``str | None`` / ``bool | None`` is now a legitimate value
+    rather than a divergence.
+
+    The teeth are kept, inverted: any raise here fails the test and reports its
+    own ``field_path``, so a leaf that regresses to non-``Optional`` — or a LINK
+    that becomes fatal again — reddens on the path rather than passing on the
+    mere fact that nothing raised.
     """
     httpx_mock.add_response(method="GET", json=[_NO_DATA_ROW])
 
-    with (
-        market_data_client.Client(
-            base_url="https://market-data-develop.test/api",
-            token="test-token",
-            token_expires_at=9_999_999_999.0,
-            strict_decode=True,
-        ) as client,
-        pytest.raises(MarketDataDecodeError) as exc,
-    ):
-        client.get_latest(symbol="AAA1")
+    with market_data_client.Client(
+        base_url="https://market-data-develop.test/api",
+        token="test-token",
+        token_expires_at=9_999_999_999.0,
+        strict_decode=True,
+    ) as client:
+        try:
+            rows = client.get_latest(symbol="AAA1")
+        except MarketDataDecodeError as exc:  # pragma: no cover - regression guard
+            pytest.fail(f"strict decode raised on {exc.field_path} ({exc.model})")
 
-    assert exc.value.model == "MarketDataSnapshot"
-    assert exc.value.field_path == ".market_id"
-    assert exc.value.declared_type == "str"
-    assert exc.value.observed_type == "NoneType"
+    assert rows[0].market_id is None
+    assert rows[0].active is None
 
 
-async def test_the_measured_no_data_row_still_raises_on_an_over_declared_leaf_async(
+async def test_the_measured_no_data_row_no_longer_raises_on_a_widened_leaf_async(
     httpx_mock: HTTPXMock,
 ) -> None:
-    """Async twin of :func:`test_the_measured_no_data_row_still_raises_on_an_over_declared_leaf`."""
+    """Async twin of :func:`test_the_measured_no_data_row_no_longer_raises_on_a_widened_leaf`."""
     httpx_mock.add_response(method="GET", json=[_NO_DATA_ROW])
 
     async with aio.AsyncClient(
@@ -275,13 +283,13 @@ async def test_the_measured_no_data_row_still_raises_on_an_over_declared_leaf_as
         token_expires_at=9_999_999_999.0,
         strict_decode=True,
     ) as client:
-        with pytest.raises(MarketDataDecodeError) as exc:
-            await client.get_latest(symbol="AAA1")
+        try:
+            rows = await client.get_latest(symbol="AAA1")
+        except MarketDataDecodeError as exc:  # pragma: no cover - regression guard
+            pytest.fail(f"strict decode raised on {exc.field_path} ({exc.model})")
 
-    assert exc.value.model == "MarketDataSnapshot"
-    assert exc.value.field_path == ".market_id"
-    assert exc.value.declared_type == "str"
-    assert exc.value.observed_type == "NoneType"
+    assert rows[0].market_id is None
+    assert rows[0].active is None
 
 
 def test_populated_row_still_decodes(httpx_mock: HTTPXMock) -> None:

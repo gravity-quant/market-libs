@@ -177,10 +177,12 @@ _MEASURED_NO_DATA_ROW: dict[str, Any] = {
 # (dataclass declaration order). Asserting the WHOLE record set — not a subset —
 # is what makes "the LINKS emit nothing" a real claim: a link regression would
 # add a third tuple and redden here.
-_MEASURED_NO_DATA_RECORDS = [
-    ("MarketDataSnapshot", ".market_id", "missing"),
-    ("MarketDataSnapshot", ".active", "missing"),
-]
+# Phase 40 D-12 widened ``market_id`` / ``active`` to ``str | None`` / ``bool | None``,
+# so the two LEAF divergences this list used to carry are gone: the measured no-data
+# row now walks end to end emitting NOTHING. The empty list stays load-bearing — a
+# link that started reporting again, or a leaf that regressed to non-Optional, would
+# add a tuple and redden the equality below.
+_MEASURED_NO_DATA_RECORDS: list[tuple[str, str, str]] = []
 
 # Expected leaf values per row — RESEARCH F-1, asserted not recomputed.
 _REAL_EXPECT: dict[str, Any] = {
@@ -390,8 +392,9 @@ def test_the_measured_no_data_row_keeps_the_chain_walkable_and_the_links_silent(
 
     The record-set equality is the load-bearing half. Asserting the WHOLE set —
     rather than "``.market_data`` is not in it" — means a link that started
-    reporting again would add a third tuple and redden here, and it simultaneously
-    states the two LEAF divergences that Phase 36 deliberately did not fix.
+    reporting again would add a tuple and redden here. Since Phase 40 D-12 widened
+    the two LEAVES, that set is EMPTY: the measured payload now walks end to end
+    without emitting a single divergence, and the equality pins exactly that.
     """
     caplog.clear()
     with caplog.at_level(logging.DEBUG, logger="market_data_client"):

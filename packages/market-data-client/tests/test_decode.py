@@ -845,14 +845,16 @@ def test_snapshot_other_fields_still_report(caplog: pytest.LogCaptureFixture) ->
     _, records = _from_api(MarketDataSnapshot.from_api, caplog, {}, received_at=1.0)
 
     paths = [path for path, _ in _tuples(records)]
+    # Phase 33 SC-2 widened ``.staleness_seconds`` to ``float | None`` and Phase 40
+    # D-12 widened ``.market_id`` / ``.active``, so none of those three reports on
+    # an absent key any more. ``.symbol`` is now the only declared scalar leaf left
+    # that is non-Optional, and it carries the evidence on its own: the exemption is
+    # scoped to ``received_at``, and every OTHER declared field still walks.
     assert ".symbol" in paths
-    # Phase 33 SC-2 widened ``.staleness_seconds`` to ``float | None``, so it no
-    # longer reports on an absent key. ``.active`` is still declared
-    # non-Optional and carries the same evidence: the exemption is scoped to
-    # ``received_at`` and every OTHER declared field still walks and still
-    # reports.
-    assert ".active" in paths
     assert ".received_at" not in paths
+    # The widened leaves are silent by declaration, not by exemption.
+    assert ".market_id" not in paths
+    assert ".active" not in paths
 
 
 def test_symbol_received_at_is_a_wire_field_not_a_stamp(

@@ -50,8 +50,12 @@ from market_data_client.models import (
 def test_from_api_empty_dict_typed_zero_defaults() -> None:
     snap = MarketDataSnapshot.from_api({})
     assert snap.symbol == ""
-    assert snap.market_id == ""
-    assert snap.active is False
+    # Phase 40 (D-12) widens these two leaves to ``str | None`` / ``bool | None``,
+    # so an absent key collapses to ``None`` rather than to a manufactured
+    # ``""`` / ``False`` — the same treatment ``staleness_seconds`` and ``note``
+    # already get, and for the same D-NO-03 reason.
+    assert snap.market_id is None
+    assert snap.active is None
     assert snap.note is None
     # Phase 36 (D-04) REVOKES the Phase 33 widening on this link: ``entries`` is
     # ``list[str]`` again, so an absent key collapses to ``[]`` and the typed-zero
@@ -191,7 +195,9 @@ def test_from_api_latest_nodata_item() -> None:
     )
     assert snap.symbol == "GGAL"
     assert snap.note == "no data"
-    assert snap.active is False
+    # Phase 40 (D-12): the wire ``null`` is now the declared shape for both leaves.
+    assert snap.market_id is None
+    assert snap.active is None
     # Phase 33 SC-2: this row is the REASON the three fields widened. The 33-05
     # live run measured all three as ``missing`` divergences, so the null was
     # ruled the legitimate shape and the annotation over-declared.
@@ -207,8 +213,10 @@ def test_from_api_latest_nodata_item() -> None:
     assert snap.market_data.last.price is None
     assert snap.staleness_seconds is None
     assert snap.entries == []
-    # ``market_id`` stays non-Optional and still collapses to its typed zero.
-    assert snap.market_id == ""
+    # Phase 40 (D-12): ``market_id`` is a LEAF too and finally gets the same
+    # treatment — ``str | None``, so the wire ``null`` survives as ``None``
+    # instead of collapsing to a manufactured ``""``.
+    assert snap.market_id is None
     assert snap.received_at == 7.0
 
 
