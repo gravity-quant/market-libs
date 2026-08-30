@@ -6,14 +6,14 @@ current_phase: 39
 current_phase_name: verificaci-n-en-vivo-del-encadenamiento-profundo
 status: executing
 stopped_at: Completed 39-02-PLAN.md
-last_updated: "2026-08-30T02:11:14.720Z"
+last_updated: "2026-08-30T02:18:14.324Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 39 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 25
-  completed_plans: 21
+  completed_plans: 22
   percent: 67
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 39 (verificaci-n-en-vivo-del-encadenamiento-profundo) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 39 execution started
 
@@ -190,6 +190,7 @@ Last activity: 2026-08-30 — Phase 39 execution started
 | Phase 39 P02 | 38min | 3 tasks | 4 files |
 | Phase 39 P03 | 8min | 3 tasks | 9 files |
 | Phase 39 P04 | 3min | 2 tasks | 3 files |
+| Phase 39 P05 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -437,6 +438,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 39-03: el sobre de evidencia se reescribe en cada corrida, incluidos los dos caminos de skip (T-39-12)
 - [Phase ?]: 39-04: la allowlist de driver locks de ci.yml vive en el job lint, no en el test — el job test corre per-package y nunca ve verification/
 - [Phase ?]: 39-04: la rama de la cadena .puntas se decide por truthiness (lista vacia / Null Object falsy), nunca por is None — ambos campos estan declarados sin | None desde la Phase 38
+- [Phase ?]: 39-05: la cadena tipada de higyrus se construye sobre el payload ya obtenido (Posicion.from_api), no llamando a la funcion tipada — enruta por el mismo walker, sink y ContextVar de modo estricto, asi que cuesta CERO llamadas HTTP adicionales
+- [Phase ?]: 39-05: incluirParking sigue en False — flipearlo quemaria el baseline write-once de get_posiciones por deriva de schema; la rama poblada de parking no se ejercita en vivo y su evidencia es la suite mockeada de 39-02
 
 ### Pending Todos
 
@@ -521,7 +524,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T02:11:04.688Z
+Last session: 2026-08-30T02:18:10.090Z
 Stopped at: Completed 39-02-PLAN.md
 Resume file: None
 
