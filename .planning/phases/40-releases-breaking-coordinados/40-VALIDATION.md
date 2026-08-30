@@ -1,9 +1,9 @@
 ---
 phase: 40
 slug: releases-breaking-coordinados
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: ready
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-30
 ---
 
@@ -59,10 +59,10 @@ created: 2026-08-30
 
 ## Wave 0 Requirements
 
-- [ ] **Post-publish wheel-install verification task** — no precedent as a PLAN task (Phase 34 did this ad hoc in UAT, not as a plan task). Must be authored fresh: throwaway venv pinned to Python 3.12 (system `python3` is 3.9.6), install from the public GitHub Release wheel URLs, assert `__version__` per package (skip matriz per D-04 unless OQ-4 is accepted), and exercise the deep chains from `40-RESEARCH.md` § Code Examples.
-- [ ] **Corrected `release.yml`-unedited assertion** — Phase 34's path-diff form broke three times (`STATE.md:389`) because `ci.yml` legitimately differs across refs while `release.yml` does not. Use a sha256-identity assertion against `release.yml` specifically, not a generic workflow-directory diff.
-- [ ] **`uv sync` step after `uv lock`** — absent from `34-01-PLAN.md` Task 3; required here since `market-data-client` binds `__version__` to installed distribution metadata — without a re-sync the local mirror goes red while CI stays green.
-- [ ] No new pytest files or fixtures are needed. Framework install: none.
+- [x] **Post-publish wheel-install verification task** — authored as `40-03` Task 3 (throwaway venv pinned to Python 3.12, install from public GitHub Release wheel URLs, `__version__` assertions, deep-chain exercise per package). Confirmed present by gsd-plan-checker.
+- [x] **Corrected `release.yml`-unedited assertion** — `40-01` Task 4(d) and `40-03` Task 2(f) both use the sha256-identity form across refs, not Phase 34's broken path-diff form. Confirmed present by gsd-plan-checker.
+- [x] **`uv sync` step after `uv lock`** — `40-01` Task 4 runs `uv sync --all-packages --all-extras --dev` immediately after the single `uv lock`. Confirmed present by gsd-plan-checker.
+- [x] No new pytest files or fixtures are needed. Framework install: none.
 
 ---
 
@@ -78,11 +78,11 @@ created: 2026-08-30
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references (post-publish install task, corrected workflow-immutability assertion, `uv sync` step)
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s (excluding CI/release-run watches, which are bounded by GitHub Actions runtime)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (post-publish install task, corrected workflow-immutability assertion, `uv sync` step)
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s (excluding CI/release-run watches, which are bounded by GitHub Actions runtime)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-08-30 (gsd-plan-checker: VERIFICATION PASSED, 0 blockers, 2 non-blocking warnings)
