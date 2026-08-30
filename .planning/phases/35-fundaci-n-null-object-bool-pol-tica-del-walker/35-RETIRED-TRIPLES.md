@@ -309,3 +309,152 @@ addendum is deliberately the narrow half: only what Phase 39's subtraction needs
 is recorded in both places, asymmetrically — `38-CENSUS.md` cross-references this addendum for
 the retired-triples accounting rather than duplicating it, and this addendum points there for
 everything else.
+
+---
+
+## Phase 39 addendum
+
+**Everything above this heading is unchanged.** No number, no row and no paragraph of the main
+table, the "Row accounting" equality, the subtraction table or the Phase 38 addendum has been
+rewritten. This section only **adds**: it is the first time the predictions this file makes were
+put in front of live wire data and given the chance to be wrong.
+
+**What was measured, against what, in what unit.** The live run of 2026-08-30
+(`2026-08-29 23:34 ART`, ARG market closed) drove four packages against their real APIs. The unit
+is the same distinct 4-tuple `(slug, model, field_path, kind)` from `DivergenceHandler.seen` that
+this file has used throughout — read from `.planning/verification/run-evidence/<slug>.json`, one
+envelope per slug, cross-checked against a `SHAPE`-title parse of the four findings ledgers. The
+full arithmetic, both seams and every zero's cause lives in
+`.planning/phases/39-verificaci-n-en-vivo-del-encadenamiento-profundo/39-CENSUS.md`; this addendum
+carries only the retired-triples half, mirroring the Phase 38 addendum's narrow shape.
+
+### 1. Result per package
+
+| package | triples this ledger predicted retired | confirmed absent live | reappeared | live census (distinct triples) | verdict |
+|---|---:|---:|---:|---:|---|
+| `matriz-client` | **5** distinct / **6** records | **5** / **6** | **0** | **7** | **Prediction confirmed against real wire data — the first time it could be falsified** |
+| `higyrus-client` | **2** in both columns | *not testable* | *not testable* | **UNMEASURED** — 0 probes | `SKIPPED`, vendor host unreachable by DNS, re-probed this session. Destination `LIVE-HIGY-33` |
+| `iol-client` | **0** in both columns | **0**, and the zero was inspected | **0** | **0** (15 probes) | Phase 38 addendum §2's invariance held live |
+| `market-data-client` | **0** in both columns | *out of scope* | *out of scope* | *not run* | Out of Phase 39's scope by D-07; audited in Phase 36 |
+| `ambito-financiero-client` | **0 by enumeration** | **0** | **0** | **0** (7 probes) | Zero classes declared; measured, not assumed |
+| `wallets-client` | **0 by enumeration** | *no run* | *no run* | *n/a* | Stub; audited in `38-CENSUS.md` |
+
+**Zero triples reappeared, in any package that ran.** None of the five matriz fields this ledger
+lists as retired — `Instrument.instrumentId` and `MarketDataSnapshot.LA` / `.SE` / `.OI` / `.CL` —
+appears among the seven triples the live run recorded. The seven recorded triples are exactly
+`InstrumentDetail`'s seven `extra` wire keys, which this ledger never claimed to retire.
+
+### 2. The subtraction balanced exactly, in both columns
+
+Using this file's middle term for matriz and no other input:
+
+```
+14  floor, distinct-triples column (29-SIZING.md rows 38-42, decomposed row by row)
+− 5  retired by NOBJ-02 (this file, ## Expected subtraction per package)
+− 2  closed by a real in-cycle fix in Phase 39 (F-43 / F-44)
+= 7  measured live — and 7 is what handler.seen holds
+
+24  floor, records column
+− 6  retired by NOBJ-02 (this file, matriz's records column)
+− 4  real fix (the same two triples, each recorded in two corpus files)
+= 14 expected records ≡ the 7 InstrumentDetail extras × corpus rows 40/41
+```
+
+Both columns close with no residue. Per this file's own instruction, the unit-column check was run
+**first** and found nothing: matriz's `6 records / 5 distinct` was read off the correct column, and
+the five rows whose floor label is the pre-WR-02 `non_dict` were matched on `(slug, field_path)`
+with `kind` read from here rather than from `29-SIZING.md`.
+
+### 3. The prediction held — and the silence it predicted was hiding a real defect
+
+This is the finding of the addendum, and it is not a comfortable one.
+
+This ledger predicted that `Instrument.instrumentId` would stop being recorded, because a `null` or
+absent value on that non-`Optional` model-typed link collapses to `InstrumentId.empty()` and the
+sink is no longer called. **That is exactly what the live run observed** — and the wire shape that
+produced the silence turned out to be a client defect of total data loss:
+`/rest/instruments/byCFICode` and `/rest/instruments/bySegment` return the identifier **flat**
+(`{marketId, symbol}`), not nested under `instrumentId` as `/rest/instruments/all` does. On that
+shape the policy collapsed the missing link silently while the only data the wire carried was
+discarded as `extra`: **386 and 9160 `Instrument` objects with `marketId=None, symbol=None,
+cficode=None`** — 100% of the payload of two public methods, lost without a divergence, on all four
+surfaces. Confirmed in **both** venues of the allowlist (remarkets baseline 2026-06-10, bbsa capture
+2026-08-30), so it is a client defect and not venue drift.
+
+The correct reading, and the one this ledger's `## What a NON-balancing subtraction means` section
+argues for: **the retirement is not the defect, and the defect is not a failure of the retirement.**
+The policy did what NOBJ-02 says it does. What the episode demonstrates is that a retired triple
+buys the milestone silence, and silence is only safe while something else is looking — here it was
+the live run, and nothing else could have been. No mocked suite found it in three phases.
+
+Fixed in-cycle in Phase 39 plan `39-07` (`_core._normalize_instrument_element`, the single site both
+shells traverse under REFAC-03; commits `5674da1` RED / `9453acc` GREEN, 13 regressions under
+`packages/matriz-client/tests/`). The two triples it closed — `Instrument.marketId` and
+`Instrument.symbol`, both `extra` — belong in the **real-fix** column, never in the policy column,
+and `39-CENSUS.md` puts them there.
+
+### 4. matriz's first live census, with its venue caveat
+
+**Phase 39 produced the first live census of `matriz-client` in the project's history.** Every
+earlier attempt recorded `SKIPPED`: the Phase 33 run aborted on the D-MATZ-33 remarkets-only
+hostname assert before its first probe, so `33-CENSUS.md` carries no matriz number at all and
+S-3/S-4/S-5 were left `COULD-NOT-DECIDE`. The block was cleared by widening the allowlist to the
+bbsa hostname (Phase 39 D-02) — **the policy assert was widened deliberately and by name, never
+worked around.**
+
+Two consequences this ledger must carry forward rather than let a future reader infer:
+
+- **The Phase 33 subtraction term for matriz is `UNMEASURED` and always will be.** There is no
+  Phase 33 matriz census to difference against; the counterfactual is not derivable from any
+  committed artefact. The only available contrast is the ratified floor.
+- **The ratified floor was measured against a different venue.** `29-SIZING.md`'s matriz rows come
+  from a **remarkets** corpus captured 2026-06-10; this run executed against **bbsa**. Same vendor,
+  different venue. The comparison is made because it is the only one that exists, and it is
+  declared here rather than performed silently. The one measured counterweight: the single defect
+  the run found was confirmed in both venues, so at least that finding is not venue drift. The
+  seven surviving `InstrumentDetail` `extra` triples carry no such double confirmation.
+
+### 5. The account Phase 38 left open for Phase 39 — named and closed
+
+**The open account is `## Phase 38 addendum` §3, "Phase 39's middle term is unchanged".** That
+section asserted, without the ability to test it, that the middle term this ledger supplies —
+**higyrus 2, iol 0, market-data 0, matriz 5 distinct / matriz 6 records** — was unmoved by Phase
+38's two new roster rows, and warned that *"a subtraction that comes out different because of these
+two rows has a bug in it, not a finding."*
+
+**Closed, and the assertion held.** Phase 39 ran the subtraction with exactly those values as
+inputs and it balanced to the measured live count with no residue (§2 above). Phase 38's two new
+rows — `Cotizacion.puntas` and `Titulo.puntas` — contributed **0**, as §3 predicted: iol ran live
+with 15 probes and `DIVERGENCES=0`, so the two rows joined the intersection's left-hand set and
+intersected no emitted triple. The invariance claimed in §2 of that addendum is now a measured
+result against live wire, not a branch-level argument.
+
+**No number in any previous section of this file was found incorrect by this run.** Had one been,
+it would be corrected here with its correction stated, not edited in place.
+
+### 6. The debt this addendum does NOT pay, with its destination
+
+**Phases 36 and 37 still owe their own retirement accounting.** The `## Two limits with named
+destinations` section above scopes this ledger to Phase 35's disposition against the classes shipped
+at `242b9f3` and routes the new non-`Optional` links of Phases 36, 37 and 38 to "their own phases'
+accounting". Phase 38 paid with the addendum above. **36 and 37 have not**, and a directory listing
+confirms no `36-RETIRED-*.md` or `37-RETIRED-*.md` exists.
+
+What Phase 39 could derive, it derived; what it could not, it marked `UNMEASURED` rather than
+folding into "fixed":
+
+- **Phase 37 (`matriz`)** — the three new mapping-typed links (`InstrumentDetail.tickPriceRanges`,
+  `DetailedPosition.report`, `AccountReport.detailedAccountReports`) were all exercised live and
+  retired **0** triples in this run. Their **pre-Phase-37 state is `UNMEASURED`**, because matriz has
+  no Phase 33 census to compare against.
+- **Phase 36 (`market-data`)** — entirely **`UNMEASURED`**. The package is out of Phase 39's scope by
+  D-07 and did not run; there is no live census to intersect with its roster.
+
+**Destination: `NOBJ-RETIRE-3637`**, to be settled with an addendum to this file in the same shape
+as the Phase 38 one, at the v1.7 milestone close. It is a bookkeeping label following the
+`LIVE-HIGY-33` / `LIVE-MATZ-33` / `LIVE-NOBJ-01` / `LIVE-POS-39` convention already in use — not a
+new scope or security decision. **This ledger therefore carries no undischarged debt into Phase 40
+that is not written down here by name.**
+
+*Measured at HEAD `89dabec`, 2026-08-30. Source of every number: the four run-evidence envelopes,
+`39-CENSUS.md`, and `39-07-SUMMARY.md`.*
