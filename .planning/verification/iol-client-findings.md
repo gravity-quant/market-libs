@@ -71,6 +71,27 @@ la zona AUTO-GENERATED quedó byte-idéntica (dedupe content-addressed) y F-01 s
 surgió ningún fid nuevo.
 **Operator signoff:** sebadlf, 2026-06-25, via /gsd-execute-phase 17 (LIVE-03 gate, iol RAN en vivo).
 
+**Phase 39 — F-01 arrastrado OPEN con destino nombrado, y el hecho nuevo que lo acompaña
+(plan 39-07, LIVE-NOBJ-01):** la corrida en vivo del 2026-08-30 (`SUMMARY: PASS=14 FAIL=0
+SKIPPED=1 FINDING=0 DIVERGENCES=0 HANDLER_ERRORS=0`, 15 probes, ledger byte-idéntico en su zona
+AUTO-GENERATED) **no re-emitió F-01**, al revés de lo que ocurrió en LIVE-03. La causa está
+medida y no es una pérdida de cobertura silenciosa: `_ASSUMED_QUOTE_FIELDS` de `main_iol.py:158`
+ya no contiene `simbolo` —hoy declara sólo `ultimoPrecio`— y el modelo `Cotizacion` de la Phase
+30, construido **desde los snapshots en vivo committeados** (ver su docstring), tampoco lo
+declara; `simbolo: str` vive en `Titulo`, cuyo endpoint sí lo emite. Es decir: la suposición que
+F-01 documentaba —que `get_quote` traía `simbolo`— fue retirada del cliente y del probe cuando la
+Phase 30 tipó el paquete contra la forma real del wire.
+
+Dos lecturas quedan abiertas y la decisión de cuál firmar es del operador, no del ejecutor:
+(a) la divergencia está **materialmente resuelta** y F-01 merece un status terminal, o (b) el
+probe simplemente dejó de mirar. La evidencia favorece (a) —el `Actual:` del propio F-01 ya
+listaba las 20 claves de `get_quote` **sin** `simbolo`, así que la API nunca la emitió—, pero
+promover un finding a terminal es exactamente lo que D-08 reserva para la firma del operador.
+Hasta esa firma se **mantiene OPEN**, con destino nombrado `LIVE-NOBJ-01`, y el censo debe
+contabilizarlo explícitamente: su permanencia **no** es una regresión nueva, y su no-re-emisión
+**no** es un fix declarado. NO es un cambio de status ni una entrada AUTO-GENERATED nueva
+(D-05 / HARN-09).
+
 ## Cycle Closure
 
 **Cycle ID:** `verification-cycle-2026-Q2`
