@@ -85,7 +85,8 @@ jobs:
             verification/test_main_verify_classification.py \
             verification/test_main_matriz_skip_line_shape.py \
             verification/test_main_higyrus_skip_line_shape.py \
-            verification/test_run_evidence.py
+            verification/test_run_evidence.py \
+            verification/test_main_iol_deep_chain.py
 
   pre-commit:
     name: pre-commit hooks
