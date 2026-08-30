@@ -61,12 +61,15 @@ from matriz_client.models import Instrument
 
 # El elemento plano tal cual lo devuelven los dos venues (copiado de las capturas
 # en vivo del plan 39-07; el símbolo es el primer elemento real de bbsa).
-_FLAT_ELEMENT = {"marketId": "ROFX", "symbol": "MERV - XMEV - RAGH - CI"}
+# Anotado explícitamente: sin la anotación mypy lo infiere como ``dict[str, str]``,
+# y ``dict`` es invariante en el tipo de valor, así que no es asignable al
+# ``dict[str, object]`` que ``_envelope`` declara.
+_FLAT_ELEMENT: dict[str, object] = {"marketId": "ROFX", "symbol": "MERV - XMEV - RAGH - CI"}
 
 # El elemento anidado de ``/rest/instruments/all`` — el CONTROL POBLADO: si el
 # fix rompiera esta forma, el paquete perdería el único endpoint que hoy sí
 # funciona.
-_NESTED_ELEMENT = {
+_NESTED_ELEMENT: dict[str, object] = {
     "cficode": "EMXXXX",
     "instrumentId": {"marketId": "ROFX", "symbol": "MERV - XMEV - XLC - CI"},
 }
