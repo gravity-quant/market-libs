@@ -34,7 +34,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Verificación en vivo + release
 
-- [ ] **LIVE-NOBJ-01**: los drivers `main_*.py` ejercitan el encadenamiento profundo (sync + async) contra las APIs en vivo en los paquetes verificables; toda divergencia detectada se corrige in-cycle con espejo sync/async y regresión mockeada
+- [x] **LIVE-NOBJ-01**: los drivers `main_*.py` ejercitan el encadenamiento profundo (sync + async) contra las APIs en vivo en los paquetes verificables; toda divergencia detectada se corrige in-cycle con espejo sync/async y regresión mockeada
 - [ ] **PUB-NOBJ-01**: los paquetes cuya superficie pública cambió se publican por el pipeline de tags con bump breaking + changelog callout + tabla de migración, bajo doble gate humano (precedente D-08/D-18, nunca colapsado ni auto-aprobado)
 
 ## Deferred / v-next
@@ -70,7 +70,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOBJ-MTZ-01 | Phase 37 | Complete |
 | NOBJ-MTZ-02 | Phase 37 | Complete |
 | NOBJ-AUD-01 | Phase 38 | Complete |
-| LIVE-NOBJ-01 | Phase 39 | Pending |
+| LIVE-NOBJ-01 | Phase 39 | Complete |
 | PUB-NOBJ-01 | Phase 40 | Pending |
 
 **Coverage:**

@@ -5,8 +5,8 @@ milestone_name: API tipada con Null Objects
 current_phase: 39
 current_phase_name: verificaci-n-en-vivo-del-encadenamiento-profundo
 status: executing
-stopped_at: Phase 39 context gathered (assumptions mode)
-last_updated: "2026-08-30T01:38:37.410Z"
+stopped_at: Completed 39-02-PLAN.md
+last_updated: "2026-08-30T01:51:36.115Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 39 execution started
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 ## Current Position
 
 Phase: 39 (verificaci-n-en-vivo-del-encadenamiento-profundo) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 39 execution started
 
@@ -187,6 +187,7 @@ Last activity: 2026-08-30 — Phase 39 execution started
 | Phase 38 P03 | 8min | 2 tasks | 2 files |
 | Phase 38 P04 | 8min | 2 tasks | 1 files |
 | Phase 39 P01 | 42min | 3 tasks | 6 files |
+| Phase 39 P02 | 38min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -427,6 +428,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 39-01: verification/mutation_gate.py queda byte-idéntico — su _SANDBOX_HOST remarkets-only deja el order entry fail-closed bajo bbsa sin cambio de código
 - [Phase ?]: 39-01: las líneas SKIPPED de los drivers son literales de módulo sin interpolación — veredicto de política y destino, nunca el hostname ni la base URL
 - [Phase ?]: 39-01: el finding terminal EXPECTED de matriz queda superseded en el ledger y recibe disposición explícita en 39-07 (no se borra)
+- [Phase ?]: [Phase 39-02]: Las tres suites de casos límite viven bajo packages/<pkg>/tests/ y no bajo verification/ — es el único árbol que el job test de CI corre de verdad (verification/ sólo corre por allowlist explícita), así que las tres entran a CI en 3.12 y 3.13 sin tocar ci.yml.
+- [Phase ?]: [Phase 39-02]: iol y matriz NO tienen tolerancia a 204/cuerpo vacío — resp.json() levanta json.JSONDecodeError, que escapa IOLClientError/PrimaryAPIError; higyrus sí devuelve su zero-value. La asimetría se assertea explícitamente por tipo y se difiere como D39-01/D39-02: cambiarla es un cambio de superficie del paquete, fuera del alcance de un plan que sólo crea tests.
 
 ### Pending Todos
 
@@ -511,9 +514,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T01:38:32.609Z
-Stopped at: Phase 39 context gathered (assumptions mode)
-Resume file: /Users/admin/development/market-libs/.planning/phases/39-verificaci-n-en-vivo-del-encadenamiento-profundo/39-CONTEXT.md
+Last session: 2026-08-30T01:51:36.109Z
+Stopped at: Completed 39-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
