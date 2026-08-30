@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.7 API tipada con Null Objects (Shipped: 2026-08-30)
+
+**Phases completed:** 6 phases, 28 plans, 56 tasks
+
+**Key accomplishments:**
+
+- **Null Object foundation** (Phase 35): `SafeModel.__bool__`/`empty()` copied verbatim across the 4 base-class hierarchies of all 6 packages; the `_decode` walker collapses `null`/absent on a non-optional model/list field to an empty instance without a divergence record, while a wrong-typed value still diverges and stays fatal under `strict_decode`. Zero public-surface changes; all 4 v1.6 CI gates stayed green.
+- **`market-data-client` `market_data` fully typed** (Phase 36): `MarketDataEntries`/`BookLevel`/`EntryValue` replace `dict[str, Any] | None`, with 6 ergonomic alias properties (`last`/`bids`/`offers`/`settlement`/`close`/`open_interest`); the Phase 33 `| None` widening on chain-link fields is surgically revoked by field role.
+- **`matriz-client` residual dicts typed + shared aliases** (Phase 37): `tickPriceRanges`, `AccountReport.report`/`detailedAccountReports`/`portfolio` typed against real payloads (sole exemption `UnknownFrame.raw`); the same 6 alias properties land on `MarketDataSnapshot`, shared verbatim by REST and WS frames.
+- **`iol-client` `puntas` Null Object + full audit of the rest** (Phase 38): `Cotizacion.puntas` → `list[Punta]`, `Titulo.puntas` → `Punta` Null Object; higyrus/ámbito/wallets audited field-by-field with a fully-dispositioned census (142 higyrus fields/15 classes independently AST-derived, zero undisposed rows).
+- **Live deep-chain verification found a real data-loss bug** (Phase 39): matriz's `byCFICode`/`bySegment` endpoints were silently dropping the flat instrument identifier — ~9160 instruments without a symbol — fixed in-cycle in `_core` with sync/async mirror + 13 regression tests. The D-MATZ-33 gate was widened from substring-match to an exact-hostname allowlist, unblocking the first real live matriz run since v1.0.
+- **4 breaking releases published under double human gate** (Phase 40): `market-data-client` 0.6.0, `iol-client` 0.4.0, `matriz-client` 0.3.0, `higyrus-client` 0.3.0 — real two-parent merge commit `8e0013f`, changelog callout + migration table per package, verified post-publication by installing from the 4 public wheels (re-confirmed independently at milestone close via a retroactive `40-VERIFICATION.md`, 22/22 must-haves).
+
+---
+
 ## v1.6 Tipado homogéneo de la superficie pública (Shipped: 2026-08-27)
 
 **Phases completed:** 6 phases, 44 plans, 107 tasks

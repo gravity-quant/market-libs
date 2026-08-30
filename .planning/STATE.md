@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: API tipada con Null Objects
-current_phase: 40
-current_phase_name: Releases breaking coordinados
-status: phase-complete
+current_phase: 7
+status: Awaiting next milestone
 stopped_at: 40-03 complete; Phase 40 complete; milestone v1.7 content published
-last_updated: "2026-08-30T14:09:00.000Z"
+last_updated: "2026-08-30T22:42:40.301Z"
 last_activity: 2026-08-30
-last_activity_desc: "Phase 40 complete — 4 tags anotados pusheados, 4 Releases públicas con wheel+sdist, verificación post-publicación verde; PUB-NOBJ-01 Complete"
+last_activity_desc: Milestone v1.7 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 28
   completed_plans: 28
   percent: 100
+current_phase_name: Releases breaking coordinados
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-18 for milestone v1.6)
 
 ## Current Position
 
-Phase: 40 (Releases breaking coordinados) — COMPLETE
-Plan: 3 of 3 (all complete)
-Status: Phase complete — milestone v1.7 content published
-Last activity: 2026-08-30 — 4 tags anotados sobre `8e0013f`, 4 Releases públicas con wheel+sdist, verificación post-publicación desde los wheels públicos en verde
+Phase: Milestone v1.7 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-30 — Milestone v1.7 completed and archived
 
 ## Performance Metrics
 
@@ -495,16 +495,12 @@ Recent decisions affecting current work:
 
 ### Quick Tasks Completed
 
+Archived to `.planning/milestones/v1.7-quick/` at the v1.7 milestone close (2026-08-30) — see that
+directory's `README.md` for the index. These 8 tasks predated v1.7 itself (2026-06-11 → 2026-08-01)
+and had never been archived at any earlier milestone close.
+
 | # | Description | Date | Commits | Directory |
 |---|-------------|------|---------|-----------|
-| 260611-u0v | Fix CI failures on phase-06-compat-safety-net (snapshot trailing whitespace + iol tests mypy strict + v1.0 archive whitespace) | 2026-06-11 | bc16e26, 2be4e90, 9360cf5 | [260611-u0v-fix-ci-failures-on-phase-06-compat-safet](./quick/260611-u0v-fix-ci-failures-on-phase-06-compat-safet/) |
-| 260613-nwb | Fix INT-01: replace denied `_base_url` with `_get_default()._state.base_url` in main_iol.py (15 probes) — closes INT-01, unblocks LIVE-01 (Phase 11) | 2026-06-13 | 3de1940 | [260613-nwb-fix-int-01-main-iol-py-crashea-con-attri](./quick/260613-nwb-fix-int-01-main-iol-py-crashea-con-attri/) |
-| 260614-de5 | Fix DOC-01..04 before completing milestone v1.1 — backfill 4 SUMMARY frontmatters + flip REQUIREMENTS.md traceability table 18 rows Open→Complete + emit Phase 10/11 VERIFICATION shims + remove ORP-01 dead `account_id` field from matriz `_state.py` | 2026-06-14 | 9d01d7f, cd946a3 | [260614-de5-fix-doc-01-04-before-completing-mileston](./quick/260614-de5-fix-doc-01-04-before-completing-mileston/) |
-| 260614-r1x | Fix v1.1 CI mypy + pre-commit tech debt (mypy-precommit-v1.1-techdebt) — Bucket A: 4 unused `# type: ignore` dropped + `_raise_for_response` added to `aio.__all__`; Bucket B+C: bump `ruff-pre-commit` v0.7.4→v0.15.12; Bucket D: add `tenacity>=9.1.0,<10` to pre-commit mypy `additional_dependencies` | 2026-06-14 | e5ad1c1, 73cb578, c7bf9e9, 2b8ec4a | [260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl](./quick/260614-r1x-fix-v1-1-ci-mypy-pre-commit-tech-debt-cl/) |
-| 260731-j93 | Make `symbol` a required kwarg in market-data-client `get_latest` (5 sites: client.py method+shim, aio.py method+shim, `_core.build_latest_request`) + probe updates + sync/async/builder regression tests — closes v1.4 Phase-23 live findings F-01/F-13 (`GET /marketdata/latest` returns 422 without `symbol`; OpenAPI `required=True`). Verified live: driver re-run PASS=19 FINDING=0; 137 pkg tests green | 2026-07-31 | d062761, 36aa94b, 68092d7 | [260731-j93-make-symbol-a-required-kwarg-in-market-d](./quick/260731-j93-make-symbol-a-required-kwarg-in-market-d/) |
-| 260731-jim | Reconcile `MarketDataSnapshot` + `CalendarConfig` SafeModels against the real develop wire (LIVE-MD-01 schema snapshots): `marketId`→`market_id`, add `active`/`market_data`/`staleness_seconds`/`note`; drop invented `businessDays`+`MarketDataEntry`, add full `/calendar/config` field set; **fix `parse_market_data_response` envelope-unwrap bug** (iterated envelope keys instead of `items[]`). Closes the 36 live SHAPE findings. Verified live: `market_data snapshots=5→12`, SHAPE divergences gone (only 2 benign NO-DATA remain); 139 pkg tests green | 2026-07-31 | 0852d43, 45c1885, 8c8e494 | [260731-jim-reconcile-market-data-client-marketdatas](./quick/260731-jim-reconcile-market-data-client-marketdatas/) |
-| 260731-l4s | Bump `market-data-client` to **v0.2.0** (release prep): version in pyproject + `__version__`, CLAUDE.md workspace bullet, README changelog (breaking changes), `uv.lock` refresh. Minor bump because the post-v0.1.0 LIVE-MD-01 fixes (`get_latest.symbol` required, model reconciliation, envelope-unwrap) broke the public API. On `release/v0.2.0` → PR → tag `market-data-client-v0.2.0`. 139 pkg tests green | 2026-07-31 | 73dda1c | [260731-l4s-bump-market-data-client-to-v0-2-0-releas](./quick/260731-l4s-bump-market-data-client-to-v0-2-0-releas/) |
-| 260731-t9o | Fix `get_latest_batch` empty snapshots — `parse_latest_response` (`_core.py`) iterated the batch envelope's keys instead of `items[]` (WR-01 from Phase 25 review; live shape `{requested,count,not_found,server_time,items}`). Unwrap `items` mirroring sibling `parse_market_data_response`, preserve single-GET bare-list path, dict-without-`items`→`[]`; fixed 2 mis-mocked client batch tests (sync+async) that hid the bug. Shipped as v0.3.1. 191 pkg tests green | 2026-08-01 | 7d58b3f, f1f051b | [260731-t9o-fix-get-latest-batch-empty-snapshots-par](./quick/260731-t9o-fix-get-latest-batch-empty-snapshots-par/) |
 
 ## Deferred Items
 
@@ -556,4 +552,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Planificar la primera fase con `/gsd-plan-phase 35` (Fundación Null Object — load-bearing, prerequisito de 36/37/38)
+- Start the next milestone with /gsd-new-milestone
