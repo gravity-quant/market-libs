@@ -1,10 +1,16 @@
 ---
 phase: 39
 slug: verificaci-n-en-vivo-del-encadenamiento-profundo
-status: draft
+status: validated
 nyquist_compliant: false
+not_verifiable_retroactively: 4
+audited_commit_sha: 37a83fe693a303a551f4374f48fe6fc5521804f7
+audit_baseline_head: 6dd83cf4c8b2837e320da9c8c91bc1b15ac41fa5
+frozen_tree_verified: true
 wave_0_complete: false
 created: 2026-08-29
+updated: 2026-08-31
+last_audited: 2026-08-31
 ---
 
 # Phase 39 — Validation Strategy
@@ -38,19 +44,19 @@ created: 2026-08-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 39-01-01 | TBD | 0 | LIVE-NOBJ-01 (SC-1 classification, D-01) | — | New skip line matches `_ENV_SKIP`; `SKIPPED (mutating, guard off)` still does not | unit | `pytest -q verification/test_main_verify_classification.py` | ❌ Wave 0 | ⬜ pending |
-| 39-01-02 | TBD | 0 | LIVE-NOBJ-01 (SC-1 classification shape, D-01/Pitfall 2) | — | Emitted skip line shape (colon-present) mirrors market-data precedent | unit | `pytest -q verification/test_main_<pkg>_skip_line_shape.py` | ❌ Wave 0 | ⬜ pending |
-| 39-01-03 | TBD | 0 | LIVE-NOBJ-01 (D-02 allowlist) | T-39-01 | D-MATZ-33 exact-equality allowlist admits `bbsa.matrizoms.com.ar`, rejects substring/userinfo spoofing variants | unit | `pytest -q verification/test_main_matriz_deep_chain.py::test_d_matz_33_allowlist` (or dedicated file) | ❌ Wave 0 | ⬜ pending |
-| 39-01-04 | TBD | 0 | LIVE-NOBJ-01 (SC-3 non-vacuous closure, D-09) | — | `verify_cycle_closure` PASS requires positive probe-count evidence per package, not absence of findings | unit | `pytest -q verification/test_cycle_closure_phase33.py` | ✅ exists (currently red — stale `_CENSUS` path; repoint + extend) | ⬜ pending |
-| 39-02-01 | TBD | 1 | LIVE-NOBJ-01 (SC-1 iol, D-03) | — | `probe_get_quote_{sync,async}` / `probe_get_instruments_by_type_{sync,async}` dereference `.puntas.*` inside `try` body, above a floor | unit (AST) | `pytest -q verification/test_main_iol_deep_chain.py` | ❌ Wave 1 | ⬜ pending |
-| 39-02-02 | TBD | 1 | LIVE-NOBJ-01 (SC-1 higyrus, D-04) | — | Chosen posiciones probe builds `Posicion.from_api` and dereferences `.parking[...]`, both surfaces, zero extra HTTP calls | unit (AST) | `pytest -q verification/test_main_higyrus_deep_chain.py` | ❌ Wave 1 | ⬜ pending |
-| 39-02-03 | TBD | 1 | LIVE-NOBJ-01 (SC-1 matriz, D-05) | — | `probe_get_market_data{,_async}` dereference all 6 aliases off `MarketDataSnapshot`, inside `try` body, both surfaces (sync + async) | unit (AST) | `pytest -q verification/test_main_matriz_deep_chain.py` | ❌ Wave 1 | ⬜ pending |
-| 39-02-04 | TBD | 1 | LIVE-NOBJ-01 (SC-1 ámbito, D-06 declared absence) | — | ámbito still declares zero model classes / empty `__all__` | unit (AST) | `pytest -q verification/test_cycle_closure_phase33.py::_ambito_declares_zero_models` | ✅ exists | ⬜ pending |
-| 39-02-05 | TBD | 1 | LIVE-NOBJ-01 (SC-2 edge cases, D-12) | — | No chain raises `AttributeError`/`TypeError` on empty/absent/204/null mocked payloads | unit (mocked) | `pytest -q packages/<pkg>/tests/test_deep_chain_edges.py` | ❌ Wave 1 | ⬜ pending |
-| 39-03-01 | TBD | 2 | LIVE-NOBJ-01 (SC-3 in-cycle fix, D-08) | — | Each CONFIRMED divergence found live is fixed with sync+async mirror and pinned by a mocked regression | unit (mocked) | `pytest -q packages/<pkg>/tests/` | ❌ per-fix (unknown until live run) | ⬜ pending |
-| 39-03-02 | TBD | 2 | LIVE-NOBJ-01 (SC-4 census, D-10/D-11) | — | `39-CENSUS.md` exists, uses `(slug, model, field_path, kind)` triple unit, separates Null-Object-policy collapse from real fixes, cites source columns | manual (artifact review) | — | ❌ Wave 2 | ⬜ pending |
+| 39-01-01 | TBD | 0 | LIVE-NOBJ-01 (SC-1 classification, D-01) | — | New skip line matches `_ENV_SKIP`; `SKIPPED (mutating, guard off)` still does not | unit | `pytest -q verification/test_main_verify_classification.py` | ❌ Wave 0 | ✅ (VN 2026-08-31) |
+| 39-01-02 | TBD | 0 | LIVE-NOBJ-01 (SC-1 classification shape, D-01/Pitfall 2) | — | Emitted skip line shape (colon-present) mirrors market-data precedent | unit | `pytest -q verification/test_main_<pkg>_skip_line_shape.py` | ❌ Wave 0 | ✅ (VN 2026-08-31) |
+| 39-01-03 | TBD | 0 | LIVE-NOBJ-01 (D-02 allowlist) | T-39-01 | D-MATZ-33 exact-equality allowlist admits `bbsa.matrizoms.com.ar`, rejects substring/userinfo spoofing variants | unit | `pytest -q verification/test_main_matriz_deep_chain.py::test_d_matz_33_allowlist` (or dedicated file) | ❌ Wave 0 | ✅ (VN 2026-08-31) |
+| 39-01-04 | TBD | 0 | LIVE-NOBJ-01 (SC-3 non-vacuous closure, D-09) | — | `verify_cycle_closure` PASS requires positive probe-count evidence per package, not absence of findings | unit | `pytest -q verification/test_cycle_closure_phase33.py` | ✅ exists (currently red — stale `_CENSUS` path; repoint + extend) | ✅ (VN 2026-08-31) |
+| 39-02-01 | TBD | 1 | LIVE-NOBJ-01 (SC-1 iol, D-03) | — | `probe_get_quote_{sync,async}` / `probe_get_instruments_by_type_{sync,async}` dereference `.puntas.*` inside `try` body, above a floor | unit (AST) | `pytest -q verification/test_main_iol_deep_chain.py` | ❌ Wave 1 | ✅ (VN 2026-08-31) |
+| 39-02-02 | TBD | 1 | LIVE-NOBJ-01 (SC-1 higyrus, D-04) | — | Chosen posiciones probe builds `Posicion.from_api` and dereferences `.parking[...]`, both surfaces, zero extra HTTP calls | unit (AST) | `pytest -q verification/test_main_higyrus_deep_chain.py` | ❌ Wave 1 | ✅ (VN 2026-08-31) |
+| 39-02-03 | TBD | 1 | LIVE-NOBJ-01 (SC-1 matriz, D-05) | — | `probe_get_market_data{,_async}` dereference all 6 aliases off `MarketDataSnapshot`, inside `try` body, both surfaces (sync + async) | unit (AST) | `pytest -q verification/test_main_matriz_deep_chain.py` | ❌ Wave 1 | ✅ (VN 2026-08-31) |
+| 39-02-04 | TBD | 1 | LIVE-NOBJ-01 (SC-1 ámbito, D-06 declared absence) | — | ámbito still declares zero model classes / empty `__all__` | unit (AST) | `pytest -q verification/test_cycle_closure_phase33.py::_ambito_declares_zero_models` | ✅ exists | ✅ (VN 2026-08-31) |
+| 39-02-05 | TBD | 1 | LIVE-NOBJ-01 (SC-2 edge cases, D-12) | — | No chain raises `AttributeError`/`TypeError` on empty/absent/204/null mocked payloads | unit (mocked) | `pytest -q packages/<pkg>/tests/test_deep_chain_edges.py` | ❌ Wave 1 | ✅ (VN 2026-08-31) |
+| 39-03-01 | TBD | 2 | LIVE-NOBJ-01 (SC-3 in-cycle fix, D-08) | — | Each CONFIRMED divergence found live is fixed with sync+async mirror and pinned by a mocked regression | unit (mocked) | `pytest -q packages/<pkg>/tests/` | ❌ per-fix (unknown until live run) | ✅ (VN 2026-08-31) |
+| 39-03-02 | TBD | 2 | LIVE-NOBJ-01 (SC-4 census, D-10/D-11) | — | `39-CENSUS.md` exists, uses `(slug, model, field_path, kind)` triple unit, separates Null-Object-policy collapse from real fixes, cites source columns | manual (artifact review) | — | ❌ Wave 2 | ⬜ histórico |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky · ⬜ histórico (VERIFIED-HISTORICALLY, auditoría 2026-08-31) · ⬜ no re-verificable (NOT-VERIFIABLE-RETROACTIVELY, auditoría 2026-08-31)*
 
 ---
 
@@ -70,12 +76,17 @@ created: 2026-08-29
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|--------------------|
-| Live driver run per in-scope package (iol, higyrus, matriz, ambito) reports PASS/SKIPPED with measured cause and named destination | LIVE-NOBJ-01 (SC-1) | Depends on live third-party API availability, DNS, and market-hours state at execution time — not reproducible in a mocked unit test | Run `uv run --package <pkg> python main_<pkg>.py`; inspect stdout classification line and `.planning/verification/<pkg>-findings.md` |
-| matriz D-12 market-closed vs. mis-modelled discrimination | LIVE-NOBJ-01 (SC-2) | Requires running inside (or explicitly outside, with the `LA.date` staleness guard) an ARG trading-session window | Run matriz driver during/outside session hours; record window and guard outcome in `39-CENSUS.md` |
-| Census contrast against `33-CENSUS.md` and `29-SIZING.md`, with Null-Object-collapse vs. real-fix split | LIVE-NOBJ-01 (SC-4) | Requires cross-referencing multiple historical artifacts and applying judgment documented in `35-RETIRED-TRIPLES.md`; not a pass/fail unit assertion | Author `39-CENSUS.md` per the D-10/D-11 method; cross-check triple-dump (Pattern 4, seam 1) against findings-file parse (seam 2) |
-| D-02 operator checkpoint (hostname allowlist widening) | LIVE-NOBJ-01 (security) | Security-policy-adjacent change requires explicit human sign-off per project precedent (D-08/D-18), not just automated test passage | Confirm operator sign-off is recorded in code comment + phase report before merging the allowlist change (already given 2026-08-29, memory `project_matriz_bbsa_sandbox.md` — must still be surfaced as a blocking checkpoint per `mode: yolo` override note in RESEARCH.md Security Domain) |
+| Behavior | Requirement | Why Manual | Test Instructions | Status |
+|----------|-------------|------------|--------------------|--------|
+| Live driver run per in-scope package (iol, higyrus, matriz, ambito) reports PASS/SKIPPED with measured cause and named destination | LIVE-NOBJ-01 (SC-1) | Depends on live third-party API availability, DNS, and market-hours state at execution time — not reproducible in a mocked unit test | Run `uv run --package <pkg> python main_<pkg>.py`; inspect stdout classification line and `.planning/verification/<pkg>-findings.md` | ⬜ no re-verificable |
+| matriz D-12 market-closed vs. mis-modelled discrimination | LIVE-NOBJ-01 (SC-2) | Requires running inside (or explicitly outside, with the `LA.date` staleness guard) an ARG trading-session window | Run matriz driver during/outside session hours; record window and guard outcome in `39-CENSUS.md` | ⬜ no re-verificable |
+| Census contrast against `33-CENSUS.md` and `29-SIZING.md`, with Null-Object-collapse vs. real-fix split | LIVE-NOBJ-01 (SC-4) | Requires cross-referencing multiple historical artifacts and applying judgment documented in `35-RETIRED-TRIPLES.md`; not a pass/fail unit assertion | Author `39-CENSUS.md` per the D-10/D-11 method; cross-check triple-dump (Pattern 4, seam 1) against findings-file parse (seam 2) | ⬜ no re-verificable |
+| D-02 operator checkpoint (hostname allowlist widening) | LIVE-NOBJ-01 (security) | Security-policy-adjacent change requires explicit human sign-off per project precedent (D-08/D-18), not just automated test passage | Confirm operator sign-off is recorded in code comment + phase report before merging the allowlist change (already given 2026-08-29, memory `project_matriz_bbsa_sandbox.md` — must still be surfaced as a blocking checkpoint per `mode: yolo` override note in RESEARCH.md Security Domain) | ⬜ no re-verificable |
+
+*Status: la columna se agrega en la auditoría 2026-08-31. `⬜ no re-verificable` =
+`NOT-VERIFIABLE-RETROACTIVELY` (R-07): la conducta exigía red viva de terceros, una ventana de
+sesión de mercado, un juicio cruzado sobre artefactos históricos o un checkpoint humano fechado, y
+ninguna de las cuatro se re-deriva hoy. Ninguna fila manual lleva `✅`.*
 
 ---
 
@@ -87,6 +98,7 @@ created: 2026-08-29
 - [ ] No watch-mode flags
 - [ ] Feedback latency < 30s (fast loop); live-run and census steps are explicitly manual per above
 - [ ] `nyquist_compliant: true` set in frontmatter
+- [x] Audit 2026-08-31: 15 filas dispuestas (10 VERIFIED-NOW / 1 VERIFIED-HISTORICALLY / 4 NOT-VERIFIABLE-RETROACTIVELY); 0 archivos de lock nuevos; nyquist_compliant sigue en false
 
 **Approval:** pending
 
@@ -96,9 +108,10 @@ created: 2026-08-29
 
 Auditoría Nyquist retroactiva de la Phase 39, corrida a mano contra el árbol congelado de v1.7
 según el contrato `41-AUDIT-CONTRACT.md` (Phase 41, NYQ-01). Estado de entrada: `status: draft`,
-`nyquist_compliant: false`, mapa con 15 filas sin disponer (11 del mapa por tarea más 4 de
-`## Manual-Only Verifications`, todas en `⬜ pending`); **sin subagente** — la auditoría lee y
-dispone, no repara (D-06a).
+`nyquist_compliant: false`, 15 filas sin disponer — las 11 del `## Per-Task Verification Map`, todas
+en `⬜ pending`, más las 4 de `## Manual-Only Verifications`, que ni siquiera tenían columna de
+estado (se le agrega una en esta auditoría); **sin subagente** — la auditoría lee y dispone, no
+repara (D-06a).
 
 **Auditor:** Phase 41 (`/gsd-execute-phase 41`, plan 41-06) — auditoría de lectura y disposición
 **Árbol auditado:** commit de `v1.7` `37a83fe693a303a551f4374f48fe6fc5521804f7`; HEAD de la sesión
@@ -213,3 +226,60 @@ suficiente.
 
 **Ninguna de las dos superficies de esta fase se re-corrió contra la red.** Ningún `main_*.py` fue
 ejecutado por esta auditoría (R-08).
+
+### Hallazgos de bookkeeping
+
+1. **La columna `File Exists` del mapa quedó congelada en su estado de plan-time.** Nueve de las
+   once celdas siguen marcadas `❌` con su etiqueta de wave (`Wave 0`, `Wave 1`, `Wave 2`,
+   `per-fix`), que es lo que valía **antes** de ejecutar la fase. Medido hoy: las once superficies
+   que esas filas verifican existen en disco y corren verde — las ocho suites de test citadas más
+   el artefacto `39-CENSUS.md`. La columna es registro de plan-time y **no se reescribe**; se
+   nombra acá.
+
+2. **El rango de líneas del allowlist de CI citado en este archivo está desactualizado.** La
+   sección `## Sampling Rate` y la lista de `## Wave 0 Requirements` citan **`ci.yml:80-84`**. El
+   rango real medido hoy es **`ci.yml:81-92`** — 12 archivos —, ensanchado por el propio fix WR-01
+   de esta fase (commit `0f45508`). Verificado:
+   `grep -n 'verification/test_main_market_data_deep_chain.py' .github/workflows/ci.yml` cae en la
+   línea **81**, que es la primera entrada del bloque, y el bloque cierra en la **92**. Las
+   secciones históricas de Wave 0 **no se editan**: el rango correcto queda escrito acá.
+
+3. **Hallazgo transversal de enforcement — 40 locks de `verification/` no corren en CI.** Medido en
+   esta sesión: `ls verification/test_*.py | wc -l` → **52** archivos calzan el patrón de test; el
+   allowlist explícito de `ci.yml:81-92` enrola **12**; los **40** restantes **no se ejecutan en
+   ningún job**. Es rot invisible por construcción, porque `verification/` nunca corrió como
+   directorio en CI. El conteo se **reporta y no se arregla acá**: el edit consolidado del
+   allowlist de `.github/workflows/ci.yml` es trabajo de la **Phase 45** (HARN-04), y tocar
+   `.github/` en esta fase rompería el invariante de árbol congelado del criterio 1. Ninguna de las
+   siete suites que el mapa de la Phase 39 cita está entre esos 40: las siete están enroladas.
+
+4. **El node-id de la fila `39-r08` nombra un helper privado, no un test.** El mapa declara
+   `verification/test_cycle_closure_phase33.py::_ambito_declares_zero_models`, y
+   `_ambito_declares_zero_models` es una función auxiliar del módulo, no un caso de test: pytest
+   sale **exit 4** (error de uso) con `no tests ran in 0.01s`. Es **otro modo de falla** que el de
+   la §R-02, cuyo disparador es un selector `-k` que colecciona 0 tests y sale con **exit 5**; por
+   eso esta fila **no** consume una tercera corrección R-02 y se dispone `VERIFIED-NOW` **plano**.
+   La conducta declarada —ámbito sigue declarando cero clases de modelo y `__all__` vacío— sí está
+   cubierta, por los dos casos parametrizados que atraviesan ese mismo helper. Es, de todos modos,
+   la misma clase de defecto: un contrato de verificación que apunta a algo que no se puede
+   ejecutar.
+
+5. **Versión de herramienta.** La tabla `## Test Infrastructure` declara `pytest 8.3+`, que sigue
+   siendo verdadera como piso; la versión efectivamente usada en esta auditoría es **pytest
+   9.0.3** sobre **uv 0.11.3**. Se deja constancia sin reescribir la tabla histórica.
+
+### Escalaciones
+
+Ninguna. La única fila con selección vacía de esta fase es `39-r03`, que cae limpiamente en R-02 y
+es la segunda —y última— corrección autorizada del contrato; no apareció una tercera. El defecto de
+node-id de `39-r08` se evaluó explícitamente contra el disparador de R-02 y **no** lo satisface
+(exit 4 por error de uso, no exit 5 por selección vacía), así que se registra como hallazgo de
+bookkeeping y no como escalación. El conteo de 40 locks sin enrolar tampoco es una escalación de
+esta fase: es un hallazgo transversal con destino ya nombrado en la Phase 45.
+Cero archivos de test nuevos; cero escalaciones.
+
+Veredicto de auditoría: **Phase 39 queda PARTIAL** — status draft → validated,
+nyquist_compliant sigue en false. R-09 falla por **(b)** —1 fila `VERIFIED-HISTORICALLY` más
+**4 filas `NOT-VERIFIABLE-RETROACTIVELY`**— y por **(c)** —1 corrección de comando, `39-r03`—.
+Esta es la única de las cinco fases auditadas que retiene ítems no re-verificables, y su
+front-matter lo declara con `not_verifiable_retroactively: 4` en vez de reportarse limpia.
