@@ -108,7 +108,7 @@ Plans:
   4. `verification/mutation_gate.py` queda **byte-idéntico** y el order entry sigue fail-closed bajo `bbsa`: el widening es del gate de lectura del censo, jamás del gate de mutación.
   5. La corrida deja en disco una **lectura fresca del wire** de `/instruments` y `/segments` de `market-data-client`, fechada en esta sesión, que es la base de evidencia que consume la Phase 43 — el baseline committeado del 2026-07-31 queda explícitamente marcado como no-autoritativo para SHAPE-01.
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 
@@ -118,7 +118,7 @@ Plans:
 
 **Wave 2** *(bloqueada por el checkpoint del plan 42-01)*
 
-- [ ] 42-02-PLAN.md — Censo `Literal` de matriz en vivo contra `bbsa` + `42-CENSUS.md` con venue, timestamp y D-lock (b) reafirmado *(wave 2)*
+- [x] 42-02-PLAN.md — Censo `Literal` de matriz en vivo contra `bbsa` + `42-CENSUS.md` con venue, timestamp y D-lock (b) reafirmado *(wave 2)*
 - [ ] 42-03-PLAN.md — Medición de la alcanzabilidad de higyrus + corrida del driver completo con sobre de evidencia fechado *(wave 2)*
 - [ ] 42-04-PLAN.md — `capture()` con envelope timestampeado en `main_market_data.py`, corrida en vivo y `42-WIRE-READ.md` committeado *(wave 2)*
 
@@ -186,7 +186,7 @@ Plans:
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
 | 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete    | 2026-08-31 |
-| 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 1/6 | In Progress|  |
+| 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 2/6 | In Progress|  |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
 | 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |

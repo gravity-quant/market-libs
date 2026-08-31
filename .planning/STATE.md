@@ -6,14 +6,14 @@ current_phase: 42
 current_phase_name: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
 status: executing
 stopped_at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
-last_updated: "2026-08-31T21:09:50.509Z"
+last_updated: "2026-08-31T21:16:54.776Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 42 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 8
+  completed_plans: 9
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 42 (re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 42 execution started
 
@@ -215,6 +215,7 @@ Last activity: 2026-08-31 — Phase 42 execution started
 | Phase 41 P06 | 21min | 2 tasks | 1 files |
 | Phase 41 P07 | 23min | 3 tasks | 3 files |
 | Phase 42 P01 | 11min | 3 tasks | 3 files |
+| Phase 42 P02 | 4min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -518,6 +519,8 @@ Recent decisions affecting current work:
 - [Phase 42]: El gate de venue de scripts/literal_census_33.py se porta por IMPORT de main_matriz (_VENUE_ALLOWLIST + _venue_token), pinneado por identidad de objeto (is), no por igualdad de contenido — Con import, la divergencia de politica entre el driver y el censo es estructuralmente imposible en vez de solo detectada. El substring-match pre-Phase-39 habria hecho saltear el censo EN SILENCIO contra el sandbox bbsa ya desbloqueado.
 - [Phase 42]: El walk AST anti-substring se restringe al FunctionDef de census_matriz, NO al modulo entero (Q4, cerrada en planificacion) — Un walk a nivel de modulo produce falsos positivos sobre el despacho de flags de main() — confirmado en ejecucion: la Task 2 agrego un segundo despacho (--matriz-only) de la misma forma sintactica. Descubrirlo con un test rojo invita al reflejo de relajar la asercion.
 - [Phase 42]: Aprobacion humana explicita del operador ('Approved') registrada verbatim en 42-01-SUMMARY.md antes de cualquier trafico en vivo; habilita 42-02/42-03/42-04 — checkpoint:human-verify con gate=blocking-human. La aprobacion NO se derivo de auto_advance, mode:yolo ni human_verify_mode:end-of-phase — ese modo no puede gatear trafico que ya ocurrio. verification/mutation_gate.py quedo byte-identico (6bdaec00), order entry fail-closed bajo bbsa sin cambio de codigo.
+- [Phase ?]: Phase 42 (42-02): los 8 valores de vendor fuera de los alias Literal declarados de matriz (6 en CFICode, 2 en OrderType) quedan REGISTRADOS, NO APLICADOS — ampliar un alias es un cambio de forma de un paquete publicado y necesita disposicion de semver propia; ruteado a la Phase 43
+- [Phase ?]: Phase 42 (42-02): ordType se reporta NO MEDIBLE EN ESTA CORRIDA con causa medida (orders vacio en la cuenta bbsa), no se rellena — emitir una orden para fabricar una fila seria una mutacion
 
 ### Pending Todos
 
@@ -598,7 +601,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:09:50.503Z
+Last session: 2026-08-31T21:16:50.508Z
 Stopped at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
 Resume file: None
 
