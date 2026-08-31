@@ -4,17 +4,17 @@ milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 41
 current_phase_name: validaci-n-nyquist-retroactiva-de-v1-7
-status: executing
-stopped_at: Phase 41 context gathered (assumptions mode)
-last_updated: "2026-08-31T16:56:32.499Z"
+status: verifying
+stopped_at: Completed 41-07-PLAN.md — fase 41 cerrada, lista para verificación
+last_updated: "2026-08-31T17:11:59.918Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 41 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 6
-  percent: 0
+  completed_plans: 7
+  percent: 20
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 Phase: 41 (validaci-n-nyquist-retroactiva-de-v1-7) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-31 — Phase 41 execution started
 
 ## Performance Metrics
@@ -213,6 +213,7 @@ Last activity: 2026-08-31 — Phase 41 execution started
 | Phase 41 P04 | 24min | 2 tasks | 1 files |
 | Phase 41 P05 | 19min | 2 tasks | 1 files |
 | Phase 41 P06 | 21min | 2 tasks | 1 files |
+| Phase 41 P07 | 23min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -510,6 +511,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 38 auditada 7/2/0: las dos filas de revisión de documento se disponen VERIFIED-HISTORICALLY contra la confirmación humana fechada 2026-08-29T22:04:57Z, sin re-derivar; nyquist_compliant sigue en false por la condición (b) de R-09
 - [Phase ?]: [41-06] Las 4 filas manual-only de la Phase 39 quedan NOT-VERIFIABLE-RETROACTIVELY (R-07), contra la recomendación de 41-RESEARCH.md de partir el bloque 3/1: D-04 las nombra por su nombre como el arquetipo del marcador, y en una auditoría la dirección segura es sub-declarar. La evidencia parcial superviviente no se descarta: cada celda nombra su artefacto fechado (los 4 envelopes de run-evidence con sus sondas ejecutadas, 39-07-SUMMARY.md, dos secciones de 39-CENSUS.md, el sign-off del operador) con la frase explícita de por qué no basta. Resultado: not_verifiable_retroactively: 4 en front-matter — la única de las cinco fases con valor distinto de cero, y la forma en que el criterio 3b se satisface.
 - [Phase ?]: [41-06] El node-id ::_ambito_declares_zero_models de la fila 39-r08 NO consume una tercera corrección R-02: R-02 se dispara con selector -k que colecciona 0 tests y exit 5; acá el node-id nombra un helper privado y pytest sale exit 4 (error de uso). Fila dispuesta VERIFIED-NOW plano vía -k ambito (2 passed, 19 deselected), tras confirmar que los dos casos parametrizados atraviesan ese helper y assertan la conducta declarada. Registrado como hallazgo de bookkeeping, preservando el 'cero escalaciones' del contrato.
+- [Phase 41]: 41-07: el gate de inmutabilidad de REQUIREMENTS.md del criterio 5 se sustituye por un hash byte-a-byte de la fila de alcance excluido — la cláusula as-written es insatisfacible porque el seam requirements mark-complete edita ese archivo dentro de la fase
+- [Phase 41]: 41-07: nyquist_compliant de la propia Phase 41 queda en false por evaluación medida de R-09 (fallan (a) y (c): 3 de 16 filas llevan calificador de corrección), no por simetría con las cinco auditadas
+- [Phase 41]: 41-07: los 40 locks de verification/ fuera del allowlist de ci.yml quedan declarados inertes por escrito, con su enrolamiento ruteado a la Phase 45 (HARN-03/HARN-04); la Phase 41 no edita .github/workflows/ci.yml
 
 ### Pending Todos
 
@@ -590,9 +594,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T16:56:13.832Z
-Stopped at: Phase 41 context gathered (assumptions mode)
-Resume file: .planning/phases/41-validaci-n-nyquist-retroactiva-de-v1-7/41-CONTEXT.md
+Last session: 2026-08-31T17:11:53.767Z
+Stopped at: Completed 41-07-PLAN.md — fase 41 cerrada, lista para verificación
+Resume file: None
 
 ## Operator Next Steps
 

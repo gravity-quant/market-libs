@@ -55,7 +55,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 > **El release nunca comparte fase con el trabajo que lo habilita.** Precedente lockeado (v1.5 Phase 28, v1.6 Phase 34, v1.7 Phase 40): la Phase 44 existe separada de la 43 precisamente porque la co-locación es donde el bug de autoría del gate ya se coló **dos veces** — los checkpoints se escribieron `gate="blocking"` en vez de `gate="blocking-human"` y sólo la prosa del plan evitó la auto-aprobación bajo `auto_advance: true` + `mode: yolo`.
 > **Granularity `coarse` con 5 fases, deliberado.** No hay compresión válida disponible: 41 no puede fusionarse con nada porque audita un árbol que las otras modifican; 42 no puede fusionarse con 43 porque 43 consume su evidencia; 43 y 44 no pueden fusionarse por el precedente de release; 45 no puede adelantarse por la decisión de orden de arriba. Las 5 fases salen de restricciones estructurales, no de granularidad.
 
-- [ ] **Phase 41: Validación Nyquist retroactiva de v1.7** *(primera y sola — audita árbol congelado)* — `/gsd-validate-phase` sobre las Phases 35-39 con disposición de 3 vías por hallazgo, sin flip mecánico de `nyquist_compliant` — NYQ-01
+- [x] **Phase 41: Validación Nyquist retroactiva de v1.7** *(primera y sola — audita árbol congelado)* — `/gsd-validate-phase` sobre las Phases 35-39 con disposición de 3 vías por hallazgo, sin flip mecánico de `nyquist_compliant` — NYQ-01 (completed 2026-08-31)
 - [ ] **Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz** — higyrus produce un veredicto medido y matriz produce el censo de valores `Literal` de RESPONSE, con el gate del script portado a igualdad exacta de hostname antes de tocar la red — LIVE-01, LIVE-02
 - [ ] **Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas** *(fix, sin publicar)* — disposición campo por campo contra la lectura fresca de la Phase 42, fixtures re-derivadas y los 4 gates de CI verdes — SHAPE-01, HARN-02
 - [ ] **Phase 44: Release `market-data-client` 0.7.0** — bump en los 4 sitios, changelog + tabla de migración, doble gate humano independiente **escrito** `gate="blocking-human"` — PUB-01
@@ -76,7 +76,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. Todo test o lock que el auditor deje en disco está o bien enrolado en el allowlist explícito de CI, o bien declarado **inerte por escrito** con su enrolamiento ruteado al edit consolidado de `ci.yml` de la Phase 45 — un lock que no corre no se cuenta como cobertura.
   5. El alcance queda acotado a las cinco fases nombradas: la entrada `NYQUIST-32-33` sigue en el backlog con su texto intacto, no absorbida en silencio (está en `REQUIREMENTS.md § Out of Scope`).
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -93,7 +93,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 41-07-PLAN.md — Cierre: aritmética contra 62, criterios 3/4/5, declaración inerte ruteada a la Phase 45, rollup y auto-auditoría *(wave 3)*
+- [x] 41-07-PLAN.md — Cierre: aritmética contra 62, criterios 3/4/5, declaración inerte ruteada a la Phase 45, rollup y auto-auditoría *(wave 3)*
 
 ### Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz
 
@@ -165,7 +165,7 @@ Plans:
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
-| 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 6/7 | In Progress|  |
+| 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete   | 2026-08-31 |
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 0/? | Not started | -          |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
