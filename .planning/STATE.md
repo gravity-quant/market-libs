@@ -2,9 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
+current_phase: 41
 status: planning
-last_updated: "2026-08-31T12:00:00.000Z"
+stopped_at: Phase 41 context gathered (assumptions mode)
+last_updated: "2026-08-31T14:43:31.208Z"
 last_activity: 2026-08-31
+last_activity_desc: ROADMAP de v1.8 creado (Phases 41-45)
 progress:
   total_phases: 5
   completed_phases: 0
@@ -562,9 +565,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T12:00:00.000Z
-Stopped at: v1.8 ROADMAP creado (Phases 41-45); 9/9 requisitos mapeados, 0 huérfanos; traceability de REQUIREMENTS.md re-apuntada a 41-45
-Resume file: None
+Last session: 2026-08-31T14:43:31.199Z
+Stopped at: Phase 41 context gathered (assumptions mode)
+Resume file: .planning/phases/41-validaci-n-nyquist-retroactiva-de-v1-7/41-CONTEXT.md
 
 ## Operator Next Steps
 
