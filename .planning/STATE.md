@@ -5,15 +5,15 @@ milestone_name: Cierre de deuda post-v1.7
 current_phase: 42
 current_phase_name: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
 status: executing
-stopped_at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
-last_updated: "2026-08-31T21:25:26.353Z"
+stopped_at: Completed 42-04-PLAN.md
+last_updated: "2026-08-31T21:35:54.151Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 42 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 42 (re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 42 execution started
 
@@ -217,6 +217,7 @@ Last activity: 2026-08-31 — Phase 42 execution started
 | Phase 42 P01 | 11min | 3 tasks | 3 files |
 | Phase 42 P02 | 4min | 2 tasks | 1 files |
 | Phase 42 P03 | 6min | 2 tasks | 2 files |
+| Phase 42 P04 | 7min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -527,6 +528,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [42-03 → 42-05]: **Veredicto explícito: el rename D-06 DISPARA (SÍ).** El bloqueo sigue vivo y medido hoy, el sobre recién committeado lleva el identificador stale `LIVE-HIGY-33`, y ni la rama "DNS resolvió → D-06 moot" ni la rama de resultado inesperado aplican. 42-05 va por su rama principal, respetando su propio hallazgo: **11 ocurrencias en 6 archivos vivos, y UNA no debe renombrarse** (asevera sobre artefacto histórico congelado de v1.6; renombrarla viola la premisa de la Phase 41).
 - [Phase ?]: [42-03 / D42-DEF-01]: Exposición **pre-existente** del base URL del vendor en `higyrus-client-findings.md:5` (header `Resolved base URL / env:`) detectada por el chequeo de no-fuga y **NO corregida**: byte-idéntica a HEAD (último commit `fbb69c3`/Phase 17, header de `e8307a6`/Phase 11), ledger append-only versionado (HARN-07), y la política T-39-04 es posterior a ese header. Ruteada a la **Phase 45** con tres opciones escritas en `deferred-items.md`. Todos los artefactos DE LA SESIÓN dieron CLEAN.
 - [Phase ?]: [42-03 / LIVE-01 traceability]: **LIVE-01 queda `Pending` a propósito al cierre de 42-03.** El criterio 2 del ROADMAP tiene dos mitades: (a) resultado medido —entregado por este plan— y (b) "con el destino `LIVE-HIGY-33` renombrado", que es el plan **42-05**. Marcarlo completo con la mitad (b) sin hacer sería el falso limpio que este proyecto existe para eliminar. Lo cierra el plan **42-06**, que ya lleva LIVE-01 en su frontmatter.
+- [Phase 42]: 42-04: n_rows quedó null en /instruments y /segments y NO se 'arregló' — el wire devuelve un sobre paginado (dict), no un array, así que len(raw) if isinstance(raw, list) else None evaluó como el plan lo especificó — Cambiar el cómputo habría exigido una segunda corrida en vivo contra un servicio de terceros para regenerar un dato que ya está reportado (50 filas / 4 filas, derivado de items y segments) en 42-WIRE-READ.md
+- [Phase 42]: 42-04: el delta vacío contra el baseline del 2026-07-31 se reporta como RESULTADO de la re-medición y NO revierte la marca de no-autoritatividad — Lo autoritativo para SHAPE-01 es la medición de hoy, que resulta coincidir; escrito explícitamente en 42-WIRE-READ.md § 4 para que la Phase 43 no concluya 'el baseline coincide, entonces uso el baseline'
+- [Phase 42]: 42-04: D42-DEF-02 (SHAPE-diff del driver INERTE para Instrument/Segment) se difiere a la Phase 43 en vez de arreglarse — Es preexistente (no lo causó ninguna task del plan), no hubo pérdida de evidencia (el censo de divergencias del decode produjo los 28 findings F-205..F-242), y el fix exigía otra corrida en vivo sin producir un hecho nuevo
 
 ### Pending Todos
 
@@ -607,8 +611,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:23:57.421Z
-Stopped at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
+Last session: 2026-08-31T21:35:54.145Z
+Stopped at: Completed 42-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
