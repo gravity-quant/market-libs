@@ -76,7 +76,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. Todo test o lock que el auditor deje en disco está o bien enrolado en el allowlist explícito de CI, o bien declarado **inerte por escrito** con su enrolamiento ruteado al edit consolidado de `ci.yml` de la Phase 45 — un lock que no corre no se cuenta como cobertura.
   5. El alcance queda acotado a las cinco fases nombradas: la entrada `NYQUIST-32-33` sigue en el backlog con su texto intacto, no absorbida en silencio (está en `REQUIREMENTS.md § Out of Scope`).
 
-**Plans**: 5/7 plans executed
+**Plans**: 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -89,7 +89,7 @@ Plans:
 - [x] 41-03-PLAN.md — Phase 36: 11 disposiciones + resolución de la fila que shipeó sin comando declarado *(wave 2)*
 - [x] 41-04-PLAN.md — Phase 37: 14 disposiciones bajo clave ordinal + re-apunte del selector vacío *(wave 2)*
 - [x] 41-05-PLAN.md — Phase 38: 9 disposiciones (7 re-ejecutadas + 2 históricas con confirmación humana fechada) *(wave 2)*
-- [ ] 41-06-PLAN.md — Phase 39: 15 disposiciones incl. las 4 no re-verificables declaradas en front-matter (criterio 3b) *(wave 2)*
+- [x] 41-06-PLAN.md — Phase 39: 15 disposiciones incl. las 4 no re-verificables declaradas en front-matter (criterio 3b) *(wave 2)*
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -165,7 +165,7 @@ Plans:
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
-| 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 5/7 | In Progress|  |
+| 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 6/7 | In Progress|  |
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 0/? | Not started | -          |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
