@@ -3,10 +3,16 @@ phase: 36
 slug: market-data-client-market-data-tipado-revocaci-n-de-la-fase
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: false
+not_verifiable_retroactively: 0
+audited_commit_sha: 37a83fe693a303a551f4374f48fe6fc5521804f7
+audit_baseline_head: 6dd83cf4c8b2837e320da9c8c91bc1b15ac41fa5
+frozen_tree_verified: true
 wave_0_complete: false
 created: 2026-08-29
+updated: 2026-08-31
+last_audited: 2026-08-31
 ---
 
 # Phase 36 — Validation Strategy
@@ -40,19 +46,19 @@ created: 2026-08-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 36-01-01 | 01 | 0 | NOBJ-MD-01 | — | Cadena `snapshot.market_data.last.price` etc. no lanza con 4 payloads × 2 superficies (SC-1) | unit + integration | `uv run pytest packages/market-data-client/tests/test_market_data_chain.py -x` | ❌ W0 | ⬜ pending |
-| 36-01-02 | 01 | — | NOBJ-MD-01 | — | Cadena compila bajo mypy strict (SC-1) | static | `uv run mypy packages/market-data-client/src packages/market-data-client/tests` | ✅ | ⬜ pending |
-| 36-01-03 | 01 | — | NOBJ-MD-01 | — | `MarketDataEntries`/`BookLevel`/`EntryValue` con forma + 6 alias (SC-2) | unit | `uv run pytest packages/market-data-client/tests/test_models.py -k entries -x` | ✅ (extender) | ⬜ pending |
-| 36-01-04 | 01 | — | NOBJ-MD-01 | — | Alias invisibles al walker; roster Null Object `>= 16` → 19 | unit (parametrizado) | `uv run pytest packages/market-data-client/tests/test_null_object.py -x` | ✅ | ⬜ pending |
-| 36-02-01 | 02 | — | NOBJ-MD-02 | — | `entries`/`market_data` sin `None` en anotación (SC-2/SC-3) | unit (introspección de hints) | `uv run pytest packages/market-data-client/tests/test_models.py -k field_set -x` | ✅ (extender) | ⬜ pending |
-| 36-02-02 | 02 | — | NOBJ-MD-02 | — | `LatestRequest.entries` default `[]`, `to_dict` omite clave vacía | unit | `uv run pytest packages/market-data-client/tests/test_models.py -k latest_request -x` | ✅ | ⬜ pending |
-| 36-02-03 | 02 | — | NOBJ-MD-02 | — | Fila no-data: `bool(market_data) is False` + `note` poblado, sync/async, strict/no-strict (SC-4) | integration | `uv run pytest packages/market-data-client/tests/test_snapshot_no_data_row.py -x` | ✅ (migrar) | ⬜ pending |
-| 36-02-04 | 02 | — | NOBJ-MD-02 | — | Wrong-type sigue divergiendo y fatal en strict | integration | `uv run pytest packages/market-data-client/tests/test_snapshot_no_data_row.py -k wrong_typed -x` | ✅ | ⬜ pending |
-| 36-03-01 | 03 | 0 | NOBJ-MD-02 | — | Maquinaria de mapping ausente del paquete, aserción no vacua (SC-5) | unit (introspección negativa + positiva) | `uv run pytest packages/market-data-client/tests/test_models.py -k mapping_machinery -x` | ❌ W0 | ⬜ pending |
-| 36-03-02 | 03 | — | NOBJ-MD-02 | — | Hash de `_decode.py` no se movió (SC-5) | gate de CI | `uv run python tools/check_decode_intactness.py` | ✅ | ⬜ pending |
-| 36-03-03 | 03 | 0 | NOBJ-MD-02 | — | Driver consume por encadenamiento profundo en sitios reales (SC-5) | AST / grep | planner decide: AST reutilizando precedente 30-09, o assertion en el plan | ❌ W0 | ⬜ pending |
+| 36-01-01 | 01 | 0 | NOBJ-MD-01 | — | Cadena `snapshot.market_data.last.price` etc. no lanza con 4 payloads × 2 superficies (SC-1) | unit + integration | `uv run pytest packages/market-data-client/tests/test_market_data_chain.py -x` | ❌ W0 | ✅ (VN 2026-08-31) |
+| 36-01-02 | 01 | — | NOBJ-MD-01 | — | Cadena compila bajo mypy strict (SC-1) | static | `uv run mypy packages/market-data-client/src packages/market-data-client/tests` | ✅ | ✅ (VN 2026-08-31) |
+| 36-01-03 | 01 | — | NOBJ-MD-01 | — | `MarketDataEntries`/`BookLevel`/`EntryValue` con forma + 6 alias (SC-2) | unit | `uv run pytest packages/market-data-client/tests/test_models.py -k entries -x` | ✅ (extender) | ✅ (VN 2026-08-31) |
+| 36-01-04 | 01 | — | NOBJ-MD-01 | — | Alias invisibles al walker; roster Null Object `>= 16` → 19 | unit (parametrizado) | `uv run pytest packages/market-data-client/tests/test_null_object.py -x` | ✅ | ✅ (VN 2026-08-31) |
+| 36-02-01 | 02 | — | NOBJ-MD-02 | — | `entries`/`market_data` sin `None` en anotación (SC-2/SC-3) | unit (introspección de hints) | `uv run pytest packages/market-data-client/tests/test_models.py -k field_set -x` | ✅ (extender) | ✅ (VN 2026-08-31) |
+| 36-02-02 | 02 | — | NOBJ-MD-02 | — | `LatestRequest.entries` default `[]`, `to_dict` omite clave vacía | unit | `uv run pytest packages/market-data-client/tests/test_models.py -k latest_request -x` | ✅ | ✅ (VN 2026-08-31) |
+| 36-02-03 | 02 | — | NOBJ-MD-02 | — | Fila no-data: `bool(market_data) is False` + `note` poblado, sync/async, strict/no-strict (SC-4) | integration | `uv run pytest packages/market-data-client/tests/test_snapshot_no_data_row.py -x` | ✅ (migrar) | ✅ (VN 2026-08-31) |
+| 36-02-04 | 02 | — | NOBJ-MD-02 | — | Wrong-type sigue divergiendo y fatal en strict | integration | `uv run pytest packages/market-data-client/tests/test_snapshot_no_data_row.py -k wrong_typed -x` | ✅ | ✅ (VN 2026-08-31) |
+| 36-03-01 | 03 | 0 | NOBJ-MD-02 | — | Maquinaria de mapping ausente del paquete, aserción no vacua (SC-5) | unit (introspección negativa + positiva) | `uv run pytest packages/market-data-client/tests/test_models.py -k mapping_machinery -x` | ❌ W0 | ✅ (VN 2026-08-31) |
+| 36-03-02 | 03 | — | NOBJ-MD-02 | — | Hash de `_decode.py` no se movió (SC-5) | gate de CI | `uv run python tools/check_decode_intactness.py` | ✅ | ✅ (VN 2026-08-31) |
+| 36-03-03 | 03 | 0 | NOBJ-MD-02 | — | Driver consume por encadenamiento profundo en sitios reales (SC-5) | AST / grep | planner decide: AST reutilizando precedente 30-09, o assertion en el plan | ❌ W0 | ✅ (VN 2026-08-31) |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky · ⬜ histórico (VERIFIED-HISTORICALLY, auditoría 2026-08-31) · ⬜ no re-verificable (NOT-VERIFIABLE-RETROACTIVELY, auditoría 2026-08-31)*
 
 ---
 
@@ -79,6 +85,7 @@ created: 2026-08-29
 - [ ] No watch-mode flags
 - [ ] Feedback latency < 5s
 - [ ] `nyquist_compliant: true` set in frontmatter
+- [x] Audit 2026-08-31: 11 filas dispuestas (11 VERIFIED-NOW / 0 VERIFIED-HISTORICALLY / 0 NOT-VERIFIABLE-RETROACTIVELY); 0 archivos de lock nuevos; nyquist_compliant sigue en false
 
 **Approval:** pending
 
@@ -129,3 +136,71 @@ cero · `VERIFIED-HISTORICALLY` = artefacto fechado citado, no re-derivable ·
 `NOT-VERIFIABLE-RETROACTIVELY` = requería red en vivo, ventana de mercado o checkpoint humano no
 reproducible. Calificadores: `(comando corregido)` R-02 · `(ruta corregida)` R-03 ·
 `(comando redactado retroactivamente)` R-04.*
+
+### Correcciones de comando
+
+Una, y no es una corrección: es una **redacción**. La fila `36-r11` no tenía comando que corregir.
+
+| Fila | Comando viejo (literal del mapa) | Comando ejecutado | Por qué |
+|------|----------------------------------|-------------------|---------|
+| 36-r11 | *(ninguno)* — la celda `Automated Command` dice `planner decide: AST reutilizando precedente 30-09, o assertion en el plan` | `uv run pytest verification/test_main_market_data_deep_chain.py -q` | El mapa dejó la elección de mecanismo abierta y la fase shipeó sin cerrarla, de modo que la fila nunca tuvo contrato ejecutable. La conducta declarada (SC-5: *"Driver consume por encadenamiento profundo en sitios reales"*) **sí** quedó cubierta: el planner tomó efectivamente la rama AST del precedente 30-09 y entregó el lock, pero sin volver a escribir el comando en el mapa. La auditoría redacta el comando que corresponde a lo que se entregó (R-04) tras leer el cuerpo del lock y confirmar que asserta esa conducta y no otra |
+
+Cero correcciones de **selector** (R-02) y cero correcciones de **ruta** (R-03) en esta fase: los diez
+comandos declarados corren tal cual están escritos, ninguno apunta a `.planning/`, y ningún selector
+`-k` seleccionó cero tests (los cinco deselects observados son parciales, con conteo de pasados
+distinto de cero en todos los casos).
+
+### Hallazgos de bookkeeping
+
+Dos. Ninguno cambia una disposición; los dos se **nombran** en vez de corregirse en silencio.
+
+1. **La fila `36-03-03` shipeó sin contrato de verificación — el hallazgo principal de la fase.** Su
+   celda `Automated Command` no contiene un comando: contiene una decisión de diseño pendiente
+   (*"planner decide: AST reutilizando precedente 30-09, o assertion en el plan"*). Una fila así no
+   es auditable como está: no hay nada que re-correr, y no hay forma de distinguir "la conducta no se
+   verificó" de "la conducta se verificó por un medio que nadie anotó". Lo que la auditoría encuentra
+   es lo segundo — `verification/test_main_market_data_deep_chain.py` existe, cubre la conducta y está
+   enrolado en CI — pero eso se determinó **leyendo el árbol, no el mapa**. El mapa quedó como
+   registro de una decisión sin cerrar. Es la razón exacta por la que existe R-04 y por la que esta
+   fase, pese a cerrar 11 de 11 en verde, no satisface R-09.
+2. **Tres celdas `File Exists` afirman que el archivo de test no existe.** Las filas `36-01-01`,
+   `36-03-01` y `36-03-03` llevan `❌ W0`, es decir *pendiente de Wave 0*. Los once archivos citados
+   por el mapa existen hoy en disco y las once filas corren verde sobre el árbol congelado de v1.7:
+   `test_market_data_chain.py` (38 passed), `test_models.py -k mapping_machinery` (1 passed) y el
+   lock de driver de la fila sin comando (6 passed). Es bookkeeping de **plan-time** que nunca se
+   actualizó al cerrar la Wave 0 — no un gap de cobertura. **Las celdas `File Exists` no se tocan**
+   (y `wave_0_complete` se deja en `false`): su contradicción con la realidad medida **es** el
+   hallazgo, y corregirlas lo borraría. D-04 pone exactamente este caso en alcance.
+
+### Escalaciones
+
+Ninguna. Las once filas cayeron bajo una regla del contrato sin necesidad de juicio propio: R-01
+cubre las diez que declaran comando y R-04 cubre la única que no lo declaraba. No apareció una
+tercera fila de selección vacía —la señal que §3.1 manda escalar—: los cinco deselects medidos son
+parciales y todos reportan conteo de pasados distinto de cero, de modo que el guardia anti-vacuidad
+de §6.2 no se disparó en ninguna celda. Las cuentas medidas coinciden exactamente con la distribución
+esperada de la §2.4 del contrato — 11 / 0 / 0 — y con el conteo esperado de **0** filas
+`NOT ENFORCED`. Ese cero merece decirse en voz alta, porque es **atípico y no el default**: la Phase
+36 es la única de las cinco auditadas cuyas filas tienen cobertura de CI real de punta a punta —
+ocho van al job `test`, una al `typecheck` por sus dos tramos, una al step `decode-intactness` del
+job `lint`, y la undécima al allowlist explícito de `verification/` dentro del mismo job. En las otras
+cuatro fases el `NOT ENFORCED` viene de aserciones sobre markdown de `.planning/`, de
+`regen_snapshots.py`, de `surface_parity.py` como script y de las filas manual/doc-review; acá no hay
+ninguna de esas superficies. El árbol quedó limpio: `git status --porcelain verification/` vacío y
+`ls verification/test_*.py | wc -l` sigue en **52**, idéntico a la línea base de §1.5 del contrato.
+Cero archivos de test nuevos; cero escalaciones.
+
+Veredicto de auditoría: **Phase 36 queda PARTIAL** — status draft → validated,
+nyquist_compliant sigue en false.
+
+`nyquist_compliant` sigue en `false` porque R-09 falla por su condición **(c)**: la fase retiene
+**una** fila con calificador de corrección (`36-r11`, comando redactado retroactivamente). Las
+condiciones (a) y (b) están cerca de satisfacerse y una queda satisfecha —(b) se cumple: cero
+`VERIFIED-HISTORICALLY` y cero `NOT-VERIFIABLE-RETROACTIVELY`—, pero (a) falla junto con (c) por la
+misma fila: 10 de 11 disponen `VERIFIED-NOW` **plano**, no 11. Una fase cuyo contrato de verificación
+tuvo que ser **escrito por su auditor** para poder correr no es Nyquist-compliant; es una fase cuyo
+bookkeeping estaba roto y hoy está descrito. La distinción importa porque el estado real de la
+conducta es el mejor de las cinco fases auditadas — 11 de 11 filas verdes hoy sobre el árbol
+congelado, cero rojos, cero gaps de cobertura, cero filas fuera de CI — y es precisamente eso lo que
+`status: validated` + `nyquist_compliant: false` codifica: la conducta está verificada, el contrato
+que debía haberla verificado no estaba completo.
