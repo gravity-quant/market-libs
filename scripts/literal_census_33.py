@@ -35,13 +35,24 @@ por stdout —y por lo tanto lo único que puede llegar al artefacto committeado
 son los conjuntos de valores distintos de esos nueve campos, que son vocabulario
 enum-like, no identificadores.
 
-**matriz corre detrás del gate remarkets-only (D-MATZ-33).** Si
-``PRIMARY_BASE_URL`` no es un host de remarkets, el censo imprime
-``SKIPPED — base URL fuera de política`` y **no autentica ni emite una sola
-request**. El gate no se rodea: la superficie de matriz incluye entrada de
-órdenes y el assert es el mecanismo que impide que una verificación toque una
-venue que no es el sandbox acordado. Es la misma decisión que 33-05 tomó para el
-driver, por la misma razón.
+**matriz corre detrás del allowlist de venue D-MATZ-33.** El venue se resuelve
+con ``_venue_token``, importado de ``main_matriz`` (D-01): igualdad EXACTA de
+hostname contra el allowlist que ese módulo publica, nunca pertenencia de
+substring ni ``endswith`` —``…primary.com.ar.attacker.example`` pasaría un
+``in``— y fail-closed ante una base URL imparseable o sin host. Si el host no
+está en el allowlist, el censo imprime ``SKIPPED — base URL fuera del
+allowlist`` y **no autentica ni emite una sola request**: el gate corre antes
+del login, así que un SKIP no cuesta ni un round trip. El gate no se rodea: la
+superficie de matriz incluye entrada de órdenes y este es el mecanismo que
+impide que una verificación toque una venue que no es un sandbox acordado.
+Ampliar el allowlist **no es un cambio de rutina**: cada host nuevo exige una
+decisión humana explícita (P-05), y se hace en ``main_matriz.py``, que es la
+única fuente. El gate de MUTACIÓN es otro control, independiente
+(``verification/mutation_gate.py``), y este script no lo toca.
+
+Antes de la primera request el censo emite ``CENSUS-HEADER`` con el venue
+medido y el timestamp UTC, y ``CENSUS-DLOCK`` recordando que el inventario es
+una MEDICIÓN de una sola venue y no una autorización de promoción a ``Literal``.
 
 **Por qué es un ``.py`` real y no un ``python -c``:** ``find_dotenv()`` cae a
 ``os.getcwd()`` cuando ``__main__`` no tiene ``__file__``, y no hay ``.env`` en
@@ -51,12 +62,14 @@ modo de invocación (P-10).
 Uso::
 
     uv run python scripts/literal_census_33.py
-    uv run python scripts/literal_census_33.py --selftest   # sin red
+    uv run python scripts/literal_census_33.py --matriz-only  # sin census_iol()
+    uv run python scripts/literal_census_33.py --selftest     # sin red
 """
 
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import sys
 from pathlib import Path
 from typing import Any
@@ -69,6 +82,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# La política de venue NO se re-declara acá: se IMPORTA del sitio que ya la
+# publica (D-01). La forma ``from main_matriz import ...`` —y no ``import
+# main_matriz`` con uso calificado— es la que hace que el lock pueda pinnear
+# IDENTIDAD de objeto (``is``), con lo cual la divergencia entre el gate del
+# driver y el del censo pasa de "detectada" a estructuralmente imposible.
+from main_matriz import _VENUE_ALLOWLIST, _venue_token  # noqa: E402
 from verification.capture import capture  # noqa: E402
 
 __all__ = ["collect_paths", "main"]
@@ -167,6 +186,29 @@ def _skip(pkg: str, reason: str) -> None:
     print(f"{pkg}: SKIPPED — {reason}")
 
 
+def _census_header_lines(venue: str) -> list[str]:
+    """Venue + timestamp del censo: sin esto la salida no dice contra qué se midió.
+
+    El ``venue`` es el TOKEN que devuelve :func:`_venue_token` (``remarkets`` /
+    ``bbsa``), nunca un hostname resuelto ni la base URL, y ``allowlist_size`` es un
+    CONTEO — el encabezado nombra la política sin filtrar el dato de entrada
+    (T-39-04 / C-4), igual que las líneas de veredicto.
+    """
+    stamp = dt.datetime.now(dt.UTC).isoformat()
+    return [
+        f"CENSUS-HEADER venue={venue} captured_at={stamp} allowlist_size={len(_VENUE_ALLOWLIST)}",
+        "CENSUS-DLOCK: el D-lock (b) de la Phase 29 SIGUE EN VIGOR — los campos "
+        "RESPONSE NO se cierran como Literal. Este inventario es una MEDICIÓN de "
+        "una sola venue, no una autorización de promoción.",
+    ]
+
+
+def _census_header(venue: str) -> None:
+    """Imprime el encabezado del censo; se llama antes de la primera request."""
+    for line in _census_header_lines(venue):
+        print(line)
+
+
 # ----------------------------------------------------------------------
 # matriz — detrás del gate remarkets-only (D-MATZ-33)
 # ----------------------------------------------------------------------
@@ -189,16 +231,21 @@ def census_matriz() -> bool:
 
     client = Client()
     base = client._state.base_url
-    if "remarkets" not in base:
+    venue = _venue_token(base)  # igualdad exacta de hostname, fail-closed
+    if venue is None:
         # No se imprime la URL: el criterio de no-fuga del pre-flight (nunca una
         # URL resuelta) manda acá también. La causa queda igualmente nombrada.
         _skip(
             "matriz-client",
-            "base URL fuera de política (D-MATZ-33: la verificación es remarkets-only)",
+            "base URL fuera del allowlist D-MATZ-33 (la verificación es sandbox-only)",
         )
         with contextlib.suppress(Exception):
             client.close()
         return False
+
+    # El venue MEDIDO viaja al encabezado; nunca se hardcodea, así que el header no
+    # puede mentir sobre contra qué se censó.
+    _census_header(venue)
 
     try:
         for endpoint, spec in (
@@ -343,6 +390,30 @@ def _selftest() -> int:
             if observed != values:
                 print(f"SELFTEST FAIL {path}: {sorted(observed)} != {sorted(values)}")
                 ok = False
+
+    # Criterio 3, offline: el encabezado lleva el venue MEDIDO y un timestamp, y
+    # reafirma el D-lock (b). Se ejercita con un token sintético para que la
+    # cobertura no dependa de red ni de credenciales.
+    header = _census_header_lines("venue-sintetico")
+    if not header[0].startswith("CENSUS-HEADER venue=venue-sintetico captured_at="):
+        print(f"SELFTEST FAIL header: {header[0]!r} no abre con venue y captured_at")
+        ok = False
+    if not any(line.startswith("CENSUS-DLOCK") for line in header):
+        print("SELFTEST FAIL header: falta la línea CENSUS-DLOCK")
+        ok = False
+
+    # Criterio 1, offline: el gate resuelve por igualdad exacta de hostname y el
+    # sufijo hostil cae fail-closed. Sólo se imprime el TOKEN observado, nunca la
+    # entrada (T-39-04).
+    for probe, expected_token in (
+        ("api.bbsa.matrizoms.com.ar", "bbsa"),
+        ("api.bbsa.matrizoms.com.ar.attacker.example", None),
+    ):
+        observed_token = _venue_token(probe)
+        if observed_token != expected_token:
+            print(f"SELFTEST FAIL venue: token {observed_token!r} != {expected_token!r}")
+            ok = False
+
     print("SELFTEST:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -354,6 +425,16 @@ def main(argv: list[str]) -> int:
     """Corre el censo (o el self-test offline con ``--selftest``)."""
     if "--selftest" in argv:
         return _selftest()
+    if "--matriz-only" in argv:
+        # Retorno TEMPRANO a propósito: caer al ``return 0 if (ran_matriz and
+        # ran_iol)`` de abajo daría exit 1 en una corrida exitosa, porque iol no fue
+        # pedido y su flag quedaría en ``False``. El veredicto de iol se reporta como
+        # NOT-REQUESTED, que no es lo mismo que SKIPPED.
+        ran_matriz = census_matriz()
+        print(
+            f"CENSUS: matriz={'RAN' if ran_matriz else 'SKIPPED'} iol=NOT-REQUESTED (--matriz-only)"
+        )
+        return 0 if ran_matriz else 1
     ran_matriz = census_matriz()
     ran_iol = census_iol()
     print(
