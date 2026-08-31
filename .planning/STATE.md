@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: API tipada con Null Objects
-current_phase: 7
-status: Awaiting next milestone
-stopped_at: 40-03 complete; Phase 40 complete; milestone v1.7 content published
-last_updated: "2026-08-30T22:42:40.301Z"
-last_activity: 2026-08-30
-last_activity_desc: Milestone v1.7 completed and archived
+milestone: v1.8
+milestone_name: Cierre de deuda post-v1.7
+status: planning
+last_updated: "2026-08-31T09:49:48.336Z"
+last_activity: 2026-08-31
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 28
-  completed_plans: 28
-  percent: 100
-current_phase_name: Releases breaking coordinados
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 ## Current Position
 
-Phase: Milestone v1.7 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-30 — Milestone v1.7 completed and archived
+Status: Defining requirements
+Last activity: 2026-08-31 — Milestone v1.8 started
 
 ## Performance Metrics
 

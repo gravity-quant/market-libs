@@ -166,6 +166,18 @@ corregida.
 
 </details>
 
+## Current Milestone: v1.8 Cierre de deuda post-v1.7
+
+**Goal:** Cerrar el backlog genuinamente accionable que quedó documentado (con causa medida) al cierre de v1.7, sin agregar superficie nueva a ningún cliente — verificación en vivo pendiente, cobertura de validación retroactiva, un shape fix de superficie ya publicada, y limpieza de harness.
+
+**Target features:**
+- Re-chequear `LIVE-HIGY-33` (DNS de `higyrus-client` sin resolver desde v1.6 Phase 33, re-sondeado sin éxito en v1.7 Phase 39) y correr el censo de valores `Literal` de RESPONSE de `matriz-client` que quedó abierto (`LIVE-MATZ-33` S-4: `marketId`/`cficode`/`currency`/`orderTypes`/`ordType`), ahora desbloqueado por el allowlist de hostname `bbsa` que Phase 39 habilitó
+- Correr `/gsd-validate-phase` retroactivo sobre las 5 fases de v1.7 (35-39) que nunca lo ejecutaron (`NYQUIST-35-39`) — gap de cobertura, no de compliance
+- Corregir la forma declarada de `Instrument`/`Segment` en `market-data-client` contra el wire real medido (`SHAPE-MD-REF-33`) — es un cambio source-breaking sobre superficie ya publicada, requiere disposición de versión explícita
+- Limpieza de harness: dedupe de findings de `schema drift` por título (`HARN-DRIFT-33`), tipar las 5 claves `extra` restantes de `market-data-client` (`TYP-MD-EXTRA-33`), corregir comentario stale de Phase 37, y decidir si reparar `verification/` de `matriz-client` (roto desde Phase 15, nunca corrió en CI — `HARN-VERIF-01`) o documentarlo formalmente como debt aceptada
+
+**Key context:** Ninguno de estos ítems es trabajo de producto nuevo — todos vienen de `ROADMAP.md § Backlog` y `STATE.md § Blockers/Concerns` con causa medida y ubicación de archivo. Se excluyen del alcance los ítems de backlog más viejos (v1.1-v1.5) que ya están resueltos en otro lado (p.ej. el `D-16` de v1.5 fue superseded por el `D-16` real de v1.6 Phase 32; `MUT-MD-01/02` shippearon en v1.5) o que siguen explícitamente fuera de alcance por decisión firmada (`wallets-client`, streaming WS de matriz, token encryption at-rest, `Client.from_env()`).
+
 ## Last Shipped Milestone: v1.7 API tipada con Null Objects (2026-08-30)
 
 **Goal:** Que toda cadena de acceso como `snapshot.market_data.last.price` sea siempre válida bajo mypy strict y nunca lance en las 6 libs: ningún eslabón intermedio de tipo modelo/lista puede ser `None` (patrón Null Object — el campo devuelve una instancia vacía falsy), y `dict[str, Any]` desaparece de los campos de modelos públicos (un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado).
@@ -268,9 +280,16 @@ corregida.
 
 ### Active
 
-<!-- vacío — /gsd-new-milestone define los requisitos del próximo ciclo -->
+<!-- v1.8 — REQ-IDs formalizados en REQUIREMENTS.md -->
 
-(Ninguno — v1.7 cerró sus 10/10 requisitos. Próximo milestone define nuevos requisitos activos vía `/gsd-new-milestone`.)
+- [ ] **LIVE-01** — Re-chequear `LIVE-HIGY-33`: higyrus DNS resuelto o causa medida confirmada de nuevo
+- [ ] **LIVE-02** — Censo de valores `Literal` de RESPONSE de matriz (`LIVE-MATZ-33` S-4) contra el sandbox `bbsa`
+- [ ] **NYQ-01** — `/gsd-validate-phase` retroactivo sobre las Phases 35-39
+- [ ] **SHAPE-01** — `Instrument`/`Segment` de market-data-client corregidos contra el wire real, con disposición de versión
+- [ ] **HARN-01** — Dedupe de findings de schema drift por título (`HARN-DRIFT-33`)
+- [ ] **HARN-02** — Tipar las 5 claves `extra` restantes de market-data-client (`TYP-MD-EXTRA-33`)
+- [ ] **HARN-03** — Corregir comentario stale de Phase 37 + gaps cosméticos nombrados (`IN-01`, `IN-05`, `IN-06`)
+- [ ] **HARN-04** — Decidir destino de `verification/` de matriz (`HARN-VERIF-01`): reparar o documentar como debt aceptada
 
 ### Out of Scope
 
@@ -376,6 +395,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
+*Last updated: 2026-08-31 after starting milestone **v1.8 · Cierre de deuda post-v1.7** — backlog genuinamente accionable de v1.7 (verificación en vivo pendiente, cobertura Nyquist retroactiva, shape fix de market-data-client, limpieza de harness), sin superficie nueva. Requisitos activos: LIVE-01/02, NYQ-01, SHAPE-01, HARN-01..04. Prior v1.7-close footer below for reference.*
+
 *Last updated: 2026-08-30 after v1.7 milestone complete — **v1.7 API tipada con Null Objects SHIPPED**: 6 fases (35-40) / 28 planes / 10-of-10 requisitos validados (NOBJ-01, NOBJ-02, NOBJ-MD-01, NOBJ-MD-02, NOBJ-MTZ-01, NOBJ-MTZ-02, NOBJ-IOL-01, NOBJ-AUD-01, LIVE-NOBJ-01, PUB-NOBJ-01). Los 6 paquetes cliente eliminan `None` de todo eslabón intermedio de cadena (patrón Null Object, `SafeModel.__bool__`/`empty()` verbatim en las 4 jerarquías de base); `market-data-client` 0.6.0, `iol-client` 0.4.0, `matriz-client` 0.3.0 y `higyrus-client` 0.3.0 publicados (los 4 source-breaking) bajo doble gate humano genuino nunca auto-aprobado pese a yolo/auto_advance activos, verificados post-publicación instalando desde los wheels públicos. Verificación en vivo (Phase 39) encontró y corrigió un bug real de pérdida total de datos en matriz (~9160 instrumentos sin símbolo) y amplió D-MATZ-33 a un allowlist exacto de hostname. Milestone audit: `gaps_found` inicial (1 gap de proceso — `40-VERIFICATION.md` faltante) cerrado en el close con verificación retroactiva 22/22 que re-confirmó independientemente la sustancia de PUB-NOBJ-01 contra estado vivo. 220 files / +50,240/−771 LOC / 2026-08-28→2026-08-30. Next: `/gsd-new-milestone` v1.8. Prior Phase-39 footer below for reference.*
 
 *Last updated: 2026-08-30 after v1.7 Phase 39 complete (verificación en vivo del encadenamiento profundo, sync+async; LIVE-NOBJ-01 validated 15/15; D-02 checkpoint amplió D-MATZ-33 a allowlist exacto de hostname, desbloqueando matriz contra el sandbox bbsa; 1 divergencia CONFIRMED real — identificador plano de instrumentos descartado en silencio — corregida in-cycle con regresión mockeada; censo con split política-Null-Object-vs-corrección-real completo, 2 términos UNMEASURED con destino nombrado; code review 0 Critical, 2 Warning (1 fixed post-review, 1 decisión de alcance ya documentada); next: Phase 40 releases breaking coordinados). Prior Phase-38 footer below for reference.*
