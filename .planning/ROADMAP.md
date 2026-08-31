@@ -79,12 +79,20 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 **Plans**: 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 41-01-PLAN.md — Preflight: invariante de árbol congelado, doble SHA, y el contrato de auditoría compartido (denominador 62, reglas R-01..R-09, front-matter objetivo, mapa de enforcement de CI, 3 prohibiciones de workflow) *(wave 1)*
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 41-02-PLAN.md — Phase 35: reconstrucción del mapa (12 filas desde los planes) + 13 disposiciones *(wave 2)*
 - [ ] 41-03-PLAN.md — Phase 36: 11 disposiciones + resolución de la fila que shipeó sin comando declarado *(wave 2)*
 - [ ] 41-04-PLAN.md — Phase 37: 14 disposiciones bajo clave ordinal + re-apunte del selector vacío *(wave 2)*
 - [ ] 41-05-PLAN.md — Phase 38: 9 disposiciones (7 re-ejecutadas + 2 históricas con confirmación humana fechada) *(wave 2)*
 - [ ] 41-06-PLAN.md — Phase 39: 15 disposiciones incl. las 4 no re-verificables declaradas en front-matter (criterio 3b) *(wave 2)*
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 41-07-PLAN.md — Cierre: aritmética contra 62, criterios 3/4/5, declaración inerte ruteada a la Phase 45, rollup y auto-auditoría *(wave 3)*
 
 ### Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz
