@@ -171,7 +171,7 @@ corregida.
 **Goal:** Cerrar el backlog genuinamente accionable que quedó documentado (con causa medida) al cierre de v1.7, sin agregar superficie nueva a ningún cliente — verificación en vivo pendiente, cobertura de validación retroactiva, un shape fix de superficie ya publicada, y limpieza de harness.
 
 **Target features:**
-- Re-chequear `LIVE-HIGY-33` (DNS de `higyrus-client` sin resolver desde v1.6 Phase 33, re-sondeado sin éxito en v1.7 Phase 39) y correr el censo de valores `Literal` de RESPONSE de `matriz-client` que quedó abierto (`LIVE-MATZ-33` S-4: `marketId`/`cficode`/`currency`/`orderTypes`/`ordType`), ahora desbloqueado por el allowlist de hostname `bbsa` que Phase 39 habilitó
+- Re-chequear `LIVE-HIGY-42` (ex `LIVE-HIGY-33`, renombrado el 2026-08-31 por D-06 de la Phase 42 para que el identificador lleve la fase que más recientemente lo midió; DNS de `higyrus-client` sin resolver desde v1.6 Phase 33, re-sondeado sin éxito en v1.7 Phase 39 y **re-medido sin éxito en v1.8 Phase 42**) y correr el censo de valores `Literal` de RESPONSE de `matriz-client` que quedó abierto (`LIVE-MATZ-33` S-4: `marketId`/`cficode`/`currency`/`orderTypes`/`ordType`), ahora desbloqueado por el allowlist de hostname `bbsa` que Phase 39 habilitó — **corrido el 2026-08-31 tras portar el gate del script, que estaba stale en substring-match, no listo** (`42-CENSUS.md`)
 - Correr `/gsd-validate-phase` retroactivo sobre las 5 fases de v1.7 (35-39) que nunca lo ejecutaron (`NYQUIST-35-39`) — gap de cobertura, no de compliance
 - Corregir la forma declarada de `Instrument`/`Segment` en `market-data-client` contra el wire real medido (`SHAPE-MD-REF-33`) — es un cambio source-breaking sobre superficie ya publicada, requiere disposición de versión explícita
 - Limpieza de harness: dedupe de findings de `schema drift` por título (`HARN-DRIFT-33`), tipar las 5 claves `extra` restantes de `market-data-client` (`TYP-MD-EXTRA-33`), corregir comentario stale de Phase 37, y decidir si reparar `verification/` de `matriz-client` (roto desde Phase 15, nunca corrió en CI — `HARN-VERIF-01`) o documentarlo formalmente como debt aceptada
@@ -283,7 +283,7 @@ corregida.
 
 <!-- v1.8 — REQ-IDs formalizados en REQUIREMENTS.md -->
 
-- [ ] **LIVE-01** — Re-chequear `LIVE-HIGY-33`: higyrus DNS resuelto o causa medida confirmada de nuevo
+- [x] **LIVE-01** — Re-chequear `LIVE-HIGY-42` (ex `LIVE-HIGY-33`): higyrus DNS resuelto o causa medida confirmada de nuevo — **satisfecho por la vía "causa re-confirmada" el 2026-08-31 (Phase 42)**: `socket.gaierror` + `httpx.ConnectError` medidos en esta sesión (errno citado verbatim, sin leak), driver corrido dos veces con exit `0` y línea `SKIPPED` clasificable, sobre `run-evidence/higyrus-client.json` regenerado por corrida real (`captured_at 2026-08-31T21:38:57.229188+00:00`), y destino renombrado a `LIVE-HIGY-42` en los 14 sitios vivos. **El requisito está cerrado; el ítem de backlog NO** — los 22 triples (`Movimiento` 9, `PosicionValuada` 11, `Posicion` 2) siguen sin contrastar
 - [ ] **LIVE-02** — Censo de valores `Literal` de RESPONSE de matriz (`LIVE-MATZ-33` S-4) contra el sandbox `bbsa`
 - [ ] **SHAPE-01** — `Instrument`/`Segment` de market-data-client corregidos contra el wire real, con disposición de versión
 - [ ] **HARN-01** — Dedupe de findings de schema drift por título (`HARN-DRIFT-33`)

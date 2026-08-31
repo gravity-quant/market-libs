@@ -82,7 +82,7 @@
 | Element | Location |
 |---|---|
 | `_vendor_unreachable` / `_vendor_unreachable_reason` globals | `main_higyrus.py:236-237` |
-| `_VENDOR_UNREACHABLE_SKIP_LINE` (`SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33`) | `:245` |
+| `_VENDOR_UNREACHABLE_SKIP_LINE` (`SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-42`) | `:245` |
 | `_VENDOR_UNREACHABLE_DETAIL` / `_VENDOR_UNREACHABLE_EVIDENCE` | `:249`, `:254` |
 | `except httpx.ConnectError` in sync/async login, ordered **before** `httpx.HTTPError` | `:669`, `:750` |
 | Cheaper independent probe | `scripts/preflight_33.py` → one line `higyrus-client: AUTH OK` / `AUTH FAIL <ClassName>` |
