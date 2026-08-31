@@ -108,7 +108,27 @@ Plans:
   4. `verification/mutation_gate.py` queda **byte-idéntico** y el order entry sigue fail-closed bajo `bbsa`: el widening es del gate de lectura del censo, jamás del gate de mutación.
   5. La corrida deja en disco una **lectura fresca del wire** de `/instruments` y `/segments` de `market-data-client`, fechada en esta sesión, que es la base de evidencia que consume la Phase 43 — el baseline committeado del 2026-07-31 queda explícitamente marcado como no-autoritativo para SHAPE-01.
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 42-01-PLAN.md — Port del gate de venue por import (D-01), header venue/timestamp del censo, flag `--matriz-only`, lock de falsificación enrolado en CI, y checkpoint humano bloqueante que habilita el tráfico *(wave 1)*
+
+**Wave 2** *(bloqueada por el checkpoint del plan 42-01)*
+
+- [ ] 42-02-PLAN.md — Censo `Literal` de matriz en vivo contra `bbsa` + `42-CENSUS.md` con venue, timestamp y D-lock (b) reafirmado *(wave 2)*
+- [ ] 42-03-PLAN.md — Medición de la alcanzabilidad de higyrus + corrida del driver completo con sobre de evidencia fechado *(wave 2)*
+- [ ] 42-04-PLAN.md — `capture()` con envelope timestampeado en `main_market_data.py`, corrida en vivo y `42-WIRE-READ.md` committeado *(wave 2)*
+
+**Wave 3** *(bloqueada por 42-03)*
+
+- [ ] 42-05-PLAN.md — Rename condicional D-06 en los 11 sitios vivos + regeneración del sobre por corrida real *(wave 3)*
+
+**Wave 4** *(bloqueada por 42-02, 42-04 y 42-05)*
+
+- [ ] 42-06-PLAN.md — Cierre: corrección del backlog (Q5), disposición de los 5 criterios en `42-CLOSURE.md` y gate cross-fase *(wave 4)*
 
 ### Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas
 
