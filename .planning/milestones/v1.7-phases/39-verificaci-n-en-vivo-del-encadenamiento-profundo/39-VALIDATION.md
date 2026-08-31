@@ -89,3 +89,127 @@ created: 2026-08-29
 - [ ] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
+
+---
+
+## Validation Audit 2026-08-31
+
+Auditoría Nyquist retroactiva de la Phase 39, corrida a mano contra el árbol congelado de v1.7
+según el contrato `41-AUDIT-CONTRACT.md` (Phase 41, NYQ-01). Estado de entrada: `status: draft`,
+`nyquist_compliant: false`, mapa con 15 filas sin disponer (11 del mapa por tarea más 4 de
+`## Manual-Only Verifications`, todas en `⬜ pending`); **sin subagente** — la auditoría lee y
+dispone, no repara (D-06a).
+
+**Auditor:** Phase 41 (`/gsd-execute-phase 41`, plan 41-06) — auditoría de lectura y disposición
+**Árbol auditado:** commit de `v1.7` `37a83fe693a303a551f4374f48fe6fc5521804f7`; HEAD de la sesión
+de auditoría `6dd83cf4c8b2837e320da9c8c91bc1b15ac41fa5`; identidad probada con
+`git diff --quiet v1.7 HEAD -- . ':(exclude).planning'` → exit 0 (diff vacío)
+
+| Metric | Count |
+|--------|-------|
+| Filas auditadas (denominador) | 15 |
+| VERIFIED-NOW | 10 |
+| VERIFIED-HISTORICALLY | 1 |
+| NOT-VERIFIABLE-RETROACTIVELY | 4 |
+| Correcciones de comando | 1 |
+| Archivos de test nuevos escritos | 0 |
+| Filas NOT ENFORCED en CI | 5 |
+| Suite de re-ejecución de esta sesión | las 7 suites de `verification/` citadas por el mapa, juntas → `78 passed in 0.39s` |
+
+### Disposición por fila
+
+| Row | Disposition | Evidence (this session) | CI enforcement surface |
+|-----|-------------|-------------------------|------------------------|
+| 39-r01 · 39-01-01 | VERIFIED-NOW | `uv run pytest -q verification/test_main_verify_classification.py` → `7 passed in 0.04s` | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r02 · 39-01-02 | VERIFIED-NOW | `uv run pytest -q verification/test_main_matriz_skip_line_shape.py` → `19 passed in 0.06s`; `uv run pytest -q verification/test_main_higyrus_skip_line_shape.py` → `8 passed in 0.08s` | job `lint`, allowlist explícita `ci.yml:81-92` (los dos archivos enrolados) |
+| 39-r03 · 39-01-03 | VERIFIED-NOW (comando corregido) | Original `uv run pytest -q verification/test_main_matriz_deep_chain.py -k allowlist` → `9 deselected in 0.01s`, exit **5**, cero tests pasados. Corregido `uv run pytest -q verification/test_main_matriz_skip_line_shape.py` → `19 passed in 0.06s`, exit 0; los tres locks de allowlist de ese archivo fueron leídos y assertan la conducta original (detalle en `### Correcciones de comando`) | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r04 · 39-01-04 | VERIFIED-NOW | `uv run pytest -q verification/test_cycle_closure_phase33.py` → `21 passed in 0.07s` | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r05 · 39-02-01 | VERIFIED-NOW | `uv run pytest -q verification/test_main_iol_deep_chain.py` → `6 passed in 0.05s` | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r06 · 39-02-02 | VERIFIED-NOW | `uv run pytest -q verification/test_main_higyrus_deep_chain.py` → `8 passed in 0.09s` | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r07 · 39-02-03 | VERIFIED-NOW | `uv run pytest -q verification/test_main_matriz_deep_chain.py` → `9 passed in 0.10s` | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r08 · 39-02-04 | VERIFIED-NOW | El node-id del mapa nombra `_ambito_declares_zero_models`, que es un **helper privado y no un test**: pytest sale **exit 4** (error de uso) con `no tests ran in 0.01s`. Ejecutado el selector de archivo `uv run pytest -q verification/test_cycle_closure_phase33.py -k ambito` → `2 passed, 19 deselected in 0.01s` — `test_cycle_closure_is_green[ambito-financiero-client]` y `test_cycle_closure_is_not_vacuous[ambito-financiero-client]`, ambos vía ese mismo helper, que asserta 0 clases de modelo y `__all__` vacío | job `lint`, allowlist explícita `ci.yml:81-92` |
+| 39-r09 · 39-02-05 | VERIFIED-NOW | `uv run pytest -q packages/iol-client/tests/test_deep_chain_edges.py packages/higyrus-client/tests/test_deep_chain_edges.py packages/matriz-client/tests/test_deep_chain_edges.py` → `50 passed in 0.14s` | job `test`, `ci.yml:133-166` |
+| 39-r10 · 39-03-01 | VERIFIED-NOW | `uv run pytest -q packages/matriz-client/tests/test_instruments_flat_identifier_shape.py` → `13 passed in 0.03s` — la regresión mockeada de la única divergencia CONFIRMED de la fase (F-43/F-44), fijada en el sitio compartido de `_core.py` que recorren `client.py` y `aio.py` | job `test`, `ci.yml:133-166` |
+| 39-r11 · 39-03-02 | VERIFIED-HISTORICALLY | Revisión de artefacto (R-06), no re-derivada: `39-CENSUS.md` existe en disco (430 líneas) y `39-VERIFICATION.md` verdad #8 lo cita como cumplida — *"El censo contrasta explícitamente contra la Fase 33 y el piso de `29-SIZING.md`, separando colapso-de-política vs corrección real"* → `✓ VERIFIED` | **NOT ENFORCED (por naturaleza)** — revisión de documento |
+| 39-m01 · (manual-only fila 1) | NOT-VERIFIABLE-RETROACTIVELY | Evidencia parcial superviviente: los 4 envelopes fechados de `.planning/verification/run-evidence/` (`captured_at` 2026-08-30 UTC = sesión del 2026-08-29 ART) con sus sondas ejecutadas — `iol-client.json` 15, `matriz-client.json` 50, `ambito-financiero-client.json` 7, `higyrus-client.json` 0 con su causa medida registrada; más las transcripciones de `39-07-SUMMARY.md`. **Por qué no basta:** un envelope prueba que la corrida ocurrió y con qué conteo, no que la conducta observada sea re-derivable hoy; re-derivarla exigiría abrir tráfico contra una API financiera de terceros, que R-08 prohíbe | **NOT ENFORCED (por naturaleza)** — corrida de driver en vivo |
+| 39-m02 · (manual-only fila 2) | NOT-VERIFIABLE-RETROACTIVELY | Evidencia parcial superviviente: `39-CENSUS.md` § "Casos límite de D-12", que declara la ventana de la corrida (sábado 2026-08-29 23:34 ART / 2026-08-30 02:41 UTC, mercado ARG **cerrado**) y el discriminador efectivamente aplicado (la guarda de antigüedad D-MATZ-5 preexistente, no una lectura del reloj). **Por qué no basta:** discriminar mercado cerrado de modelado incorrecto exige la respuesta real de una ventana de sesión de negociación concreta, y esa ventana no se recrea a voluntad; el artefacto documenta el resultado del juicio, no lo vuelve reproducible | **NOT ENFORCED (por naturaleza)** — ventana de sesión de mercado |
+| 39-m03 · (manual-only fila 3) | NOT-VERIFIABLE-RETROACTIVELY | Evidencia parcial superviviente: `39-CENSUS.md` §§ "Contraste contra la Fase 33 y contra el piso ratificado" y "El split que SC-4 exige (D-11)", más los censos históricos que contrasta (`33-CENSUS.md`, `29-SIZING.md`) y el addendum de Phase 39 de `35-RETIRED-TRIPLES.md`. **Por qué no basta:** el contraste es un juicio cruzado sobre artefactos históricos, no una aserción pass/fail; re-correrlo hoy re-ejecutaría el criterio del auditor sobre los mismos documentos, no la conducta que la fase verificó | **NOT ENFORCED (por naturaleza)** — juicio cruzado sobre artefactos |
+| 39-m04 · (manual-only fila 4) | NOT-VERIFIABLE-RETROACTIVELY | Evidencia parcial superviviente: el sign-off del operador del 2026-08-29 registrado en el comentario de política de `main_matriz.py:118-121` y en `39-CONTEXT.md`, ya citado por la propia fila manual-only de este archivo. **Por qué no basta:** un checkpoint humano fechado no se re-deriva — re-obtenerlo produciría un sign-off nuevo del 2026-08-31, no evidencia de la decisión del 2026-08-29 —; y lo que el checkpoint autorizó es una decisión de política, no una aserción ejecutable | **NOT ENFORCED (por naturaleza)** — checkpoint humano |
+
+*Disposiciones: `VERIFIED-NOW` = comando re-ejecutado en esta sesión, verde, con conteo distinto de
+cero · `VERIFIED-HISTORICALLY` = artefacto fechado citado, no re-derivable ·
+`NOT-VERIFIABLE-RETROACTIVELY` = requería red en vivo, ventana de mercado o checkpoint humano no
+reproducible. Calificadores: `(comando corregido)` R-02 · `(ruta corregida)` R-03 ·
+`(comando redactado retroactivamente)` R-04.*
+
+**Sobre la cuarta columna.** Las **siete** suites de `verification/` que el mapa de esta fase cita
+—clasificación, las dos de forma de línea de skip, cierre de ciclo y las tres de cadena profunda—
+están **todas** dentro del allowlist explícito de CI, porque la propia Phase 39 cerró ese defecto
+(fix WR-01). Las dos filas que corren suites bajo `packages/` mapean al job `test`. Por lo tanto el
+conteo de 5 filas `NOT ENFORCED` de esta fase **no viene de sus locks**: viene de su fila de
+revisión de censo y de sus cuatro filas manuales, que por naturaleza no tienen superficie de CI.
+
+### Correcciones de comando
+
+Una sola, y es la **segunda y última** corrección autorizada por R-02 en toda la Phase 41
+(la primera fue `37-r11`).
+
+| Fila | Comando original | Resultado real | Comando corregido | Resultado |
+|------|------------------|----------------|-------------------|-----------|
+| `39-r03` | `uv run pytest -q verification/test_main_matriz_deep_chain.py -k allowlist` | `9 deselected in 0.01s` — exit **5**, selección vacía, **cero** tests pasados | `uv run pytest -q verification/test_main_matriz_skip_line_shape.py` | `19 passed in 0.06s` — exit 0 |
+
+La conducta que la fila declara —*el allowlist de hostname de la política D-MATZ-33 admite el host
+conocido por igualdad exacta y rechaza las variantes de spoofing por superstring y por userinfo*—
+vive en `verification/test_main_matriz_skip_line_shape.py`, no en el archivo de cadena profunda que
+el mapa nombra. Antes de re-apuntar se leyó el **cuerpo** de sus tres locks de allowlist (no sólo
+sus nombres), y los tres assertan esa conducta:
+
+- `test_venue_allowlist_has_exactly_the_two_known_hosts` — asserta que el allowlist tiene
+  exactamente los dos hosts confirmados por el operador y ninguno más (`len(allowlist) == 2`), de
+  modo que ensancharlo obliga a un checkpoint humano nuevo.
+- `test_venue_token_resolves_by_exact_hostname` — parametrizado con **13** casos medidos que
+  ejercitan el predicado de resolución de venue: los dos hosts conocidos con y sin esquema, la
+  barra final, la variante de **superstring de sufijo** (`…attacker.example` colgado del host
+  conocido) rechazada, la variante de **userinfo** (el host conocido en la parte de usuario,
+  siendo `attacker.example` el host real) rechazada, el host de producción rechazado, y el
+  fail-closed ante cadena vacía y ante basura no parseable.
+- `test_no_substring_membership_check_over_a_host_literal` — asserta **por AST** (no por grep, para
+  no confundir el comentario que cita el código viejo con código vivo) que ninguna comparación de
+  pertenencia de substring sobre un literal de host vuelve al driver.
+
+El `-k allowlist` del mapa falla porque ningún test de `test_main_matriz_deep_chain.py` lleva esa
+subcadena en su nombre: los 9 tests del archivo se descartan íntegros y pytest sale limpio, sin
+imprimir ninguna línea de falla. Ese es exactamente el modo de falla que la regla anti-vacuidad de
+la §6.2 del contrato existe para atrapar.
+
+### Las cuatro filas no re-verificables
+
+Las cuatro filas de `## Manual-Only Verifications` quedan `NOT-VERIFIABLE-RETROACTIVELY` por R-07,
+según la resolución de OQ#1 escrita en la §3.1 del contrato de auditoría. Cada una es irrecuperable
+por un motivo distinto y nombrado: `39-m01` por **red viva de terceros** (la corrida de driver por
+paquete depende de disponibilidad, DNS y estado de mercado del momento); `39-m02` por **ventana de
+sesión de mercado** (la discriminación entre mercado cerrado y modelado incorrecto sólo se produce
+dentro de una sesión concreta); `39-m03` por **juicio cruzado sobre artefactos históricos** (no es
+una aserción pass/fail); `39-m04` por **sign-off humano fechado** (re-obtenerlo produciría una
+decisión nueva, no evidencia de la vieja).
+
+La evidencia parcial superviviente **no se descarta** y está nombrada en la celda de cada fila: los
+cuatro envelopes fechados con su conteo de sondas, las transcripciones de `39-07-SUMMARY.md`, las
+dos secciones pertinentes de `39-CENSUS.md`, y el sign-off registrado en el comentario de política
+del driver de matriz.
+
+**Rationale de la resolución, registrado para que no se re-litigue.** `41-RESEARCH.md` propuso en su
+primera pregunta abierta partir el bloque —tres filas a `VERIFIED-HISTORICALLY` apoyándose en que
+los envelopes existen en disco, y sólo una a `NOT-VERIFIABLE-RETROACTIVELY`—. Se resuelve **en
+contra** de esa lectura, por dos razones. Primero, D-04 nombra estas cuatro filas **por su nombre**
+como el arquetipo del marcador `NOT-VERIFIABLE-RETROACTIVELY`; ante un conflicto entre el texto de
+una decisión lockeada y una inferencia posterior del research, gana la decisión. Segundo, en una
+auditoría la dirección segura es **sub-declarar**: un `VERIFIED-HISTORICALLY` de más es una garantía
+falsa que se propaga aguas abajo a quien lea este archivo, mientras que un
+`NOT-VERIFIABLE-RETROACTIVELY` de más sólo pide trabajo futuro. Los envelopes fechados prueban que
+la corrida **ocurrió** y con qué conteo; no prueban que la conducta sea **reproducible**, y es la
+reproducibilidad lo que la vara de R-06 exige para citar un artefacto como evidencia histórica
+suficiente.
+
+**Ninguna de las dos superficies de esta fase se re-corrió contra la red.** Ningún `main_*.py` fue
+ejecutado por esta auditoría (R-08).
