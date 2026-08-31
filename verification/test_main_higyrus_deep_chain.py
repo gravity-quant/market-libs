@@ -32,8 +32,10 @@ probe's ladder, so a broken link would propagate uncaught and take the whole
 ``higyrus-client`` package to FAILED instead of degrading to a finding. Only the ``try``
 **body** counts here.
 
-**The live half of higyrus is blocked.** The vendor host does not resolve by DNS (measured
-in the Phase 39 research session; the inherited blocker ``LIVE-HIGY-33`` is still standing),
+**The live half of higyrus is blocked.** The vendor host does not resolve by DNS (re-measured
+on 2026-08-31 in the Phase 42 session -- ``socket.gaierror`` at resolution and the same
+``httpx.ConnectError`` class the Phase 39 session had measured -- so the blocker, now named
+``LIVE-HIGY-42`` after the phase that most recently measured it, is still standing),
 so a live run cannot produce a populated ``parking`` branch. Two further facts compound
 that: the probes send ``incluirParking=False`` and plan 39-05 deliberately does NOT flip it
 (flipping would change the response shape and burn the write-once schema baseline for

@@ -160,7 +160,7 @@ _HOST_SKIP_EVIDENCE = "base URL fuera del allowlist D-MATZ-33 — LIVE-MATZ-33"
 # deferral sin destino es lo que P-03 prohíbe: "no corrió" tiene que decir
 # hacia dónde se repara.
 _CYCLE_CLOSURE_DESTINATION: dict[str, str] = {
-    "higyrus-client": "LIVE-HIGY-33",
+    "higyrus-client": "LIVE-HIGY-42",
     "matriz-client": "LIVE-MATZ-33",
 }
 _CYCLE_CLOSURE_DEFAULT_DESTINATION = "LIVE-NOBJ-01"

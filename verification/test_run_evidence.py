@@ -208,14 +208,14 @@ def test_cero_probes_con_causa_medida(evidence_dir: Path) -> None:
         driver="main_higyrus.py",
         triples=[],
         counts={},
-        skipped="vendor host unreachable (DNS) — LIVE-HIGY-33",
+        skipped="vendor host unreachable (DNS) — LIVE-HIGY-42",
     )
 
     assert probes_executed("higyrus-client") == 0
     envelope = read_run_evidence("higyrus-client")
     assert envelope is not None
-    assert envelope["skipped"] == "vendor host unreachable (DNS) — LIVE-HIGY-33"
-    assert "LIVE-HIGY-33" in envelope["skipped"], (
+    assert envelope["skipped"] == "vendor host unreachable (DNS) — LIVE-HIGY-42"
+    assert "LIVE-HIGY-42" in envelope["skipped"], (
         "la causa del skip perdió su destino nombrado. Un deferral sin destino "
         "es exactamente lo que P-03 prohíbe."
     )
