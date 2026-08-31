@@ -6,14 +6,14 @@ current_phase: 41
 current_phase_name: validaci-n-nyquist-retroactiva-de-v1-7
 status: executing
 stopped_at: Phase 41 context gathered (assumptions mode)
-last_updated: "2026-08-31T16:30:51.895Z"
+last_updated: "2026-08-31T16:38:40.333Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 41 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 41 (validaci-n-nyquist-retroactiva-de-v1-7) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 41 execution started
 
@@ -210,6 +210,7 @@ Last activity: 2026-08-31 — Phase 41 execution started
 | Phase 41 P01 | 8min | 3 tasks | 2 files |
 | Phase 41 P02 | 22min | 2 tasks | 1 files |
 | Phase 41 P03 | 13 min | 2 tasks | 1 files |
+| Phase 41 P04 | 24min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -502,6 +503,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 41 / plan 41-03: 36-r11 se dispone VERIFIED-NOW (comando redactado retroactivamente) por R-04 — la Phase 36 shipeó una fila sin contrato de verificación; la auditoría redactó el comando tras leer el cuerpo del lock. Es el hallazgo principal de la fase, no el VERIFIED-NOW
 - [Phase ?]: Phase 41 / plan 41-03: las celdas File Exists de la Phase 36 y wave_0_complete quedan intactas — su contradicción con la medición es el hallazgo (D-04); corregirlas lo borraría
 - [Phase ?]: Phase 41 / plan 41-03: nyquist_compliant de la Phase 36 sigue en false — R-09 falla por (c) y, en consecuencia, por (a); (b) sí se satisface. Cero flags flipeados
+- [Phase ?]: 41-04: la clave ordinal 37-r01..37-r14 es la unidad de conteo del criterio 2 en la Phase 37 — sus Task ID se reparten solo cuatro etiquetas entre catorce filas
+- [Phase ?]: 41-04: 37-r11 dispuesta VERIFIED-NOW (comando corregido) tras leer el cuerpo de los dos tests sustitutos; nyquist_compliant sigue en false por R-09(c) pese a 14/14 filas verdes
 
 ### Pending Todos
 
@@ -582,7 +585,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T16:30:46.891Z
+Last session: 2026-08-31T16:38:36.285Z
 Stopped at: Phase 41 context gathered (assumptions mode)
 Resume file: .planning/phases/41-validaci-n-nyquist-retroactiva-de-v1-7/41-CONTEXT.md
 
