@@ -6,14 +6,14 @@ current_phase: 42
 current_phase_name: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
 status: executing
 stopped_at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
-last_updated: "2026-08-31T21:16:54.776Z"
+last_updated: "2026-08-31T21:25:26.353Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 42 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 9
+  completed_plans: 10
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 42 (re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 42 execution started
 
@@ -216,6 +216,7 @@ Last activity: 2026-08-31 — Phase 42 execution started
 | Phase 41 P07 | 23min | 3 tasks | 3 files |
 | Phase 42 P01 | 11min | 3 tasks | 3 files |
 | Phase 42 P02 | 4min | 2 tasks | 1 files |
+| Phase 42 P03 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -521,6 +522,11 @@ Recent decisions affecting current work:
 - [Phase 42]: Aprobacion humana explicita del operador ('Approved') registrada verbatim en 42-01-SUMMARY.md antes de cualquier trafico en vivo; habilita 42-02/42-03/42-04 — checkpoint:human-verify con gate=blocking-human. La aprobacion NO se derivo de auto_advance, mode:yolo ni human_verify_mode:end-of-phase — ese modo no puede gatear trafico que ya ocurrio. verification/mutation_gate.py quedo byte-identico (6bdaec00), order entry fail-closed bajo bbsa sin cambio de codigo.
 - [Phase ?]: Phase 42 (42-02): los 8 valores de vendor fuera de los alias Literal declarados de matriz (6 en CFICode, 2 en OrderType) quedan REGISTRADOS, NO APLICADOS — ampliar un alias es un cambio de forma de un paquete publicado y necesita disposicion de semver propia; ruteado a la Phase 43
 - [Phase ?]: Phase 42 (42-02): ordType se reporta NO MEDIBLE EN ESTA CORRIDA con causa medida (orders vacio en la cuenta bbsa), no se rellena — emitir una orden para fabricar una fila seria una mutacion
+- [Phase ?]: [42-03 / LIVE-01]: **Alcanzabilidad de higyrus MEDIDA hoy (2026-08-31), no heredada.** `socket.gaierror` en DNS y `httpx.ConnectError` en `login()`, ambos con errno `[Errno 8] nodename nor servname provided, or not known` citado verbatim tras pasar un guard de contención case-insensitive (hostname/base URL/netloc). La clase medida es IGUAL a la heredada de la Phase 39 — dicho como hecho verificado, no re-estampado. El driver completo salió 0 con `SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33` y el sobre quedó con `captured_at 2026-08-31T21:20:38Z`, `probes_executed 0` y `skipped` con causa medida. **LIVE-01 medido NO cierra `LIVE-HIGY-33`: los 22 triples (Movimiento 9, PosicionValuada 11, Posicion 2) siguen sin contrastar.**
+- [Phase ?]: [42-03 / WR-02]: **`httpx.ConnectTimeout` re-declarado FUERA DE ALCANCE, decidido por escrito ANTES de la corrida y no revisitado.** No es subclase de `ConnectError` (MRO httpx 0.28.1), así que un host que resuelve pero cuelga cae en `_RESIDUAL_PROBE_EXCEPTIONS` y da `FINDING`/`FAILED` en vez de `SKIPPED`. La rama `_vendor_unreachable` NO se amplió. Destino: backlog de deuda in-code de Phase 39 (D39-01..04, WR-02). Cero líneas de `main_higyrus.py` tocadas.
+- [Phase ?]: [42-03 → 42-05]: **Veredicto explícito: el rename D-06 DISPARA (SÍ).** El bloqueo sigue vivo y medido hoy, el sobre recién committeado lleva el identificador stale `LIVE-HIGY-33`, y ni la rama "DNS resolvió → D-06 moot" ni la rama de resultado inesperado aplican. 42-05 va por su rama principal, respetando su propio hallazgo: **11 ocurrencias en 6 archivos vivos, y UNA no debe renombrarse** (asevera sobre artefacto histórico congelado de v1.6; renombrarla viola la premisa de la Phase 41).
+- [Phase ?]: [42-03 / D42-DEF-01]: Exposición **pre-existente** del base URL del vendor en `higyrus-client-findings.md:5` (header `Resolved base URL / env:`) detectada por el chequeo de no-fuga y **NO corregida**: byte-idéntica a HEAD (último commit `fbb69c3`/Phase 17, header de `e8307a6`/Phase 11), ledger append-only versionado (HARN-07), y la política T-39-04 es posterior a ese header. Ruteada a la **Phase 45** con tres opciones escritas en `deferred-items.md`. Todos los artefactos DE LA SESIÓN dieron CLEAN.
+- [Phase ?]: [42-03 / LIVE-01 traceability]: **LIVE-01 queda `Pending` a propósito al cierre de 42-03.** El criterio 2 del ROADMAP tiene dos mitades: (a) resultado medido —entregado por este plan— y (b) "con el destino `LIVE-HIGY-33` renombrado", que es el plan **42-05**. Marcarlo completo con la mitad (b) sin hacer sería el falso limpio que este proyecto existe para eliminar. Lo cierra el plan **42-06**, que ya lleva LIVE-01 en su frontmatter.
 
 ### Pending Todos
 
@@ -601,7 +607,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:16:50.508Z
+Last session: 2026-08-31T21:23:57.421Z
 Stopped at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
 Resume file: None
 
