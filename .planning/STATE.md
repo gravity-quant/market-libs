@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 42
-current_phase_name: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz
+current_phase_name: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
 status: executing
-stopped_at: Phase 42 context gathered (assumptions mode)
-last_updated: "2026-08-31T20:54:06.636Z"
+stopped_at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
+last_updated: "2026-08-31T21:09:50.509Z"
 last_activity: 2026-08-31
-last_activity_desc: Phase 41 complete, transitioned to Phase 42
+last_activity_desc: Phase 42 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 13
+  completed_plans: 8
   percent: 20
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Phase 41 — validaci-n-nyquist-retroactiva-de-v1-7
+**Current focus:** Phase 42 — re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
 
 ## Current Position
 
-Phase: 42 — Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz
-Plan: Not started
+Phase: 42 (re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-08-31 — Phase 41 complete, transitioned to Phase 42
+Last activity: 2026-08-31 — Phase 42 execution started
 
 ## Performance Metrics
 
@@ -214,6 +214,7 @@ Last activity: 2026-08-31 — Phase 41 complete, transitioned to Phase 42
 | Phase 41 P05 | 19min | 2 tasks | 1 files |
 | Phase 41 P06 | 21min | 2 tasks | 1 files |
 | Phase 41 P07 | 23min | 3 tasks | 3 files |
+| Phase 42 P01 | 11min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -514,6 +515,9 @@ Recent decisions affecting current work:
 - [Phase 41]: 41-07: el gate de inmutabilidad de REQUIREMENTS.md del criterio 5 se sustituye por un hash byte-a-byte de la fila de alcance excluido — la cláusula as-written es insatisfacible porque el seam requirements mark-complete edita ese archivo dentro de la fase
 - [Phase 41]: 41-07: nyquist_compliant de la propia Phase 41 queda en false por evaluación medida de R-09 (fallan (a) y (c): 3 de 16 filas llevan calificador de corrección), no por simetría con las cinco auditadas
 - [Phase 41]: 41-07: los 40 locks de verification/ fuera del allowlist de ci.yml quedan declarados inertes por escrito, con su enrolamiento ruteado a la Phase 45 (HARN-03/HARN-04); la Phase 41 no edita .github/workflows/ci.yml
+- [Phase 42]: El gate de venue de scripts/literal_census_33.py se porta por IMPORT de main_matriz (_VENUE_ALLOWLIST + _venue_token), pinneado por identidad de objeto (is), no por igualdad de contenido — Con import, la divergencia de politica entre el driver y el censo es estructuralmente imposible en vez de solo detectada. El substring-match pre-Phase-39 habria hecho saltear el censo EN SILENCIO contra el sandbox bbsa ya desbloqueado.
+- [Phase 42]: El walk AST anti-substring se restringe al FunctionDef de census_matriz, NO al modulo entero (Q4, cerrada en planificacion) — Un walk a nivel de modulo produce falsos positivos sobre el despacho de flags de main() — confirmado en ejecucion: la Task 2 agrego un segundo despacho (--matriz-only) de la misma forma sintactica. Descubrirlo con un test rojo invita al reflejo de relajar la asercion.
+- [Phase 42]: Aprobacion humana explicita del operador ('Approved') registrada verbatim en 42-01-SUMMARY.md antes de cualquier trafico en vivo; habilita 42-02/42-03/42-04 — checkpoint:human-verify con gate=blocking-human. La aprobacion NO se derivo de auto_advance, mode:yolo ni human_verify_mode:end-of-phase — ese modo no puede gatear trafico que ya ocurrio. verification/mutation_gate.py quedo byte-identico (6bdaec00), order entry fail-closed bajo bbsa sin cambio de codigo.
 
 ### Pending Todos
 
@@ -594,9 +598,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T18:56:15.384Z
-Stopped at: Phase 42 context gathered (assumptions mode)
-Resume file: .planning/phases/42-re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce/42-CONTEXT.md
+Last session: 2026-08-31T21:09:50.503Z
+Stopped at: Completed 42-01-PLAN.md (checkpoint humano aprobado, trafico en vivo habilitado)
+Resume file: None
 
 ## Operator Next Steps
 

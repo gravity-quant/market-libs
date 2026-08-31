@@ -108,13 +108,13 @@ Plans:
   4. `verification/mutation_gate.py` queda **byte-idéntico** y el order entry sigue fail-closed bajo `bbsa`: el widening es del gate de lectura del censo, jamás del gate de mutación.
   5. La corrida deja en disco una **lectura fresca del wire** de `/instruments` y `/segments` de `market-data-client`, fechada en esta sesión, que es la base de evidencia que consume la Phase 43 — el baseline committeado del 2026-07-31 queda explícitamente marcado como no-autoritativo para SHAPE-01.
 
-**Plans**: 6 plans
+**Plans**: 1/6 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 42-01-PLAN.md — Port del gate de venue por import (D-01), header venue/timestamp del censo, flag `--matriz-only`, lock de falsificación enrolado en CI, y checkpoint humano bloqueante que habilita el tráfico *(wave 1)*
+- [x] 42-01-PLAN.md — Port del gate de venue por import (D-01), header venue/timestamp del censo, flag `--matriz-only`, lock de falsificación enrolado en CI, y checkpoint humano bloqueante que habilita el tráfico *(wave 1)*
 
 **Wave 2** *(bloqueada por el checkpoint del plan 42-01)*
 
@@ -186,7 +186,7 @@ Plans:
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
 | 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete    | 2026-08-31 |
-| 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 0/? | Not started | -          |
+| 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 1/6 | In Progress|  |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
 | 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |
