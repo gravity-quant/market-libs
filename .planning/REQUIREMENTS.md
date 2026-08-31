@@ -50,25 +50,39 @@ Explícitamente excluidos de v1.8. Documentado para prevenir scope creep.
 
 ## Traceability
 
-Qué fases cubren qué requisitos. Basado en la secuencia recomendada por `.planning/research/SUMMARY.md` (orden por reversibilidad y clase de evidencia, no por categoría).
+Qué fases cubren qué requisitos. La numeración **continúa** desde v1.7 (última fase = 40), así que
+v1.8 ocupa las **Phases 41-45**. El orden es por reversibilidad y clase de evidencia, no por
+categoría — ver `ROADMAP.md § Phase Details (v1.8)` y `.planning/research/SUMMARY.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NYQ-01 | Phase 1 | Pending |
-| LIVE-01 | Phase 2 | Pending |
-| LIVE-02 | Phase 2 | Pending |
-| SHAPE-01 | Phase 3 | Pending |
-| HARN-02 | Phase 3 | Pending |
-| PUB-01 | Phase 4 | Pending |
-| HARN-01 | Phase 5 | Pending |
-| HARN-03 | Phase 5 | Pending |
-| HARN-04 | Phase 5 | Pending |
+| NYQ-01 | Phase 41 | Pending |
+| LIVE-01 | Phase 42 | Pending |
+| LIVE-02 | Phase 42 | Pending |
+| SHAPE-01 | Phase 43 | Pending |
+| HARN-02 | Phase 43 | Pending |
+| PUB-01 | Phase 44 | Pending |
+| HARN-01 | Phase 45 | Pending |
+| HARN-03 | Phase 45 | Pending |
+| HARN-04 | Phase 45 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 9 total
 - Mapped to phases: 9
 - Unmapped: 0 ✓
+- Duplicados (un requisito en dos fases): 0 ✓
+
+**Dependencias cross-fase de evidencia.** No son mapeos de requisito (cada requisito sigue viviendo
+en una sola fase) — son precondiciones que una fase produce y otra consume:
+
+| Precondición | Producida en | Consumida por |
+|--------------|--------------|---------------|
+| Árbol de v1.7 sin tocar por ningún cambio de v1.8 | — (estado de entrada del milestone) | Phase 41 (NYQ-01) |
+| Lectura fresca del wire de `/instruments` + `/segments` | Phase 42 (criterio 5) | Phase 43 (SHAPE-01) |
+| `models.py` corregido con los 4 gates de CI verdes | Phase 43 | Phase 44 (PUB-01) |
+| Locks generados por el auditor, pendientes de enrolar en CI | Phase 41 (criterio 4) | Phase 45 (criterio 5) |
 
 ---
 *Requirements defined: 2026-08-31*
-*Last updated: 2026-08-31 after initial definition, informed by `.planning/research/SUMMARY.md`*
+*Last updated: 2026-08-31 — traceability re-apuntada a las Phases 41-45 tras la creación del ROADMAP de v1.8*
