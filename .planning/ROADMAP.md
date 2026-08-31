@@ -76,7 +76,16 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. Todo test o lock que el auditor deje en disco está o bien enrolado en el allowlist explícito de CI, o bien declarado **inerte por escrito** con su enrolamiento ruteado al edit consolidado de `ci.yml` de la Phase 45 — un lock que no corre no se cuenta como cobertura.
   5. El alcance queda acotado a las cinco fases nombradas: la entrada `NYQUIST-32-33` sigue en el backlog con su texto intacto, no absorbida en silencio (está en `REQUIREMENTS.md § Out of Scope`).
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 41-01-PLAN.md — Preflight: invariante de árbol congelado, doble SHA, y el contrato de auditoría compartido (denominador 62, reglas R-01..R-09, front-matter objetivo, mapa de enforcement de CI, 3 prohibiciones de workflow) *(wave 1)*
+- [ ] 41-02-PLAN.md — Phase 35: reconstrucción del mapa (12 filas desde los planes) + 13 disposiciones *(wave 2)*
+- [ ] 41-03-PLAN.md — Phase 36: 11 disposiciones + resolución de la fila que shipeó sin comando declarado *(wave 2)*
+- [ ] 41-04-PLAN.md — Phase 37: 14 disposiciones bajo clave ordinal + re-apunte del selector vacío *(wave 2)*
+- [ ] 41-05-PLAN.md — Phase 38: 9 disposiciones (7 re-ejecutadas + 2 históricas con confirmación humana fechada) *(wave 2)*
+- [ ] 41-06-PLAN.md — Phase 39: 15 disposiciones incl. las 4 no re-verificables declaradas en front-matter (criterio 3b) *(wave 2)*
+- [ ] 41-07-PLAN.md — Cierre: aritmética contra 62, criterios 3/4/5, declaración inerte ruteada a la Phase 45, rollup y auto-auditoría *(wave 3)*
 
 ### Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz
 
