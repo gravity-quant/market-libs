@@ -52,3 +52,65 @@ deuda. La decisión pendiente es de tres vías, y ninguna es automática:
 **No decidir esto en la Phase 42** es deliberado: la 42 mide alcanzabilidad en vivo, y
 mezclar una redacción de evidencia histórica con una corrida en vivo confunde qué
 artefacto respalda qué afirmación.
+
+---
+
+## D42-DEF-02 — El SHAPE-diff del driver está INERTE para `Instrument` y `Segment`
+
+- **Descubierto en:** plan 42-04, Task 2 (corrida en vivo) al reconciliar de dónde salían
+  los 28 findings de divergencia campo por campo
+- **Archivo:** `main_market_data.py`, líneas `1001` / `1041` (sync) y `1381` / `1407` (async)
+- **Clase:** guard silenciosamente inerte — no emite falso positivo, emite **nada**
+
+### El hecho medido
+
+Los cuatro probes de `/instruments` y `/instruments/segments` derivan su muestra con:
+
+```python
+sample = raw[0] if isinstance(raw, list) and raw else None
+if isinstance(sample, dict):
+    _emit_shape(sample, Instrument, "Instrument", "sync", base_url)
+```
+
+El wire de estos dos endpoints devuelve un **sobre paginado** (`dict` con `items` /
+`segments` adentro), no un array desnudo — verificado en vivo el 2026-08-31 y
+transcrito en `42-WIRE-READ.md § 2`. Por lo tanto `isinstance(raw, list)` es `False`,
+`sample` queda en `None`, y `_emit_shape` **nunca corre** para estos dos modelos.
+
+Corroboración en el ledger: existen findings con el formato de `_emit_shape`
+(`"wire-only field … en MarketDataSnapshot"`, `"… en Symbol"`, `"… en CalendarConfig"`
+— modelos cuyo `raw` sí es lista o dict-de-fila) y **cero** con ese formato para
+`Instrument` o `Segment`.
+
+### Por qué NO se corrigió en esta fase
+
+1. **Es pre-existente.** No lo causó ninguna task de este plan: la Task 1 sólo agregó dos
+   llamadas a `capture()` y no tocó ni `sample`, ni `_emit_shape`, ni
+   `_write_schema_snapshot`. La condición viene de que el plan 33-07 arregló el
+   desenvolvimiento del sobre en el cliente, pero el driver siguió muestreando como si el
+   wire fuera un array.
+2. **No hay pérdida de evidencia.** El censo de divergencias del decode
+   (`verification/divergences.py:176`) produjo la disposición campo por campo completa
+   —28 findings, F-205…F-218 y F-229…F-242— que es exactamente lo que la Phase 43
+   consume. Arreglarlo hoy no agregaría información, sólo duplicaría la que ya está.
+3. **Arreglarlo exige otra corrida en vivo.** El criterio 5 pide **una** lectura fresca
+   del wire; re-correr el driver para regenerar el mismo dato con otro emisor gasta
+   tráfico contra un servicio de terceros sin producir un hecho nuevo.
+
+### Destino sugerido
+
+**Phase 43 (SHAPE-01, criterio 2)** — la fase que tiene que demostrar *"el antes/después
+se demuestra con la medición, no se afirma"* para `get_segments()`. El riesgo concreto y
+accionable: si la Phase 43 usa `_emit_shape` como la medición del después, va a ver **cero
+findings** para `Instrument`/`Segment` tanto si arregló el modelo como si no —
+un **falso verde**. Dos caminos, ambos legítimos:
+
+- **(a)** Arreglar el muestreo del driver para que descienda al sobre
+  (`raw["items"]` / `raw["segments"]`) antes de tomar `raw[0]`, y recién entonces usar
+  `_emit_shape` como evidencia del antes/después.
+- **(b)** Usar el censo de divergencias del decode como la medición del antes/después
+  (es el que ya funciona), y dejar el muestreo del driver como está, documentando que
+  para estos dos endpoints el SHAPE-diff es redundante por diseño.
+
+Elegir (b) sin escribir la razón deja el guard inerte y sin marca, que es la forma en que
+esto se volvió invisible la primera vez.
