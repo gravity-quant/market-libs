@@ -56,7 +56,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 > **Granularity `coarse` con 5 fases, deliberado.** No hay compresión válida disponible: 41 no puede fusionarse con nada porque audita un árbol que las otras modifican; 42 no puede fusionarse con 43 porque 43 consume su evidencia; 43 y 44 no pueden fusionarse por el precedente de release; 45 no puede adelantarse por la decisión de orden de arriba. Las 5 fases salen de restricciones estructurales, no de granularidad.
 
 - [x] **Phase 41: Validación Nyquist retroactiva de v1.7** *(primera y sola — audita árbol congelado)* — `/gsd-validate-phase` sobre las Phases 35-39 con disposición de 3 vías por hallazgo, sin flip mecánico de `nyquist_compliant` — NYQ-01 (completed 2026-08-31)
-- [ ] **Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz** — higyrus produce un veredicto medido y matriz produce el censo de valores `Literal` de RESPONSE, con el gate del script portado a igualdad exacta de hostname antes de tocar la red — LIVE-01, LIVE-02
+- [x] **Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz** — higyrus produce un veredicto medido y matriz produce el censo de valores `Literal` de RESPONSE, con el gate del script portado a igualdad exacta de hostname antes de tocar la red — LIVE-01, LIVE-02 (completed 2026-08-31)
 - [ ] **Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas** *(fix, sin publicar)* — disposición campo por campo contra la lectura fresca de la Phase 42, fixtures re-derivadas y los 4 gates de CI verdes — SHAPE-01, HARN-02
 - [ ] **Phase 44: Release `market-data-client` 0.7.0** — bump en los 4 sitios, changelog + tabla de migración, doble gate humano independiente **escrito** `gate="blocking-human"` — PUB-01
 - [ ] **Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz** — dedupe con test de falsificación e invariante de fids intacto, `IN-06` cerrado, `IN-05` retirado, y `HARN-04` decidido por escrito — HARN-01, HARN-03, HARN-04
@@ -108,7 +108,7 @@ Plans:
   4. `verification/mutation_gate.py` queda **byte-idéntico** y el order entry sigue fail-closed bajo `bbsa`: el widening es del gate de lectura del censo, jamás del gate de mutación.
   5. La corrida deja en disco una **lectura fresca del wire** de `/instruments` y `/segments` de `market-data-client`, fechada en esta sesión, que es la base de evidencia que consume la Phase 43 — el baseline committeado del 2026-07-31 queda explícitamente marcado como no-autoritativo para SHAPE-01.
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans complete
 
 Plans:
 
@@ -128,7 +128,7 @@ Plans:
 
 **Wave 4** *(bloqueada por 42-02, 42-04 y 42-05)*
 
-- [ ] 42-06-PLAN.md — Cierre: corrección del backlog (Q5), disposición de los 5 criterios en `42-CLOSURE.md` y gate cross-fase *(wave 4)*
+- [x] 42-06-PLAN.md — Cierre: corrección del backlog (Q5), disposición de los 5 criterios en `42-CLOSURE.md` y gate cross-fase *(wave 4)*
 
 ### Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas
 
@@ -186,7 +186,7 @@ Plans:
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
 | 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete    | 2026-08-31 |
-| 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 5/6 | In Progress|  |
+| 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
 | 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |

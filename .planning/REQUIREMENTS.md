@@ -9,7 +9,7 @@ Requisitos para el milestone v1.8. Cada uno mapea a una fase del roadmap.
 
 ### Verificación en vivo
 
-- [ ] **LIVE-01**: Re-chequear la conectividad DNS de `higyrus-client` y producir un resultado medido — resuelto, o `SKIPPED` con causa re-confirmada (nunca un silencio)
+- [x] **LIVE-01**: Re-chequear la conectividad DNS de `higyrus-client` y producir un resultado medido — resuelto, o `SKIPPED` con causa re-confirmada (nunca un silencio)
 - [x] **LIVE-02**: Correr el censo de valores `Literal` de RESPONSE de `matriz-client` (`marketId`/`cficode`/`currency`/`orderTypes`/`ordType`) contra el sandbox `bbsa`, con el allowlist exacto de hostname portado primero desde `main_matriz.py` (el gate actual de `scripts/literal_census_33.py` sigue en substring-match y bloquearía la corrida en silencio)
 
 ### Cobertura Nyquist
@@ -57,7 +57,7 @@ categoría — ver `ROADMAP.md § Phase Details (v1.8)` y `.planning/research/SU
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | NYQ-01 | Phase 41 | Complete |
-| LIVE-01 | Phase 42 | Pending |
+| LIVE-01 | Phase 42 | Complete |
 | LIVE-02 | Phase 42 | Complete |
 | SHAPE-01 | Phase 43 | Pending |
 | HARN-02 | Phase 43 | Pending |
