@@ -5,15 +5,15 @@ milestone_name: Cierre de deuda post-v1.7
 current_phase: 42
 current_phase_name: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
 status: executing
-stopped_at: Completed 42-04-PLAN.md
-last_updated: "2026-08-31T21:35:54.151Z"
+stopped_at: Completed 42-05-PLAN.md
+last_updated: "2026-08-31T21:42:51.347Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 42 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 42 (re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 42 execution started
 
@@ -218,6 +218,7 @@ Last activity: 2026-08-31 — Phase 42 execution started
 | Phase 42 P02 | 4min | 2 tasks | 1 files |
 | Phase 42 P03 | 6min | 2 tasks | 2 files |
 | Phase 42 P04 | 7min | 3 tasks | 4 files |
+| Phase 42 P05 | 3min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -531,6 +532,9 @@ Recent decisions affecting current work:
 - [Phase 42]: 42-04: n_rows quedó null en /instruments y /segments y NO se 'arregló' — el wire devuelve un sobre paginado (dict), no un array, así que len(raw) if isinstance(raw, list) else None evaluó como el plan lo especificó — Cambiar el cómputo habría exigido una segunda corrida en vivo contra un servicio de terceros para regenerar un dato que ya está reportado (50 filas / 4 filas, derivado de items y segments) en 42-WIRE-READ.md
 - [Phase 42]: 42-04: el delta vacío contra el baseline del 2026-07-31 se reporta como RESULTADO de la re-medición y NO revierte la marca de no-autoritatividad — Lo autoritativo para SHAPE-01 es la medición de hoy, que resulta coincidir; escrito explícitamente en 42-WIRE-READ.md § 4 para que la Phase 43 no concluya 'el baseline coincide, entonces uso el baseline'
 - [Phase 42]: 42-04: D42-DEF-02 (SHAPE-diff del driver INERTE para Instrument/Segment) se difiere a la Phase 43 en vez de arreglarse — Es preexistente (no lo causó ninguna task del plan), no hubo pérdida de evidencia (el censo de divergencias del decode produjo los 28 findings F-205..F-242), y el fix exigía otra corrida en vivo sin producir un hecho nuevo
+- [Phase ?]: 42-05: el rename D-06 disparo porque el veredicto medido por 42-03 fue SKIPPED — LIVE-HIGY-33 pasa a LIVE-HIGY-42 en los 14 sitios vivos (11 codigo + 3 prosa, 7 archivos, 1 commit atomico)
+- [Phase ?]: 42-05: la historia congelada NO se renombra — test_cycle_closure_phase33.py:250-252 conserva exactamente 2 ocurrencias del identificador viejo (asevera contra 33-CENSUS.md); el criterio es 'afirma estado vivo vs. historico', no 'prosa vs. codigo'
+- [Phase ?]: 42-05: el sobre de evidencia se regenero corriendo el driver por segunda vez (captured_at 2026-08-31T21:38:57), nunca editando el JSON; las dos mediciones de la sesion COINCIDIERON (SKIPPED, exit 0)
 
 ### Pending Todos
 
@@ -611,8 +615,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:35:54.145Z
-Stopped at: Completed 42-04-PLAN.md
+Last session: 2026-08-31T21:42:51.341Z
+Stopped at: Completed 42-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
