@@ -14,7 +14,7 @@ Requisitos para el milestone v1.8. Cada uno mapea a una fase del roadmap.
 
 ### Cobertura Nyquist
 
-- [ ] **NYQ-01**: Correr `/gsd-validate-phase` retroactivo sobre las 5 fases de v1.7 (35-39) que nunca lo ejecutaron, produciendo una disposición de 3 vías por hallazgo (`VERIFIED-NOW` / `VERIFIED-HISTORICALLY` / `NOT-VERIFIABLE-RETROACTIVELY`) — nunca un flip mecánico de `nyquist_compliant` a `true`
+- [x] **NYQ-01**: Correr `/gsd-validate-phase` retroactivo sobre las 5 fases de v1.7 (35-39) que nunca lo ejecutaron, produciendo una disposición de 3 vías por hallazgo (`VERIFIED-NOW` / `VERIFIED-HISTORICALLY` / `NOT-VERIFIABLE-RETROACTIVELY`) — nunca un flip mecánico de `nyquist_compliant` a `true`
 
 ### market-data-client shape fix
 
@@ -56,7 +56,7 @@ categoría — ver `ROADMAP.md § Phase Details (v1.8)` y `.planning/research/SU
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NYQ-01 | Phase 41 | Pending |
+| NYQ-01 | Phase 41 | Complete |
 | LIVE-01 | Phase 42 | Pending |
 | LIVE-02 | Phase 42 | Pending |
 | SHAPE-01 | Phase 43 | Pending |

@@ -76,12 +76,12 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
   4. Todo test o lock que el auditor deje en disco está o bien enrolado en el allowlist explícito de CI, o bien declarado **inerte por escrito** con su enrolamiento ruteado al edit consolidado de `ci.yml` de la Phase 45 — un lock que no corre no se cuenta como cobertura.
   5. El alcance queda acotado a las cinco fases nombradas: la entrada `NYQUIST-32-33` sigue en el backlog con su texto intacto, no absorbida en silencio (está en `REQUIREMENTS.md § Out of Scope`).
 
-**Plans**: 7 plans
+**Plans**: 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 41-01-PLAN.md — Preflight: invariante de árbol congelado, doble SHA, y el contrato de auditoría compartido (denominador 62, reglas R-01..R-09, front-matter objetivo, mapa de enforcement de CI, 3 prohibiciones de workflow) *(wave 1)*
+- [x] 41-01-PLAN.md — Preflight: invariante de árbol congelado, doble SHA, y el contrato de auditoría compartido (denominador 62, reglas R-01..R-09, front-matter objetivo, mapa de enforcement de CI, 3 prohibiciones de workflow) *(wave 1)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -165,7 +165,7 @@ Plans:
 | 38. `iol-client` + auditoría higyrus/ámbito/wallets          | v1.7      | 4/4 | Complete    | 2026-08-29 |
 | 39. Verificación en vivo del encadenamiento profundo         | v1.7      | 8/8 | Complete    | 2026-08-30 |
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
-| 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 0/? | Not started | -          |
+| 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 1/7 | In Progress|  |
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 0/? | Not started | -          |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |

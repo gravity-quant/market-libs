@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 41
-status: planning
+current_phase_name: validaci-n-nyquist-retroactiva-de-v1-7
+status: executing
 stopped_at: Phase 41 context gathered (assumptions mode)
-last_updated: "2026-08-31T14:43:31.208Z"
+last_updated: "2026-08-31T16:11:10.065Z"
 last_activity: 2026-08-31
-last_activity_desc: ROADMAP de v1.8 creado (Phases 41-45)
+last_activity_desc: Phase 41 execution started
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 7
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** v1.8 “Cierre de deuda post-v1.7” — roadmap creado (Phases 41-45, 9/9 requisitos mapeados). Sin superficie nueva: cada ítem que v1.7 dejó abierto **con causa medida** recibe en v1.8 un resultado igualmente medido (disposición escrita, veredicto en vivo, corrección publicada o deuda formalmente aceptada). Next: `/gsd-plan-phase 41`.
+**Current focus:** Phase 41 — validaci-n-nyquist-retroactiva-de-v1-7
 
 ## Current Position
 
-Phase: 41 — Validación Nyquist retroactiva de v1.7 (not started)
-Plan: —
-Status: Roadmap complete, awaiting phase planning
-Last activity: 2026-08-31 — ROADMAP de v1.8 creado (Phases 41-45)
+Phase: 41 (validaci-n-nyquist-retroactiva-de-v1-7) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-08-31 — Phase 41 execution started
 
 ## Performance Metrics
 
@@ -206,6 +207,7 @@ Last activity: 2026-08-31 — ROADMAP de v1.8 creado (Phases 41-45)
 | 43    | ?     | Not started | SHAPE-01, HARN-02 | Un solo cambio de `market_data_client/models.py`: tabla de disposición **campo por campo** (`alias aditivo` / `remover` / `agregar` / `mantener`) contra la lectura fresca de la Phase 42 — `Instrument.marketId` como **alias aditivo** (precedente D-22), nunca rename — más las 5 claves `extra` tipadas sin flip `extra`→`missing`. Fixtures **re-derivadas** con aserción fixture-⊆-baseline. **No** bumpea ni publica. |
 | 44    | ?     | Not started | PUB-01 | Release `market-data-client` **0.7.0**: 4 sitios de versión, `uv.lock` una sola vez, `release.yml` sin editar, changelog + **tabla de migración** vieja→nueva, tag anotado sobre merge commit real, verificación post-publicación instalando desde el wheel público. Los dos gates escritos literalmente `gate="blocking-human"` — la forma `gate="blocking"` ya se auto-aprobó dos veces. Fase propia por precedente lockeado (v1.5 P28 / v1.6 P34 / v1.7 P40). |
 | 45    | ?     | Not started | HARN-01, HARN-03, HARN-04 | Aterriza **después** de las corridas en vivo (decisión de orden explícita). HARN-01 no es un kwarg: título content-addressed o dedupe intra-run + reordenar `_next_fid()` respecto del chequeo + **test de falsificación**; nunca relajar `test_finding_count_consistency.py`. HARN-04 se cierra con decisión escrita y fechada (reparar **con** enrolamiento en CI, o aceptar la deuda). Edit consolidado único de la allowlist de `ci.yml`. |
+| Phase 41 P01 | 8min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -485,6 +487,12 @@ Recent decisions affecting current work:
 - [Phase 40]: 40-03: ámbito y wallets NO publicados (D-01, aditivos por medición); conteos de tags idénticos al baseline pre-fase (ámbito 2, wallets 1)
 - [Phase 40]: 40-03: defecto de plan confirmado — la cláusula `wallets-client-v*` == 2 del verify de la Task 2 es STALE (el conteo real es 1). Se OVERRIDEÓ con justificación; NO se creó ni borró ningún tag para hacerla pasar. Forma correcta a futuro: ámbito == 2, wallets == 1
 - [Phase 40]: 40-03: los bloques `<verify>` de los planes asumen bash word-splitting y fallan bajo zsh (`for T in $TAGS`, `uv pip install $WHEELS`). Correr los verify blocks bajo `bash -c` en esta máquina
+- [Phase ?]: Phase 41 OQ#1: las 4 filas manual-only de la Phase 39 se disponen NOT-VERIFIABLE-RETROACTIVELY (R-07) — gana el ejemplo lockeado de D-04 sobre la inferencia del researcher; en auditoría se sub-declara, no se sobre-declara
+- [Phase ?]: Phase 41 OQ#2: ni 36 ni 37 cierran limpias — R-09 exige además cero calificadores de corrección, así que las cinco fases quedan en nyquist_compliant: false por evidencia, no por decreto
+- [Phase ?]: Phase 41-01: criterio 3b se marca con la clave de front-matter not_verifiable_retroactively en los cinco archivos (incluso donde vale 0); se descarta nyquist_compliant: partial
+- [Phase ?]: Phase 41-01: denominador del criterio 2 fijado en 62 (13/11/14/9/15); rechazados 51 (as-declared) y 25 (criterios de ROADMAP de v1.7)
+- [Phase ?]: Phase 41-01: audit_baseline_head (6dd83cf4) se captura una sola vez en 41-AUDIT-CONTRACT.md y se copia literal; criterio 1 es invariante continuo, no gate único
+- [Phase ?]: Phase 41-01: el planner mis-sumó las tareas de la fase como 14; el valor real medido es 16 (3+2+2+2+2+2+3) — corrección registrada en 41-AUDIT-CONTRACT.md §2.5 para el gate de 41-07
 
 ### Pending Todos
 
@@ -565,7 +573,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T14:43:31.199Z
+Last session: 2026-08-31T16:10:40.816Z
 Stopped at: Phase 41 context gathered (assumptions mode)
 Resume file: .planning/phases/41-validaci-n-nyquist-retroactiva-de-v1-7/41-CONTEXT.md
 
