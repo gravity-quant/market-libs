@@ -89,7 +89,8 @@ jobs:
             verification/test_main_iol_deep_chain.py \
             verification/test_main_higyrus_deep_chain.py \
             verification/test_main_matriz_deep_chain.py \
-            verification/test_cycle_closure_phase33.py
+            verification/test_cycle_closure_phase33.py \
+            verification/test_literal_census_venue_gate.py
 
   pre-commit:
     name: pre-commit hooks
