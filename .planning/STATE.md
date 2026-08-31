@@ -6,14 +6,14 @@ current_phase: 41
 current_phase_name: validaci-n-nyquist-retroactiva-de-v1-7
 status: executing
 stopped_at: Phase 41 context gathered (assumptions mode)
-last_updated: "2026-08-31T16:11:10.065Z"
+last_updated: "2026-08-31T16:24:43.506Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 41 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 41 (validaci-n-nyquist-retroactiva-de-v1-7) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 41 execution started
 
@@ -208,6 +208,7 @@ Last activity: 2026-08-31 — Phase 41 execution started
 | 44    | ?     | Not started | PUB-01 | Release `market-data-client` **0.7.0**: 4 sitios de versión, `uv.lock` una sola vez, `release.yml` sin editar, changelog + **tabla de migración** vieja→nueva, tag anotado sobre merge commit real, verificación post-publicación instalando desde el wheel público. Los dos gates escritos literalmente `gate="blocking-human"` — la forma `gate="blocking"` ya se auto-aprobó dos veces. Fase propia por precedente lockeado (v1.5 P28 / v1.6 P34 / v1.7 P40). |
 | 45    | ?     | Not started | HARN-01, HARN-03, HARN-04 | Aterriza **después** de las corridas en vivo (decisión de orden explícita). HARN-01 no es un kwarg: título content-addressed o dedupe intra-run + reordenar `_next_fid()` respecto del chequeo + **test de falsificación**; nunca relajar `test_finding_count_consistency.py`. HARN-04 se cierra con decisión escrita y fechada (reparar **con** enrolamiento en CI, o aceptar la deuda). Edit consolidado único de la allowlist de `ci.yml`. |
 | Phase 41 P01 | 8min | 3 tasks | 2 files |
+| Phase 41 P02 | 22min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -493,6 +494,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 41-01: denominador del criterio 2 fijado en 62 (13/11/14/9/15); rechazados 51 (as-declared) y 25 (criterios de ROADMAP de v1.7)
 - [Phase ?]: Phase 41-01: audit_baseline_head (6dd83cf4) se captura una sola vez en 41-AUDIT-CONTRACT.md y se copia literal; criterio 1 es invariante continuo, no gate único
 - [Phase ?]: Phase 41-01: el planner mis-sumó las tareas de la fase como 14; el valor real medido es 16 (3+2+2+2+2+2+3) — corrección registrada en 41-AUDIT-CONTRACT.md §2.5 para el gate de 41-07
+- [Phase ?]: Phase 41 / plan 41-02: el paso RED de TDD 35-r01 se dispone VERIFIED-HISTORICALLY (R-05) sin re-ejecutarlo — su cadena lleva un '&& !' sobre tres tests que hoy pasan, asi que sale 1 por diseno; leerlo como rojo llevaria a 'arreglar' un test que esta bien.
+- [Phase ?]: Phase 41 / plan 41-02: las dos rutas muertas de 35-02 (35-r04, 35-r05) se corrigen en el comando EJECUTADO y se disponen VERIFIED-NOW (ruta corregida) por R-03; 35-02-PLAN.md queda intacto como registro historico y la ruta stale se nombra en Hallazgos de bookkeeping.
+- [Phase ?]: Phase 41 / plan 41-02: nyquist_compliant de la Phase 35 se queda en false por evidencia medida, no por decreto — R-09 falla por (b) una fila VERIFIED-HISTORICALLY y por (c) dos calificadores de correccion. Cero flags flipeados; las seis casillas preexistentes del sign-off quedan sin tildar.
+- [Phase ?]: Phase 41 / plan 41-02: la fila placeholder del mapa de la Phase 35 se CONSERVA marcada como superada en vez de borrarse — su existencia es en si un hallazgo de la auditoria (la fase shipeo con el mapa sin llenar, D-05); las 12 filas reales se reconstruyen debajo desde los bloques <verify><automated> de los cinco planes.
 
 ### Pending Todos
 
@@ -573,7 +578,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T16:10:40.816Z
+Last session: 2026-08-31T16:24:16.654Z
 Stopped at: Phase 41 context gathered (assumptions mode)
 Resume file: .planning/phases/41-validaci-n-nyquist-retroactiva-de-v1-7/41-CONTEXT.md
 
