@@ -787,30 +787,111 @@ class HolidaysIn:
 class Instrument(SafeModel):
     """An instrument row from ``GET /instruments``.
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
-    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
-    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    Live-read provenance: field set taken verbatim from the FRESH wire read of
+    2026-08-31 (``42-WIRE-READ.md`` section 2, 50 rows measured, findings
+    F-205..F-218). Not from the OpenAPI and not from a mock. All 50 rows carried
+    the same homogeneous ten-key set: ``active``, ``currency``,
+    ``days_to_maturity``, ``expired``, ``market_id``, ``maturity``, ``outright``,
+    ``segment``, ``subscribed``, ``symbol``.
+
+    Six of those ten — ``market_id``, ``currency``, ``days_to_maturity``,
+    ``maturity``, ``outright``, ``subscribed`` — were undeclared and therefore
+    SILENTLY DISCARDED on every catalogue read before Phase 43 (D-02).
+
+    ``| None`` justification — :attr:`active` is declared ``bool | None`` because
+    the live read OBSERVED it as ``null`` on 50/50 rows (D-03). The ``bool`` half
+    of the union was NEVER observed and is typed on the endpoint's semantics
+    alone: that half is a DECLARED ASSUMPTION, self-correcting through the
+    divergence census exactly as :attr:`FeedIngestor.last_error` is. Declaring it
+    a plain ``bool`` would have turned a measured ``extra`` key into a permanent
+    ``missing`` record on every single catalogue read.
+
+    ``marketId`` is a DEPRECATED CAMEL-CASE ALIAS of :attr:`market_id`. The wire
+    uses snake_case throughout this API and never sends the camelCase spelling.
+    It is NOT renamed, because ``Instrument`` is published read surface and a
+    rename would break consumers (D-04, following the ``Symbol`` precedent
+    D-22). Instead the wire-correct field is added alongside and :meth:`from_api`
+    mirrors ``market_id`` into ``marketId``, so the alias — which used to be
+    permanently ``""`` against a real payload — now carries the real value. New
+    code should read :attr:`market_id`; the alias is scheduled for removal at the
+    next MAJOR.
+
+    The previously declared ``instrumentType`` field exists NOWHERE on the wire —
+    it was the PROVISIONAL A1/A2 guess. Removing it is treated as a minor,
+    NON-breaking change (D-05, D-13 argument): the wire never sent that key, so
+    every released consumer that read it got the empty string and no populated
+    value could ever have been observed.
+
+    A plain :class:`SafeModel` subclass in every other respect: it carries NO
+    ``received_at`` (D-05 — reference data is unstamped).
     """
 
     symbol: str
     marketId: str
     segment: str
-    instrumentType: str
     expired: bool
+    market_id: str
+    currency: str
+    days_to_maturity: int
+    maturity: str
+    outright: bool
+    subscribed: bool
+    active: bool | None = None
+
+    @classmethod
+    def from_api(cls, payload: Any) -> Self:
+        """Build an ``Instrument``, mirroring the wire ``market_id`` into ``marketId``.
+
+        Same pre-processing as :meth:`Symbol.from_api`. The wire never sends
+        ``marketId``; without this the deprecated alias would stay ``""`` forever
+        and silently contradict :attr:`market_id`. An explicit ``marketId`` in the
+        payload (a hand-built dict, an older fixture) still wins — the mirror only
+        FILLS an absent key, it never overwrites, and it copies the dict rather
+        than mutating the caller's.
+
+        Phase 29 (``29-SEMANTICS-MATRIX.md`` Section 3(b)): the mirror runs
+        BEFORE the walker sees the payload, which is what keeps extra-key
+        reporting correct. After the mirror ``marketId`` is a declared field
+        with a present key, so no ``extra`` record fires for it — right, because
+        the client synthesized that key, the vendor did not send it.
+        """
+        if isinstance(payload, dict) and "marketId" not in payload and "market_id" in payload:
+            payload = {**payload, "marketId": payload["market_id"]}
+        # Explicit two-arg ``super()``: ``@dataclass(slots=True)`` REBUILDS the
+        # class, so the implicit ``__class__`` cell captured by a zero-arg
+        # ``super()`` still points at the pre-slots class and raises
+        # ``TypeError: obj must be an instance or subtype of type``. The module
+        # global ``Instrument`` is rebound to the slots class, so naming it works.
+        return super(Instrument, cls).from_api(payload)
 
 
 @dataclass(frozen=True, slots=True)
 class Segment(SafeModel):
     """A market segment row from ``GET /instruments/segments``.
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
-    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
-    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    Live-read provenance: field set taken verbatim from the FRESH wire read of
+    2026-08-31 (``42-WIRE-READ.md`` section 2, 4 rows measured). Not from the
+    OpenAPI and not from a mock. All 4 rows carried exactly ``segment`` (str) and
+    ``live_instruments`` (int).
+
+    The three previously declared fields — ``marketSegmentId`` / ``marketId`` /
+    ``description`` — exist NOWHERE on the wire; they were the PROVISIONAL A1/A2
+    guess. Their removal is NON-breaking by the D-13 argument: the wire key set
+    and the old declared set were DISJOINT, so every row a released consumer ever
+    read decoded to three empty strings and no populated value could have been
+    observed (D-06).
+
+    NOT alias-mapped under D-22: that precedent covers ONE key with a
+    camelCase/snake_case spelling variant (``marketId``/``market_id``), whereas
+    ``marketSegmentId`` and ``segment`` are simply different names. The model is
+    replaced, not extended (D-06, explicit rejection).
+
+    A plain :class:`SafeModel` subclass built via the inherited ``from_api`` (no
+    override): it carries NO ``received_at`` (D-05 — reference data is unstamped).
     """
 
-    marketSegmentId: str
-    marketId: str
-    description: str
+    segment: str
+    live_instruments: int
 
 
 @dataclass(frozen=True, slots=True)
