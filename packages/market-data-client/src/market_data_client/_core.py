@@ -1039,16 +1039,15 @@ def parse_segments_response(resp: httpx.Response) -> list[Segment]:
     :func:`parse_instruments_response` — same defect, same measurement
     (``F-83`` / ``F-103``), two all-default rows per read.
 
-    Unwrapping is only half of S-1's blast radius, and the other half is
-    DELIBERATELY not fixed here: :class:`~market_data_client.models.Segment`
-    declares ``marketSegmentId`` / ``marketId`` / ``description`` while the wire
-    row carries ``segment`` / ``live_instruments``. Correcting that is a
-    published-model shape change, which Phase 33's plan 33-07 Task 1 gates behind
-    an explicit operator disposition; the operator authorised three such changes
-    and this was not among them. The rows now decode as REAL rows with REPORTED
-    per-field ``missing``/``extra`` divergences instead of a single terminal
-    ``non_dict`` that hides them — visible instead of silent. The shape
-    correction is routed to ``SHAPE-MD-REF-33`` (``ROADMAP.md`` § Backlog).
+    Unwrapping was only half of S-1's blast radius. The other half — the SHAPE of
+    :class:`~market_data_client.models.Segment` — was corrected in Phase 43 under
+    requirement ``SHAPE-01``, against the FRESH wire read of 2026-08-31
+    (``42-WIRE-READ.md`` section 2, 4 rows measured). The model used to declare
+    ``marketSegmentId`` / ``marketId`` / ``description``, a key set DISJOINT from
+    the wire's, so every unwrapped row decoded as an entirely EMPTY row of three
+    blank strings. It now declares ``segment`` (str) and ``live_instruments``
+    (int), the two real wire keys, so the rows decode POPULATED. The backlog route
+    that previously tracked this shape correction is CLOSED by that phase.
 
     A bare-list body is still accepted as-is for compatibility; a dict without
     ``segments`` (or a non-list ``segments``), a ``null``/empty, or any other body
