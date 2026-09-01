@@ -165,14 +165,42 @@ def test_parse_instruments_response_null_and_204_return_empty() -> None:
 
 
 def test_parse_instruments_response_returns_list_of_models() -> None:
+    # Re-derived (Phase 43, SHAPE-01) to the measured ten-key wire row. The old
+    # body sent the camelCase ``marketId`` EXPLICITLY, which suppresses the D-04
+    # mirror — so the fixture was stale against a wire that only ever sends
+    # ``market_id``. Values synthetic, key set real.
     body = [
-        {"symbol": "GGAL", "marketId": "M"},
-        {"symbol": "YPFD", "marketId": "M"},
+        {
+            "symbol": "GGAL",
+            "segment": "DDF",
+            "expired": False,
+            "market_id": "ROFX",
+            "currency": "ARS",
+            "days_to_maturity": 30,
+            "maturity": "2099-12-31",
+            "outright": True,
+            "subscribed": False,
+            "active": None,
+        },
+        {
+            "symbol": "YPFD",
+            "segment": "DDF",
+            "expired": False,
+            "market_id": "ROFX",
+            "currency": "ARS",
+            "days_to_maturity": 60,
+            "maturity": "2099-12-31",
+            "outright": True,
+            "subscribed": False,
+            "active": None,
+        },
     ]
     result = _core.parse_instruments_response(_resp(200, json_body=body))
     assert len(result) == 2
     assert all(isinstance(i, Instrument) for i in result)
     assert result[0].symbol == "GGAL"
+    assert result[0].market_id == "ROFX"
+    assert result[0].marketId == result[0].market_id
 
 
 def test_parse_segments_response_null_and_204_return_empty() -> None:
@@ -183,10 +211,16 @@ def test_parse_segments_response_null_and_204_return_empty() -> None:
 
 
 def test_parse_segments_response_returns_list_of_models() -> None:
-    body = [{"marketSegmentId": "S1", "marketId": "M"}]
+    # Re-derived (Phase 43, D-06) to the measured two-key wire row. Until now the
+    # declared and wire key sets were DISJOINT, so this test passed VACUOUSLY: an
+    # ``isinstance`` check over a row of three empty strings. The value assertions
+    # are what make it fail if the row ever comes back unpopulated again.
+    body = [{"segment": "DDF", "live_instruments": 7}]
     result = _core.parse_segments_response(_resp(200, json_body=body))
     assert len(result) == 1
     assert isinstance(result[0], Segment)
+    assert result[0].segment == "DDF"
+    assert result[0].live_instruments == 7
 
 
 def test_parse_symbols_response_null_and_204_return_empty() -> None:

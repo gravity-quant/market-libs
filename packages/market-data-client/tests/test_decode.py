@@ -664,7 +664,15 @@ def test_coerce_is_still_callable_with_identical_return_values() -> None:
 def test_real_reference_model_missing_field_defaults_and_now_reports(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A shipped reference model still substitutes — and now says so."""
+    """A shipped reference model still substitutes — and now says so.
+
+    Two halves since Phase 43. FIRST: a payload with NO ``market_id`` leaves the
+    D-04 mirror unfired, so the deprecated ``marketId`` alias is genuinely absent
+    and the walker still reports it ``missing``. SECOND: the SAME payload plus the
+    snake_case key fires the mirror and that ``missing`` record is GONE — the
+    decode-side proof of D-04. Without the second half this test stays green
+    whether or not the mirror exists at all.
+    """
     obj, records = _from_api(models.Instrument.from_api, caplog, {"symbol": "DLR/DIC26"})
 
     assert obj.symbol == "DLR/DIC26"
@@ -672,20 +680,34 @@ def test_real_reference_model_missing_field_defaults_and_now_reports(
     assert obj.expired is False
     assert (".marketId", "missing") in _tuples(records)
 
+    # A second ``_from_api`` call, not a bare ``Instrument.from_api``: the fresh
+    # request scope is what keeps the (model, path, kind) dedupe of the first call
+    # from silencing this assertion.
+    mirrored, mirrored_records = _from_api(
+        models.Instrument.from_api, caplog, {"symbol": "DLR/DIC26", "market_id": "ROFX"}
+    )
+
+    assert mirrored.marketId == "ROFX"
+    assert mirrored.marketId == mirrored.market_id
+    assert (".marketId", "missing") not in _tuples(mirrored_records)
+
 
 def test_real_model_extra_wire_key_reports_and_builds_unchanged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Extra-key detection is the capability ``_coerce`` structurally could not have."""
+    # Re-derived (Phase 43, D-06) to the measured two-key ``Segment`` row plus one
+    # unknown vendor key — the point of the test is the unknown key, and it only
+    # means something over a row whose declared keys actually match the wire.
     payload = {
-        "marketSegmentId": "DDF",
-        "marketId": "ROFX",
-        "description": "d",
+        "segment": "DDF",
+        "live_instruments": 7,
         "vendorNuevo": 1,
     }
     obj, records = _from_api(models.Segment.from_api, caplog, payload)
 
-    assert obj.marketSegmentId == "DDF"
+    assert obj.segment == "DDF"
+    assert obj.live_instruments == 7
     assert (".vendorNuevo", "extra") in _tuples(records)
 
 
@@ -1339,13 +1361,14 @@ def test_a_non_dict_payload_emits_exactly_one_terminal_record(
 def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None:
     """WR-03: every ``from_api`` exemption of the semantics matrix is top-level only.
 
-    ``MarketDataSnapshot.from_api`` injects ``received_at`` (D-01) and
+    ``MarketDataSnapshot.from_api`` injects ``received_at`` (D-01),
     ``Symbol.from_api`` mirrors ``market_id`` onto the deprecated ``marketId``
-    alias. The walker builds a nested model with ``hint(**walk_model(...))`` and
-    never calls ``from_api``, so both exemptions would be silently skipped for a
-    nested occurrence. matriz pins the same precondition for its mapping axis;
-    this is market-data's counterpart, and it fails loudly the day someone nests
-    one of the two overriding models.
+    alias, and — since Phase 43 — ``Instrument.from_api`` does the same mirror for
+    its own deprecated camelCase alias (D-04). The walker builds a nested model
+    with ``hint(**walk_model(...))`` and never calls ``from_api``, so all three
+    exemptions would be silently skipped for a nested occurrence. matriz pins the
+    same precondition for its mapping axis; this is market-data's counterpart, and
+    it fails loudly the day someone nests one of the three overriding models.
     """
     shipped = [
         obj
@@ -1357,7 +1380,7 @@ def test_models_with_a_from_api_override_are_never_a_nested_field_type() -> None
         for cls in shipped
         if cls.__dict__.get("from_api") is not None  # declared on the class itself
     }
-    assert overriding == {"MarketDataSnapshot", "Symbol"}
+    assert overriding == {"Instrument", "MarketDataSnapshot", "Symbol"}
 
     nested_types: set[str] = set()
     for cls in shipped:
