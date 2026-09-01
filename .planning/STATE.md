@@ -4,17 +4,17 @@ milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 43
 current_phase_name: market-data-client-forma-de-instrument-segment-5-claves-extr
-status: executing
-stopped_at: Phase 43 context gathered (assumptions mode)
-last_updated: "2026-09-01T01:08:13.374Z"
+status: verifying
+stopped_at: Completed 43-03-PLAN.md — Phase 43 cerrada
+last_updated: "2026-09-01T01:23:42.664Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 43 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 16
-  completed_plans: 15
-  percent: 40
+  completed_plans: 16
+  percent: 60
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 Phase: 43 (market-data-client-forma-de-instrument-segment-5-claves-extr) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-01 — Phase 43 execution started
 
 ## Performance Metrics
@@ -222,6 +222,7 @@ Last activity: 2026-09-01 — Phase 43 execution started
 | Phase 42 P06 | 9min | 2 tasks | 5 files |
 | Phase 43 P01 | 15min | 3 tasks | 7 files |
 | Phase 43 P02 | 6min | 3 tasks | 4 files |
+| Phase 43 P03 | 11min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -546,6 +547,9 @@ Recent decisions affecting current work:
 - [Phase 43]: FeedIngestor.last_error_age_seconds y .last_error_at nullables (D-09): ausentes del baseline sano y presentes junto a un last_error poblado, condicionales a que exista un error; declararlas planas emitiria un missing en cada llamada sana
 - [Phase 43]: HealthFeed.symbols_never_delivered PLANO (D-11) pese a emitir un missing contra la fixture congelada del 2026-07-31: la clave esta poblada en las tres capturas posteriores y un Optional sobre-declarado absorberia un futuro null sin dejar record
 - [Phase 43]: ingestor.subscription tipado como FeedSubscription (15 campos), nunca como dict[str, Any]: walk_field no tiene rama para mappings, asi que un mapping seria un punto ciego permanente del censo de divergencias
+- [Phase ?]: Phase 43 cerrada: 43-DISPOSITION.md consolida la disposicion de los 17 campos de Instrument/Segment con cero filas sin disponer, el antes/despues MEDIDO de get_segments(), y los 4 jobs de CI verdes sin bump de version (0.6.0 intacto en los tres sitios)
+- [Phase ?]: D-14 medido por identidad de objeto funcion: client.py y aio.py no necesitan cambio porque ambas superficies llaman al mismo _core.parse_X; el comando del plan asumia un re-export inexistente y se sustituyo declarando la sustitucion
+- [Phase ?]: El job pre-commit estaba rojo en main desde antes de la Phase 43 (end-of-file-fixer sobre 41-06-PLAN.md y 42-05-PLAN.md); corregido con +1 byte por archivo, cero caracteres de contenido alterados
 
 ### Pending Todos
 
@@ -626,9 +630,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T01:07:56.267Z
-Stopped at: Phase 43 context gathered (assumptions mode)
-Resume file: .planning/phases/43-market-data-client-forma-de-instrument-segment-5-claves-extr/43-CONTEXT.md
+Last session: 2026-09-01T01:23:37.414Z
+Stopped at: Completed 43-03-PLAN.md — Phase 43 cerrada
+Resume file: None
 
 ## Operator Next Steps
 

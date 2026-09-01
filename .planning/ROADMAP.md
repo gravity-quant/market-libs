@@ -57,7 +57,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 
 - [x] **Phase 41: Validación Nyquist retroactiva de v1.7** *(primera y sola — audita árbol congelado)* — `/gsd-validate-phase` sobre las Phases 35-39 con disposición de 3 vías por hallazgo, sin flip mecánico de `nyquist_compliant` — NYQ-01 (completed 2026-08-31)
 - [x] **Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz** — higyrus produce un veredicto medido y matriz produce el censo de valores `Literal` de RESPONSE, con el gate del script portado a igualdad exacta de hostname antes de tocar la red — LIVE-01, LIVE-02 (completed 2026-08-31)
-- [ ] **Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas** *(fix, sin publicar)* — disposición campo por campo contra la lectura fresca de la Phase 42, fixtures re-derivadas y los 4 gates de CI verdes — SHAPE-01, HARN-02
+- [x] **Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas** *(fix, sin publicar)* — disposición campo por campo contra la lectura fresca de la Phase 42, fixtures re-derivadas y los 4 gates de CI verdes — SHAPE-01, HARN-02 (completed 2026-09-01)
 - [ ] **Phase 44: Release `market-data-client` 0.7.0** — bump en los 4 sitios, changelog + tabla de migración, doble gate humano independiente **escrito** `gate="blocking-human"` — PUB-01
 - [ ] **Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz** — dedupe con test de falsificación e invariante de fids intacto, `IN-06` cerrado, `IN-05` retirado, y `HARN-04` decidido por escrito — HARN-01, HARN-03, HARN-04
 
@@ -143,7 +143,7 @@ Plans:
   4. Las fixtures de test afectadas se **re-derivan** de los baselines medidos, con una aserción de que el conjunto de claves de cada fixture es subconjunto del baseline — ninguna se renombra para que siga pasando.
   5. Los 4 gates de CI de v1.6 quedan verdes, el cambio se espeja donde corresponda en `client.py` / `aio.py` (o se demuestra **por medición** que los parsers genéricos no necesitan cambio), y la fase **no** bumpea versión ni publica: el release es la Phase 44.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 **Wave 1**
 
@@ -155,7 +155,7 @@ Plans:
 
 **Wave 3** *(bloqueada por 43-01 y 43-02)*
 
-- [ ] 43-03-PLAN.md — Cierre: docstring de `_core.py` (D-14), `43-DISPOSITION.md` (criterios 1/2/5), backlog del dereference del driver y los 4 gates de CI verdes sin bump *(wave 3)*
+- [x] 43-03-PLAN.md — Cierre: docstring de `_core.py` (D-14), `43-DISPOSITION.md` (criterios 1/2/5), backlog del dereference del driver y los 4 gates de CI verdes sin bump *(wave 3)*
 
 ### Phase 44: Release `market-data-client` 0.7.0
 
@@ -199,7 +199,7 @@ Plans:
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
 | 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete    | 2026-08-31 |
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
-| 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 2/3 | In Progress|  |
+| 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 3/3 | Complete   | 2026-09-01 |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
 | 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |
 
