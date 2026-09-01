@@ -198,13 +198,13 @@ Plans:
   4. El comentario stale de la Phase 37 dice el número **medido** (337 definitions scanned, medido el 2026-09-01 sobre el commit `fe323d6`, no 330), `IN-06` queda cerrado con el archivo dentro del allowlist explícito de `ci.yml`, e `IN-05` queda **retirado** del backlog por estar ya resuelto en la Phase 40 — verificado contra el código, no asumido del reporte. *(Nota: este criterio decía originalmente `336`, cifra medida antes de las Phases 43/44; el movimiento de superficie de esas fases la dejó stale y el plan 45-01 re-midió `337` corriendo el propio gate, tal como D-05 ENMENDADA lo exige.)*
   5. Los edits de `ci.yml` de todo el milestone llegan en **un** cambio consolidado del allowlist, y CI queda verde en las 12 patas de la matriz (6 paquetes × py3.12/py3.13) más los jobs `lint`, `pre-commit` y `typecheck`.
 
-**Plans**: 1/5 plans executed
+**Plans**: 2/5 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 45-01-PLAN.md — HARN-03 mecánico: docstring del gate re-medido y pinneado (D-05 ENMENDADA), fold-in `DRV-MD-SEG-43` (D-09) y retiro de `IN-05` (D-07) *(wave 1)*
-- [ ] 45-04-PLAN.md — HARN-04: decisión escrita y fechada (`45-HARN-04-DECISION.md`) + cierre de Q4 dentro de un archivo ya enrolado *(wave 1)*
+- [x] 45-04-PLAN.md — HARN-04: decisión escrita y fechada (`45-HARN-04-DECISION.md`) + cierre de Q4 dentro de un archivo ya enrolado *(wave 1)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -232,7 +232,7 @@ Plans:
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 3/3 | Complete    | 2026-09-01 |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/3 | Planned    |  |
-| 45. Limpieza del harness                                     | v1.8      | 1/5 | In Progress|  |
+| 45. Limpieza del harness                                     | v1.8      | 2/5 | In Progress|  |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 
