@@ -201,10 +201,21 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 45-01-PLAN.md — HARN-03 mecánico: docstring del gate re-medido y pinneado (D-05 ENMENDADA), fold-in `DRV-MD-SEG-43` (D-09) y retiro de `IN-05` (D-07) *(wave 1)*
-- [ ] 45-02-PLAN.md — HARN-01 por TDD: test de falsificación de D-04 (colapso + NO-colapso + fid no quemado) y guarda `(func, digest)` en `main_market_data.py` *(wave 2, `type: tdd`)*
-- [ ] 45-03-PLAN.md — HARN-01: los 6 sitios de drift restantes con el no-op de SU contrato de retorno + lock por AST de orden y forma sobre los 7 sitios *(wave 3)*
 - [ ] 45-04-PLAN.md — HARN-04: decisión escrita y fechada (`45-HARN-04-DECISION.md`) + cierre de Q4 dentro de un archivo ya enrolado *(wave 1)*
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 45-02-PLAN.md — HARN-01 por TDD: test de falsificación de D-04 (colapso + NO-colapso + fid no quemado) y guarda `(func, digest)` en `main_market_data.py` *(wave 2, `type: tdd`)*
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 45-03-PLAN.md — HARN-01: los 6 sitios de drift restantes con el no-op de SU contrato de retorno + lock por AST de orden y forma sobre los 7 sitios *(wave 3)*
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 45-05-PLAN.md — Edit consolidado único de `ci.yml` (13 → 18, D-06/D-10/D-11), censo post-fase y cierre del backlog *(wave 4)*
 
 ## Progress
