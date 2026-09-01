@@ -59,7 +59,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 - [x] **Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz** — higyrus produce un veredicto medido y matriz produce el censo de valores `Literal` de RESPONSE, con el gate del script portado a igualdad exacta de hostname antes de tocar la red — LIVE-01, LIVE-02 (completed 2026-08-31)
 - [x] **Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas** *(fix, sin publicar)* — disposición campo por campo contra la lectura fresca de la Phase 42, fixtures re-derivadas y los 4 gates de CI verdes — SHAPE-01, HARN-02 (completed 2026-09-01)
 - [x] **Phase 44: Release `market-data-client` 0.7.0** — bump en los 4 sitios, changelog + tabla de migración, doble gate humano independiente **escrito** `gate="blocking-human"` — PUB-01 — completado 2026-09-01
-- [ ] **Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz** — dedupe con test de falsificación e invariante de fids intacto, `IN-06` cerrado, `IN-05` retirado, y `HARN-04` decidido por escrito — HARN-01, HARN-03, HARN-04
+- [x] **Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz** — dedupe con test de falsificación e invariante de fids intacto, `IN-06` cerrado, `IN-05` retirado, y `HARN-04` decidido por escrito — HARN-01, HARN-03, HARN-04 (completed 2026-09-01)
 
 ## Phase Details (v1.8)
 
@@ -198,7 +198,7 @@ Plans:
   4. El comentario stale de la Phase 37 dice el número **medido** (337 definitions scanned, medido el 2026-09-01 sobre el commit `fe323d6`, no 330), `IN-06` queda cerrado con el archivo dentro del allowlist explícito de `ci.yml`, e `IN-05` queda **retirado** del backlog por estar ya resuelto en la Phase 40 — verificado contra el código, no asumido del reporte. *(Nota: este criterio decía originalmente `336`, cifra medida antes de las Phases 43/44; el movimiento de superficie de esas fases la dejó stale y el plan 45-01 re-midió `337` corriendo el propio gate, tal como D-05 ENMENDADA lo exige.)*
   5. Los edits de `ci.yml` de todo el milestone llegan en **un** cambio consolidado del allowlist, y CI queda verde en las 12 patas de la matriz (6 paquetes × py3.12/py3.13) más los jobs `lint`, `pre-commit` y `typecheck`.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -216,7 +216,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 45-05-PLAN.md — Edit consolidado único de `ci.yml` (13 → 18, D-06/D-10/D-11), censo post-fase y cierre del backlog *(wave 4)*
+- [x] 45-05-PLAN.md — Edit consolidado único de `ci.yml` (13 → 18, D-06/D-10/D-11), censo post-fase y cierre del backlog *(wave 4)*
 
 ## Progress
 
@@ -232,7 +232,7 @@ Plans:
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 3/3 | Complete    | 2026-09-01 |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/3 | Planned    |  |
-| 45. Limpieza del harness                                     | v1.8      | 4/5 | In Progress|  |
+| 45. Limpieza del harness                                     | v1.8      | 5/5 | Complete   | 2026-09-01 |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 

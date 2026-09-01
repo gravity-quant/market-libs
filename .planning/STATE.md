@@ -4,17 +4,17 @@ milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 45
 current_phase_name: limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
-status: executing
-stopped_at: Completed 45-04-PLAN.md
-last_updated: "2026-09-01T15:45:04.110Z"
+status: verifying
+stopped_at: Completed 45-05-PLAN.md — Phase 45 complete
+last_updated: "2026-09-01T15:52:18.462Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 45 execution started
+last_activity_desc: Phase 45 completa — 45-05 cerró el edit consolidado de ci.yml y el censo post-fase
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 24
-  completed_plans: 23
-  percent: 80
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -31,9 +31,9 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 Phase: 45 (limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-09-01 — Phase 45 execution started
-Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, stale comments, `verification/` destination for matriz — HARN-01/03/04) — not yet planned or started; `/gsd-plan-phase 45` or `/gsd-discuss-phase 45` is the next step.
+Status: Phase complete — ready for verification
+Last activity: 2026-09-01 — Phase 45 completa (45-05: ci.yml 13 -> 18, censo post-fase, backlog v1.9)
+Resume: Phase 45 está completa (5/5 planes) — HARN-01, HARN-03 y HARN-04 cerrados. El allowlist del job `lint` de `ci.yml` pasó de 13 a 18 archivos en un único commit (`d6b34f0`, D-11). Pendiente: **human check** de CI verde en GitHub Actions (12 patas de la matriz + `lint`/`pre-commit`/`typecheck`) tras el push — es la mitad del criterio 5 que el espejo local no ejercita. Siguiente paso: `/gsd-verify-work 45` o cierre del milestone v1.8.
 
 ## Performance Metrics
 
@@ -229,6 +229,7 @@ Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, st
 | Phase 45 P04 | 15 min | 2 tasks | 4 files |
 | Phase 45 P02 | 3min | 2 tasks | 2 files |
 | Phase 45 P03 | 8min | 3 tasks | 5 files |
+| Phase 45 P05 | ~20 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -567,6 +568,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 45-02: idempotent_by_title descartado para la rama drift — su scan corre arriba de la guarda de status humano y colapsaria contra bloques EXPECTED/NO-FIX triageados
 - [Phase ?]: 45-03: la identidad de la clave de dedupe en main_matriz es file_path.name (baseline segregado por venue desde Phase 39), no func_name
 - [Phase ?]: 45-03: los 7 no-ops de dedupe NO se uniformaron — 4 formas segun el contrato de retorno de cada funcion, pinneadas por un lock AST
+- [Phase ?]: 45-05: el allowlist del job lint queda en 18 archivos y sigue explícito: los 36 verification/ restantes se re-declaran por escrito como inertes y fuera de alcance de v1.8 (D-10)
+- [Phase ?]: 45-05: el censo post-fase medido es 54/18/36, que corrige la proyección 53/18/35 del handoff de 45-04 (la fase misma creó test_drift_dedupe_falsification.py en 45-02)
+- [Phase ?]: 45-05: HARN-VERIF-01 resuelto por decisión escrita (aceptar deuda documentada, no reparar), sin borrar la entrada de backlog
+- [Phase ?]: 45-05: el gap de gate de mypy sobre los 5 drivers main_*.py de la raíz se rutea a v1.9 como GATE-DRV-MYPY-45, con su primer paso declarado como medición
 
 ### Pending Todos
 
@@ -647,8 +652,8 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T15:44:59.930Z
-Stopped at: Completed 45-04-PLAN.md
+Last session: 2026-09-01T15:52:18.455Z
+Stopped at: Completed 45-05-PLAN.md — Phase 45 complete
 Resume file: None
 
 ## Operator Next Steps
