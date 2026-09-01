@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 43
-current_phase_name: market-data-client-forma-de-instrument-segment-5-claves-extr
+current_phase: 44
+current_phase_name: Release `market-data-client` 0.7.0
 status: verifying
 stopped_at: Completed 43-03-PLAN.md — Phase 43 cerrada
-last_updated: "2026-09-01T01:23:42.664Z"
+last_updated: "2026-09-01T01:35:15.504Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 43 execution started
+last_activity_desc: Phase 43 complete, transitioned to Phase 44
 progress:
   total_phases: 5
   completed_phases: 3
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 ## Current Position
 
-Phase: 43 (market-data-client-forma-de-instrument-segment-5-claves-extr) — EXECUTING
-Plan: 3 of 3
+Phase: 44 — Release `market-data-client` 0.7.0
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — Phase 43 execution started
+Last activity: 2026-09-01 — Phase 43 complete, transitioned to Phase 44
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 159 (v1.0)
+- Total plans completed: 162 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
