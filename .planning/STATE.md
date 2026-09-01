@@ -6,7 +6,7 @@ current_phase: 45
 current_phase_name: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
 status: verifying
 stopped_at: Completed 45-05-PLAN.md — Phase 45 complete
-last_updated: "2026-09-01T21:06:06.334Z"
+last_updated: "2026-09-01T23:51:09.761Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 44 complete, transitioned to Phase 45
 progress:
@@ -33,7 +33,7 @@ Phase: 45 — Limpieza del harness — dedupe de drift, comentarios stale, desti
 Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-09-01 — Phase 44 complete, transitioned to Phase 45
-Resume: Phase 45 está completa (5/5 planes) — HARN-01, HARN-03 y HARN-04 cerrados. El allowlist del job `lint` de `ci.yml` pasó de 13 a 18 archivos en un único commit (`d6b34f0`, D-11). Pendiente: **human check** de CI verde en GitHub Actions (12 patas de la matriz + `lint`/`pre-commit`/`typecheck`) tras el push — es la mitad del criterio 5 que el espejo local no ejercita. Siguiente paso: `/gsd-verify-work 45` o cierre del milestone v1.8.
+Resume: Phase 45 está completa (5/5 planes) — HARN-01, HARN-03 y HARN-04 cerrados. El allowlist del job `lint` de `ci.yml` pasó de 13 a 18 archivos en un único commit (`d6b34f0`, D-11). **El human check de CI verde en GitHub Actions quedó SATISFECHO** por el quick task `260901-par`: el PR #17 corrió las 15 checks (12 patas de la matriz + `lint`/`pre-commit`/`typecheck`) con **15/15 `pass`** asertadas por conteo positivo, workflow run `33561700610` — era la mitad del criterio 5 que el espejo local no ejercita. Todo el trabajo pendiente de v1.8 está mergeado a `origin/main` en el merge commit `3bff927`, y `market-data-client` v0.7.1 está publicado. Siguiente paso: `/gsd-verify-work 45` o cierre del milestone v1.8.
 
 ## Performance Metrics
 
@@ -572,6 +572,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 45-05: el censo post-fase medido es 54/18/36, que corrige la proyección 53/18/35 del handoff de 45-04 (la fase misma creó test_drift_dedupe_falsification.py en 45-02)
 - [Phase ?]: 45-05: HARN-VERIF-01 resuelto por decisión escrita (aceptar deuda documentada, no reparar), sin borrar la entrada de backlog
 - [Phase ?]: 45-05: el gap de gate de mypy sobre los 5 drivers main_*.py de la raíz se rutea a v1.9 como GATE-DRV-MYPY-45, con su primer paso declarado como medición
+- [Quick 260901-par]: `market-data-client` v0.7.1 publicado como **errata documental** — tag anotado sobre el merge commit real `3bff927`, run `release.yml` `33572531127` verde. El changelog `v0.7.0` del artefacto publicado omitía `FeedSubscription`, `FeedIngestor.subscription` (requerido), `HealthFeed.symbols_never_delivered` (requerido) y `Symbol.note`; el README del repo ya estaba corregido en `6f202ac` pero un wheel publicado no se reescribe, así que la corrección se entrega como versión nueva y `v0.7.0` queda intacto (ni borrado ni re-apuntado). `src/` cambia en una sola línea (`__version__`), probado contra la rama y contra el árbol mergeado.
+- [Quick 260901-par]: La prueba post-publicación es un **diferencial de METADATA entre los dos wheels públicos**, no un pipeline verde: `FeedSubscription` y `symbols_never_delivered` presentes en el METADATA de 0.7.1 y ausentes del de 0.7.0. El modo de fallo corregido fue exactamente "el pipeline estaba verde y el artefacto igual estaba mal", así que un run verde no se acepta como evidencia de publicación.
+- [Quick 260901-par]: El verify de Task 3 (`origin/main == merge-base(origin/main, HEAD)`) es **stale-by-construction** bajo el patrón de release lockeado del repo (`--merge`, rama no borrada, rama reusada): el merge commit del release anterior vive sólo en `main`, así que la rama queda permanentemente `1 behind` (medido: ahead 35 / behind 1 contra `bca1add`, el merge de PR #16). Se reemplazó por una aserción equivalente de intención — commit de release NO alcanzable desde `origin/main`, PR OPEN, sin tag — **sin editar el plan ya commiteado**, y se divulgó al operador dentro del checkpoint antes de aprobar el merge. Todo plan de release futuro debe usar la forma de **alcanzabilidad**, nunca la de ancestro.
+- [Quick 260901-par]: Los dos gates humanos (`checkpoint:human-action` + `gate="blocking-human"`) funcionaron como se diseñó: dos respuestas literales "approved" independientes, registradas por separado, ninguna auto-emitida. Auditoría de autoría del gate: 0 atributos bare y 2 tags line-anchored, medida antes del merge y otra vez al cierre.
 
 ### Pending Todos
 
@@ -652,7 +656,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T15:52:18.455Z
+Last session: 2026-09-01T23:50:47.465Z
 Stopped at: Completed 45-05-PLAN.md — Phase 45 complete
 Resume file: None
 
