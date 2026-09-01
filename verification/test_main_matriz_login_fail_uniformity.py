@@ -10,6 +10,21 @@ Phase 11 CR-02 fix: change both return ProbeResult sites in
 ``probe_login_sync`` from 'FAIL' to 'FINDING'. The ``_auth_failed = True``
 cascade-SKIPPED behaviour is preserved (downstream probes still skip on
 auth failure).
+
+**Estado: ACEPTADO COMO DEUDA DOCUMENTADA — no reparar (HARN-04, 2026-09-01).**
+Este archivo está roto desde la Phase 15: llama a los probes de ``main_matriz.py``
+sin el argumento ``client`` (firma pre-migración ``REFAC-05``); tiene CERO tests
+verdes. La decisión escrita y fechada de no repararlo vive en
+``.planning/phases/45-limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti/45-HARN-04-DECISION.md``
+(2026-09-01). Aceptar la deuda **no** implica borrar: el archivo queda en disco y no
+está enrolado en CI.
+
+**La aserción de CR-02 que este archivo guardaba ya NO está huérfana.** Era la única
+de los 2 archivos de matriz rotos que ningún archivo enrolado en CI cubría
+(``45-RESEARCH.md`` Hallazgo 9), y el plan 45-04 la cerró en
+``verification/test_main_matriz_skip_line_shape.py::test_login_sync_probe_returns_finding_never_fail``
+—por AST, dentro de un archivo que YA corre en CI—, sin enrolar nada nuevo ni
+reparar nada acá.
 """
 
 from __future__ import annotations

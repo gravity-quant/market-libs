@@ -20,6 +20,17 @@ Las 18 probes (3 + 13 + 2) en orden D-MATZ-29 #2-#19. ``probe_get_instruments_by
 
 Idiom (per ``packages/matriz-client/tests/test_fixture_reaches_production.py``):
 ``httpx_mock.add_response(url=..., json=...)`` + invoke probe + assert ProbeResult.
+
+**Estado: ACEPTADO COMO DEUDA DOCUMENTADA — no reparar (HARN-04, 2026-09-01).**
+Este archivo está roto desde la Phase 15: llama a los probes de ``main_matriz.py``
+sin el argumento ``client`` (firma pre-migración ``REFAC-05``). La decisión escrita
+y fechada de no repararlo, con los tres ítems que D-08 exige respondidos y la
+evidencia medida, vive en
+``.planning/phases/45-limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti/45-HARN-04-DECISION.md``
+(2026-09-01). Aceptar la deuda **no** implica borrar: el archivo queda en disco, y
+por eso sus 3 tests verdes no se pierden. No está enrolado en CI. Antes de
+"arreglarlo", leer ese documento — la reparación requiere presupuesto declarado por
+adelantado y su propia sub-fase.
 """
 
 from __future__ import annotations
