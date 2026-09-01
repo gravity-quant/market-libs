@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 44
-current_phase_name: Release `market-data-client` 0.7.0
+current_phase_name: release-market-data-client-0-7-0
 status: executing
 stopped_at: Phase 44 context gathered (assumptions mode)
-last_updated: "2026-09-01T10:10:15.108Z"
+last_updated: "2026-09-01T10:18:45.855Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 43 complete, transitioned to Phase 44
+last_activity_desc: Phase 44 execution started
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 16
+  total_plans: 19
   completed_plans: 16
   percent: 60
 ---
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Phase 43 — market-data-client-forma-de-instrument-segment-5-claves-extr
+**Current focus:** Phase 44 — release-market-data-client-0-7-0
 
 ## Current Position
 
-Phase: 44 — Release `market-data-client` 0.7.0
-Plan: Not started
+Phase: 44 (release-market-data-client-0-7-0) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-09-01 — Phase 43 complete, transitioned to Phase 44
+Last activity: 2026-09-01 — Phase 44 execution started
 
 ## Performance Metrics
 
@@ -223,6 +223,7 @@ Last activity: 2026-09-01 — Phase 43 complete, transitioned to Phase 44
 | Phase 43 P01 | 15min | 3 tasks | 7 files |
 | Phase 43 P02 | 6min | 3 tasks | 4 files |
 | Phase 43 P03 | 11min | 3 tasks | 4 files |
+| Phase 44 P01 | 6 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -630,7 +631,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T01:53:23.922Z
+Last session: 2026-09-01T10:18:35.374Z
 Stopped at: Phase 44 context gathered (assumptions mode)
 Resume file: .planning/phases/44-release-market-data-client-0-7-0/44-CONTEXT.md
 

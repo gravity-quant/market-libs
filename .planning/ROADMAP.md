@@ -170,7 +170,7 @@ Plans:
   4. Los dos checkpoints (merge y push de tag) están autorizados literalmente como `gate="blocking-human"` en el archivo de plan, son independientes entre sí, y ninguno se auto-aprueba pese a `auto_advance: true` + `mode: yolo` — la autoría del gate se verifica **en el propio archivo de plan**, no sólo en el comportamiento observado.
   5. Ningún otro paquete se publica en esta fase, y los conteos de tags de los otros cinco paquetes quedan idénticos al baseline pre-fase — sólo cambió la superficie de `market-data-client`.
 
-**Plans**: 3 plans
+**Plans**: 0/3 plans executed
 
 Plans:
 **Wave 1**
@@ -213,7 +213,7 @@ Plans:
 | 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete    | 2026-08-31 |
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 3/3 | Complete    | 2026-09-01 |
-| 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
+| 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/3 | Planned    |  |
 | 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
