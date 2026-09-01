@@ -469,4 +469,124 @@ quedan escaneados por el gate. El `0 violations` que este documento reporta en �
 **`SURF-MD-FEEDSUB-43`** en `.planning/ROADMAP.md`; candidato para la **Phase 44**, que ya toca
 `__init__.py` para el bump de versión.
 
+**Confirmado por el contador del gate, no sólo por lectura.** `check_surface_types.py` reporta **452
+campos escaneados** (§ 7), contra el baseline pre-fase de **442**. El delta de **+10** cuadra exacto
+con los cambios de superficie *exportada*: `Instrument` 5→11 (**+6**), `Segment` 3→2 (**−1**),
+`FeedIngestor` **+3**, `HealthFeed` **+1**, `Symbol` **+1**. Los **15** campos de `FeedSubscription`
+**no** aparecen en ese delta — que es precisamente la medición de que la clase quedó fuera del gate.
+
+---
+
+## 7. Los 4 jobs de CI, reproducidos localmente (criterio 5)
+
+Reproducción fiel de `.github/workflows/ci.yml` en HEAD. Ningún archivo de fuente ni de CI fue
+editado para pasar un gate; ninguna aserción se relajó, ningún test se renombró y la tabla de
+exenciones de `check_surface_types.py` **no** se ensanchó.
+
+### 7.1 Job `lint` — los 9 pasos
+
+| # | Paso | Comando | Exit | Nota |
+|---|---|---|---|---|
+| 1 | uv.lock sincronizado | `uv lock --check` | **0** | `Resolved 48 packages`; no-op — cero paquetes externos instalados en toda la fase (T-43-SC) |
+| 2 | ruff check | `uv run ruff check .` | **0** | `All checks passed!` |
+| 3 | ruff format | `uv run ruff format --check .` | **0** | `279 files already formatted` |
+| 4 | import-linter | `uv run lint-imports` | **0** | `Contracts: 5 kept, 0 broken` |
+| 5 | lint-logging (LOG-01) | `grep -rnE '…' packages/*/src/` | **0** | grep exit 1 = **cero coincidencias** = step verde |
+| 6 | decode-intactness | `uv run python tools/check_decode_intactness.py` | **0** | 5 copias de `_decode.py` → un hash `a1f00c824348164c`; checks A–D |
+| 7 | uniform-structure | `uv run python tools/check_uniform_structure.py` | **0** | los 6 paquetes con `models.py` + `types.py` |
+| 8 | surface-types | `uv run python tools/check_surface_types.py` | **0** | **`0 violations`**; 337 definiciones, **452 campos** (baseline 442 → **delta +10**, ver § 6) |
+| 9 | driver locks (lista explícita de 13 tests de `verification/`) | `uv run pytest -q verification/test_main_market_data_deep_chain.py …` | **0** | **150 passed**; lista copiada verbatim de `ci.yml:80-93` |
+
+El paso 8 **no** asserta un piso numérico —su única anti-vacuidad es que definiciones y campos no
+sean ambos cero—, así que el delta se registra como informativo, y su valor confirma § 6.
+
+### 7.2 Job `pre-commit`
+
+| Paso | Comando | Exit | Nota |
+|---|---|---|---|
+| Todos los hooks | `uv run pre-commit run --all-files` | **0** | los 9 hooks `Passed` — **tras corregir un rojo PRE-EXISTENTE**, ver abajo |
+
+**Rojo pre-existente encontrado y corregido (desviación Regla 3).** La primera corrida quedó en
+exit `1`: el hook `end-of-file-fixer` modificó
+`.planning/phases/41-…/41-06-PLAN.md` y `.planning/phases/42-…/42-05-PLAN.md`, dos planes de fases
+anteriores que **la Phase 43 nunca tocó**. **Medido como pre-existente, no supuesto:** los dos
+archivos terminan en `</output>` **sin newline final** y son **byte-idénticos** en el commit base de
+la fase (`396c717`) y en HEAD, y ninguno aparece en el diff acumulado de la fase. El job
+`pre-commit` de CI ya estaba rojo en `main` **antes** de que esta fase empezara.
+
+La corrección es **+1 byte por archivo** (un `\n`) con **cero caracteres de contenido alterados**,
+verificado comparando el contenido contra `git show HEAD:<file>`. **No es una relajación de gate**
+(T-43-14): es la remediación que el propio hook prescribe — el análogo de "tipar el campo, nunca
+ensanchar la tabla". Tampoco toca **T-43-12**: agregar un newline terminal no reescribe prosa
+histórica, no altera un solo carácter del texto de esos planes.
+
+### 7.3 Job `typecheck`
+
+| Paso | Comando | Exit | Nota |
+|---|---|---|---|
+| mypy src global | `uv run mypy` | **0** | `Success: no issues found in 75 source files` |
+| mypy tests · higyrus-client | `uv run mypy packages/higyrus-client/tests` | **0** | 14 files |
+| mypy tests · wallets-client | `uv run mypy packages/wallets-client/tests` | **0** | 5 files |
+| mypy tests · matriz-client | `uv run mypy packages/matriz-client/tests` | **0** | 29 files |
+| mypy tests · iol-client | `uv run mypy packages/iol-client/tests` | **0** | 18 files |
+| mypy tests · ambito-financiero-client | `uv run mypy packages/ambito-financiero-client/tests` | **0** | 21 files |
+| mypy tests · market-data-client | `uv run mypy packages/market-data-client/tests` | **0** | 36 files |
+
+### 7.4 Job `test` — los 6 paquetes con cobertura, tal como CI los corre
+
+| Paquete | Comando | Exit | Resultado |
+|---|---|---|---|
+| higyrus-client | `uv run pytest packages/higyrus-client --cov=…` | **0** | 303 passed |
+| wallets-client | `uv run pytest packages/wallets-client --cov=…` | **0** | 10 passed |
+| matriz-client | `uv run pytest packages/matriz-client --cov=…` | **0** | 609 passed |
+| iol-client | `uv run pytest packages/iol-client --cov=…` | **0** | 311 passed |
+| ambito-financiero-client | `uv run pytest packages/ambito-financiero-client --cov=…` | **0** | 208 passed, 1 deselected |
+| **market-data-client** | `uv run pytest packages/market-data-client --cov=…` | **0** | **727 passed** (piso del plan: ≥ 711) |
+
+**Total: 2168 tests, cero fallas, cero regresiones en los otros cinco paquetes.**
+
+**Conteo de tests de la fase completa:** **711 → 727**, delta **+16** (plan 43-01 **+6**, plan 43-02
+**+10**). Ningún test fue renombrado ni borrado en toda la fase.
+
+**Por qué NO se corre `uv run pytest -q` a secas.** El plan 43-03 lo pedía como confirmación de
+no-regresión, pero la premisa es falsa y está **medida**: `testpaths = ["packages", "tests",
+"verification"]` (`pyproject.toml:106`), así que una corrida sin path colecta `verification/`, que
+arrastra el rojo **pre-existente y documentado** de `HARN-VERIF-01` — firmas de probe stale de
+`main_matriz.py` desde la Phase 15:
+
+```
+$ uv run pytest -q --no-cov verification/test_matriz_sweep_snapshot.py \
+                            verification/test_main_matriz_login_fail_uniformity.py
+19 failed, 3 passed, 19 errors in 0.12s
+```
+
+**19 failed / 19 errors**, idéntico al baseline registrado en `33-BASELINE.md`, ajeno a este paquete
+y ruteado a la **Phase 45** (HARN-04). Ésa es exactamente la razón por la que el job `test` de CI
+pasa **paths per-package explícitos** y el job `lint` enumera una **allowlist explícita** de tests de
+`verification/`. La reproducción fiel del job `test` son las 6 corridas per-package de la tabla de
+arriba, y están todas en verde.
+
+### 7.5 Gate de no-regresión del harness
+
+| Comando | Exit | Nota |
+|---|---|---|
+| `uv run pytest verification/test_cycle_closure_phase33.py -q --no-cov` | **0** | **21 passed**. Sus pisos son cotas **inferiores** sobre un ledger append-only, así que un fix de forma no puede reddenearlas — si se pusieran rojas, alguien habría borrado findings del ledger |
+
+### 7.6 Gate de no-publicación (D-16)
+
+| Sitio de versión | Comando | Valor | Estado |
+|---|---|---|---|
+| `__init__.py::__version__` | `uv run python -c "import market_data_client; print(...)"` | `0.6.0` | **sin cambio** |
+| `pyproject.toml` | `grep -c '^version = "0.6.0"'` | `1` | **sin cambio** |
+| `uv.lock` | `git status --porcelain uv.lock` | (vacío) | **sin tocar**; `uv lock --check` exit **0** |
+
+**Archivos prohibidos en el diff acumulado de la fase: 0.** Ninguno de `README.md`,
+`market-data-client/pyproject.toml`, `market_data_client/__init__.py`, `uv.lock`, `client.py`,
+`aio.py`, `main_market_data.py`, `.github/workflows/release.yml` ni nada bajo
+`packages/matriz-client/` aparece. Diff acumulado completo (18 archivos): los 8 de `packages/`
+(1 fuente `models.py`, 1 fuente `_core.py`, 6 de test... más `test_models.py` = 7 de test), los
+artefactos de `.planning/` de la fase, y los 2 planes de fases anteriores del newline pre-existente.
+
+El release es la **Phase 44** (PUB-01) por precedente lockeado.
+
 ---
