@@ -12,7 +12,7 @@ client-credentials** (grant `client_credentials`, token cacheado y refrescado po
 
 ```bash
 # git, pineado al tag (recomendado)
-uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.7.0#subdirectory=packages/market-data-client"
+uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.7.1#subdirectory=packages/market-data-client"
 
 # o, dentro del workspace:
 uv sync
@@ -21,7 +21,7 @@ uv sync
 Alternativa, wheel de la GitHub Release:
 
 ```bash
-pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.7.0/market_data_client-0.7.0-py3-none-any.whl"
+pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.7.1/market_data_client-0.7.1-py3-none-any.whl"
 ```
 
 ## Uso
@@ -121,6 +121,37 @@ uv run mypy packages/market-data-client
 ```
 
 ## Changelog
+
+### v0.7.1
+
+**Errata documental. Release sin cambio de código: el árbol `src/market_data_client` es
+byte-idéntico al de 0.7.0 salvo por la línea `__version__`.** No hay cambio de comportamiento, de
+firma ni de superficie pública, y la migración desde 0.7.0 es **vacía**.
+
+**Qué estaba mal.** `pyproject.toml` declara `readme = "README.md"`, así que hatchling embebe este
+README como *long description* de la distribución: el changelog viaja **dentro** del `METADATA` del
+wheel y del sdist publicados. El artefacto publicado de 0.7.0 quedó con un changelog que documentaba
+únicamente la reconciliación de `Instrument` / `Segment` y **omitía** el resto de la superficie que
+shippeó en el mismo bump:
+
+- `FeedSubscription` — **nuevo modelo público** (15 campos), anidado en `ingestor.subscription`;
+- `FeedIngestor.subscription` — **campo requerido nuevo, sin default**;
+- `FeedIngestor.last_error_age_seconds` y `FeedIngestor.last_error_at` — nuevos;
+- `HealthFeed.symbols_never_delivered` — **campo requerido nuevo**;
+- `Symbol.note` — nuevo.
+
+**La consecuencia.** Un consumidor que leyera sólo ese changelog no podía enterarse de que construir
+`FeedIngestor` o `HealthFeed` **directamente** (no vía `from_api`, que sigue funcionando sin cambios)
+pasó a requerir un argumento extra en 0.7.0. Es exactamente la clase de omisión que rompe en tiempo
+de construcción y que el changelog existe para prevenir.
+
+**Por qué hace falta un release.** El README del repositorio ya fue corregido en el commit `6f202ac`,
+pero el **artefacto publicado** de 0.7.0 no lleva la corrección, y un wheel publicado no se reescribe:
+`market-data-client-v0.7.0` queda intacto y la corrección se entrega como una versión nueva. Éste es
+el único contenido de 0.7.1.
+
+**Qué mirar.** Las tablas que importan son las de la entrada `### v0.7.0` de abajo, ahora completas
+—incluida la tabla `FeedIngestor` / `HealthFeed` / `Symbol`—. No se repiten acá.
 
 ### v0.7.0
 
