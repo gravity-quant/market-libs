@@ -232,7 +232,7 @@ Plans:
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 3/3 | Complete    | 2026-09-01 |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/3 | Planned    |  |
-| 45. Limpieza del harness                                     | v1.8      | 5/5 | Complete   | 2026-09-01 |
+| 45. Limpieza del harness                                     | v1.8      | 5/5 | Complete    | 2026-09-01 |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 

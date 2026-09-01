@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 45
-current_phase_name: limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
 status: verifying
 stopped_at: Completed 45-05-PLAN.md — Phase 45 complete
-last_updated: "2026-09-01T15:52:18.462Z"
+last_updated: "2026-09-01T16:03:12.657Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 45 completa — 45-05 cerró el edit consolidado de ci.yml y el censo post-fase
+last_activity_desc: Phase 45 complete
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 24
   completed_plans: 24
   percent: 100
+current_phase_name: limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
 ---
 
 # Project State
@@ -29,17 +29,17 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 ## Current Position
 
-Phase: 45 (limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti) — EXECUTING
-Plan: 5 of 5
+Phase: 45
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — Phase 45 completa (45-05: ci.yml 13 -> 18, censo post-fase, backlog v1.9)
+Last activity: 2026-09-01 — Phase 45 complete
 Resume: Phase 45 está completa (5/5 planes) — HARN-01, HARN-03 y HARN-04 cerrados. El allowlist del job `lint` de `ci.yml` pasó de 13 a 18 archivos en un único commit (`d6b34f0`, D-11). Pendiente: **human check** de CI verde en GitHub Actions (12 patas de la matriz + `lint`/`pre-commit`/`typecheck`) tras el push — es la mitad del criterio 5 que el espejo local no ejercita. Siguiente paso: `/gsd-verify-work 45` o cierre del milestone v1.8.
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 162 (v1.0)
+- Total plans completed: 167 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
