@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 45
-current_phase_name: harness-cleanup
+current_phase: 44
+current_phase_name: release-market-data-client-0-7-0
 status: phase-complete
-stopped_at: "Phase 44 complete — market-data-client v0.7.0 tagged and released; Phase 45 not started"
-last_updated: "2026-09-01T13:30:00.000Z"
+stopped_at: Phase 45 context gathered (assumptions mode)
+last_updated: "2026-09-01T14:16:40.030Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 44 plan 44-03 completed — operator gave a second, independent "approved" at the tag/release checkpoint (D-08b); annotated tag market-data-client-v0.7.0 pushed on merge commit bca1add0, release.yml run 33513425356 succeeded, public Release carries wheel+sdist, post-publish install from the public wheel verified in a throwaway Python 3.12 venv outside the repo, other five packages' tag counts unchanged, gate-authorship audit closed 0/2
+last_activity_desc: "plan 44-03 completed: second independent checkpoint approved (2026-09-01T13:26:35Z), tag pushed, release.yml run 33513425356 succeeded, sha256 of release.yml identical across HEAD/origin-main/v0.6.0-tag/v0.7.0-tag, gate-authorship audit closed at 0 bare-blocking / 2 human-action-blocking-human across the phase's plan files"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 19
-  completed_plans: 18
-  percent: 68
+  completed_plans: 19
+  percent: 80
 ---
 
 # Project State
@@ -632,9 +632,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T10:18:35.374Z
-Stopped at: Phase 44 context gathered (assumptions mode)
-Resume file: .planning/phases/44-release-market-data-client-0-7-0/44-CONTEXT.md
+Last session: 2026-09-01T14:16:40.022Z
+Stopped at: Phase 45 context gathered (assumptions mode)
+Resume file: .planning/phases/45-limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti/45-CONTEXT.md
 
 ## Operator Next Steps
 
