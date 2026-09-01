@@ -4,17 +4,17 @@ milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 44
 current_phase_name: release-market-data-client-0-7-0
-status: paused-at-checkpoint
-stopped_at: "Phase 44 plan 44-02 checkpoint (a) — merge gate — operator replied \"abort\""
-last_updated: "2026-09-01T10:18:45.855Z"
+status: executing
+stopped_at: "Phase 44 plan 44-02 complete — PR #16 merged to main; plan 44-03 (tag + release, second blocking-human gate) not started"
+last_updated: "2026-09-01T13:23:00.000Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 44 plan 44-02 halted at merge checkpoint by explicit operator abort; PR #16 left open, main untouched
+last_activity_desc: Phase 44 plan 44-02 resumed and completed — operator replied "approved" at the merge checkpoint (D-08a); PR #16 merged into origin/main via two-parent merge commit bca1add0de9336ef5ef738cb11a2bcb7623f9968; no tag created
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 19
-  completed_plans: 16
-  percent: 60
+  completed_plans: 17
+  percent: 63
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 ## Current Position
 
-Phase: 44 (release-market-data-client-0-7-0) — PAUSED AT CHECKPOINT
-Plan: 2 of 3 (44-01 complete; 44-02 in progress, halted at checkpoint a — merge gate; 44-03 not started)
-Status: Awaiting operator decision on PR #16 (open, unmerged, https://github.com/gravity-quant/market-libs/pull/16)
-Last activity: 2026-09-01 — checkpoint:human-action gate="blocking-human" reached in 44-02; operator replied "abort" (recorded verbatim, not auto-issued); no irreversible action taken — PR #16 still OPEN, origin/main unchanged at 37a83fe, no tag exists locally or on origin, working tree clean
-Resume: `/gsd-execute-phase 44` re-enters at plan 44-02's checkpoint; operator can review PR #16 on GitHub before replying "approved" to proceed to the merge, or continue investigating first
+Phase: 44 (release-market-data-client-0-7-0) — EXECUTING
+Plan: 3 of 3 (44-01 complete; 44-02 complete — PR #16 merged; 44-03 not started)
+Status: origin/main carries market-data-client 0.7.0 (merge commit bca1add0d). Plan 44-03 (annotated tag + public GitHub Release) remains, gated by a SECOND independent blocking-human checkpoint (the tag/release push approval) — not yet presented.
+Last activity: 2026-09-01 — checkpoint:human-action gate="blocking-human" in 44-02 re-presented after resume (operator's prior "abort" preserved no irreversible state); operator replied "approved" at 2026-09-01T13:22:49Z (recorded verbatim, not auto-issued); PR #16 merged via `gh pr merge 16 --merge`, real two-parent commit bca1add0de9336ef5ef738cb11a2bcb7623f9968, merged-tree market-data-client version confirmed 0.7.0, other five packages unchanged (ROADMAP criterion 5)
+Resume: `/gsd-execute-phase 44` continues to plan 44-03 — the annotated tag + public GitHub Release, behind its own independent human-action/blocking-human checkpoint
 
 ## Performance Metrics
 

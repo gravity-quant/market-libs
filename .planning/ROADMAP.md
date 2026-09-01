@@ -175,11 +175,11 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 44-01-PLAN.md — Prep reversible: bump de los 4 sitios a `0.7.0` (D-01), fold de `FeedSubscription` (D-05), changelog `### v0.7.0` con las dos tablas de migración (D-03/D-04), `uv lock` único + `uv sync` (D-02), mirror local de CI, scan de credenciales y push de la branch `milestone/v1.8-*` (D-07) *(wave 1)*
+- [x] 44-01-PLAN.md — Prep reversible: bump de los 4 sitios a `0.7.0` (D-01), fold de `FeedSubscription` (D-05), changelog `### v0.7.0` con las dos tablas de migración (D-03/D-04), `uv lock` único + `uv sync` (D-02), mirror local de CI, scan de credenciales y push de la branch `milestone/v1.8-*` (D-07) *(wave 1)*
 
 **Wave 2** *(bloqueada por 44-01 — el PR necesita la branch pusheada)*
 
-- [ ] 44-02-PLAN.md — PR de release + conteo positivo 15/15 (D-11) + auditoría de autoría del gate en el propio archivo (criterio 4), **primer gate humano bloqueante** (D-08a) y merge real de dos padres *(wave 2, `autonomous: false`)*
+- [x] 44-02-PLAN.md — PR de release + conteo positivo 15/15 (D-11) + auditoría de autoría del gate en el propio archivo (criterio 4), **primer gate humano bloqueante** (D-08a) y merge real de dos padres *(wave 2, `autonomous: false`)* — completado 2026-09-01: PR #16 mergeado, merge commit `bca1add0`, dos padres, operador respondió "approved"
 
 **Wave 3** *(bloqueada por 44-02 — el tag va sobre el merge commit re-resuelto)*
 
