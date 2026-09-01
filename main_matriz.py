@@ -60,6 +60,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
+import hashlib
 import json
 import os
 import sys
@@ -392,6 +393,31 @@ def _next_fid() -> str:
     return f"F-{_fid_counter:02d}"
 
 
+# Guarda de dedupe de schema drift (HARN-01 / D-01 ENMENDADA). Estado POR
+# PROCESO: el colapso es intra-run, así que una divergencia sin arreglar sigue
+# escribiendo un bloque nuevo en la corrida siguiente (verboso, nunca lossy).
+# La clave es ``(identidad del baseline, digest del contenido de la divergencia)``
+# y NO incluye la superficie: dentro de un proceso cada par función-superficie se
+# visita una sola vez. En ESTE driver la identidad es el nombre del archivo de
+# baseline, no ``func_name`` — ver el comentario del sitio de drift.
+# Copia local deliberada del artefacto de ``main_market_data.py``: ``CLAUDE.md``
+# prohíbe código compartido entre unidades y ``verification/findings.py`` está
+# vedado como sitio de estado por ser append-only por contrato.
+_seen_drift_keys: set[tuple[str, str]] = set()
+
+
+def _drift_digest(payload: object) -> str:
+    """Digest determinístico del contenido de una divergencia (clave de dedupe).
+
+    ``sort_keys`` lo hace estable frente al orden de iteración de los dicts.
+    ``default=str`` garantiza que este camino NUNCA levante una excepción nueva:
+    el contrato de la ladder D-09 es que una divergencia de forma degrada a
+    finding y jamás a crash.
+    """
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class ProbeResult:
     """Resultado de un probe: nombre + status + detalle short-form."""
@@ -580,6 +606,20 @@ def _write_or_check_schema(
     committed = json.loads(file_path.read_text(encoding="utf-8"))
     if committed.get("schema") == actual_schema:
         return ("PASS", f"{file_path.name} sin drift")
+    # HARN-01 / D-01 ENMENDADA: dedupe intra-proceso. La identidad es
+    # ``file_path.name`` y NO ``func_name`` porque desde la Phase 39 el baseline
+    # se elige por ``(func_name, venue)`` vía ``_schema_path()``: con ``func_name``
+    # a secas, dos drifts de venues distintos que casualmente compartieran
+    # ``actual_schema`` colapsarían pese a tener ``expected`` distintos — pérdida
+    # de censo. El digest cubre el PAR baseline-vs-actual por la misma razón.
+    drift_key = (file_path.name, _drift_digest([committed.get("schema"), actual_schema]))
+    if drift_key in _seen_drift_keys:
+        # No-op con el contrato de ESTE helper: ``tuple[str, str]``. Un ``return``
+        # desnudo devolvería ``None`` y el caller hace ``status, detail = ...``.
+        # El detalle NO puede empezar con ``escrito``: el caller lo contaría como
+        # baseline recién escrito.
+        return ("PASS", f"{file_path.name} drift ya reportado en esta corrida")
+    _seen_drift_keys.add(drift_key)
     fid = _next_fid()
     append_finding(
         _PKG,
