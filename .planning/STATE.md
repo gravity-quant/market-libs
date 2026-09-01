@@ -6,14 +6,14 @@ current_phase: 43
 current_phase_name: market-data-client-forma-de-instrument-segment-5-claves-extr
 status: executing
 stopped_at: Phase 43 context gathered (assumptions mode)
-last_updated: "2026-09-01T00:57:03.775Z"
+last_updated: "2026-09-01T01:08:13.374Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 43 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 40
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 43 (market-data-client-forma-de-instrument-segment-5-claves-extr) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-09-01 — Phase 43 execution started
 
@@ -221,6 +221,7 @@ Last activity: 2026-09-01 — Phase 43 execution started
 | Phase 42 P05 | 3min | 2 tasks | 8 files |
 | Phase 42 P06 | 9min | 2 tasks | 5 files |
 | Phase 43 P01 | 15min | 3 tasks | 7 files |
+| Phase 43 P02 | 6min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -542,6 +543,9 @@ Recent decisions affecting current work:
 - [Phase 42-06]: LIVE-01 cerrado por la via 'causa re-confirmada'; LIVE-HIGY-42 (ex LIVE-HIGY-33) sigue ABIERTO con sus 22 triples sin contrastar — el rename cambio el identificador, no el estado
 - [Phase 43]: [43-01] Instrument.active se declara bool | None = None (D-03): el wire mando null en 50/50 filas medidas; declararlo bool plano habria convertido una extra medida en una missing permanente sobre cada lectura de catalogo. — El miembro bool de la union nunca se observo y queda como asuncion declarada, autocorrectiva via el censo de divergencias.
 - [Phase 43]: [43-01] Instrument.marketId se conserva como alias aditivo deprecado con espejo en from_api (D-04, precedente D-22); Segment en cambio se reemplaza por completo (D-06) en vez de alias-mapearse. — D-22 cubre UNA clave con variante de spelling camelCase/snake_case; marketSegmentId vs segment son nombres distintos, asi que el alias no aplica.
+- [Phase 43]: FeedIngestor.last_error_age_seconds y .last_error_at nullables (D-09): ausentes del baseline sano y presentes junto a un last_error poblado, condicionales a que exista un error; declararlas planas emitiria un missing en cada llamada sana
+- [Phase 43]: HealthFeed.symbols_never_delivered PLANO (D-11) pese a emitir un missing contra la fixture congelada del 2026-07-31: la clave esta poblada en las tres capturas posteriores y un Optional sobre-declarado absorberia un futuro null sin dejar record
+- [Phase 43]: ingestor.subscription tipado como FeedSubscription (15 campos), nunca como dict[str, Any]: walk_field no tiene rama para mappings, asi que un mapping seria un punto ciego permanente del censo de divergencias
 
 ### Pending Todos
 
@@ -622,7 +626,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T00:56:31.879Z
+Last session: 2026-09-01T01:07:56.267Z
 Stopped at: Phase 43 context gathered (assumptions mode)
 Resume file: .planning/phases/43-market-data-client-forma-de-instrument-segment-5-claves-extr/43-CONTEXT.md
 
