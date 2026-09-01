@@ -157,14 +157,67 @@ corridas en vivo — `ROADMAP.md:53`).
   `7cc103a` (Phase 42-01, el gate de venue del censo) — Phase 45 es la primera fase del
   milestone en tocarlo de nuevo.
 
+### Checkpoint de resolución post-research (2026-09-01)
+
+45-RESEARCH.md midió que las premisas fácticas de D-01, D-05 y D-08 eran falsas en HEAD (ver
+`45-RESEARCH.md § Open Questions`, Q1-Q3). Presentado al operador vía checkpoint; las tres
+respuestas resuelven y **enmiendan** los locks originales — el texto original de D-01/D-05/D-08
+arriba se conserva sin editar como evidencia de procedencia, estas enmiendas son la fuente de
+verdad para planear:
+
+- **D-01 ENMENDADA (Q1):** la clave de dedupe es **`(func, digest)`** — ignora `surface`,
+  conserva contenido. Medido: dentro de un proceso cada `(client_function, surface)` se visita
+  una sola vez, así que una clave que incluya `surface` no puede colapsar nada (D-01 original
+  literal entrega 0 bloques colapsados). `(func, digest)` colapsa el par sync/async idéntico
+  (22→11) y sigue escribiendo un bloque nuevo si sync/async difieren, porque el digest cambia —
+  el brazo (b) del test de falsificación de D-04 protege exactamente este caso. El criterio de
+  éxito 1 del ROADMAP ("deja de escribir un bloque nuevo por pase") se satisface para el caso
+  medido (duplicación sync/async dentro de un proceso), no para un hipotético "por pase" literal
+  cross-proceso — el planner debe verificar la aritmética 22→11 contra el ledger real, no contra
+  22→22 ni 22→8.
+
+- **D-05 ENMENDADA (Q2):** en `tools/check_surface_types.py:47`, dejar las cifras `183 / 330`
+  como están (cita histórica byte-idéntica del árbol pre-Phase-37, verificada por `git worktree`
+  contra `00ffb2f~1`) y **agregar el pin de commit**: algo como
+  `Before Phase 37 (medido en 00ffb2f~1) this gate printed::`. En `:58`, reemplazar el bloque
+  congelado por el **valor medido hoy** — `337` definitions scanned (no 336), más los otros dos
+  números que también están stale (`186→187`, `442→467`) — y fecharlo (`medido 2026-09-01`) o
+  pinnearlo al commit igual que `:47`. Corregir las **tres** cifras de `:58`, no sólo la de
+  definitions. El planner DEBE re-correr `tools/check_surface_types.py` para confirmar el valor
+  antes de escribirlo — no copiar `337` de este documento sin verificar.
+
+- **D-08 ENMENDADA (Q3):** el rol de canario de `probe_context` se **transfiere de verdad**:
+  `verification/test_probe_context_coverage.py` se agrega al allowlist explícito de CI en el
+  mismo cambio consolidado de D-11 — un archivo más de los que D-10 enumeraba originalmente.
+  Verificar que pasa solo (6/6 medido en research) antes de agregarlo. La decisión escrita de
+  HARN-04 debe nombrar esta transferencia explícitamente (no "transferido" sin enrolamiento —
+  eso sería renombrar el abandono).
+
+- **D-10 ENMENDADA (consecuencia de Q3):** la lista de archivos a enrolar en el allowlist de CI
+  crece en uno: agregar `verification/test_probe_context_coverage.py` a la lista original de D-10.
+
+- **Q4 (no bloqueante, resuelto con la recomendación del research):** la fila de deuda de
+  `test_main_matriz_login_fail_uniformity.py` (que sí asevera algo que ningún test enrolado
+  asevera hoy — Hallazgo 9) se cierra con ~3 líneas grep-assertables agregadas a un archivo ya
+  enrolado en CI, si es viable sin presupuesto adicional significativo; si no es viable, se
+  descarta por escrito en el documento de decisión de HARN-04 (nunca queda implícito).
+
+- **Q5 (no bloqueante, resuelto con la recomendación del research):** el gap de gate de mypy
+  sobre los drivers `main_*.py` de la raíz (ningún gate de CI apunta ahí, medido en Hallazgo 12
+  / Pitfall D) se **declara por escrito** en el cierre de fase con destino nombrado en el
+  backlog v1.9 — apuntar mypy a los 5 drivers dentro de esta fase es scope creep no medido, no
+  se ejecuta en esta fase.
+
 ### Claude's Discretion
 
 - Nombre exacto y estructura del/los archivo(s) de test de falsificación de D-04 (nuevo archivo
   vs. casos agregados a `verification/test_findings_dedupe_by_title.py`).
 - Redacción exacta de la decisión escrita y fechada de HARN-04 (D-08) — el contenido mínimo
-  está locked arriba, el wording no.
+  está locked arriba (enmendado), el wording no.
 - Orden de los planes/waves dentro de la fase (p. ej. HARN-03 mecánico primero, HARN-01 con su
   refactor de fid después, HARN-04 como decisión de checkpoint en cualquier punto).
+- Viabilidad exacta del cierre de Q4 (login debt) sin presupuesto adicional — si el planner mide
+  que requiere más de ~3 líneas, aplica la salida "descartar por escrito".
 
 ### Folded Todos
 
