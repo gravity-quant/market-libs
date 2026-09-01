@@ -305,3 +305,82 @@ estaban cubiertas.
 | Q5 (gap de mypy sobre drivers de la raíz) | § 4 — declarado, medido, destino v1.9 vía plan 45-05 |
 | D-10 re-declaración de los inertes | § 5, con el censo 53 / 13 / 40 de esta corrida |
 | Límites de alcance no silenciados | § 6.1 y § 6.2 |
+| Censo POST-fase, medido tras el edit consolidado | § 7 (agregado por el plan 45-05, 2026-09-01) |
+
+---
+
+## 7. Censo post-fase — medido después del edit consolidado de `ci.yml` (plan 45-05)
+
+*Agregado por el plan **45-05** el **2026-09-01**, después de que el edit consolidado de D-11
+(commit `d6b34f0`) aterrizara. Las cifras de abajo son **medidas en esa corrida**, no proyectadas
+desde § 2.3 ni desde el handoff de 45-04.*
+
+**Los comandos y su salida:**
+
+```
+$ ls verification/test_*.py | wc -l
+      54
+$ grep -c 'verification/test_.*\.py' .github/workflows/ci.yml
+18
+$ git log --oneline 6b9b3b6..HEAD -- .github/workflows/ci.yml | wc -l
+1
+```
+
+**La aritmética, antes → después:**
+
+| Medida | § 0 / M3 (plan 45-04) | Al ARRANCAR el plan 45-05 | **Después del edit (HEAD)** |
+|---|---|---|---|
+| Archivos `verification/test_*.py` en disco | 53 | **54** | **54** |
+| Enrolados en el allowlist del job `lint` | 13 | 13 | **18** |
+| **Inertes** (en disco, no enrolados) | 40 | **41** | **36** |
+
+**El delta de disco 53 → 54 se explica, no se redondea.** El archivo nuevo es
+`verification/test_drift_dedupe_falsification.py`, creado por el plan **45-02** (`bda2bec`, la puerta
+RED del TDD de HARN-01) y extendido a 6 arms por el plan **45-03** (`a573a91`). Nació **después** de
+la medición M3 de § 0, que corrió en el plan 45-04 — de ahí que la proyección *"53 / 13 / 40 → 53 /
+18 / 35"* del final de § 2.3 quede **corregida por esta sección a 54 / 13 / 41 → 54 / 18 / 36**. El
+enrolamiento sí fue de **+5 exactos**, como estaba declarado; lo que se movió es la base de disco,
+porque la propia fase agregó un archivo. Esta corrección es del mismo tipo que la que § 0 le hizo al
+`52 / 12 / 40` de `41-ROLLUP.md`: se escribe lo medido y se nombra la causa del delta.
+
+**Los 5 enrolados son exactamente los 5 de la tabla de § 5** (verificado por grep sobre el YAML, 5/5
+presentes). No se enroló ningún otro archivo, no se creó ningún job nuevo (`grep -c '^  [a-z-]*:$'`
+→ **5**, idéntico a la línea base) y el comentario que explica por qué la lista es **EXPLÍCITA**
+(`ci.yml:76-78`) quedó intacto (`grep -c 'Es una lista EXPLÍCITA'` → 1).
+
+### Re-declaración de los inertes (D-10), con la cifra post-fase
+
+**Los 36 archivos `verification/test_*.py` que quedan en disco y NO corren en CI siguen INERTES y
+formalmente FUERA DE ALCANCE de v1.8.** Esto se re-declara acá por escrito, con la cifra medida
+después del edit, precisamente para que no se lea como un silencio:
+
+- **Por qué no se enrolan en bloque:** `PITFALLS.md` advierte explícitamente contra *"enrolar
+  `verification/` en bloque"*. Ese directorio arrastra rojo pre-existente —los **19 failed / 19
+  errors** de M1, de los 2 archivos que la § 1 acepta como deuda— así que un `pytest verification/`
+  pondría rojo el job `lint` **del repo entero** el mismo día que se escribiera. Convertiría una
+  limpieza acotada en un yak-shave de alcance no medido, con el precedente ya escrito para mypy
+  (*"Enrolamiento mypy completo de `verification/` … no forma parte de HARN-04"*,
+  `REQUIREMENTS.md § Out of Scope`).
+- **Qué se enroló entonces:** únicamente los archivos que **HARN-01 / HARN-03 / HARN-04 tocan
+  directamente** en esta fase (tabla de § 5). Ni uno más.
+- **Los 2 archivos de la § 1 siguen sin enrolarse**, coherente con que D-08 no se revirtió a
+  *"reparar"*.
+- **La "declaración inerte" que la Phase 41 dejó ruteada a esta fase** (`41-ROLLUP.md:160-276`) queda
+  **satisfecha por esta re-declaración explícita y medida**, no por enrolamiento total. Un lock que
+  no corre sigue sin contarse como cobertura — y ahora los que no corren están contados: son 36.
+- **Si algún día se quiere cobertura de CI sobre todo el directorio**, es candidato a un milestone
+  propio con presupuesto medido, no un efecto colateral de esta decisión.
+
+### El canario de `probe_context`: la transferencia de § 2.3 dejó de ser una promesa
+
+`verification/test_probe_context_coverage.py` **corre en CI desde `d6b34f0`** (línea nueva del
+allowlist del job `lint`). Precondición re-verificada en la corrida del plan 45-05, no heredada de
+M2:
+
+```
+$ uv run pytest -q verification/test_probe_context_coverage.py
+6 passed in 0.11s
+```
+
+Ésa es la diferencia, nombrada por D-08 ENMENDADA, entre **transferir el rol de canario** y
+**renombrar el abandono** (`45-RESEARCH.md` Hallazgo 10).
