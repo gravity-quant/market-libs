@@ -188,9 +188,9 @@ Ningún valor, token OAuth de `gh` ni clave SSH fue impreso en ningún momento. 
 
 **Conteo de commits pendientes RE-DERIVADO en vivo** con `git rev-list --count origin/main..HEAD`:
 
-> **94**
+> **94** al momento de crear la branch · **95** tras el commit de metadata de este plan (el que incluye este SUMMARY), que es el estado efectivamente empujado.
 
-Los literales **84** (CONTEXT.md D-07), **86** (44-RESEARCH.md) y **88** (momento de escritura del plan) quedan **todos superados**. `HEAD..origin/main` = 0, así que el push es fast-forward puro. Esta es exactamente la deriva que D-10 existe para prevenir.
+Los literales **84** (CONTEXT.md D-07), **86** (44-RESEARCH.md) y **88** (momento de escritura del plan) quedan **todos superados**. `HEAD..origin/main` = 0, así que el push es fast-forward puro. Esta es exactamente la deriva que D-10 existe para prevenir — y la razón por la que 44-02 debe volver a re-derivar el valor en vivo en vez de tomar el 95 de acá.
 
 ## Decisions Made
 
@@ -262,6 +262,28 @@ Ninguno pendiente. El único requisito externo del plan —autenticación de `gh
 - 44-02 debe re-derivar en vivo el número de PR y el conteo de checks (15/15 por conteo positivo, D-11), y verificar que su propio checkpoint esté escrito literalmente como `gate="blocking-human"`.
 - 44-03 es el plan que debe marcar `PUB-01` completo, no antes.
 - `DRV-MD-SEG-43` (`main_market_data.py`) sigue diferido a la Phase 45, intacto y nombrado.
+
+## Self-Check: PASSED
+
+Archivos declarados, verificados en disco con `[ -f ]`: `44-01-SUMMARY.md`, `pyproject.toml`, `__init__.py`, `README.md`, `uv.lock` — los 5 FOUND.
+
+Commits declarados, verificados con `git log --oneline --all`: `9e65699`, `f28fc4a`, `70c494d`, `e3f55f1`, `08c9681` — los 5 FOUND.
+
+Gate final de acceptance criteria del Task 3, salida literal:
+
+```
+lock_member_version=0.7.0 OK
+lock_commits=1
+lock_churn=[1 1]
+release_yml_digest_identity=OK
+this_plan_touched_no_workflow_no_driver=OK
+credential_scan=CLEAN
+branch=milestone/v1.8-cierre-deuda-post-v1.7  HEAD==origin/milestone/v1.8-cierre-deuda-post-v1.7
+tree=CLEAN
+tag_0.7.0=ABSENT
+open_prs=0
+PASS
+```
 
 ---
 *Phase: 44-release-market-data-client-0-7-0*
