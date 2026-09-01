@@ -259,8 +259,12 @@ def test_the_mapping_machinery_left_the_module_without_taking_anything_else() ->
        below the call site this plan deleted and is the single easiest thing in
        the phase to destroy by accident (36-RESEARCH Pitfall 5).
     2. ``MarketDataEntries`` declares exactly its ten-key roster (D-02).
-    3. The ``SafeModel`` roster reachable by introspection is exactly nineteen —
-       the sixteen measured pre-phase plus the three this plan adds.
+    3. The ``SafeModel`` roster reachable by introspection is exactly twenty —
+       the sixteen measured pre-Phase-36, the three that phase added, and
+       ``FeedSubscription`` from Phase 43 (HARN-02 / D-08). This is a non-vacuity
+       floor for the assertions ABOVE it, not a cap on the module: it is expected
+       to move by exactly one whenever a phase adds one model, and the number is
+       bumped with the roster in the same commit.
     """
     machinery = ("_mapping_value", "_apply_mapping_policy", "_is_mapping", "_strip_optional")
     assert [name for name in machinery if hasattr(models_module, name)] == []
@@ -293,8 +297,8 @@ def test_the_mapping_machinery_left_the_module_without_taking_anything_else() ->
         and issubclass(obj, SafeModel)
         and obj.__module__ == models_module.__name__
     }
-    assert len(roster) == 19, sorted(roster)
-    assert {"BookLevel", "EntryValue", "MarketDataEntries"} <= roster
+    assert len(roster) == 20, sorted(roster)
+    assert {"BookLevel", "EntryValue", "MarketDataEntries", "FeedSubscription"} <= roster
 
 
 # ----------------------------------------------------------------------
