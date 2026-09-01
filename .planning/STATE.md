@@ -4,11 +4,11 @@ milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
 current_phase: 44
 current_phase_name: release-market-data-client-0-7-0
-status: executing
-stopped_at: Phase 44 context gathered (assumptions mode)
+status: paused-at-checkpoint
+stopped_at: "Phase 44 plan 44-02 checkpoint (a) — merge gate — operator replied \"abort\""
 last_updated: "2026-09-01T10:18:45.855Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 44 execution started
+last_activity_desc: Phase 44 plan 44-02 halted at merge checkpoint by explicit operator abort; PR #16 left open, main untouched
 progress:
   total_phases: 5
   completed_phases: 3
@@ -29,10 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 ## Current Position
 
-Phase: 44 (release-market-data-client-0-7-0) — EXECUTING
-Plan: 2 of 3
-Status: Ready to execute
-Last activity: 2026-09-01 — Phase 44 execution started
+Phase: 44 (release-market-data-client-0-7-0) — PAUSED AT CHECKPOINT
+Plan: 2 of 3 (44-01 complete; 44-02 in progress, halted at checkpoint a — merge gate; 44-03 not started)
+Status: Awaiting operator decision on PR #16 (open, unmerged, https://github.com/gravity-quant/market-libs/pull/16)
+Last activity: 2026-09-01 — checkpoint:human-action gate="blocking-human" reached in 44-02; operator replied "abort" (recorded verbatim, not auto-issued); no irreversible action taken — PR #16 still OPEN, origin/main unchanged at 37a83fe, no tag exists locally or on origin, working tree clean
+Resume: `/gsd-execute-phase 44` re-enters at plan 44-02's checkpoint; operator can review PR #16 on GitHub before replying "approved" to proceed to the merge, or continue investigating first
 
 ## Performance Metrics
 
