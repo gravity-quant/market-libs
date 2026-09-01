@@ -18,7 +18,7 @@ Requisitos para el milestone v1.8. Cada uno mapea a una fase del roadmap.
 
 ### market-data-client shape fix
 
-- [ ] **SHAPE-01**: Corregir los campos declarados de `Instrument`/`Segment` en `market-data-client` contra una lectura fresca del wire real (no el baseline congelado de 2026-07-31), con disposición individual por campo (alias aditivo / remover / agregar, siguiendo el precedente D-22 de `Symbol.marketId`) y fixtures de test re-derivadas — no renombradas para que sigan pasando
+- [x] **SHAPE-01**: Corregir los campos declarados de `Instrument`/`Segment` en `market-data-client` contra una lectura fresca del wire real (no el baseline congelado de 2026-07-31), con disposición individual por campo (alias aditivo / remover / agregar, siguiendo el precedente D-22 de `Symbol.marketId`) y fixtures de test re-derivadas — no renombradas para que sigan pasando
 - [ ] **HARN-02**: Tipar las 5 claves `extra` restantes de `market-data-client` (`Health`/`HealthFeed`/`Symbol`), en el mismo cambio de `models.py` que SHAPE-01 (mismo archivo, mismo release)
 
 ### Release
@@ -59,7 +59,7 @@ categoría — ver `ROADMAP.md § Phase Details (v1.8)` y `.planning/research/SU
 | NYQ-01 | Phase 41 | Complete |
 | LIVE-01 | Phase 42 | Complete |
 | LIVE-02 | Phase 42 | Complete |
-| SHAPE-01 | Phase 43 | Pending |
+| SHAPE-01 | Phase 43 | Complete |
 | HARN-02 | Phase 43 | Pending |
 | PUB-01 | Phase 44 | Pending |
 | HARN-01 | Phase 45 | Pending |

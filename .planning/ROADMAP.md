@@ -143,11 +143,11 @@ Plans:
   4. Las fixtures de test afectadas se **re-derivan** de los baselines medidos, con una aserción de que el conjunto de claves de cada fixture es subconjunto del baseline — ninguna se renombra para que siga pasando.
   5. Los 4 gates de CI de v1.6 quedan verdes, el cambio se espeja donde corresponda en `client.py` / `aio.py` (o se demuestra **por medición** que los parsers genéricos no necesitan cambio), y la fase **no** bumpea versión ni publica: el release es la Phase 44.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 **Wave 1**
 
-- [ ] 43-01-PLAN.md — `Instrument` + `Segment` reconciliados contra la lectura fresca del wire (D-01…D-06) y los 6 archivos de test re-derivados *(wave 1)*
+- [x] 43-01-PLAN.md — `Instrument` + `Segment` reconciliados contra la lectura fresca del wire (D-01…D-06) y los 6 archivos de test re-derivados *(wave 1)*
 
 **Wave 2** *(bloqueada por 43-01 — mismo `models.py`)*
 
@@ -199,7 +199,7 @@ Plans:
 | 40. Releases breaking coordinados                            | v1.7      | 3/3 | Complete    | 2026-08-30 |
 | 41. Validación Nyquist retroactiva de v1.7                   | v1.8      | 7/7 | Complete    | 2026-08-31 |
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
-| 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 0/? | Not started | -          |
+| 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 1/3 | In Progress|  |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/? | Not started | -          |
 | 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |
 

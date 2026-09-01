@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 42
-current_phase_name: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
+current_phase: 43
+current_phase_name: market-data-client-forma-de-instrument-segment-5-claves-extr
 status: executing
 stopped_at: Phase 43 context gathered (assumptions mode)
-last_updated: "2026-09-01T00:38:10.560Z"
-last_activity: 2026-08-31
-last_activity_desc: Phase 42 execution started
+last_updated: "2026-09-01T00:57:03.775Z"
+last_activity: 2026-09-01
+last_activity_desc: Phase 43 execution started
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 40
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Phase 42 — re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
+**Current focus:** Phase 43 — market-data-client-forma-de-instrument-segment-5-claves-extr
 
 ## Current Position
 
-Phase: 42 (re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce) — EXECUTING
-Plan: 6 of 6
+Phase: 43 (market-data-client-forma-de-instrument-segment-5-claves-extr) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-08-31 — Phase 42 execution started
+Last activity: 2026-09-01 — Phase 43 execution started
 
 ## Performance Metrics
 
@@ -220,6 +220,7 @@ Last activity: 2026-08-31 — Phase 42 execution started
 | Phase 42 P04 | 7min | 3 tasks | 4 files |
 | Phase 42 P05 | 3min | 2 tasks | 8 files |
 | Phase 42 P06 | 9min | 2 tasks | 5 files |
+| Phase 43 P01 | 15min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -539,6 +540,8 @@ Recent decisions affecting current work:
 - [Phase 42-06]: Phase 42 cerrada: los 5 criterios del ROADMAP disponen 2 SATISFECHO + 3 SATISFECHO POR LA VIA DECLARADA + 0 NO SATISFECHO, cero filas sin disponer (42-CLOSURE.md)
 - [Phase 42-06]: Q5 corregida: el backlog ya no afirma que scripts/literal_census_33.py tenia el gate listo — estaba en substring-match pre-Phase-39; correccion aplicada a las dos entradas forward-looking, texto historico de la Phase 33 preservado verbatim
 - [Phase 42-06]: LIVE-01 cerrado por la via 'causa re-confirmada'; LIVE-HIGY-42 (ex LIVE-HIGY-33) sigue ABIERTO con sus 22 triples sin contrastar — el rename cambio el identificador, no el estado
+- [Phase 43]: [43-01] Instrument.active se declara bool | None = None (D-03): el wire mando null en 50/50 filas medidas; declararlo bool plano habria convertido una extra medida en una missing permanente sobre cada lectura de catalogo. — El miembro bool de la union nunca se observo y queda como asuncion declarada, autocorrectiva via el censo de divergencias.
+- [Phase 43]: [43-01] Instrument.marketId se conserva como alias aditivo deprecado con espejo en from_api (D-04, precedente D-22); Segment en cambio se reemplaza por completo (D-06) en vez de alias-mapearse. — D-22 cubre UNA clave con variante de spelling camelCase/snake_case; marketSegmentId vs segment son nombres distintos, asi que el alias no aplica.
 
 ### Pending Todos
 
@@ -619,7 +622,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-31T23:49:16.329Z
+Last session: 2026-09-01T00:56:31.879Z
 Stopped at: Phase 43 context gathered (assumptions mode)
 Resume file: .planning/phases/43-market-data-client-forma-de-instrument-segment-5-claves-extr/43-CONTEXT.md
 
