@@ -185,6 +185,23 @@ práctica**: sus claves no existen en el wire, así que ningún consumidor liber
 nunca un valor poblado en ellas. El único cambio de comportamiento silencioso que sí puede afectar
 a código ya escrito es el flip de truthiness de la última fila.
 
+**`FeedIngestor` / `HealthFeed` / `Symbol` — `GET /health/feed`, `GET /symbols`** (mismo bump
+0.7.0, las cinco claves `extra` medidas de `TYP-MD-EXTRA-33`/Phase 43 — omitidas de una versión
+anterior de este changelog, corregido acá)
+
+| Antes (0.6.0 publicado) | Ahora (0.7.0) |
+| --- | --- |
+| — | `FeedSubscription` (`market_data_client.FeedSubscription`) — **nuevo modelo público**, 15 campos, anidado en `ingestor.subscription` |
+| `FeedIngestor(...)` sin `subscription` | `FeedIngestor.subscription: FeedSubscription` — **campo requerido nuevo, sin default**: todo consumidor que construya `FeedIngestor` directamente (no vía `from_api`) necesita el argumento extra |
+| — | `FeedIngestor.last_error_age_seconds` (`int \| None`) — nuevo |
+| — | `FeedIngestor.last_error_at` (`str \| None`) — nuevo |
+| — | `HealthFeed.symbols_never_delivered` (`int`) — **campo requerido nuevo**, declarado no-nullable a propósito |
+| — | `Symbol.note` (`str \| None`) — nuevo |
+
+`FeedIngestor` y `HealthFeed` son superficie publicada desde v0.5.0: un consumidor que hoy
+construye cualquiera de las dos clases directamente (no vía `from_api`, que sigue funcionando sin
+cambios) necesita agregar el argumento nuevo requerido antes de actualizar a 0.7.0.
+
 ### v0.6.0
 
 **`market_data` deja de ser un diccionario y pasa a ser un Null Object tipado, y
