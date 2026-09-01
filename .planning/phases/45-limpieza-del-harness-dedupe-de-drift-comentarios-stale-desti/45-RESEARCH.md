@@ -725,6 +725,13 @@ Esta fase **no** es un rename/refactor de strings, pero sí modifica el orden de
 
 ## Open Questions
 
+**RESOLVED (2026-09-01):** Q1, Q2 y Q3 (bloqueantes) fueron presentadas al operador vía
+checkpoint tras esta investigación y resueltas. Q4 y Q5 (no bloqueantes) se resolvieron con la
+recomendación de este documento. Las cinco resoluciones están enmendadas en
+`45-CONTEXT.md § Checkpoint de resolución post-research (2026-09-01)`, que es la fuente de
+verdad para planning — este documento se conserva sin editar como evidencia de la medición
+original.
+
 ### Q1 — ¿Qué es la clave de dedupe? (BLOQUEANTE para HARN-01)
 
 **Lo que sabemos:** D-01 lockea "intra-run únicamente". Medido (Hallazgos 1-3): dentro de un proceso, cada `(client_function, surface)` se visita exactamente una vez, así que una clave que incluya `surface` **no puede colapsar nada**. Una clave que la ignore colapsa el par sync+async (22 → 11) pero va contra la convención lockeada `surface-in-title-write-new` y ciega un `SYNC-ASYNC-DRIFT` genuino de forma.
