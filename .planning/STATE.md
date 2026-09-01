@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 44
-current_phase_name: release-market-data-client-0-7-0
-status: phase-complete
+current_phase: 45
+current_phase_name: limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
+status: executing
 stopped_at: Phase 45 context gathered (assumptions mode)
-last_updated: "2026-09-01T14:16:40.030Z"
+last_updated: "2026-09-01T15:20:22.151Z"
 last_activity: 2026-09-01
-last_activity_desc: "plan 44-03 completed: second independent checkpoint approved (2026-09-01T13:26:35Z), tag pushed, release.yml run 33513425356 succeeded, sha256 of release.yml identical across HEAD/origin-main/v0.6.0-tag/v0.7.0-tag, gate-authorship audit closed at 0 bare-blocking / 2 human-action-blocking-human across the phase's plan files"
+last_activity_desc: Phase 45 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 24
+  completed_plans: 20
   percent: 80
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Phase 45 — harness-cleanup (Phase 44 complete)
+**Current focus:** Phase 45 — limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
 
 ## Current Position
 
-Phase: 44 (release-market-data-client-0-7-0) — COMPLETE
-Plan: 3 of 3 (44-01, 44-02, 44-03 all complete)
-Status: `market-data-client` v0.7.0 is publicly released. Tag `market-data-client-v0.7.0` (annotated) anchored on merge commit `bca1add0de9336ef5ef738cb11a2bcb7623f9968`; GitHub Release carries `market_data_client-0.7.0-py3-none-any.whl` and `market_data_client-0.7.0.tar.gz`; post-publish install from the public wheel verified in a throwaway Python 3.12 venv outside the repo (Instrument/Segment/FeedSubscription deep chain green). Other five packages' tag counts unchanged (4/3/3/2/1). Both blocking-human gates (D-08a merge, D-08b tag) answered "approved" by the operator, recorded verbatim with timestamps, neither auto-issued.
-Last activity: 2026-09-01 — plan 44-03 completed: second independent checkpoint approved (2026-09-01T13:26:35Z), tag pushed, release.yml run 33513425356 succeeded, sha256 of release.yml identical across HEAD/origin-main/v0.6.0-tag/v0.7.0-tag, gate-authorship audit closed at 0 bare-blocking / 2 human-action-blocking-human across the phase's plan files
+Phase: 45 (limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-09-01 — Phase 45 execution started
 Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, stale comments, `verification/` destination for matriz — HARN-01/03/04) — not yet planned or started; `/gsd-plan-phase 45` or `/gsd-discuss-phase 45` is the next step.
 
 ## Performance Metrics
@@ -225,6 +225,7 @@ Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, st
 | Phase 43 P02 | 6min | 3 tasks | 4 files |
 | Phase 43 P03 | 11min | 3 tasks | 4 files |
 | Phase 44 P01 | 6 min | 3 tasks | 4 files |
+| Phase 45 P01 | 2min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -552,6 +553,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 43 cerrada: 43-DISPOSITION.md consolida la disposicion de los 17 campos de Instrument/Segment con cero filas sin disponer, el antes/despues MEDIDO de get_segments(), y los 4 jobs de CI verdes sin bump de version (0.6.0 intacto en los tres sitios)
 - [Phase ?]: D-14 medido por identidad de objeto funcion: client.py y aio.py no necesitan cambio porque ambas superficies llaman al mismo _core.parse_X; el comando del plan asumia un re-export inexistente y se sustituyo declarando la sustitucion
 - [Phase ?]: El job pre-commit estaba rojo en main desde antes de la Phase 43 (end-of-file-fixer sobre 41-06-PLAN.md y 42-05-PLAN.md); corregido con +1 byte por archivo, cero caracteres de contenido alterados
+- [Phase ?]: [45-01]: El docstring del gate de superficie queda REPRODUCIBLE, no congelado — el bloque historico se pinnea a su commit (00ffb2f~1) con sus digitos byte-identicos y el bloque vigente lleva fecha + commit (Measured 2026-09-01, fe323d6) con las tres cifras re-medidas hoy (187/337/467). El defecto IN-01 nunca fue el digito historico: era la ausencia de fecha en el bloque vigente.
+- [Phase ?]: [45-01]: DRV-MD-SEG-43 CERRADO (probe_parity compara s.segment; mypy main_market_data.py de 2 errores a 0) pero su entrada de backlog se CONSERVA — su medicion de por que ningun gate estatico lo detecta es la evidencia que cita la declaracion de Q5. El gap de gate NO se cierra en esta fase: apuntar mypy a los 5 drivers de la raiz es scope creep no medido, ruteado al plan 45-05 + backlog v1.9.
+- [Phase ?]: [45-01]: IN-05 retirado del backlog justificado por el CODIGO y no por el reporte — el retiro se ejecuto despues de correr el import y pegar su salida (matriz_client.__version__ -> 0.3.0) en el propio ROADMAP. El criterio 4 de la Phase 45 dejo de decir 336 (medido pre-Phases-43/44) y dice 337 con su fecha de medicion.
 
 ### Pending Todos
 
@@ -632,7 +636,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T14:16:40.022Z
+Last session: 2026-09-01T15:20:15.123Z
 Stopped at: Phase 45 context gathered (assumptions mode)
 Resume file: .planning/phases/45-limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti/45-CONTEXT.md
 
