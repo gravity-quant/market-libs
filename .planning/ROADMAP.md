@@ -198,7 +198,14 @@ Plans:
   4. El comentario stale de la Phase 37 dice el número **medido** (336, no 330), `IN-06` queda cerrado con el archivo dentro del allowlist explícito de `ci.yml`, e `IN-05` queda **retirado** del backlog por estar ya resuelto en la Phase 40 — verificado contra el código, no asumido del reporte.
   5. Los edits de `ci.yml` de todo el milestone llegan en **un** cambio consolidado del allowlist, y CI queda verde en las 12 patas de la matriz (6 paquetes × py3.12/py3.13) más los jobs `lint`, `pre-commit` y `typecheck`.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 45-01-PLAN.md — HARN-03 mecánico: docstring del gate re-medido y pinneado (D-05 ENMENDADA), fold-in `DRV-MD-SEG-43` (D-09) y retiro de `IN-05` (D-07) *(wave 1)*
+- [ ] 45-02-PLAN.md — HARN-01 por TDD: test de falsificación de D-04 (colapso + NO-colapso + fid no quemado) y guarda `(func, digest)` en `main_market_data.py` *(wave 2, `type: tdd`)*
+- [ ] 45-03-PLAN.md — HARN-01: los 6 sitios de drift restantes con el no-op de SU contrato de retorno + lock por AST de orden y forma sobre los 7 sitios *(wave 3)*
+- [ ] 45-04-PLAN.md — HARN-04: decisión escrita y fechada (`45-HARN-04-DECISION.md`) + cierre de Q4 dentro de un archivo ya enrolado *(wave 1)*
+- [ ] 45-05-PLAN.md — Edit consolidado único de `ci.yml` (13 → 18, D-06/D-10/D-11), censo post-fase y cierre del backlog *(wave 4)*
 
 ## Progress
 
@@ -214,7 +221,7 @@ Plans:
 | 42. Re-chequeos en vivo — higyrus + venue gate + censo `Literal` | v1.8   | 6/6 | Complete   | 2026-08-31 |
 | 43. `market-data-client` — forma `Instrument`/`Segment` + `extra` | v1.8 | 3/3 | Complete    | 2026-09-01 |
 | 44. Release `market-data-client` 0.7.0                       | v1.8      | 0/3 | Planned    |  |
-| 45. Limpieza del harness                                     | v1.8      | 0/? | Not started | -          |
+| 45. Limpieza del harness                                     | v1.8      | 0/5 | Planned     | -          |
 
 *(Fases 1-34: ver las tablas de progreso en `milestones/v1.0-…v1.6-ROADMAP.md`.)*
 
