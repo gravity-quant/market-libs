@@ -58,7 +58,7 @@ Full detail: [`milestones/v1.6-ROADMAP.md`](./milestones/v1.6-ROADMAP.md)
 - [x] **Phase 41: Validación Nyquist retroactiva de v1.7** *(primera y sola — audita árbol congelado)* — `/gsd-validate-phase` sobre las Phases 35-39 con disposición de 3 vías por hallazgo, sin flip mecánico de `nyquist_compliant` — NYQ-01 (completed 2026-08-31)
 - [x] **Phase 42: Re-chequeos en vivo — DNS de higyrus + port del gate de venue + censo `Literal` de matriz** — higyrus produce un veredicto medido y matriz produce el censo de valores `Literal` de RESPONSE, con el gate del script portado a igualdad exacta de hostname antes de tocar la red — LIVE-01, LIVE-02 (completed 2026-08-31)
 - [x] **Phase 43: `market-data-client` — forma de `Instrument`/`Segment` + 5 claves `extra` tipadas** *(fix, sin publicar)* — disposición campo por campo contra la lectura fresca de la Phase 42, fixtures re-derivadas y los 4 gates de CI verdes — SHAPE-01, HARN-02 (completed 2026-09-01)
-- [ ] **Phase 44: Release `market-data-client` 0.7.0** — bump en los 4 sitios, changelog + tabla de migración, doble gate humano independiente **escrito** `gate="blocking-human"` — PUB-01
+- [x] **Phase 44: Release `market-data-client` 0.7.0** — bump en los 4 sitios, changelog + tabla de migración, doble gate humano independiente **escrito** `gate="blocking-human"` — PUB-01 — completado 2026-09-01
 - [ ] **Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz** — dedupe con test de falsificación e invariante de fids intacto, `IN-06` cerrado, `IN-05` retirado, y `HARN-04` decidido por escrito — HARN-01, HARN-03, HARN-04
 
 ## Phase Details (v1.8)
@@ -183,7 +183,7 @@ Plans:
 
 **Wave 3** *(bloqueada por 44-02 — el tag va sobre el merge commit re-resuelto)*
 
-- [ ] 44-03-PLAN.md — **Segundo gate humano bloqueante** (D-08b), tag anotado sobre el SHA re-resuelto y pusheado por nombre (D-09), Release con wheel + sdist, invariancia de conteos de tags (D-10) y verificación post-publicación desde el wheel público fuera del repo (D-12) *(wave 3, `autonomous: false`)*
+- [x] 44-03-PLAN.md — **Segundo gate humano bloqueante** (D-08b), tag anotado sobre el SHA re-resuelto y pusheado por nombre (D-09), Release con wheel + sdist, invariancia de conteos de tags (D-10) y verificación post-publicación desde el wheel público fuera del repo (D-12) *(wave 3, `autonomous: false`)* — completado 2026-09-01: tag `market-data-client-v0.7.0` publicado, Release con wheel+sdist, wheel público instalado y verificado en venv 3.12 fuera del repo, auditoría de autoría de gates cerrada en 0/2
 
 ### Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
 

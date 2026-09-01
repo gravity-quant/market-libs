@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 44
-current_phase_name: release-market-data-client-0-7-0
-status: executing
-stopped_at: "Phase 44 plan 44-02 complete — PR #16 merged to main; plan 44-03 (tag + release, second blocking-human gate) not started"
-last_updated: "2026-09-01T13:23:00.000Z"
+current_phase: 45
+current_phase_name: harness-cleanup
+status: phase-complete
+stopped_at: "Phase 44 complete — market-data-client v0.7.0 tagged and released; Phase 45 not started"
+last_updated: "2026-09-01T13:30:00.000Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 44 plan 44-02 resumed and completed — operator replied "approved" at the merge checkpoint (D-08a); PR #16 merged into origin/main via two-parent merge commit bca1add0de9336ef5ef738cb11a2bcb7623f9968; no tag created
+last_activity_desc: Phase 44 plan 44-03 completed — operator gave a second, independent "approved" at the tag/release checkpoint (D-08b); annotated tag market-data-client-v0.7.0 pushed on merge commit bca1add0, release.yml run 33513425356 succeeded, public Release carries wheel+sdist, post-publish install from the public wheel verified in a throwaway Python 3.12 venv outside the repo, other five packages' tag counts unchanged, gate-authorship audit closed 0/2
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 19
-  completed_plans: 17
-  percent: 63
+  completed_plans: 18
+  percent: 68
 ---
 
 # Project State
@@ -25,15 +25,15 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Phase 44 — release-market-data-client-0-7-0
+**Current focus:** Phase 45 — harness-cleanup (Phase 44 complete)
 
 ## Current Position
 
-Phase: 44 (release-market-data-client-0-7-0) — EXECUTING
-Plan: 3 of 3 (44-01 complete; 44-02 complete — PR #16 merged; 44-03 not started)
-Status: origin/main carries market-data-client 0.7.0 (merge commit bca1add0d). Plan 44-03 (annotated tag + public GitHub Release) remains, gated by a SECOND independent blocking-human checkpoint (the tag/release push approval) — not yet presented.
-Last activity: 2026-09-01 — checkpoint:human-action gate="blocking-human" in 44-02 re-presented after resume (operator's prior "abort" preserved no irreversible state); operator replied "approved" at 2026-09-01T13:22:49Z (recorded verbatim, not auto-issued); PR #16 merged via `gh pr merge 16 --merge`, real two-parent commit bca1add0de9336ef5ef738cb11a2bcb7623f9968, merged-tree market-data-client version confirmed 0.7.0, other five packages unchanged (ROADMAP criterion 5)
-Resume: `/gsd-execute-phase 44` continues to plan 44-03 — the annotated tag + public GitHub Release, behind its own independent human-action/blocking-human checkpoint
+Phase: 44 (release-market-data-client-0-7-0) — COMPLETE
+Plan: 3 of 3 (44-01, 44-02, 44-03 all complete)
+Status: `market-data-client` v0.7.0 is publicly released. Tag `market-data-client-v0.7.0` (annotated) anchored on merge commit `bca1add0de9336ef5ef738cb11a2bcb7623f9968`; GitHub Release carries `market_data_client-0.7.0-py3-none-any.whl` and `market_data_client-0.7.0.tar.gz`; post-publish install from the public wheel verified in a throwaway Python 3.12 venv outside the repo (Instrument/Segment/FeedSubscription deep chain green). Other five packages' tag counts unchanged (4/3/3/2/1). Both blocking-human gates (D-08a merge, D-08b tag) answered "approved" by the operator, recorded verbatim with timestamps, neither auto-issued.
+Last activity: 2026-09-01 — plan 44-03 completed: second independent checkpoint approved (2026-09-01T13:26:35Z), tag pushed, release.yml run 33513425356 succeeded, sha256 of release.yml identical across HEAD/origin-main/v0.6.0-tag/v0.7.0-tag, gate-authorship audit closed at 0 bare-blocking / 2 human-action-blocking-human across the phase's plan files
+Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, stale comments, `verification/` destination for matriz — HARN-01/03/04) — not yet planned or started; `/gsd-plan-phase 45` or `/gsd-discuss-phase 45` is the next step.
 
 ## Performance Metrics
 
