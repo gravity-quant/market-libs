@@ -6,14 +6,14 @@ current_phase: 45
 current_phase_name: limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
 status: executing
 stopped_at: Completed 45-04-PLAN.md
-last_updated: "2026-09-01T15:29:04.188Z"
+last_updated: "2026-09-01T15:35:31.132Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 45 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 ## Current Position
 
 Phase: 45 (limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-01 — Phase 45 execution started
 Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, stale comments, `verification/` destination for matriz — HARN-01/03/04) — not yet planned or started; `/gsd-plan-phase 45` or `/gsd-discuss-phase 45` is the next step.
@@ -227,6 +227,7 @@ Resume: Phase 44 is done. Next is Phase 45 (harness cleanup — drift dedupe, st
 | Phase 44 P01 | 6 min | 3 tasks | 4 files |
 | Phase 45 P01 | 2min | 3 tasks | 3 files |
 | Phase 45 P04 | 15 min | 2 tasks | 4 files |
+| Phase 45 P02 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -560,6 +561,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 45-04]: HARN-04 cerrado: los 2 archivos de verification/ de matriz quedan aceptados como deuda documentada (no reparar, no borrar) en 45-HARN-04-DECISION.md, fechado 2026-09-01; censo re-declarado 53/13/40 (corrige el 52/12/40 de 41-ROLLUP.md)
 - [Phase ?]: [Phase 45-04]: Q4 cerrado por implementacion: la taxonomia FINDING-no-FAIL de probe_login_sync tiene guardian por AST en verification/test_main_matriz_skip_line_shape.py, archivo ya enrolado en CI (19 -> 20 tests, no-vacuidad demostrada por mutacion)
 - [Phase ?]: [Phase 45-04]: Q5 declarado, no cerrado: ningun gate de CI mira los 5 drivers main_*.py de la raiz (mypy files = packages/*/src, pre-commit files: ^packages/.*/src/); destino backlog v1.9, entrada que el plan 45-05 debe agregar al ROADMAP
+- [Phase ?]: 45-02: la clave de dedupe de drift es (client_function, digest) sin surface (D-01 ENMENDADA); el digest cubre el par expected/actual
+- [Phase ?]: 45-02: _next_fid() se llama DESPUES de la guarda de dedupe (D-03), no-vacuidad del arm fid_not_burned demostrada invirtiendo el orden
+- [Phase ?]: 45-02: idempotent_by_title descartado para la rama drift — su scan corre arriba de la guarda de status humano y colapsaria contra bloques EXPECTED/NO-FIX triageados
 
 ### Pending Todos
 
@@ -640,7 +644,7 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T15:29:04.181Z
+Last session: 2026-09-01T15:35:06.404Z
 Stopped at: Completed 45-04-PLAN.md
 Resume file: None
 
