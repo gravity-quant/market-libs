@@ -355,6 +355,14 @@ def test_symbol_field_set_matches_reconciled_wire() -> None:
     # alias would also keep it green (every other assertion reads the new fields).
     # Only an exact field-set assertion proves both directions at once: the five
     # additions landed AND the published alias survived (D-22 forbids the rename).
+    #
+    # ``note`` is the SIXTH wire-only key, added by Phase 43 (HARN-02 / D-10). Its
+    # provenance differs from the other five: it rides the WRITE acknowledgements
+    # (F-140 sync / F-109 async, both on ``/symbols/{symbol_id}``) and is absent
+    # from the ``GET /symbols`` rows in
+    # ``get-symbols-probe-prefix-sync.json``. One model serves all four symbols
+    # endpoints, so ``note`` is conditional on the response SHAPE — hence
+    # ``str | None``, the same argument as ``created_at`` / ``updated_at``.
     assert {f.name for f in dataclasses.fields(Symbol)} == {
         "symbol",
         "marketId",
@@ -364,6 +372,7 @@ def test_symbol_field_set_matches_reconciled_wire() -> None:
         "created_at",
         "updated_at",
         "received_at",
+        "note",
     }
 
 
