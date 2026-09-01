@@ -76,7 +76,7 @@ def test_higyrus_unreachable_skip_line_classifies_as_skipped() -> None:
         f"caído se reportaría RAN (falso limpio), que es la regresión D-01."
     )
     assert line.startswith(f"SKIPPED {main_higyrus._PKG}: ")
-    assert line.endswith("LIVE-HIGY-33"), "la línea debe nombrar su destino de verificación"
+    assert line.endswith("LIVE-HIGY-42"), "la línea debe nombrar su destino de verificación"
 
 
 def test_neither_d01_line_leaks_a_host_or_base_url() -> None:

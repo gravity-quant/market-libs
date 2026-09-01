@@ -167,7 +167,7 @@ def test_unreachable_skip_line_is_a_plain_module_constant() -> None:
     assert consts["_VENDOR_UNREACHABLE_SKIP_LINE"] == line
     assert _ENV_SKIP.match(line) is not None
     assert line.startswith(f"SKIPPED {main_higyrus._PKG}: ")
-    assert line.endswith("LIVE-HIGY-33")
+    assert line.endswith("LIVE-HIGY-42")
     assert "http" not in line
     assert ".com" not in line
 

@@ -103,6 +103,7 @@ __all__ = [
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",
+    "FeedSubscription",
     "Health",
     "HealthAuth",
     "HealthFeed",
@@ -787,30 +788,111 @@ class HolidaysIn:
 class Instrument(SafeModel):
     """An instrument row from ``GET /instruments``.
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
-    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
-    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    Live-read provenance: field set taken verbatim from the FRESH wire read of
+    2026-08-31 (``42-WIRE-READ.md`` section 2, 50 rows measured, findings
+    F-205..F-218). Not from the OpenAPI and not from a mock. All 50 rows carried
+    the same homogeneous ten-key set: ``active``, ``currency``,
+    ``days_to_maturity``, ``expired``, ``market_id``, ``maturity``, ``outright``,
+    ``segment``, ``subscribed``, ``symbol``.
+
+    Six of those ten — ``market_id``, ``currency``, ``days_to_maturity``,
+    ``maturity``, ``outright``, ``subscribed`` — were undeclared and therefore
+    SILENTLY DISCARDED on every catalogue read before Phase 43 (D-02).
+
+    ``| None`` justification — :attr:`active` is declared ``bool | None`` because
+    the live read OBSERVED it as ``null`` on 50/50 rows (D-03). The ``bool`` half
+    of the union was NEVER observed and is typed on the endpoint's semantics
+    alone: that half is a DECLARED ASSUMPTION, self-correcting through the
+    divergence census exactly as :attr:`FeedIngestor.last_error` is. Declaring it
+    a plain ``bool`` would have turned a measured ``extra`` key into a permanent
+    ``missing`` record on every single catalogue read.
+
+    ``marketId`` is a DEPRECATED CAMEL-CASE ALIAS of :attr:`market_id`. The wire
+    uses snake_case throughout this API and never sends the camelCase spelling.
+    It is NOT renamed, because ``Instrument`` is published read surface and a
+    rename would break consumers (D-04, following the ``Symbol`` precedent
+    D-22). Instead the wire-correct field is added alongside and :meth:`from_api`
+    mirrors ``market_id`` into ``marketId``, so the alias — which used to be
+    permanently ``""`` against a real payload — now carries the real value. New
+    code should read :attr:`market_id`; the alias is scheduled for removal at the
+    next MAJOR.
+
+    The previously declared ``instrumentType`` field exists NOWHERE on the wire —
+    it was the PROVISIONAL A1/A2 guess. Removing it is treated as a minor,
+    NON-breaking change (D-05, D-13 argument): the wire never sent that key, so
+    every released consumer that read it got the empty string and no populated
+    value could ever have been observed.
+
+    A plain :class:`SafeModel` subclass in every other respect: it carries NO
+    ``received_at`` (D-05 — reference data is unstamped).
     """
 
     symbol: str
     marketId: str
     segment: str
-    instrumentType: str
     expired: bool
+    market_id: str
+    currency: str
+    days_to_maturity: int
+    maturity: str
+    outright: bool
+    subscribed: bool
+    active: bool | None = None
+
+    @classmethod
+    def from_api(cls, payload: Any) -> Self:
+        """Build an ``Instrument``, mirroring the wire ``market_id`` into ``marketId``.
+
+        Same pre-processing as :meth:`Symbol.from_api`. The wire never sends
+        ``marketId``; without this the deprecated alias would stay ``""`` forever
+        and silently contradict :attr:`market_id`. An explicit ``marketId`` in the
+        payload (a hand-built dict, an older fixture) still wins — the mirror only
+        FILLS an absent key, it never overwrites, and it copies the dict rather
+        than mutating the caller's.
+
+        Phase 29 (``29-SEMANTICS-MATRIX.md`` Section 3(b)): the mirror runs
+        BEFORE the walker sees the payload, which is what keeps extra-key
+        reporting correct. After the mirror ``marketId`` is a declared field
+        with a present key, so no ``extra`` record fires for it — right, because
+        the client synthesized that key, the vendor did not send it.
+        """
+        if isinstance(payload, dict) and "marketId" not in payload and "market_id" in payload:
+            payload = {**payload, "marketId": payload["market_id"]}
+        # Explicit two-arg ``super()``: ``@dataclass(slots=True)`` REBUILDS the
+        # class, so the implicit ``__class__`` cell captured by a zero-arg
+        # ``super()`` still points at the pre-slots class and raises
+        # ``TypeError: obj must be an instance or subtype of type``. The module
+        # global ``Instrument`` is rebound to the slots class, so naming it works.
+        return super(Instrument, cls).from_api(payload)
 
 
 @dataclass(frozen=True, slots=True)
 class Segment(SafeModel):
     """A market segment row from ``GET /instruments/segments``.
 
-    PROVISIONAL shape (A1/A2 — OpenAPI not vendored; Phase 23 reconciles). A
-    plain :class:`SafeModel` subclass built via the inherited ``from_api``: it
-    carries NO ``received_at`` (D-05 — reference data is unstamped).
+    Live-read provenance: field set taken verbatim from the FRESH wire read of
+    2026-08-31 (``42-WIRE-READ.md`` section 2, 4 rows measured). Not from the
+    OpenAPI and not from a mock. All 4 rows carried exactly ``segment`` (str) and
+    ``live_instruments`` (int).
+
+    The three previously declared fields — ``marketSegmentId`` / ``marketId`` /
+    ``description`` — exist NOWHERE on the wire; they were the PROVISIONAL A1/A2
+    guess. Their removal is NON-breaking by the D-13 argument: the wire key set
+    and the old declared set were DISJOINT, so every row a released consumer ever
+    read decoded to three empty strings and no populated value could have been
+    observed (D-06).
+
+    NOT alias-mapped under D-22: that precedent covers ONE key with a
+    camelCase/snake_case spelling variant (``marketId``/``market_id``), whereas
+    ``marketSegmentId`` and ``segment`` are simply different names. The model is
+    replaced, not extended (D-06, explicit rejection).
+
+    A plain :class:`SafeModel` subclass built via the inherited ``from_api`` (no
+    override): it carries NO ``received_at`` (D-05 — reference data is unstamped).
     """
 
-    marketSegmentId: str
-    marketId: str
-    description: str
+    segment: str
+    live_instruments: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -864,6 +946,18 @@ class Symbol(SafeModel):
     blank, and made every write FATAL under ``strict_decode``. ``None`` states
     the truth: this response shape does not carry the field. The operator
     selected ``fix-shape-now`` at the 33-07 Task 1 checkpoint.
+
+    **Phase 43 (HARN-02 / D-10) — :attr:`note`, ``str | None``.** The sixth
+    wire-only key, and the same conditional-by-response-shape argument as
+    :attr:`created_at` / :attr:`updated_at` rather than a new one. It is PRESENT
+    in the write acknowledgements — ``create-symbol-sync-response.json`` and
+    ``update-symbol-sync-response.json``, measured live as ``F-140`` (sync) and
+    ``F-109`` (async) — and ABSENT from the ``GET /symbols`` rows of
+    ``get-symbols-probe-prefix-sync.json``. Since this one model serves all FOUR
+    symbols endpoints (``_core.py``), a flat ``str`` would manufacture an empty
+    string on every catalogue read and emit a ``missing`` record for a key that
+    response shape legitimately does not carry. Until this phase the key was
+    dropped on the floor and reported ``extra`` once per run.
     """
 
     symbol: str
@@ -874,6 +968,7 @@ class Symbol(SafeModel):
     created_at: str | None = None
     updated_at: str | None = None
     received_at: str | None = None
+    note: str | None = None
 
     @classmethod
     def from_api(cls, payload: Any) -> Self:
@@ -1144,9 +1239,22 @@ class DeleteHolidayResult(SafeModel):
 # health is not a snapshot and has no staleness dimension.
 #
 # NULLABILITY VERDICT (plan 31-04 Task 1 checkpoint, **option-b / Restraint**):
-# nothing is declared nullable unless it was CONTEXT-locked (D-01) or actually
-# observed as ``null`` in the one live capture. Exactly TWO fields qualify —
-# :attr:`FeedIngestor.last_error` and :attr:`FeedPipeline.last_write_error`.
+# nothing is declared nullable unless it was CONTEXT-locked (D-01), actually
+# observed as ``null`` in a live capture, or measured ABSENT from one captured
+# response shape and PRESENT in another. Exactly FOUR fields qualify, in two
+# pairs backed by two different kinds of measured evidence:
+#   * :attr:`FeedIngestor.last_error` and :attr:`FeedPipeline.last_write_error` —
+#     CONTEXT D-01 locks both, and the 2026-07-31 capture OBSERVED both as
+#     ``null`` (plan 31-04).
+#   * :attr:`FeedIngestor.last_error_age_seconds` and
+#     :attr:`FeedIngestor.last_error_at` — Phase 43 / D-09: ABSENT from that same
+#     healthy baseline and PRESENT in every later capture next to a populated
+#     ``last_error`` (findings F-68/F-69 sync, F-88/F-89 async). Conditional on an
+#     error existing, so a flat declaration would emit a ``missing`` on every
+#     healthy call.
+# Nothing else qualifies, and that is a decision, not an omission: the other
+# three Phase 43 fields (:attr:`HealthFeed.symbols_never_delivered` and the two
+# nested-model references) came back populated wherever they were observed.
 # Rationale, recorded here because Phase 33 adjudicates against it: a wrong
 # non-null guess surfaces LOUDLY in Phase 33's strict driver run (self-correcting,
 # the designed outcome, directly comparable against the ratified
@@ -1261,6 +1369,63 @@ class FeedPipeline(SafeModel):
 
 
 @dataclass(frozen=True, slots=True)
+class FeedSubscription(SafeModel):
+    """``ingestor.subscription`` inside ``GET /health/feed`` (Phase 43, HARN-02 / D-08).
+
+    The sub-object the feed ingestor uses to report how its symbol subscription
+    is going: how the request was chunked, how many symbols were confirmed, and
+    which ones were quarantined or never confirmed. Declared BEFORE
+    :class:`FeedIngestor` per this block's dependency-order convention.
+
+    Live-read provenance: the field set is taken verbatim from the MEASURED blob
+    of findings ``F-71`` / ``F-202`` in
+    ``.planning/verification/market-data-client-findings.md``, the 2026-08-31 run
+    against ``market-data-develop``. Not from the OpenAPI — which types this
+    ``200`` as a bare ``object`` — and not from a mock. Until this phase the whole
+    sub-object was reported as one ``extra`` record per run and its 15 fields were
+    dropped on the floor.
+
+    **``dict[str, Any]`` was never an available alternative**, on two independent
+    grounds. First, the ``surface-types`` step of the ``lint`` job
+    (``tools/check_surface_types.py``) reddens any field of an exported class
+    annotated as an untyped mapping; its exemption table holds a single entry, and
+    that entry belongs to another package. Second — and this is the reason that
+    matters even without the gate — ``_decode.walk_field`` has no mapping branch:
+    a mapping falls through to the final ``return value`` without being walked and
+    without being reported, so the 15 fields underneath would have become a
+    PERMANENT blind spot in the divergence census. Typing them restores the
+    walker's reach over the whole sub-object.
+
+    No ``| None`` field: all fifteen came back populated in the measured capture,
+    so the option-b / restraint doctrine recorded in this block's nullability
+    verdict admits none.
+
+    :attr:`unconfirmed_symbols` is a DECLARED ASSUMPTION. The wire sent the empty
+    list and its element type was therefore never observed populated; it is typed
+    ``list[str]`` mirroring its populated sibling
+    :attr:`quarantined_symbols`. A wrong guess surfaces LOUDLY in the next
+    divergence census as a ``type`` record rather than silently — the same
+    semi-observed-assumption pattern as :attr:`FeedIngestor.last_error`.
+    """
+
+    chunk_size: int
+    chunks: int
+    confirm_seconds: int
+    delivered_count: int
+    forced_reconnects: int
+    last_reconnect_reason: str
+    quarantined_count: int
+    quarantined_symbols: list[str]
+    requested: int
+    sent: int
+    smd_rejections: int
+    smd_resends: int
+    smd_unattributed: int
+    unconfirmed_count: int
+    unconfirmed_symbols: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class FeedIngestor(SafeModel):
     """``ingestor`` inside ``GET /health/feed`` (Phase 31 TYP-02, D-01).
 
@@ -1283,6 +1448,32 @@ class FeedIngestor(SafeModel):
 
     :attr:`market` and :attr:`pipeline` are non-optional nested models, so an
     absent key yields the zero-valued instance plus a ``missing`` record.
+
+    **Phase 43 (HARN-02) — three measured keys typed.**
+
+    :attr:`subscription` (D-08) is the third non-optional nested model, typed
+    :class:`FeedSubscription` rather than left as an untyped mapping (see that
+    class for the two reasons a mapping was not on the table). It carries NO
+    default, so it is declared alongside :attr:`market` and :attr:`pipeline`,
+    BEFORE the first defaulted field. It is deliberately not declared
+    ``FeedSubscription | None``: rule ``D-NO-01`` of
+    ``tools/check_surface_types.py`` reddens any field of an exported class
+    annotated as an import-root model with ``| None``, and the Null Object
+    behaviour makes the union pointless anyway — an absent key collapses to the
+    zero-valued instance under ``SILENT_SINK`` (NOBJ-02) without emitting a
+    record.
+
+    ``| None`` justification (D-09) — :attr:`last_error_age_seconds` and
+    :attr:`last_error_at` are CONDITIONAL on an error existing, and that is
+    measured, not inferred: both keys are ABSENT from the healthy 2026-07-31
+    baseline, where :attr:`last_error` is ``null`` and neither companion appears
+    at all, and PRESENT in every later capture alongside a POPULATED
+    :attr:`last_error` (findings ``F-68``/``F-69`` and the ``F-202`` blob).
+    Declaring them flat would emit a ``missing`` divergence record on every
+    HEALTHY call to the endpoint — trading a measured ``extra`` for a permanent
+    ``missing``, which is the one outcome this correction is not allowed to
+    produce. They are the only two Phase 43 fields for which the evidence
+    supports a union.
     """
 
     connected: bool
@@ -1300,7 +1491,10 @@ class FeedIngestor(SafeModel):
     started_at: str
     market: FeedMarket
     pipeline: FeedPipeline
+    subscription: FeedSubscription
     last_error: str | None = None
+    last_error_age_seconds: int | None = None
+    last_error_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1332,11 +1526,27 @@ class HealthFeed(SafeModel):
     non-nullable on evidence from that single state. Each is a DECLARED
     ASSUMPTION awaiting Phase 33's live strict run, which is the confirming
     evidence and the intended adjudicator.
+
+    **Phase 43 (HARN-02 / D-11) — :attr:`symbols_never_delivered`, deliberately
+    NOT nullable.** This is the inverse argument to the D-09 pair on
+    :class:`FeedIngestor`, and the distinction is the whole of the phase's
+    criterion 3. That pair is absent from healthy payloads BY CONDITION; this key
+    is absent only from the STALE 2026-07-31 baseline and present as a populated
+    ``int`` in all three later captures (findings ``F-67`` sync / ``F-87`` async
+    and the ``F-202`` blob). An over-declared ``Optional`` here would silently
+    absorb a future ``null`` with no divergence record at all.
+
+    The measured consequence, pinned by
+    ``test_health_feed_from_api_drops_an_undeclared_key_and_reports_it_once``:
+    this is the ONLY Phase 43 field that emits a ``missing`` record against the
+    frozen 2026-07-31 fixture, and that record is the EVIDENCE the option-b
+    doctrine is being applied — not a regression.
     """
 
     status: str
     active_symbols: int
     symbols_with_data: int
+    symbols_never_delivered: int
     staleness_seconds: float
     newest_received_at: str
     oldest_received_at: str

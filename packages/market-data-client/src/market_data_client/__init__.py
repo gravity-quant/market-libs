@@ -80,6 +80,7 @@ from market_data_client.models import (  # noqa: E402
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
+    FeedSubscription,
     Health,
     HealthAuth,
     HealthFeed,
@@ -114,6 +115,7 @@ __all__ = [
     "FeedIngestor",
     "FeedMarket",
     "FeedPipeline",
+    "FeedSubscription",
     "Health",
     "HealthAuth",
     "HealthFeed",
@@ -160,4 +162,4 @@ __all__ = [
 # Suppress ruff F401 for the deliberate private re-export.
 _ = _get_default
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

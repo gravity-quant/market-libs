@@ -1,7 +1,7 @@
 # Findings: market-data-client-client
 
 ## Run Context (ART)
-- Timestamp: 2026-08-27T01:54:10.152155+00:00
+- Timestamp: 2026-08-31T21:27:50.849664+00:00
 - Resolved base URL / env: https://market-data-develop.bbsa.com.ar/api
 - Market hours note: <abierto|cerrado — afecta paths sesión-dependientes>
 
@@ -155,6 +155,46 @@
 | F-195 | SHAPE | async | NO-FIX |
 | F-196 | SHAPE | async | NO-FIX |
 | F-197 | NO-DATA | async | EXPECTED |
+| F-202 | SHAPE | sync | OPEN |
+| F-203 | SHAPE | sync | OPEN |
+| F-204 | SHAPE | sync | OPEN |
+| F-205 | SHAPE | sync | OPEN |
+| F-206 | SHAPE | sync | OPEN |
+| F-207 | SHAPE | sync | OPEN |
+| F-208 | SHAPE | sync | OPEN |
+| F-209 | SHAPE | sync | OPEN |
+| F-210 | SHAPE | sync | OPEN |
+| F-211 | SHAPE | sync | OPEN |
+| F-212 | SHAPE | sync | OPEN |
+| F-213 | SHAPE | sync | OPEN |
+| F-214 | SHAPE | sync | OPEN |
+| F-215 | SHAPE | sync | OPEN |
+| F-216 | SHAPE | sync | OPEN |
+| F-217 | SHAPE | sync | OPEN |
+| F-218 | SHAPE | sync | OPEN |
+| F-219 | SHAPE | sync | OPEN |
+| F-220 | SHAPE | sync | OPEN |
+| F-221 | NO-DATA | sync | OPEN |
+| F-226 | SHAPE | async | OPEN |
+| F-227 | SHAPE | async | OPEN |
+| F-228 | SHAPE | async | OPEN |
+| F-229 | SHAPE | async | OPEN |
+| F-230 | SHAPE | async | OPEN |
+| F-231 | SHAPE | async | OPEN |
+| F-232 | SHAPE | async | OPEN |
+| F-233 | SHAPE | async | OPEN |
+| F-234 | SHAPE | async | OPEN |
+| F-235 | SHAPE | async | OPEN |
+| F-236 | SHAPE | async | OPEN |
+| F-237 | SHAPE | async | OPEN |
+| F-238 | SHAPE | async | OPEN |
+| F-239 | SHAPE | async | OPEN |
+| F-240 | SHAPE | async | OPEN |
+| F-241 | SHAPE | async | OPEN |
+| F-242 | SHAPE | async | OPEN |
+| F-243 | SHAPE | async | OPEN |
+| F-244 | SHAPE | async | OPEN |
+| F-245 | NO-DATA | async | OPEN |
 
 ## Detalle por hallazgo
 
@@ -1519,6 +1559,326 @@
 ### F-197 -- market_data async vacío para prefix '__no_such_symbol__'
 
 **Class:** `NO-DATA` . **Surface:** `async` . **Status:** `EXPECTED`
+
+- **Expected:** lista vacía para un prefix inexistente
+- **Actual:** []
+- **Diff:** empty/closed-market clasificado NO-DATA, nunca un crash
+
+### F-202 -- schema drift en get_health_feed
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "NoneType", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_with_data": "int"}
+- **Actual:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "str", "last_error_age_seconds": "int", "last_error_at": "str", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "subscription": {"chunk_size": "int", "chunks": "int", "confirm_seconds": "int", "delivered_count": "int", "forced_reconnects": "int", "last_reconnect_reason": "str", "quarantined_count": "int", "quarantined_symbols": ["str"], "requested": "int", "sent": "int", "smd_rejections": "int", "smd_resends": "int", "smd_unattributed": "int", "unconfirmed_count": "int", "unconfirmed_symbols": []}, "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_never_delivered": "int", "symbols_with_data": "int"}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-203 -- schema drift en get_market_data
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** {"count": "int", "items": [{"active": "bool", "entries": ["str"], "market_data": {"BI": [{"price": "int", "size": "int"}], "CL": {"date": "int", "price": "int"}, "HI": "int", "LA": {"date": "int", "price": "int", "size": "int"}, "LO": "int", "OF": [{"price": "int", "size": "int"}], "OI": "NoneType", "OP": "int", "SE": {"price": "int"}, "TV": "NoneType"}, "market_id": "str", "received_at": "str", "staleness_seconds": "float", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Actual:** {"count": "int", "items": [{"active": "bool", "entries": [], "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-204 -- schema drift en get_latest
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** [{"active": "NoneType", "market_data": "NoneType", "market_id": "NoneType", "note": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
+- **Actual:** [{"active": "bool", "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-205 -- Instrument.active: extra (declared=-, observed=NoneType) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at Instrument.active via /instruments
+
+### F-206 -- Instrument.currency: extra (declared=-, observed=str) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.currency via /instruments
+
+### F-207 -- Instrument.days_to_maturity: extra (declared=-, observed=int) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent int
+- **Diff:** - -> int at Instrument.days_to_maturity via /instruments
+
+### F-208 -- Instrument.market_id: extra (declared=-, observed=str) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.market_id via /instruments
+
+### F-209 -- Instrument.maturity: extra (declared=-, observed=str) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.maturity via /instruments
+
+### F-210 -- Instrument.outright: extra (declared=-, observed=bool) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent bool
+- **Diff:** - -> bool at Instrument.outright via /instruments
+
+### F-211 -- Instrument.subscribed: extra (declared=-, observed=bool) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent bool
+- **Diff:** - -> bool at Instrument.subscribed via /instruments
+
+### F-212 -- Instrument.marketId: missing (declared=str, observed=NoneType) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Instrument.marketId via /instruments
+
+### F-213 -- Instrument.instrumentType: missing (declared=str, observed=NoneType) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Instrument.instrumentType via /instruments
+
+### F-214 -- Segment.live_instruments: extra (declared=-, observed=int) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent int
+- **Diff:** - -> int at Segment.live_instruments via /instruments/segments
+
+### F-215 -- Segment.segment: extra (declared=-, observed=str) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Segment.segment via /instruments/segments
+
+### F-216 -- Segment.marketSegmentId: missing (declared=str, observed=NoneType) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Segment.marketSegmentId via /instruments/segments
+
+### F-217 -- Segment.marketId: missing (declared=str, observed=NoneType) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Segment.marketId via /instruments/segments
+
+### F-218 -- Segment.description: missing (declared=str, observed=NoneType) [sync]
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Segment.description via /instruments/segments
+
+### F-219 -- schema drift en get_calendar
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
+- **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-220 -- schema drift en get_calendar_config
+
+**Class:** `SHAPE` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}
+- **Actual:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-221 -- market_data vacío para prefix '__no_such_symbol__'
+
+**Class:** `NO-DATA` . **Surface:** `sync` . **Status:** `OPEN`
+
+- **Expected:** lista vacía para un prefix inexistente
+- **Actual:** []
+- **Diff:** empty/closed-market clasificado NO-DATA, nunca un crash
+
+### F-226 -- schema drift en get_health_feed
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "NoneType", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_with_data": "int"}
+- **Actual:** {"active_symbols": "int", "ingestor": {"connected": "bool", "frames_total": "int", "heartbeat_age_seconds": "float", "last_error": "str", "last_error_age_seconds": "int", "last_error_at": "str", "last_frame_age_seconds": "float", "last_frame_at": "str", "market": {"enabled": "bool", "is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}, "pipeline": {"batch_interval_ms": "int", "conserved": "bool", "flushes": "int", "frames_accepted": "int", "frames_coalesced": "int", "frames_unknown_symbol": "int", "last_flush_ms": "float", "last_write_at": "str", "last_write_error": "NoneType", "pending": "int", "pending_peak": "int", "rows_skipped_stale": "int"}, "present": "bool", "reason": "str", "reconnects": "int", "rows_written": "int", "started_at": "str", "state": "str", "subscription": {"chunk_size": "int", "chunks": "int", "confirm_seconds": "int", "delivered_count": "int", "forced_reconnects": "int", "last_reconnect_reason": "str", "quarantined_count": "int", "quarantined_symbols": ["str"], "requested": "int", "sent": "int", "smd_rejections": "int", "smd_resends": "int", "smd_unattributed": "int", "unconfirmed_count": "int", "unconfirmed_symbols": []}, "symbols_subscribed": "int", "uptime_seconds": "int"}, "newest_received_at": "str", "oldest_received_at": "str", "staleness_seconds": "float", "status": "str", "symbols_never_delivered": "int", "symbols_with_data": "int"}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-227 -- schema drift en get_market_data
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** {"count": "int", "items": [{"active": "bool", "entries": ["str"], "market_data": {"BI": [{"price": "int", "size": "int"}], "CL": {"date": "int", "price": "int"}, "HI": "int", "LA": {"date": "int", "price": "int", "size": "int"}, "LO": "int", "OF": [{"price": "int", "size": "int"}], "OI": "NoneType", "OP": "int", "SE": {"price": "int"}, "TV": "NoneType"}, "market_id": "str", "received_at": "str", "staleness_seconds": "float", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Actual:** {"count": "int", "items": [{"active": "bool", "entries": [], "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}], "limit": "int", "offset": "int", "total": "int"}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-228 -- schema drift en get_latest
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** [{"active": "NoneType", "market_data": "NoneType", "market_id": "NoneType", "note": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
+- **Actual:** [{"active": "bool", "market_data": "NoneType", "market_id": "str", "received_at": "NoneType", "staleness_seconds": "NoneType", "symbol": "str"}]
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-229 -- Instrument.active: extra (declared=-, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent NoneType
+- **Diff:** - -> NoneType at Instrument.active via /instruments
+
+### F-230 -- Instrument.currency: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.currency via /instruments
+
+### F-231 -- Instrument.days_to_maturity: extra (declared=-, observed=int) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent int
+- **Diff:** - -> int at Instrument.days_to_maturity via /instruments
+
+### F-232 -- Instrument.market_id: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.market_id via /instruments
+
+### F-233 -- Instrument.maturity: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Instrument.maturity via /instruments
+
+### F-234 -- Instrument.outright: extra (declared=-, observed=bool) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent bool
+- **Diff:** - -> bool at Instrument.outright via /instruments
+
+### F-235 -- Instrument.subscribed: extra (declared=-, observed=bool) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent bool
+- **Diff:** - -> bool at Instrument.subscribed via /instruments
+
+### F-236 -- Instrument.marketId: missing (declared=str, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Instrument.marketId via /instruments
+
+### F-237 -- Instrument.instrumentType: missing (declared=str, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Instrument.instrumentType via /instruments
+
+### F-238 -- Segment.live_instruments: extra (declared=-, observed=int) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent int
+- **Diff:** - -> int at Segment.live_instruments via /instruments/segments
+
+### F-239 -- Segment.segment: extra (declared=-, observed=str) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares -
+- **Actual:** wire sent str
+- **Diff:** - -> str at Segment.segment via /instruments/segments
+
+### F-240 -- Segment.marketSegmentId: missing (declared=str, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Segment.marketSegmentId via /instruments/segments
+
+### F-241 -- Segment.marketId: missing (declared=str, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Segment.marketId via /instruments/segments
+
+### F-242 -- Segment.description: missing (declared=str, observed=NoneType) [async]
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** model declares str
+- **Actual:** wire sent NoneType
+- **Diff:** str -> NoneType at Segment.description via /instruments/segments
+
+### F-243 -- schema drift en get_calendar
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
+- **Actual:** {"config": {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}, "coverage": {"current_year_covered": "bool", "warning": "NoneType", "years": ["int"]}, "days": [{"close_time": "NoneType", "closed": "bool", "day": "str", "description": "str", "open_time": "NoneType"}], "market": {"is_open": "bool", "last_business_day": "str", "local_time": "str", "next_transition": "str", "reason": "str", "session_close": "str", "session_open": "str", "state": "str"}}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-244 -- schema drift en get_calendar_config
+
+**Class:** `SHAPE` . **Surface:** `async` . **Status:** `OPEN`
+
+- **Expected:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": []}
+- **Actual:** {"close": "str", "editable": "bool", "enabled": "bool", "env_bypass": "bool", "open": "str", "pre_open_minutes": "int", "source": "str", "timezone": "str", "updated_at": "NoneType", "updated_by": "str", "warnings": ["str"]}
+- **Diff:** baseline schema difiere; NO se sobreescribe (D-25)
+
+### F-245 -- market_data async vacío para prefix '__no_such_symbol__'
+
+**Class:** `NO-DATA` . **Surface:** `async` . **Status:** `OPEN`
 
 - **Expected:** lista vacía para un prefix inexistente
 - **Actual:** []

@@ -12,7 +12,7 @@ client-credentials** (grant `client_credentials`, token cacheado y refrescado po
 
 ```bash
 # git, pineado al tag (recomendado)
-uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.6.0#subdirectory=packages/market-data-client"
+uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.7.0#subdirectory=packages/market-data-client"
 
 # o, dentro del workspace:
 uv sync
@@ -21,7 +21,7 @@ uv sync
 Alternativa, wheel de la GitHub Release:
 
 ```bash
-pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.6.0/market_data_client-0.6.0-py3-none-any.whl"
+pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.7.0/market_data_client-0.7.0-py3-none-any.whl"
 ```
 
 ## Uso
@@ -121,6 +121,69 @@ uv run mypy packages/market-data-client
 ```
 
 ## Changelog
+
+### v0.7.0
+
+**`Instrument` y `Segment` se reconcilian contra una lectura fresca del wire: `Segment` se
+reemplaza íntegro (key-sets disjuntos) y `Instrument` gana siete campos y pierde uno** (breaking,
+minor bump en línea 0.x — todo consumidor de `GET /instruments` o `GET /instruments/segments`
+necesita revisar sus accesos). **`Instrument.marketId` no se renombra**: se preserva como **alias
+aditivo** sobre el nuevo `market_id` y pasa a llevar el valor real, con remoción programada para el
+próximo MAJOR. `Segment.marketId`, en cambio, se **remueve sin reemplazo**. Son dos filas distintas
+de dos modelos distintos, y confundirlas es el error más fácil de cometer en esta migración: por eso
+las tablas de abajo van **separadas**, una por modelo y por endpoint.
+
+**`Instrument` — `GET /instruments`**
+
+| Antes (0.6.0 publicado) | Ahora (0.7.0) |
+| --- | --- |
+| `inst.instrumentType` | **removido, sin reemplazo** — la clave nunca viajó en el wire, así que todo consumidor liberado leyó siempre `""` |
+| `inst.marketId` (permanentemente `""` contra un payload real) | `inst.marketId` **sigue funcionando**: es un **alias aditivo** de `inst.market_id` y ahora lleva el valor real. Preferir `inst.market_id`; remoción programada para el próximo MAJOR |
+| — | `inst.market_id` (`str`) — nuevo |
+| — | `inst.currency` (`str`) — nuevo |
+| — | `inst.days_to_maturity` (`int`) — nuevo |
+| — | `inst.maturity` (`str`) — nuevo |
+| — | `inst.outright` (`bool`) — nuevo |
+| — | `inst.subscribed` (`bool`) — nuevo |
+| — | `inst.active` (`bool \| None`) — nuevo; chequear `is None`, **no** asumir `bool` |
+
+`inst.symbol`, `inst.segment` e `inst.expired` **no cambian** — mismo nombre, mismo tipo, misma
+semántica.
+
+El alias sobrevive porque `Instrument` es superficie publicada desde v0.2.0 y un rename rompería a
+todo consumidor: `Instrument.from_api` espeja el `market_id` del wire sobre `marketId` **antes** de
+que el walker vea el payload —rellena una clave ausente, nunca pisa una explícita, y copia el dict
+en vez de mutar el del caller—, así que el alias que antes estaba clavado en `""` ahora coincide con
+`market_id`. Mismo precedente que `Symbol.marketId`.
+
+`active` es el único campo nuevo nullable, y a propósito: el wire lo mandó `null` en las 50/50 filas
+medidas, así que el miembro `bool` de la unión **nunca fue observado** y es una asunción declarada
+que el próximo censo de divergencias corrige sola. Declararlo `bool` plano habría convertido una
+clave medida en un `missing` permanente sobre cada lectura de catálogo.
+
+**`Segment` — `GET /instruments/segments`**
+
+| Antes (0.6.0 publicado) | Ahora (0.7.0) |
+| --- | --- |
+| `seg.marketSegmentId` | **removido, sin reemplazo** — siempre decodificó `""` |
+| `seg.marketId` | **removido, sin reemplazo** — siempre decodificó `""`. **No confundir** con `Instrument.marketId`, que sí sobrevive como alias aditivo (tabla de arriba) |
+| `seg.description` | **removido, sin reemplazo** — siempre decodificó `""` |
+| — | `seg.segment` (`str`) — nuevo |
+| — | `seg.live_instruments` (`int`) — nuevo |
+| `if seg:` era **siempre falso**: los dos key-sets son disjuntos, así que toda fila decodificaba a tres cadenas vacías, quedaba igual a su propio `empty()` y `SafeModel.__bool__` la reportaba falsy | `if seg:` es **verdadero** para cualquier fila poblada. Un `if seg:` o un `[s for s in segs if s]` que antes descartaba **todo** en silencio, ahora conserva **todo** |
+
+`Segment` es un **reemplazo íntegro**, no una extensión: el key-set viejo y el del wire no se tocan
+en ninguna clave, por eso el modelo no lleva override de `from_api` y no hay nada que espejar.
+
+`Segment` **no** se alias-mapea bajo el precedente de `Instrument.marketId` / `Symbol.marketId`, y
+el rechazo es explícito: ese precedente cubre **una misma clave con variante de spelling**
+camelCase/snake_case, mientras que `marketSegmentId` y `segment` son simplemente **nombres
+distintos**.
+
+Las tres remociones de `Segment` y el `instrumentType` de `Instrument` son **no-breaking en la
+práctica**: sus claves no existen en el wire, así que ningún consumidor liberado pudo haber tenido
+nunca un valor poblado en ellas. El único cambio de comportamiento silencioso que sí puede afectar
+a código ya escrito es el flip de truthiness de la última fila.
 
 ### v0.6.0
 

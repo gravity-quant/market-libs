@@ -51,6 +51,7 @@ from market_data_client.models import (
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
+    FeedSubscription,
     Health,
     HealthAuth,
     HealthFeed,
@@ -58,6 +59,22 @@ from market_data_client.models import (
 )
 
 _DUMMY_REQUEST = httpx.Request("GET", "http://t")
+
+# The health models policed by the three structural parametrized tests below,
+# plus the Optional lock. One list, four call sites: these assertions are all
+# about the same closed set of classes, and keeping four literal copies is how a
+# newly added health model ends up enrolled in three of them and silently
+# missing from the fourth. ``FeedSubscription`` (Phase 43, D-08) is the seventh
+# member and is enrolled here, not per-test, for exactly that reason.
+_HEALTH_MODEL_CLASSES: list[type[SafeModel]] = [
+    Health,
+    HealthAuth,
+    HealthFeed,
+    FeedIngestor,
+    FeedMarket,
+    FeedPipeline,
+    FeedSubscription,
+]
 
 
 def _strip_optional(tp: Any) -> Any:
@@ -1009,6 +1026,115 @@ _CAPTURED_HEALTH_FEED: dict[str, Any] = {
     "symbols_with_data": 40,
 }
 
+# ----------------------------------------------------------------------
+# Phase 43 (HARN-02 / D-13) — the MEASURED key set of ``GET /health/feed``
+# ----------------------------------------------------------------------
+#
+# Key set and per-leaf TYPES taken verbatim from the "Actual" blob of findings
+# F-202 and F-71 in ``.planning/verification/market-data-client-findings.md``,
+# the 2026-08-31 live run. VALUES are synthetic — the same contract
+# ``_CAPTURED_HEALTH_FEED`` above honours, against a LATER measurement. The raw
+# captures of that run are gitignored (PII), so no test may open them; only the
+# key set and the leaf types cross into git.
+#
+# This fixture DOES NOT replace or refresh any baseline under
+# ``.planning/verification/schemas/market-data-client/``. Those are write-once
+# (D-25) and record the WIRE as it was on 2026-07-31; ``42-WIRE-READ.md``
+# section 3 marks them NON-AUTHORITATIVE for this phase. ``_CAPTURED_HEALTH_FEED``
+# stays FROZEN for the same reason —
+# ``test_captured_payloads_match_the_committed_live_schemas`` compares it to the
+# committed baseline by EXACT equality, so adding the five new keys to it (the
+# "obvious" fix) is precisely what D-13 forbids.
+#
+# Deltas against the frozen fixture, all of them measured:
+#   * ``ingestor.last_error`` is a POPULATED string here (it is ``null`` there),
+#     which is what makes its two companion keys appear at all;
+#   * ``ingestor`` gains ``last_error_age_seconds``, ``last_error_at`` and
+#     ``subscription``; the root gains ``symbols_never_delivered``;
+#   * ``ingestor.market`` and ``ingestor.pipeline`` are IDENTICAL, ``null``
+#     ``pipeline.last_write_error`` included.
+_MEASURED_HEALTH_FEED_43: dict[str, Any] = {
+    "active_symbols": 57,
+    "ingestor": {
+        "connected": True,
+        "frames_total": 90210,
+        "heartbeat_age_seconds": 0.75,
+        "last_error": "websocket closed by peer",
+        "last_error_age_seconds": 612,
+        "last_error_at": "2026-08-31T13:50:23+00:00",
+        "last_frame_age_seconds": 0.125,
+        "last_frame_at": "2026-08-31T14:00:35+00:00",
+        "market": {
+            "enabled": True,
+            "is_open": True,
+            "last_business_day": "2026-08-28",
+            "local_time": "2026-08-31T11:00:35-03:00",
+            "next_transition": "2026-08-31T17:00:00-03:00",
+            "reason": "session open",
+            "session_close": "17:00",
+            "session_open": "11:00",
+            "state": "open",
+        },
+        "pipeline": {
+            "batch_interval_ms": 500,
+            "conserved": True,
+            "flushes": 143,
+            "frames_accepted": 89004,
+            "frames_coalesced": 1206,
+            "frames_unknown_symbol": 7,
+            "last_flush_ms": 9.75,
+            "last_write_at": "2026-08-31T14:00:35+00:00",
+            "last_write_error": None,
+            "pending": 0,
+            "pending_peak": 31,
+            "rows_skipped_stale": 5,
+        },
+        "present": True,
+        "reason": "connected",
+        "reconnects": 3,
+        "rows_written": 88997,
+        "started_at": "2026-08-31T11:00:00+00:00",
+        "state": "running",
+        "subscription": {
+            "chunk_size": 25,
+            "chunks": 3,
+            "confirm_seconds": 5,
+            "delivered_count": 55,
+            "forced_reconnects": 1,
+            "last_reconnect_reason": "confirm timeout",
+            "quarantined_count": 2,
+            "quarantined_symbols": ["GSDPROBE/Q1", "GSDPROBE/Q2"],
+            "requested": 57,
+            "sent": 57,
+            "smd_rejections": 0,
+            "smd_resends": 2,
+            "smd_unattributed": 0,
+            "unconfirmed_count": 0,
+            "unconfirmed_symbols": [],
+        },
+        "symbols_subscribed": 57,
+        "uptime_seconds": 10835,
+    },
+    "newest_received_at": "2026-08-31T14:00:35+00:00",
+    "oldest_received_at": "2026-08-31T13:59:35+00:00",
+    "staleness_seconds": 1.25,
+    "status": "degraded",
+    "symbols_never_delivered": 2,
+    "symbols_with_data": 55,
+}
+
+
+def _keys_recursive(payload: Any, prefix: str = "") -> set[str]:
+    """Every dotted key path in a nested payload; only dicts are recursed into."""
+    if not isinstance(payload, dict):
+        return set()
+    out: set[str] = set()
+    for key, value in payload.items():
+        path = f"{prefix}.{key}"
+        out.add(path)
+        out |= _keys_recursive(value, path)
+    return out
+
 
 def _schema_of(payload: Any) -> Any:
     """Keys + type names, never values — the same projection ``verification.schema`` uses."""
@@ -1060,6 +1186,31 @@ def test_captured_payloads_match_the_committed_live_schemas() -> None:
     ):
         committed = json.loads((_SCHEMAS_DIR / filename).read_text(encoding="utf-8"))
         assert _schema_of(payload) == committed["schema"], filename
+
+
+def test_every_fixture_key_is_a_measured_wire_key() -> None:
+    """Phase 43 criterion 4 (D-13): no fixture invents a key the wire never sent.
+
+    The frozen 2026-07-31 fixture must be a SUBSET of the 2026-08-31 measurement,
+    never a superset and never an overlap: a key present only in the fixture would
+    be an authored key, and every model declaration this file locks would then be
+    evidence about the author rather than about the wire. Subset — not equality —
+    is the right relation, because the whole point of the 43-02 change is that the
+    later measurement carries five keys the earlier one did not.
+    """
+    measured = _keys_recursive(_MEASURED_HEALTH_FEED_43)
+    frozen = _keys_recursive(_CAPTURED_HEALTH_FEED)
+    assert frozen <= measured, sorted(frozen - measured)
+    # And the delta is exactly the five keys HARN-02 types (D-08 .. D-11).
+    assert measured - frozen == {
+        ".ingestor.last_error_age_seconds",
+        ".ingestor.last_error_at",
+        ".ingestor.subscription",
+        ".symbols_never_delivered",
+    } | {
+        f".ingestor.subscription.{name}"
+        for name in _MEASURED_HEALTH_FEED_43["ingestor"]["subscription"]
+    }
 
 
 def test_health_from_api_populates_the_nested_auth_model() -> None:
@@ -1126,12 +1277,116 @@ def test_health_feed_from_api_none_is_the_zero_instance_plus_one_non_dict_record
 def test_health_feed_from_api_drops_an_undeclared_key_and_reports_it_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An undeclared top-level key is dropped and reported ``extra`` — exactly once."""
+    """An undeclared top-level key is dropped and reported ``extra`` — exactly once.
+
+    **Two records, not one, since Phase 43 (HARN-02).** This test drives the
+    FROZEN 2026-07-31 fixture, which predates all four health keys the 2026-08-31
+    run measured, and the exact-list assertion is what makes the two mechanical
+    facts below visible instead of merely claimed. ``walk_model`` computes the
+    surplus keys first (sorted) and only then walks declared fields in declaration
+    order, so the order below is the walker's, not a preference.
+
+    (i) :attr:`HealthFeed.symbols_never_delivered` is the ONE new field declared
+    FLAT (``int``, D-11), so against a payload that has no such key the scalar
+    branch of ``walk_field`` reports ``missing``. That record is CORRECT and
+    EXPECTED under the option-b / restraint doctrine (``models.py`` nullability
+    verdict block): the key was absent only from the stale 2026-07-31 baseline and
+    present in every later capture, and an over-declared ``Optional`` would have
+    silently absorbed a future ``null`` with no record at all.
+
+    (ii) The other three new fields contribute NOTHING here, which is the whole of
+    Phase 43 criterion 3 ("a measured ``extra`` must not flip into a permanent
+    ``missing``") shown mechanically:
+      * ``FeedIngestor.last_error_age_seconds`` and ``.last_error_at`` are
+        ``| None`` (D-09), and ``walk_field``'s union branch returns early WITHOUT
+        calling the sink;
+      * ``FeedIngestor.subscription`` is a NON-optional nested model (D-08), so an
+        absent key collapses to the Null Object under ``SILENT_SINK`` (NOBJ-02).
+    If a ``missing`` for either D-09 field ever shows up in this list, someone
+    declared it flat against the measured evidence.
+    """
     payload = {**_CAPTURED_HEALTH_FEED, "brand_new_wire_key": "surprise"}
     feed, records = _from_api(HealthFeed.from_api, caplog, payload)
     assert not hasattr(feed, "brand_new_wire_key")
     assert [(r.field_path, r.divergence) for r in records] == [  # type: ignore[attr-defined]
-        (".brand_new_wire_key", "extra")
+        (".brand_new_wire_key", "extra"),
+        (".symbols_never_delivered", "missing"),
+    ]
+
+
+def test_feed_subscription_decodes_the_measured_blob() -> None:
+    """``ingestor.subscription`` is a TYPED 15-field model, not an opaque mapping (D-08).
+
+    An untyped mapping would have been a permanent blind spot: ``walk_field`` has
+    no mapping branch, so it would fall through to ``return value`` without walking
+    or reporting anything underneath. Asserting VALUES (not just ``isinstance``)
+    is what proves the sub-object is actually being walked.
+    """
+    feed = HealthFeed.from_api(_MEASURED_HEALTH_FEED_43)
+    sub = feed.ingestor.subscription
+    assert isinstance(sub, FeedSubscription)
+    assert sub.chunk_size == 25
+    assert sub.chunks == 3
+    assert sub.confirm_seconds == 5
+    assert sub.delivered_count == 55
+    assert sub.forced_reconnects == 1
+    assert sub.last_reconnect_reason == "confirm timeout"
+    assert sub.quarantined_count == 2
+    assert sub.requested == 57
+    assert sub.sent == 57
+    assert sub.smd_rejections == 0
+    assert sub.smd_resends == 2
+    assert sub.smd_unattributed == 0
+    assert sub.unconfirmed_count == 0
+    # ``quarantined_symbols`` came back POPULATED; ``unconfirmed_symbols`` came
+    # back as the empty list, so its element type is a DECLARED ASSUMPTION that
+    # mirrors its populated sibling (see the class docstring).
+    assert sub.quarantined_symbols == ["GSDPROBE/Q1", "GSDPROBE/Q2"]
+    assert sub.unconfirmed_symbols == []
+    # The three other Phase 43 keys land on real fields of the measured payload.
+    assert feed.symbols_never_delivered == 2
+    assert feed.ingestor.last_error == "websocket closed by peer"
+    assert feed.ingestor.last_error_age_seconds == 612
+    assert feed.ingestor.last_error_at == "2026-08-31T13:50:23+00:00"
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_measured_health_feed_payload_produces_zero_divergence_records(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Phase 43 criterion 3, proved not asserted: the MEASURED payload decodes clean.
+
+    Neither ``extra`` (the five keys are declared now) nor ``missing`` (none of the
+    five was declared in a shape the measured payload contradicts) nor ``type``.
+    An empty list is the only acceptable outcome: any record here means the model
+    still diverges from the wire the 2026-08-31 run actually measured.
+    """
+    feed, records = _from_api(HealthFeed.from_api, caplog, _MEASURED_HEALTH_FEED_43)
+    assert feed.status == "degraded"
+    assert [(r.model, r.field_path, r.divergence) for r in records] == []  # type: ignore[attr-defined]
+
+
+@pytest.mark.usefixtures("pristine_decode_context")
+def test_healthy_feed_payload_emits_no_missing_for_the_conditional_error_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The D-09 pair is CONDITIONAL on an error existing — a healthy probe is silent.
+
+    Both keys are absent from the healthy 2026-07-31 payload (where ``last_error``
+    is ``null``) and present in every later capture alongside a populated
+    ``last_error``. Declaring them flat would emit a ``missing`` on every healthy
+    call to the endpoint — an ``extra`` traded for a permanent ``missing``, which is
+    exactly the flip Phase 43 criterion 3 forbids. This test fails the moment that
+    trade is made.
+    """
+    _feed, records = _from_api(HealthFeed.from_api, caplog, _CAPTURED_HEALTH_FEED)
+    tuples = [(r.field_path, r.divergence) for r in records]  # type: ignore[attr-defined]
+    assert (".ingestor.last_error_age_seconds", "missing") not in tuples
+    assert (".ingestor.last_error_at", "missing") not in tuples
+    assert (".ingestor.subscription", "missing") not in tuples
+    # And no record of ANY kind names the two conditional keys or the nested model.
+    assert not [
+        t for t in tuples if t[0].startswith((".ingestor.last_error_a", ".ingestor.subscription"))
     ]
 
 
@@ -1143,35 +1398,50 @@ def test_health_to_dict_round_trips_to_a_plain_nested_dict() -> None:
 
 
 def test_health_feed_to_dict_round_trips_all_three_levels() -> None:
-    """The deep tree round-trips too, ``None`` holes KEPT (a model reproduces the wire)."""
+    """The deep tree round-trips too, ``None`` holes KEPT (a model reproduces the wire).
+
+    ``SafeModel.to_dict()`` is plain ``dataclasses.asdict`` and projects EVERY
+    declared field, populated or not. So against the FROZEN 2026-07-31 fixture the
+    round-trip can no longer be an identity — it is the fixture PLUS the four
+    Phase 43 fields in their unpopulated form, spelled out below rather than
+    absorbed by relaxing the assertion. The frozen fixture is not extended to
+    match (D-13): ``test_captured_payloads_match_the_committed_live_schemas``
+    compares it to the write-once baseline by exact equality.
+
+    Read a failure here as a shape change, not as a broken walker: pytest renders
+    it as a large dict diff rather than an ``AttributeError``.
+    """
     wire = HealthFeed.from_api(_CAPTURED_HEALTH_FEED).to_dict()
-    assert wire == _CAPTURED_HEALTH_FEED
+    assert wire == {
+        **_CAPTURED_HEALTH_FEED,
+        "symbols_never_delivered": 0,
+        "ingestor": {
+            **_CAPTURED_HEALTH_FEED["ingestor"],
+            "subscription": FeedSubscription.empty().to_dict(),
+            "last_error_age_seconds": None,
+            "last_error_at": None,
+        },
+    }
     assert wire["ingestor"]["last_error"] is None
     assert wire["ingestor"]["pipeline"]["last_write_error"] is None
 
 
-@pytest.mark.parametrize(
-    "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
-)
+@pytest.mark.parametrize("model_cls", _HEALTH_MODEL_CLASSES)
 def test_health_models_are_frozen(model_cls: type[SafeModel]) -> None:
-    """Every one of the six is immutable: attribute assignment raises."""
+    """Every health model is immutable: attribute assignment raises."""
     obj = model_cls.from_api(None)
     field_name = dataclasses.fields(obj)[0].name  # type: ignore[arg-type]
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(obj, field_name, "mutated")
 
 
-@pytest.mark.parametrize(
-    "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
-)
+@pytest.mark.parametrize("model_cls", _HEALTH_MODEL_CLASSES)
 def test_health_models_declare_no_from_api_override(model_cls: type[SafeModel]) -> None:
     """Shape carve-outs live in the PARSER — the walker never calls a nested ``from_api``."""
     assert model_cls.__dict__.get("from_api") is None
 
 
-@pytest.mark.parametrize(
-    "model_cls", [Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline]
-)
+@pytest.mark.parametrize("model_cls", _HEALTH_MODEL_CLASSES)
 def test_health_models_declare_no_received_at(
     model_cls: type[SafeModel],
 ) -> None:
@@ -1183,20 +1453,45 @@ def test_health_models_declare_no_received_at(
 
 
 def test_health_models_declare_exactly_the_two_locked_optionals() -> None:
-    """Checkpoint verdict option-b: ONLY the two CONTEXT D-01 error fields are nullable.
+    """Option-b restraint: exactly FOUR health fields are nullable, each on evidence.
 
     ``walk_field``'s union-with-``None`` branch returns ``None`` WITHOUT emitting a
     divergence record, so an over-declared Optional silently erases exactly the
-    signal this milestone exists to surface (T-31-17). This test pins the verdict:
-    a seventh Optional cannot be added to these six models without failing here.
+    signal this project exists to surface (T-31-17, T-43-07). This test pins the
+    closed set: a fifth Optional cannot be added to these models without failing
+    here, and neither can one be removed.
+
+    The measured evidence behind each, pair by pair:
+
+    * ``FeedIngestor.last_error`` and ``FeedPipeline.last_write_error`` — CONTEXT
+      D-01 locks both, and the 2026-07-31 capture OBSERVED both as ``null``.
+    * ``FeedIngestor.last_error_age_seconds`` and ``.last_error_at`` (Phase 43,
+      D-09) — ABSENT from that same healthy baseline, where ``last_error`` is
+      ``null`` and neither companion key appears at all, and PRESENT in every
+      later capture alongside a POPULATED ``last_error`` (findings F-69/F-70 and
+      the F-202 blob). They are conditional on an error existing, so declaring
+      them flat would emit a ``missing`` on every healthy call — the
+      ``extra``-to-``missing`` flip Phase 43 criterion 3 forbids.
+
+    The three Phase 43 fields NOT in this set are the counter-examples:
+    ``HealthFeed.symbols_never_delivered`` (D-11) and the 15 fields of
+    ``FeedSubscription`` (D-08) came back populated in every later capture, so
+    restraint keeps them flat and keeps them visible to the census.
     """
     optionals = {
         f"{cls.__name__}.{name}"
-        for cls in (Health, HealthAuth, HealthFeed, FeedIngestor, FeedMarket, FeedPipeline)
-        for name, hint in _decode.hints_for(cls).items()
+        for cls in _HEALTH_MODEL_CLASSES
+        # ``cast(Any, ...)`` is this file's existing mypy-strict discipline for
+        # ``get_type_hints``-driven code (see ``..._declare_no_received_at``).
+        for name, hint in _decode.hints_for(cast(Any, cls)).items()
         if _strip_optional(hint) is not hint
     }
-    assert optionals == {"FeedIngestor.last_error", "FeedPipeline.last_write_error"}
+    assert optionals == {
+        "FeedIngestor.last_error",
+        "FeedIngestor.last_error_age_seconds",
+        "FeedIngestor.last_error_at",
+        "FeedPipeline.last_write_error",
+    }
 
 
 def test_safe_model_to_dict_exists_on_the_market_data_base() -> None:

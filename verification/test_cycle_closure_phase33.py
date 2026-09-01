@@ -382,14 +382,14 @@ def test_la_causa_medida_del_sobre_viaja_al_detalle() -> None:
     status, detail = main_matriz._cycle_closure_verdict(
         "higyrus-client",
         probes=0,
-        evidence={"skipped": "vendor host unreachable (DNS) — LIVE-HIGY-33"},
+        evidence={"skipped": "vendor host unreachable (DNS) — LIVE-HIGY-42"},
         ok=True,
         missing=[],
     )
 
     assert status == "SKIPPED"
     assert "vendor host unreachable (DNS)" in detail
-    assert detail.count("LIVE-HIGY-33") == 1, (
+    assert detail.count("LIVE-HIGY-42") == 1, (
         f"el destino se duplicó o desapareció en {detail!r}: la causa del sobre "
         "ya lo trae, así que el veredicto no debe volver a concatenarlo."
     )
@@ -479,7 +479,7 @@ def test_los_destinos_nombrados_son_tres_mas_default() -> None:
     """Higyrus y matriz tienen destino propio; el resto cae al default."""
     import main_matriz
 
-    assert main_matriz._cycle_closure_destination("higyrus-client") == "LIVE-HIGY-33"
+    assert main_matriz._cycle_closure_destination("higyrus-client") == "LIVE-HIGY-42"
     assert main_matriz._cycle_closure_destination("matriz-client") == "LIVE-MATZ-33"
     assert main_matriz._cycle_closure_destination("iol-client") == "LIVE-NOBJ-01"
     assert main_matriz._cycle_closure_destination("ambito-financiero-client") == "LIVE-NOBJ-01"

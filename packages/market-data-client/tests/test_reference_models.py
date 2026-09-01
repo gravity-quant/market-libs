@@ -17,6 +17,7 @@ Pins the D-04/D-05 behaviors for the five reference models
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pytest
 
@@ -38,20 +39,158 @@ _ALL_MODELS: list[type[SafeModel]] = [
 ]
 
 
+# ----------------------------------------------------------------------
+# Instrument / Segment — reconciled against the FRESH live wire read of
+# 2026-08-31 (SHAPE-01, Phase 43). Provenance: ``42-WIRE-READ.md`` section 2
+# plus the two Phase 42 captures; findings F-205..F-218.
+# ----------------------------------------------------------------------
+
+# The exact row shape of ``GET /instruments`` — 50/50 measured rows carried this
+# homogeneous ten-key set. Values are synthetic; only the KEY SET and the value
+# TYPES come from the live read (``42-WIRE-READ.md`` section 2, F-205..F-218).
+#
+# The raw Phase 42 capture files are gitignored (``.gitignore:53`` — raw payloads
+# may carry PII and are never committable). A test that opened one would pass on
+# the executor's machine and fail in CI with ``FileNotFoundError``, so this
+# fixture is hand-written: REAL key set, INVENTED values.
+#
+# Deliberately ABSENT: the ``marketId`` camelCase alias (the wire never sends it,
+# and that absence is exactly what makes the D-04 mirror fire) and the removed
+# camelCase instrument-type field.
+_WIRE_INSTRUMENT_ROW: dict[str, Any] = {
+    "active": None,
+    "currency": "ARS",
+    "days_to_maturity": 30,
+    "expired": False,
+    "market_id": "ROFX",
+    "maturity": "2099-12-31",
+    "outright": True,
+    "segment": "SEG1",
+    "subscribed": False,
+    "symbol": "AAA1",
+}
+
+# The exact row shape of ``GET /instruments/segments`` — 4/4 measured rows.
+# Values are synthetic; only the KEY SET and the value TYPES come from the live
+# read (``42-WIRE-READ.md`` section 2, F-205..F-218). Same gitignored-capture
+# rule as above.
+_WIRE_SEGMENT_ROW: dict[str, Any] = {
+    "segment": "SEG1",
+    "live_instruments": 7,
+}
+
+
 def test_instrument_from_api_empty_dict_typed_zero_defaults() -> None:
+    # Re-derived (NOT renamed) for the reconciled shape: the intent is unchanged
+    # — an empty payload yields typed zeros and never raises — but it now covers
+    # the six wire-only fields D-02 added and the nullable ``active`` of D-03.
     inst = Instrument.from_api({})
     assert inst.symbol == ""
     assert inst.marketId == ""
     assert inst.segment == ""
-    assert inst.instrumentType == ""
     assert inst.expired is False
+    assert inst.market_id == ""
+    assert inst.currency == ""
+    assert inst.days_to_maturity == 0
+    assert inst.maturity == ""
+    assert inst.outright is False
+    assert inst.subscribed is False
+    # D-03: ``active`` is ``bool | None`` and the typed zero of an Optional is
+    # ``None``, not ``False`` — the wire sent ``null`` on all 50 measured rows.
+    assert inst.active is None
 
 
 def test_segment_from_api_none_does_not_raise() -> None:
+    # Re-derived (NOT renamed) for the D-06 replacement shape: the intent is
+    # unchanged — a ``None`` payload yields typed zeros and never raises.
     seg = Segment.from_api(None)
-    assert seg.marketSegmentId == ""
-    assert seg.marketId == ""
-    assert seg.description == ""
+    assert seg.segment == ""
+    assert seg.live_instruments == 0
+
+
+def test_instrument_field_set_matches_reconciled_wire() -> None:
+    # D-01..D-05. ``test_instrument_from_api_populated_wire_row`` proves the six
+    # added fields PARSE, but it would stay green if only some of them had been
+    # added — and, worse, a silent REMOVAL of the published ``marketId`` alias
+    # would also keep it green (every other assertion reads the new fields).
+    # Only an exact field-set assertion proves both directions at once: the six
+    # additions plus ``active`` landed AND the published alias survived (D-22 /
+    # D-04 forbid the rename). The ``not hasattr`` half proves the D-05 removal:
+    # a stale camelCase instrument-type field would just default to "" and keep
+    # every other assertion in this file green.
+    assert {f.name for f in dataclasses.fields(Instrument)} == {
+        "symbol",
+        "marketId",
+        "segment",
+        "expired",
+        "market_id",
+        "currency",
+        "days_to_maturity",
+        "maturity",
+        "outright",
+        "subscribed",
+        "active",
+    }
+    assert not hasattr(Instrument.from_api({}), "instrumentType")
+
+
+def test_segment_field_set_matches_reconciled_wire() -> None:
+    # D-06: the declared key set and the measured wire key set were DISJOINT, so
+    # ``Segment`` is replaced wholesale rather than extended. The exact set proves
+    # the two real fields landed; the three ``not hasattr`` assertions prove the
+    # three model-only fields are gone — each of them would otherwise default to
+    # "" and keep an ``isinstance``-only test vacuously green.
+    assert {f.name for f in dataclasses.fields(Segment)} == {"segment", "live_instruments"}
+    seg = Segment.from_api({})
+    assert not hasattr(seg, "marketSegmentId")
+    assert not hasattr(seg, "marketId")
+    assert not hasattr(seg, "description")
+
+
+def test_instrument_market_id_alias_mirrors_wire_snake_case() -> None:
+    # D-04, cloned from ``test_symbol_market_id_alias_mirrors_wire_snake_case``:
+    # ``marketId`` was model-only while ``market_id`` is wire-only. The alias is
+    # kept (published surface, D-22) but is no longer dead — ``from_api`` mirrors
+    # the wire value into it. Before this fix a real payload left it permanently "".
+    inst = Instrument.from_api(_WIRE_INSTRUMENT_ROW)
+    assert inst.marketId == "ROFX"
+    assert inst.marketId == inst.market_id
+    assert inst.marketId != ""
+
+
+def test_instrument_explicit_camel_case_payload_key_still_wins() -> None:
+    # T-43-01 (Tampering). The mirror only FILLS an absent key. An older fixture
+    # or hand-built dict that sends ``marketId`` explicitly keeps its own value,
+    # and the snake_case value stays in its own field.
+    inst = Instrument.from_api({"symbol": "AAA1", "marketId": "LEGACY", "market_id": "ROFX"})
+    assert inst.marketId == "LEGACY"
+    assert inst.market_id == "ROFX"
+
+
+def test_instrument_from_api_populated_wire_row() -> None:
+    # Every one of the ten measured keys lands on a real field — no data is
+    # dropped. Before this fix six of them (``currency``, ``days_to_maturity``,
+    # ``maturity``, ``outright``, ``subscribed``, ``market_id``) were silently
+    # discarded on every catalogue read.
+    inst = Instrument.from_api(_WIRE_INSTRUMENT_ROW)
+    assert inst.symbol == "AAA1"
+    assert inst.segment == "SEG1"
+    assert inst.expired is False
+    assert inst.market_id == "ROFX"
+    assert inst.currency == "ARS"
+    assert inst.days_to_maturity == 30
+    assert inst.maturity == "2099-12-31"
+    assert inst.outright is True
+    assert inst.subscribed is False
+    assert inst.active is None
+
+
+def test_segment_from_api_populated_wire_row() -> None:
+    # D-06: the row comes back POPULATED. Against the old declaration every
+    # segment row was three empty strings, whatever the server sent.
+    seg = Segment.from_api(_WIRE_SEGMENT_ROW)
+    assert seg.segment == "SEG1"
+    assert seg.live_instruments == 7
 
 
 def test_symbol_from_api_extra_keys_ignored_and_false_preserved() -> None:
@@ -216,6 +355,14 @@ def test_symbol_field_set_matches_reconciled_wire() -> None:
     # alias would also keep it green (every other assertion reads the new fields).
     # Only an exact field-set assertion proves both directions at once: the five
     # additions landed AND the published alias survived (D-22 forbids the rename).
+    #
+    # ``note`` is the SIXTH wire-only key, added by Phase 43 (HARN-02 / D-10). Its
+    # provenance differs from the other five: it rides the WRITE acknowledgements
+    # (F-140 sync / F-109 async, both on ``/symbols/{symbol_id}``) and is absent
+    # from the ``GET /symbols`` rows in
+    # ``get-symbols-probe-prefix-sync.json``. One model serves all four symbols
+    # endpoints, so ``note`` is conditional on the response SHAPE — hence
+    # ``str | None``, the same argument as ``created_at`` / ``updated_at``.
     assert {f.name for f in dataclasses.fields(Symbol)} == {
         "symbol",
         "marketId",
@@ -225,6 +372,7 @@ def test_symbol_field_set_matches_reconciled_wire() -> None:
         "created_at",
         "updated_at",
         "received_at",
+        "note",
     }
 
 

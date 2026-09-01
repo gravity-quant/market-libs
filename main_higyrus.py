@@ -242,7 +242,7 @@ _vendor_unreachable_reason: str = ""
 # hostname ni la base URL es lo que evita que el veredicto filtre el dato de
 # entrada (T-39-04).
 _VENDOR_UNREACHABLE_SKIP_LINE = (
-    "SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33"
+    "SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-42"
 )
 
 # Causa medida que viaja en el ``ProbeResult`` del login (no en la línea SKIPPED).
@@ -251,7 +251,7 @@ _VENDOR_UNREACHABLE_DETAIL = "vendor host unreachable (DNS)"
 # Causa medida + destino nombrado que viaja en el sobre de evidencia de corrida
 # (Phase 39 D-09). Es la línea SKIPPED sin su prefijo de veredicto: ni hostname
 # ni base URL, igual que ella (T-39-04/T-39-10).
-_VENDOR_UNREACHABLE_EVIDENCE = "vendor host unreachable (DNS) — LIVE-HIGY-33"
+_VENDOR_UNREACHABLE_EVIDENCE = "vendor host unreachable (DNS) — LIVE-HIGY-42"
 
 # D-HIGY-11: id de cuenta resuelto por probe 5 (probe_get_listado_cuentas_sync)
 # para que los downstream que requieren id_cuenta tengan un sample real. El
@@ -1883,7 +1883,7 @@ def probe_get_posiciones_sync(
     # detalle de implementación): el probe sigue enviando ``incluirParking=False`` y
     # este plan deliberadamente NO lo cambia — flipearlo alteraría la forma de la
     # respuesta y quemaría el baseline write-once de ``get_posiciones`` por deriva de
-    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-33).
+    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-42).
     # Consecuencia explícita: **en una corrida en vivo la rama poblada de ``parking``
     # no se ejercita**. La evidencia de esa rama es la suite mockeada del plan 39-02,
     # ``packages/higyrus-client/tests/test_deep_chain_edges.py``.
@@ -2049,7 +2049,7 @@ async def probe_get_posiciones_async(
     # detalle de implementación): el probe sigue enviando ``incluirParking=False`` y
     # este plan deliberadamente NO lo cambia — flipearlo alteraría la forma de la
     # respuesta y quemaría el baseline write-once de ``get_posiciones`` por deriva de
-    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-33).
+    # schema, sin ganancia (la mitad en vivo está bloqueada por DNS, LIVE-HIGY-42).
     # Consecuencia explícita: **en una corrida en vivo la rama poblada de ``parking``
     # no se ejercita**. La evidencia de esa rama es la suite mockeada del plan 39-02,
     # ``packages/higyrus-client/tests/test_deep_chain_edges.py``.

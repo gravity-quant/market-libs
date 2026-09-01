@@ -44,10 +44,15 @@ def test_get_instruments_sends_bearer_and_encodes_params(httpx_mock: HTTPXMock) 
         json=[
             {
                 "symbol": "GGAL",
-                "marketId": "ROFX",
                 "segment": "DDF",
-                "instrumentType": "E",
                 "expired": False,
+                "market_id": "ROFX",
+                "currency": "ARS",
+                "days_to_maturity": 30,
+                "maturity": "2099-12-31",
+                "outright": True,
+                "subscribed": False,
+                "active": None,
             }
         ],
     )
@@ -77,14 +82,15 @@ def test_get_segments_sends_bearer_no_params(httpx_mock: HTTPXMock) -> None:
     """``get_segments`` dispatches an authenticated ``GET /instruments/segments`` with no params."""
     httpx_mock.add_response(
         method="GET",
-        json=[{"marketSegmentId": "DDF", "marketId": "ROFX", "description": "Dolar"}],
+        json=[{"segment": "DDF", "live_instruments": 7}],
     )
 
     result = market_data_client.client._get_default().get_segments()
 
     assert len(result) == 1
     assert isinstance(result[0], Segment)
-    assert result[0].marketSegmentId == "DDF"
+    assert result[0].segment == "DDF"
+    assert result[0].live_instruments == 7
     req = httpx_mock.get_requests()[0]
     assert req.headers["Authorization"] == "Bearer test-token"
     assert req.url.path == "/api/instruments/segments"

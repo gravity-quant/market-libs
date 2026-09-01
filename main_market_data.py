@@ -66,6 +66,7 @@ from verification import (
     schema_of,
     write_findings,
 )
+from verification.capture import capture
 from verification.cycle_report import verify_cycle_closure
 from verification.env_gate import require_env
 from verification.findings import append_finding, findings_path, max_existing_fid
@@ -978,6 +979,24 @@ def probe_instruments_sync(client: Client) -> ProbeResult:
                 client._state, include_expired=True, only_outright=False, offset=0
             ),
         )
+        # D-08: lectura FRESCA y FECHADA del wire al staging gitignored
+        # (``.gitignore:53``). El envelope espeja la forma de
+        # ``_write_schema_snapshot`` y agrega ``n_rows``/``payload``. El crudo vive
+        # SÓLO acá; a git sólo puede cruzar el ``schema`` (keys+types, PII-free).
+        # Va DENTRO del try (D-09): si la captura falla, degrada a finding.
+        capture(
+            "market-data",
+            "wire-instruments-42",
+            {
+                "captured_at": dt.datetime.now(dt.UTC).isoformat(),
+                "endpoint": _ENDPOINT_TEMPLATES["get_instruments"],
+                "client_function": "get_instruments",
+                "base_url": base_url,
+                "n_rows": len(raw) if isinstance(raw, list) else None,
+                "schema": schema_of(raw),
+                "payload": raw,
+            },
+        )
         # D-09: post-procesado dentro del try.
         sample = raw[0] if isinstance(raw, list) and raw else None
         if isinstance(sample, dict):
@@ -1002,6 +1021,21 @@ def probe_segments_sync(client: Client) -> tuple[ProbeResult, list[Segment] | No
     try:
         segments = client.get_segments()
         raw = _raw_via_request_sync(client, _core.build_segments_request(client._state))
+        # D-08: espejo exacto de ``probe_instruments_sync`` — lectura FRESCA y
+        # FECHADA del wire al staging gitignored, dentro del try (D-09).
+        capture(
+            "market-data",
+            "wire-segments-42",
+            {
+                "captured_at": dt.datetime.now(dt.UTC).isoformat(),
+                "endpoint": _ENDPOINT_TEMPLATES["get_segments"],
+                "client_function": "get_segments",
+                "base_url": base_url,
+                "n_rows": len(raw) if isinstance(raw, list) else None,
+                "schema": schema_of(raw),
+                "payload": raw,
+            },
+        )
         # D-09: post-procesado dentro del try. Si el post-procesado falla, la lista
         # de segments se pierde (return None) → el probe de paridad hace SKIP.
         sample = raw[0] if isinstance(raw, list) and raw else None

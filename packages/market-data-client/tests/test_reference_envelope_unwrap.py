@@ -68,6 +68,29 @@ _SEGMENTS_ENVELOPE: dict[str, Any] = {
 }
 
 
+def _assert_instrument_row_is_populated(row: Instrument) -> None:
+    """Every key of the envelope row lands on a real field (Phase 43, SHAPE-01).
+
+    Before the shape reconciliation SEVEN of these values were discarded: the six
+    wire-only fields of D-02 were not declared at all, and the deprecated
+    camelCase alias was permanently ``""`` because the wire only ever sends the
+    snake_case spelling. Asserting VALUES — not just the row count and its type —
+    is what makes phase criterion 2 reproducible from the test suite alone.
+    """
+    assert row.symbol == "AAA1"
+    assert row.segment == "SEG1"
+    assert row.expired is False
+    assert row.market_id == "ZZZ"
+    assert row.marketId == "ZZZ"  # D-04 mirror: the alias carries the real value
+    assert row.marketId == row.market_id
+    assert row.currency == "ARS"
+    assert row.days_to_maturity == 30
+    assert row.maturity == "2099-12-31"
+    assert row.outright is True
+    assert row.subscribed is False
+    assert row.active is None
+
+
 def test_get_instruments_unwraps_the_items_envelope(httpx_mock: HTTPXMock) -> None:
     """One real row comes back — not one all-default row per envelope key."""
     httpx_mock.add_response(method="GET", json=_INSTRUMENTS_ENVELOPE)
@@ -78,9 +101,7 @@ def test_get_instruments_unwraps_the_items_envelope(httpx_mock: HTTPXMock) -> No
     # envelope key (catalogue, count, items, limit, offset, total).
     assert len(result) == 1
     assert isinstance(result[0], Instrument)
-    assert result[0].symbol == "AAA1"
-    assert result[0].segment == "SEG1"
-    assert result[0].expired is False
+    _assert_instrument_row_is_populated(result[0])
 
 
 async def test_get_instruments_unwraps_the_items_envelope_async(httpx_mock: HTTPXMock) -> None:
@@ -91,13 +112,16 @@ async def test_get_instruments_unwraps_the_items_envelope_async(httpx_mock: HTTP
 
     assert len(result) == 1
     assert isinstance(result[0], Instrument)
-    assert result[0].symbol == "AAA1"
-    assert result[0].segment == "SEG1"
-    assert result[0].expired is False
+    _assert_instrument_row_is_populated(result[0])
 
 
 def test_get_segments_unwraps_the_segments_envelope(httpx_mock: HTTPXMock) -> None:
-    """One real row comes back — not one all-default row per envelope key."""
+    """One real row comes back — and, since Phase 43, a POPULATED one.
+
+    The envelope unwrap alone only ever proved the COUNT. Until the D-06 shape
+    replacement the single row it returned was three empty strings, because the
+    declared key set and the wire key set were disjoint.
+    """
     httpx_mock.add_response(method="GET", json=_SEGMENTS_ENVELOPE)
 
     result = market_data_client.client._get_default().get_segments()
@@ -105,6 +129,8 @@ def test_get_segments_unwraps_the_segments_envelope(httpx_mock: HTTPXMock) -> No
     # Before the fix this was 2 — one all-default ``Segment`` per top-level key.
     assert len(result) == 1
     assert isinstance(result[0], Segment)
+    assert result[0].segment == "SEG1"
+    assert result[0].live_instruments == 7
 
 
 async def test_get_segments_unwraps_the_segments_envelope_async(httpx_mock: HTTPXMock) -> None:
@@ -115,10 +141,18 @@ async def test_get_segments_unwraps_the_segments_envelope_async(httpx_mock: HTTP
 
     assert len(result) == 1
     assert isinstance(result[0], Segment)
+    assert result[0].segment == "SEG1"
+    assert result[0].live_instruments == 7
 
 
 def test_bare_list_bodies_still_parse(httpx_mock: HTTPXMock) -> None:
-    """The pre-envelope shape must NOT regress — a bare list is still accepted."""
+    """The pre-envelope shape must NOT regress — a bare list is still accepted.
+
+    The fixture keeps its EXPLICIT camelCase ``marketId`` on purpose: this is the
+    valid "an older fixture wins over the D-04 mirror" case, and the assertion
+    below is what pins it. The removed camelCase instrument-type key is dropped
+    because it is no longer a declared field.
+    """
     httpx_mock.add_response(
         method="GET",
         json=[
@@ -126,8 +160,14 @@ def test_bare_list_bodies_still_parse(httpx_mock: HTTPXMock) -> None:
                 "symbol": "AAA1",
                 "marketId": "ZZZ",
                 "segment": "SEG1",
-                "instrumentType": "E",
                 "expired": False,
+                "market_id": "WWW",
+                "currency": "ARS",
+                "days_to_maturity": 30,
+                "maturity": "2099-12-31",
+                "outright": True,
+                "subscribed": False,
+                "active": None,
             }
         ],
     )

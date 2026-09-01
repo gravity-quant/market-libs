@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: API tipada con Null Objects
-current_phase: 7
-status: Awaiting next milestone
-stopped_at: 40-03 complete; Phase 40 complete; milestone v1.7 content published
-last_updated: "2026-08-30T22:42:40.301Z"
-last_activity: 2026-08-30
-last_activity_desc: Milestone v1.7 completed and archived
+milestone: v1.8
+milestone_name: Cierre de deuda post-v1.7
+current_phase: 44
+current_phase_name: release-market-data-client-0-7-0
+status: paused-at-checkpoint
+stopped_at: "Phase 44 plan 44-02 checkpoint (a) — merge gate — operator replied \"abort\""
+last_updated: "2026-09-01T10:18:45.855Z"
+last_activity: 2026-09-01
+last_activity_desc: Phase 44 plan 44-02 halted at merge checkpoint by explicit operator abort; PR #16 left open, main untouched
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 28
-  completed_plans: 28
-  percent: 100
-current_phase_name: Releases breaking coordinados
+  total_phases: 5
+  completed_phases: 3
+  total_plans: 19
+  completed_plans: 16
+  percent: 60
 ---
 
 # Project State
@@ -25,20 +25,21 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Awaiting next milestone — run `/gsd-new-milestone` to scope v1.8
+**Current focus:** Phase 44 — release-market-data-client-0-7-0
 
 ## Current Position
 
-Phase: Milestone v1.7 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-30 — Milestone v1.7 completed and archived
+Phase: 44 (release-market-data-client-0-7-0) — PAUSED AT CHECKPOINT
+Plan: 2 of 3 (44-01 complete; 44-02 in progress, halted at checkpoint a — merge gate; 44-03 not started)
+Status: Awaiting operator decision on PR #16 (open, unmerged, https://github.com/gravity-quant/market-libs/pull/16)
+Last activity: 2026-09-01 — checkpoint:human-action gate="blocking-human" reached in 44-02; operator replied "abort" (recorded verbatim, not auto-issued); no irreversible action taken — PR #16 still OPEN, origin/main unchanged at 37a83fe, no tag exists locally or on origin, working tree clean
+Resume: `/gsd-execute-phase 44` re-enters at plan 44-02's checkpoint; operator can review PR #16 on GitHub before replying "approved" to proceed to the merge, or continue investigating first
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 152 (v1.0)
+- Total plans completed: 162 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -198,12 +199,49 @@ Last activity: 2026-08-30 — Milestone v1.7 completed and archived
 | Phase 40 P02 | 7min | 3 tasks | 0 files |
 | Phase 40 P03 | 4min | 3 tasks | 0 files |
 
+**By Phase (v1.8 planned):**
+
+| Phase | Plans | Status      | Requirements | Notes |
+|-------|-------|-------------|--------------|-------|
+| 41    | ?     | Not started | NYQ-01 | **Primera y sola** — audita el árbol **congelado** de v1.7 (Phases 35-39) con `/gsd-validate-phase`; disposición de 3 vías por hallazgo (`VERIFIED-NOW` / `VERIFIED-HISTORICALLY` / `NOT-VERIFIABLE-RETROACTIVELY`), nunca un flip mecánico de `nyquist_compliant`. Cualquier cambio de fuente de v1.8 antes de cerrarla atribuye los hallazgos al árbol equivocado. Locks generados quedan inertes-por-escrito y su enrolamiento en CI se rutea a la Phase 45. |
+| 42    | ?     | Not started | LIVE-01, LIVE-02 | **P1 = portar el `_VENUE_ALLOWLIST`** por igualdad exacta de hostname de `main_matriz.py` a `scripts/literal_census_33.py` (hoy sigue en substring-match pre-Phase-39 — el backlog lo decía "listo", verificado falso en HEAD — y saltearía en silencio contra `bbsa`). Checkpoint humano bloqueante antes de tráfico; `verification/mutation_gate.py` byte-idéntico. higyrus: veredicto **medido** (resuelto o `SKIPPED` con causa re-confirmada), nunca cero. Produce además la lectura fresca del wire que consume la Phase 43. |
+| 43    | ?     | Not started | SHAPE-01, HARN-02 | Un solo cambio de `market_data_client/models.py`: tabla de disposición **campo por campo** (`alias aditivo` / `remover` / `agregar` / `mantener`) contra la lectura fresca de la Phase 42 — `Instrument.marketId` como **alias aditivo** (precedente D-22), nunca rename — más las 5 claves `extra` tipadas sin flip `extra`→`missing`. Fixtures **re-derivadas** con aserción fixture-⊆-baseline. **No** bumpea ni publica. |
+| 44    | ?     | Not started | PUB-01 | Release `market-data-client` **0.7.0**: 4 sitios de versión, `uv.lock` una sola vez, `release.yml` sin editar, changelog + **tabla de migración** vieja→nueva, tag anotado sobre merge commit real, verificación post-publicación instalando desde el wheel público. Los dos gates escritos literalmente `gate="blocking-human"` — la forma `gate="blocking"` ya se auto-aprobó dos veces. Fase propia por precedente lockeado (v1.5 P28 / v1.6 P34 / v1.7 P40). |
+| 45    | ?     | Not started | HARN-01, HARN-03, HARN-04 | Aterriza **después** de las corridas en vivo (decisión de orden explícita). HARN-01 no es un kwarg: título content-addressed o dedupe intra-run + reordenar `_next_fid()` respecto del chequeo + **test de falsificación**; nunca relajar `test_finding_count_consistency.py`. HARN-04 se cierra con decisión escrita y fechada (reparar **con** enrolamiento en CI, o aceptar la deuda). Edit consolidado único de la allowlist de `ci.yml`. |
+| Phase 41 P01 | 8min | 3 tasks | 2 files |
+| Phase 41 P02 | 22min | 2 tasks | 1 files |
+| Phase 41 P03 | 13 min | 2 tasks | 1 files |
+| Phase 41 P04 | 24min | 2 tasks | 1 files |
+| Phase 41 P05 | 19min | 2 tasks | 1 files |
+| Phase 41 P06 | 21min | 2 tasks | 1 files |
+| Phase 41 P07 | 23min | 3 tasks | 3 files |
+| Phase 42 P01 | 11min | 3 tasks | 3 files |
+| Phase 42 P02 | 4min | 2 tasks | 1 files |
+| Phase 42 P03 | 6min | 2 tasks | 2 files |
+| Phase 42 P04 | 7min | 3 tasks | 4 files |
+| Phase 42 P05 | 3min | 2 tasks | 8 files |
+| Phase 42 P06 | 9min | 2 tasks | 5 files |
+| Phase 43 P01 | 15min | 3 tasks | 7 files |
+| Phase 43 P02 | 6min | 3 tasks | 4 files |
+| Phase 43 P03 | 11min | 3 tasks | 4 files |
+| Phase 44 P01 | 6 min | 3 tasks | 4 files |
+
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v1.8 Roadmap]: Phase numbering CONTINUES from v1.7 (última fase = 40) — v1.8 arranca en **Phase 41** (no resetea). Sequential `phase_naming` per config.json.
+- [v1.8 Roadmap]: **5 fases (41-45)** pese a granularity `coarse`, y sin compresión disponible: la 41 no se puede fusionar con ninguna porque audita el árbol que las otras modifican; la 42 no se puede fusionar con la 43 porque la 43 consume su evidencia; la 43 y la 44 no se pueden fusionar por el precedente lockeado de release; y la 45 no se puede adelantar por la decisión de orden harness-vs-vivo. Las 5 fases salen de restricciones estructurales, no de granularidad. 9 requisitos → 5 fases: 41=1, 42=2, 43=2, 44=1, 45=3.
+- [v1.8 Roadmap]: **La Phase 41 va primera y sola porque audita historia congelada.** `/gsd-validate-phase` sobre las Phases 35-39 tiene que correr contra el árbol de v1.7 tal como se shippeó; cualquier cambio de fuente de v1.8 antes de ese punto hace que los hallazgos queden atribuidos al árbol equivocado. No es preferencia de orden: es la condición de validez del artefacto. Y ningún `nyquist_compliant` se flippea mecánicamente — sólo donde la disposición es `VERIFIED-NOW` re-ejecutada.
+- [v1.8 Roadmap]: **El gate de venue de `scripts/literal_census_33.py` está STALE y el backlog lo sobreestima.** La entrada `LIVE-MATZ-33` afirmaba que el script "ya tiene el gate listo para correr contra `bbsa`"; verificado **falso en HEAD** por research — sigue en substring-match pre-Phase-39 (`if "remarkets" not in base:`) y saltearía **en silencio** contra el sandbox ya desbloqueado. Portar el `_VENUE_ALLOWLIST` por igualdad exacta de hostname de `main_matriz.py` es la **primera** tarea de la Phase 42, es relevante para seguridad, y va detrás de un checkpoint humano bloqueante antes de cualquier tráfico. Un `endswith`/`in` "rápido" reintroduce la debilidad de spoofing que el D-02 de la Phase 39 removió. La corrección del texto del backlog viaja en el mismo commit.
+- [v1.8 Roadmap]: **Decisión de orden explícita (research la dejó abierta): HARN-01 aterriza DESPUÉS de las corridas en vivo de la Phase 42.** HARN-01 cambia *qué se registra*; el comportamiento de hoy es ruidoso (22 bloques de drift para 8 snapshots) pero **no es lossy**. Correr en vivo sobre el harness conocido-lossless y recién después cambiar el dedupe mantiene el peor caso en "ledger inflado" en vez de "divergencia perdida", que es la clase de fallo que el proyecto existe para eliminar. Por eso la limpieza del harness es la Phase 45 y no la 42.
+- [v1.8 Roadmap]: **HARN-01 no es un kwarg.** `idempotent_by_title=True` sobre la rama de schema drift —cuyo título es endpoint-scoped y libre de contenido— haría que toda divergencia *posterior y distinta* sobre ese mismo endpoint se tragara para siempre; y `_next_fid()` se llama **antes** del chequeo de dedupe, así que un no-op quema un fid y rompe el invariante que `verification/test_finding_count_consistency.py` pinnea. Requiere título content-addressed (o dedupe intra-run) + reordenar la asignación de fid + un **test de falsificación**. Nunca relajar la aserción de conteo.
+- [v1.8 Roadmap]: **SHAPE-01 se corrige contra la lectura fresca de la Phase 42, no contra el baseline congelado del 2026-07-31** — ese es el motivo de que vivo vaya antes que shape. La disposición es **campo por campo** (`alias aditivo` / `remover` / `agregar` / `mantener`), con `Instrument.marketId` como alias aditivo por el precedente D-22 de `Symbol.marketId`, nunca un rename; y las fixtures se **re-derivan** de los baselines medidos con aserción fixture-⊆-baseline, nunca se renombran para que sigan pasando.
+- [v1.8 Roadmap]: **El release nunca comparte fase con el trabajo que lo habilita** (precedente lockeado v1.5 P28 / v1.6 P34 / v1.7 P40). La Phase 44 existe separada de la 43 precisamente porque la co-locación es donde el bug de autoría del gate ya se coló **dos veces** — los checkpoints se escribieron `gate="blocking"` en vez de `gate="blocking-human"` y sólo la prosa del plan evitó la auto-aprobación bajo `auto_advance: true` + `mode: yolo`. En la Phase 44 la autoría del gate se verifica **en el propio archivo de plan**, no sólo en el comportamiento observado.
+- [v1.8 Roadmap]: **HARN-04 no admite "reparar sin enrolar".** Reparar los dos archivos rotos de `verification/` sin meterlos en el allowlist explícito de `ci.yml` garantiza el re-rot — son rot invisible por construcción desde la Phase 15 precisamente porque `verification/` nunca corrió en CI. Las dos formas admisibles son: reparar **con** presupuesto declarado por adelantado **y** enrolamiento, o aceptar formalmente la deuda con su razón escrita. El gemelo de mypy sobre `verification/` (43-44 errores, 8-9 archivos) queda fuera de alcance por escrito.
 
 - [v1.7 Roadmap]: Phase numbering CONTINUES from v1.6 (última fase = 34) — v1.7 arranca en **Phase 35** (no resetea). Sequential `phase_naming` per config.json.
 - [v1.7 Roadmap]: **6 fases (35-40)** pese a granularity `coarse`, con una compresión deliberada respecto del plan fuente: las Fases D (iol) y E (auditoría del resto) de `.future_plans/api-tipada-null-objects.md` se **funden en la Phase 38** — iol son dos campos y la auditoría es un barrido sobre tres paquetes casi limpios; ninguna de las dos sostiene una fase propia. La Fase F del plan fuente se **parte en 39 (vivo) + 40 (release)** siguiendo el precedente de v1.4/v1.5/v1.6: el release tiene doble gate humano y no puede compartir fase con la verificación que lo habilita. 10 requisitos → 6 fases, 2:1 salvo 39 y 40.
@@ -466,6 +504,54 @@ Recent decisions affecting current work:
 - [Phase 40]: 40-03: ámbito y wallets NO publicados (D-01, aditivos por medición); conteos de tags idénticos al baseline pre-fase (ámbito 2, wallets 1)
 - [Phase 40]: 40-03: defecto de plan confirmado — la cláusula `wallets-client-v*` == 2 del verify de la Task 2 es STALE (el conteo real es 1). Se OVERRIDEÓ con justificación; NO se creó ni borró ningún tag para hacerla pasar. Forma correcta a futuro: ámbito == 2, wallets == 1
 - [Phase 40]: 40-03: los bloques `<verify>` de los planes asumen bash word-splitting y fallan bajo zsh (`for T in $TAGS`, `uv pip install $WHEELS`). Correr los verify blocks bajo `bash -c` en esta máquina
+- [Phase ?]: Phase 41 OQ#1: las 4 filas manual-only de la Phase 39 se disponen NOT-VERIFIABLE-RETROACTIVELY (R-07) — gana el ejemplo lockeado de D-04 sobre la inferencia del researcher; en auditoría se sub-declara, no se sobre-declara
+- [Phase ?]: Phase 41 OQ#2: ni 36 ni 37 cierran limpias — R-09 exige además cero calificadores de corrección, así que las cinco fases quedan en nyquist_compliant: false por evidencia, no por decreto
+- [Phase ?]: Phase 41-01: criterio 3b se marca con la clave de front-matter not_verifiable_retroactively en los cinco archivos (incluso donde vale 0); se descarta nyquist_compliant: partial
+- [Phase ?]: Phase 41-01: denominador del criterio 2 fijado en 62 (13/11/14/9/15); rechazados 51 (as-declared) y 25 (criterios de ROADMAP de v1.7)
+- [Phase ?]: Phase 41-01: audit_baseline_head (6dd83cf4) se captura una sola vez en 41-AUDIT-CONTRACT.md y se copia literal; criterio 1 es invariante continuo, no gate único
+- [Phase ?]: Phase 41-01: el planner mis-sumó las tareas de la fase como 14; el valor real medido es 16 (3+2+2+2+2+2+3) — corrección registrada en 41-AUDIT-CONTRACT.md §2.5 para el gate de 41-07
+- [Phase ?]: Phase 41 / plan 41-02: el paso RED de TDD 35-r01 se dispone VERIFIED-HISTORICALLY (R-05) sin re-ejecutarlo — su cadena lleva un '&& !' sobre tres tests que hoy pasan, asi que sale 1 por diseno; leerlo como rojo llevaria a 'arreglar' un test que esta bien.
+- [Phase ?]: Phase 41 / plan 41-02: las dos rutas muertas de 35-02 (35-r04, 35-r05) se corrigen en el comando EJECUTADO y se disponen VERIFIED-NOW (ruta corregida) por R-03; 35-02-PLAN.md queda intacto como registro historico y la ruta stale se nombra en Hallazgos de bookkeeping.
+- [Phase ?]: Phase 41 / plan 41-02: nyquist_compliant de la Phase 35 se queda en false por evidencia medida, no por decreto — R-09 falla por (b) una fila VERIFIED-HISTORICALLY y por (c) dos calificadores de correccion. Cero flags flipeados; las seis casillas preexistentes del sign-off quedan sin tildar.
+- [Phase ?]: Phase 41 / plan 41-02: la fila placeholder del mapa de la Phase 35 se CONSERVA marcada como superada en vez de borrarse — su existencia es en si un hallazgo de la auditoria (la fase shipeo con el mapa sin llenar, D-05); las 12 filas reales se reconstruyen debajo desde los bloques <verify><automated> de los cinco planes.
+- [Phase ?]: Phase 41 / plan 41-03: 36-r11 se dispone VERIFIED-NOW (comando redactado retroactivamente) por R-04 — la Phase 36 shipeó una fila sin contrato de verificación; la auditoría redactó el comando tras leer el cuerpo del lock. Es el hallazgo principal de la fase, no el VERIFIED-NOW
+- [Phase ?]: Phase 41 / plan 41-03: las celdas File Exists de la Phase 36 y wave_0_complete quedan intactas — su contradicción con la medición es el hallazgo (D-04); corregirlas lo borraría
+- [Phase ?]: Phase 41 / plan 41-03: nyquist_compliant de la Phase 36 sigue en false — R-09 falla por (c) y, en consecuencia, por (a); (b) sí se satisface. Cero flags flipeados
+- [Phase ?]: 41-04: la clave ordinal 37-r01..37-r14 es la unidad de conteo del criterio 2 en la Phase 37 — sus Task ID se reparten solo cuatro etiquetas entre catorce filas
+- [Phase ?]: 41-04: 37-r11 dispuesta VERIFIED-NOW (comando corregido) tras leer el cuerpo de los dos tests sustitutos; nyquist_compliant sigue en false por R-09(c) pese a 14/14 filas verdes
+- [Phase ?]: Phase 38 auditada 7/2/0: las dos filas de revisión de documento se disponen VERIFIED-HISTORICALLY contra la confirmación humana fechada 2026-08-29T22:04:57Z, sin re-derivar; nyquist_compliant sigue en false por la condición (b) de R-09
+- [Phase ?]: [41-06] Las 4 filas manual-only de la Phase 39 quedan NOT-VERIFIABLE-RETROACTIVELY (R-07), contra la recomendación de 41-RESEARCH.md de partir el bloque 3/1: D-04 las nombra por su nombre como el arquetipo del marcador, y en una auditoría la dirección segura es sub-declarar. La evidencia parcial superviviente no se descarta: cada celda nombra su artefacto fechado (los 4 envelopes de run-evidence con sus sondas ejecutadas, 39-07-SUMMARY.md, dos secciones de 39-CENSUS.md, el sign-off del operador) con la frase explícita de por qué no basta. Resultado: not_verifiable_retroactively: 4 en front-matter — la única de las cinco fases con valor distinto de cero, y la forma en que el criterio 3b se satisface.
+- [Phase ?]: [41-06] El node-id ::_ambito_declares_zero_models de la fila 39-r08 NO consume una tercera corrección R-02: R-02 se dispara con selector -k que colecciona 0 tests y exit 5; acá el node-id nombra un helper privado y pytest sale exit 4 (error de uso). Fila dispuesta VERIFIED-NOW plano vía -k ambito (2 passed, 19 deselected), tras confirmar que los dos casos parametrizados atraviesan ese helper y assertan la conducta declarada. Registrado como hallazgo de bookkeeping, preservando el 'cero escalaciones' del contrato.
+- [Phase 41]: 41-07: el gate de inmutabilidad de REQUIREMENTS.md del criterio 5 se sustituye por un hash byte-a-byte de la fila de alcance excluido — la cláusula as-written es insatisfacible porque el seam requirements mark-complete edita ese archivo dentro de la fase
+- [Phase 41]: 41-07: nyquist_compliant de la propia Phase 41 queda en false por evaluación medida de R-09 (fallan (a) y (c): 3 de 16 filas llevan calificador de corrección), no por simetría con las cinco auditadas
+- [Phase 41]: 41-07: los 40 locks de verification/ fuera del allowlist de ci.yml quedan declarados inertes por escrito, con su enrolamiento ruteado a la Phase 45 (HARN-03/HARN-04); la Phase 41 no edita .github/workflows/ci.yml
+- [Phase 42]: El gate de venue de scripts/literal_census_33.py se porta por IMPORT de main_matriz (_VENUE_ALLOWLIST + _venue_token), pinneado por identidad de objeto (is), no por igualdad de contenido — Con import, la divergencia de politica entre el driver y el censo es estructuralmente imposible en vez de solo detectada. El substring-match pre-Phase-39 habria hecho saltear el censo EN SILENCIO contra el sandbox bbsa ya desbloqueado.
+- [Phase 42]: El walk AST anti-substring se restringe al FunctionDef de census_matriz, NO al modulo entero (Q4, cerrada en planificacion) — Un walk a nivel de modulo produce falsos positivos sobre el despacho de flags de main() — confirmado en ejecucion: la Task 2 agrego un segundo despacho (--matriz-only) de la misma forma sintactica. Descubrirlo con un test rojo invita al reflejo de relajar la asercion.
+- [Phase 42]: Aprobacion humana explicita del operador ('Approved') registrada verbatim en 42-01-SUMMARY.md antes de cualquier trafico en vivo; habilita 42-02/42-03/42-04 — checkpoint:human-verify con gate=blocking-human. La aprobacion NO se derivo de auto_advance, mode:yolo ni human_verify_mode:end-of-phase — ese modo no puede gatear trafico que ya ocurrio. verification/mutation_gate.py quedo byte-identico (6bdaec00), order entry fail-closed bajo bbsa sin cambio de codigo.
+- [Phase ?]: Phase 42 (42-02): los 8 valores de vendor fuera de los alias Literal declarados de matriz (6 en CFICode, 2 en OrderType) quedan REGISTRADOS, NO APLICADOS — ampliar un alias es un cambio de forma de un paquete publicado y necesita disposicion de semver propia; ruteado a la Phase 43
+- [Phase ?]: Phase 42 (42-02): ordType se reporta NO MEDIBLE EN ESTA CORRIDA con causa medida (orders vacio en la cuenta bbsa), no se rellena — emitir una orden para fabricar una fila seria una mutacion
+- [Phase ?]: [42-03 / LIVE-01]: **Alcanzabilidad de higyrus MEDIDA hoy (2026-08-31), no heredada.** `socket.gaierror` en DNS y `httpx.ConnectError` en `login()`, ambos con errno `[Errno 8] nodename nor servname provided, or not known` citado verbatim tras pasar un guard de contención case-insensitive (hostname/base URL/netloc). La clase medida es IGUAL a la heredada de la Phase 39 — dicho como hecho verificado, no re-estampado. El driver completo salió 0 con `SKIPPED higyrus-client: vendor host unreachable (DNS) — LIVE-HIGY-33` y el sobre quedó con `captured_at 2026-08-31T21:20:38Z`, `probes_executed 0` y `skipped` con causa medida. **LIVE-01 medido NO cierra `LIVE-HIGY-33`: los 22 triples (Movimiento 9, PosicionValuada 11, Posicion 2) siguen sin contrastar.**
+- [Phase ?]: [42-03 / WR-02]: **`httpx.ConnectTimeout` re-declarado FUERA DE ALCANCE, decidido por escrito ANTES de la corrida y no revisitado.** No es subclase de `ConnectError` (MRO httpx 0.28.1), así que un host que resuelve pero cuelga cae en `_RESIDUAL_PROBE_EXCEPTIONS` y da `FINDING`/`FAILED` en vez de `SKIPPED`. La rama `_vendor_unreachable` NO se amplió. Destino: backlog de deuda in-code de Phase 39 (D39-01..04, WR-02). Cero líneas de `main_higyrus.py` tocadas.
+- [Phase ?]: [42-03 → 42-05]: **Veredicto explícito: el rename D-06 DISPARA (SÍ).** El bloqueo sigue vivo y medido hoy, el sobre recién committeado lleva el identificador stale `LIVE-HIGY-33`, y ni la rama "DNS resolvió → D-06 moot" ni la rama de resultado inesperado aplican. 42-05 va por su rama principal, respetando su propio hallazgo: **11 ocurrencias en 6 archivos vivos, y UNA no debe renombrarse** (asevera sobre artefacto histórico congelado de v1.6; renombrarla viola la premisa de la Phase 41).
+- [Phase ?]: [42-03 / D42-DEF-01]: Exposición **pre-existente** del base URL del vendor en `higyrus-client-findings.md:5` (header `Resolved base URL / env:`) detectada por el chequeo de no-fuga y **NO corregida**: byte-idéntica a HEAD (último commit `fbb69c3`/Phase 17, header de `e8307a6`/Phase 11), ledger append-only versionado (HARN-07), y la política T-39-04 es posterior a ese header. Ruteada a la **Phase 45** con tres opciones escritas en `deferred-items.md`. Todos los artefactos DE LA SESIÓN dieron CLEAN.
+- [Phase ?]: [42-03 / LIVE-01 traceability]: **LIVE-01 queda `Pending` a propósito al cierre de 42-03.** El criterio 2 del ROADMAP tiene dos mitades: (a) resultado medido —entregado por este plan— y (b) "con el destino `LIVE-HIGY-33` renombrado", que es el plan **42-05**. Marcarlo completo con la mitad (b) sin hacer sería el falso limpio que este proyecto existe para eliminar. Lo cierra el plan **42-06**, que ya lleva LIVE-01 en su frontmatter.
+- [Phase 42]: 42-04: n_rows quedó null en /instruments y /segments y NO se 'arregló' — el wire devuelve un sobre paginado (dict), no un array, así que len(raw) if isinstance(raw, list) else None evaluó como el plan lo especificó — Cambiar el cómputo habría exigido una segunda corrida en vivo contra un servicio de terceros para regenerar un dato que ya está reportado (50 filas / 4 filas, derivado de items y segments) en 42-WIRE-READ.md
+- [Phase 42]: 42-04: el delta vacío contra el baseline del 2026-07-31 se reporta como RESULTADO de la re-medición y NO revierte la marca de no-autoritatividad — Lo autoritativo para SHAPE-01 es la medición de hoy, que resulta coincidir; escrito explícitamente en 42-WIRE-READ.md § 4 para que la Phase 43 no concluya 'el baseline coincide, entonces uso el baseline'
+- [Phase 42]: 42-04: D42-DEF-02 (SHAPE-diff del driver INERTE para Instrument/Segment) se difiere a la Phase 43 en vez de arreglarse — Es preexistente (no lo causó ninguna task del plan), no hubo pérdida de evidencia (el censo de divergencias del decode produjo los 28 findings F-205..F-242), y el fix exigía otra corrida en vivo sin producir un hecho nuevo
+- [Phase ?]: 42-05: el rename D-06 disparo porque el veredicto medido por 42-03 fue SKIPPED — LIVE-HIGY-33 pasa a LIVE-HIGY-42 en los 14 sitios vivos (11 codigo + 3 prosa, 7 archivos, 1 commit atomico)
+- [Phase ?]: 42-05: la historia congelada NO se renombra — test_cycle_closure_phase33.py:250-252 conserva exactamente 2 ocurrencias del identificador viejo (asevera contra 33-CENSUS.md); el criterio es 'afirma estado vivo vs. historico', no 'prosa vs. codigo'
+- [Phase ?]: 42-05: el sobre de evidencia se regenero corriendo el driver por segunda vez (captured_at 2026-08-31T21:38:57), nunca editando el JSON; las dos mediciones de la sesion COINCIDIERON (SKIPPED, exit 0)
+- [Phase 42-06]: Phase 42 cerrada: los 5 criterios del ROADMAP disponen 2 SATISFECHO + 3 SATISFECHO POR LA VIA DECLARADA + 0 NO SATISFECHO, cero filas sin disponer (42-CLOSURE.md)
+- [Phase 42-06]: Q5 corregida: el backlog ya no afirma que scripts/literal_census_33.py tenia el gate listo — estaba en substring-match pre-Phase-39; correccion aplicada a las dos entradas forward-looking, texto historico de la Phase 33 preservado verbatim
+- [Phase 42-06]: LIVE-01 cerrado por la via 'causa re-confirmada'; LIVE-HIGY-42 (ex LIVE-HIGY-33) sigue ABIERTO con sus 22 triples sin contrastar — el rename cambio el identificador, no el estado
+- [Phase 43]: [43-01] Instrument.active se declara bool | None = None (D-03): el wire mando null en 50/50 filas medidas; declararlo bool plano habria convertido una extra medida en una missing permanente sobre cada lectura de catalogo. — El miembro bool de la union nunca se observo y queda como asuncion declarada, autocorrectiva via el censo de divergencias.
+- [Phase 43]: [43-01] Instrument.marketId se conserva como alias aditivo deprecado con espejo en from_api (D-04, precedente D-22); Segment en cambio se reemplaza por completo (D-06) en vez de alias-mapearse. — D-22 cubre UNA clave con variante de spelling camelCase/snake_case; marketSegmentId vs segment son nombres distintos, asi que el alias no aplica.
+- [Phase 43]: FeedIngestor.last_error_age_seconds y .last_error_at nullables (D-09): ausentes del baseline sano y presentes junto a un last_error poblado, condicionales a que exista un error; declararlas planas emitiria un missing en cada llamada sana
+- [Phase 43]: HealthFeed.symbols_never_delivered PLANO (D-11) pese a emitir un missing contra la fixture congelada del 2026-07-31: la clave esta poblada en las tres capturas posteriores y un Optional sobre-declarado absorberia un futuro null sin dejar record
+- [Phase 43]: ingestor.subscription tipado como FeedSubscription (15 campos), nunca como dict[str, Any]: walk_field no tiene rama para mappings, asi que un mapping seria un punto ciego permanente del censo de divergencias
+- [Phase ?]: Phase 43 cerrada: 43-DISPOSITION.md consolida la disposicion de los 17 campos de Instrument/Segment con cero filas sin disponer, el antes/despues MEDIDO de get_segments(), y los 4 jobs de CI verdes sin bump de version (0.6.0 intacto en los tres sitios)
+- [Phase ?]: D-14 medido por identidad de objeto funcion: client.py y aio.py no necesitan cambio porque ambas superficies llaman al mismo _core.parse_X; el comando del plan asumia un re-export inexistente y se sustituyo declarando la sustitucion
+- [Phase ?]: El job pre-commit estaba rojo en main desde antes de la Phase 43 (end-of-file-fixer sobre 41-06-PLAN.md y 42-05-PLAN.md); corregido con +1 byte por archivo, cero caracteres de contenido alterados
 
 ### Pending Todos
 
@@ -546,10 +632,13 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-08-30T14:09:00.000Z
-Stopped at: 40-03 complete; Phase 40 complete; milestone v1.7 content published
-Resume file: None
+Last session: 2026-09-01T10:18:35.374Z
+Stopped at: Phase 44 context gathered (assumptions mode)
+Resume file: .planning/phases/44-release-market-data-client-0-7-0/44-CONTEXT.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Revisar `.planning/ROADMAP.md` § Phase Details (v1.8) — 5 fases, 9/9 requisitos mapeados
+- Planificar la primera fase con `/gsd-plan-phase 41` (validación Nyquist retroactiva; **antes** de cualquier cambio de fuente de v1.8)
+- Research marcó 3 fases como candidatas a `discuss-phase` antes de planificar: **42** (política del widening de venue), **43** (tabla de disposición por campo) y **45** (interacción fid-allocator / dedupe)
+- Pregunta abierta que el roadmap resolvió y conviene ratificar: v1.8 **sí** publica la 0.7.0 (Phase 44), no es fix-and-hold
