@@ -143,7 +143,19 @@ Plans:
   4. Las fixtures de test afectadas se **re-derivan** de los baselines medidos, con una aserción de que el conjunto de claves de cada fixture es subconjunto del baseline — ninguna se renombra para que siga pasando.
   5. Los 4 gates de CI de v1.6 quedan verdes, el cambio se espeja donde corresponda en `client.py` / `aio.py` (o se demuestra **por medición** que los parsers genéricos no necesitan cambio), y la fase **no** bumpea versión ni publica: el release es la Phase 44.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 43-01-PLAN.md — `Instrument` + `Segment` reconciliados contra la lectura fresca del wire (D-01…D-06) y los 6 archivos de test re-derivados *(wave 1)*
+
+**Wave 2** *(bloqueada por 43-01 — mismo `models.py`)*
+
+- [ ] 43-02-PLAN.md — HARN-02: las 5 claves `extra` tipadas (`FeedSubscription` nueva, D-08…D-11) + el helper de subconjunto de claves de D-13 *(wave 2)*
+
+**Wave 3** *(bloqueada por 43-01 y 43-02)*
+
+- [ ] 43-03-PLAN.md — Cierre: docstring de `_core.py` (D-14), `43-DISPOSITION.md` (criterios 1/2/5), backlog del dereference del driver y los 4 gates de CI verdes sin bump *(wave 3)*
 
 ### Phase 44: Release `market-data-client` 0.7.0
 
