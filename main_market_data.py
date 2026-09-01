@@ -1538,8 +1538,8 @@ def probe_parity(
     if seg_sync is None or seg_async is None:
         return ProbeResult(name, "SKIPPED", "(un segments probe falló antes)")
     try:
-        ids_sync = sorted(s.marketSegmentId for s in seg_sync)
-        ids_async = sorted(s.marketSegmentId for s in seg_async)
+        ids_sync = sorted(s.segment for s in seg_sync)
+        ids_async = sorted(s.segment for s in seg_async)
     except Exception as exc:  # D-09: la comparación nunca crashea el driver
         return _finding_for_exc(exc, name=name, surface="both", base_url=base_url)
     if ids_sync != ids_async:
