@@ -31,7 +31,7 @@ from typing import Any, Union, cast, get_args, get_origin
 import httpx
 import pytest
 
-from market_data_client import _core, _decode, models
+from market_data_client import _core, _decode
 from market_data_client._state import (
     _TOKEN_TTL_BUFFER_SECONDS,
     _TOKEN_TTL_FALLBACK_SECONDS,
@@ -51,6 +51,7 @@ from market_data_client.models import (
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
+    FeedSubscription,
     Health,
     HealthAuth,
     HealthFeed,
@@ -59,28 +60,21 @@ from market_data_client.models import (
 
 _DUMMY_REQUEST = httpx.Request("GET", "http://t")
 
-# ``FeedSubscription`` (Phase 43 HARN-02 / D-08) is resolved through the module
-# NAMESPACE instead of being imported by name. During the RED half of the 43-02
-# TDD cycle the class does not exist yet, and a by-name import would turn a
-# legitimate red into a COLLECTION error — which hides every other test in this
-# file behind one traceback. The ``None`` default therefore only ever fires
-# inside that one RED run; once the model lands the attribute is always present.
-FeedSubscription: Any = getattr(models, "FeedSubscription", None)
-
-# The health models policed by the three structural parametrized tests below.
-# One list, three decorators: the three assertions are about the same closed set
-# of classes, and keeping three literal copies is how a newly added health model
-# ends up enrolled in two of them and silently missing from the third.
-_HEALTH_MODEL_CLASSES: list[Any] = [
+# The health models policed by the three structural parametrized tests below,
+# plus the Optional lock. One list, four call sites: these assertions are all
+# about the same closed set of classes, and keeping four literal copies is how a
+# newly added health model ends up enrolled in three of them and silently
+# missing from the fourth. ``FeedSubscription`` (Phase 43, D-08) is the seventh
+# member and is enrolled here, not per-test, for exactly that reason.
+_HEALTH_MODEL_CLASSES: list[type[SafeModel]] = [
     Health,
     HealthAuth,
     HealthFeed,
     FeedIngestor,
     FeedMarket,
     FeedPipeline,
+    FeedSubscription,
 ]
-if FeedSubscription is not None:  # pragma: no branch - RED-only guard, see above
-    _HEALTH_MODEL_CLASSES.append(FeedSubscription)
 
 
 def _strip_optional(tp: Any) -> Any:
@@ -1487,7 +1481,9 @@ def test_health_models_declare_exactly_the_two_locked_optionals() -> None:
     optionals = {
         f"{cls.__name__}.{name}"
         for cls in _HEALTH_MODEL_CLASSES
-        for name, hint in _decode.hints_for(cls).items()
+        # ``cast(Any, ...)`` is this file's existing mypy-strict discipline for
+        # ``get_type_hints``-driven code (see ``..._declare_no_received_at``).
+        for name, hint in _decode.hints_for(cast(Any, cls)).items()
         if _strip_optional(hint) is not hint
     }
     assert optionals == {
