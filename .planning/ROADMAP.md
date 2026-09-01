@@ -170,7 +170,20 @@ Plans:
   4. Los dos checkpoints (merge y push de tag) están autorizados literalmente como `gate="blocking-human"` en el archivo de plan, son independientes entre sí, y ninguno se auto-aprueba pese a `auto_advance: true` + `mode: yolo` — la autoría del gate se verifica **en el propio archivo de plan**, no sólo en el comportamiento observado.
   5. Ningún otro paquete se publica en esta fase, y los conteos de tags de los otros cinco paquetes quedan idénticos al baseline pre-fase — sólo cambió la superficie de `market-data-client`.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 44-01-PLAN.md — Prep reversible: bump de los 4 sitios a `0.7.0` (D-01), fold de `FeedSubscription` (D-05), changelog `### v0.7.0` con las dos tablas de migración (D-03/D-04), `uv lock` único + `uv sync` (D-02), mirror local de CI, scan de credenciales y push de la branch `milestone/v1.8-*` (D-07) *(wave 1)*
+
+**Wave 2** *(bloqueada por 44-01 — el PR necesita la branch pusheada)*
+
+- [ ] 44-02-PLAN.md — PR de release + conteo positivo 15/15 (D-11) + auditoría de autoría del gate en el propio archivo (criterio 4), **primer gate humano bloqueante** (D-08a) y merge real de dos padres *(wave 2, `autonomous: false`)*
+
+**Wave 3** *(bloqueada por 44-02 — el tag va sobre el merge commit re-resuelto)*
+
+- [ ] 44-03-PLAN.md — **Segundo gate humano bloqueante** (D-08b), tag anotado sobre el SHA re-resuelto y pusheado por nombre (D-09), Release con wheel + sdist, invariancia de conteos de tags (D-10) y verificación post-publicación desde el wheel público fuera del repo (D-12) *(wave 3, `autonomous: false`)*
 
 ### Phase 45: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
 
