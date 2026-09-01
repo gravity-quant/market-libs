@@ -23,13 +23,13 @@ Requisitos para el milestone v1.8. Cada uno mapea a una fase del roadmap.
 
 ### Release
 
-- [ ] **PUB-01**: Publicar `market-data-client-v0.7.0` como fase propia — bump de versión en los 4 sitios, changelog + tabla de migración en `README.md`, doble gate humano independiente autorizado literalmente como `gate="blocking-human"` (nunca `gate="blocking"`, que ya se auto-aprobó dos veces bajo yolo)
+- [x] **PUB-01**: Publicar `market-data-client-v0.7.0` como fase propia — bump de versión en los 4 sitios, changelog + tabla de migración en `README.md`, doble gate humano independiente autorizado literalmente como `gate="blocking-human"` (nunca `gate="blocking"`, que ya se auto-aprobó dos veces bajo yolo)
 
 ### Harness cleanup
 
-- [ ] **HARN-01**: Deduplicar los findings de `schema drift` correctamente — título content-addressed o dedupe sólo intra-run, preservando el invariante de conteo de fids (`test_finding_count_consistency.py`), con un test de falsificación que pruebe que una divergencia distinta en el mismo endpoint sigue escribiéndose
-- [ ] **HARN-03**: Corregir el comentario stale de Phase 37 (`330`→`336` definiciones) + cerrar el gap `IN-06` (archivo de `verification/` fuera del allowlist explícito de CI); retirar `IN-05` (ya resuelto en Phase 40)
-- [ ] **HARN-04**: Decidir explícitamente el destino de `verification/` de matriz (roto desde Phase 15, nunca en CI) — reparar con un presupuesto declarado y enrolamiento en el allowlist de CI, o documentar formalmente como debt aceptada
+- [x] **HARN-01**: Deduplicar los findings de `schema drift` correctamente — título content-addressed o dedupe sólo intra-run, preservando el invariante de conteo de fids (`test_finding_count_consistency.py`), con un test de falsificación que pruebe que una divergencia distinta en el mismo endpoint sigue escribiéndose
+- [x] **HARN-03**: Corregir el comentario stale de Phase 37 (`330`→`336` definiciones) + cerrar el gap `IN-06` (archivo de `verification/` fuera del allowlist explícito de CI); retirar `IN-05` (ya resuelto en Phase 40)
+- [x] **HARN-04**: Decidir explícitamente el destino de `verification/` de matriz (roto desde Phase 15, nunca en CI) — reparar con un presupuesto declarado y enrolamiento en el allowlist de CI, o documentar formalmente como debt aceptada
 
 ## v2 Requirements
 
@@ -61,10 +61,10 @@ categoría — ver `ROADMAP.md § Phase Details (v1.8)` y `.planning/research/SU
 | LIVE-02 | Phase 42 | Complete |
 | SHAPE-01 | Phase 43 | Complete |
 | HARN-02 | Phase 43 | Complete |
-| PUB-01 | Phase 44 | Pending |
-| HARN-01 | Phase 45 | Pending |
-| HARN-03 | Phase 45 | Pending |
-| HARN-04 | Phase 45 | Pending |
+| PUB-01 | Phase 44 | Complete |
+| HARN-01 | Phase 45 | Complete |
+| HARN-03 | Phase 45 | Complete |
+| HARN-04 | Phase 45 | Complete |
 
 **Coverage:**
 

@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -353,6 +354,34 @@ def _next_fid() -> str:
     return f"F-{_fid_counter:02d}"
 
 
+# Guarda de dedupe de schema drift (HARN-01 / D-01 ENMENDADA). Es estado POR
+# PROCESO: se vacía sólo cuando el driver termina, así que el colapso es
+# intra-run y una divergencia sin arreglar sigue escribiendo un bloque nuevo en
+# la corrida siguiente (verboso, nunca lossy). La clave es
+# ``(identidad del baseline, digest del contenido de la divergencia)`` y NO
+# incluye la superficie: dentro de un proceso cada par función-superficie se
+# visita una sola vez, así que una clave con ``surface`` no podría colapsar nada
+# (medido en ``45-RESEARCH.md`` Hallazgo 2 — sync y async comparan contra el
+# MISMO baseline y producen el MISMO schema; ahí viven los 22 bloques por 11
+# divergencias). El digest conserva el contenido, así que una divergencia
+# DISTINTA sobre el mismo endpoint sigue escribiendo bloque nuevo — el arm de
+# no-colapso de ``verification/test_drift_dedupe_falsification.py`` lo pinea.
+_seen_drift_keys: set[tuple[str, str]] = set()
+
+
+def _drift_digest(payload: object) -> str:
+    """Digest determinístico del contenido de una divergencia (clave de dedupe).
+
+    ``sort_keys`` lo hace estable frente al orden de iteración de los dicts.
+    ``default=str`` es la garantía de que este camino NUNCA levanta una excepción
+    nueva: el contrato de la ladder D-09 es que una divergencia de forma degrada
+    a finding y jamás a crash, y un ``TypeError`` de serialización acá rompería
+    un camino que hoy no levanta.
+    """
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # ProbeResult
 # ---------------------------------------------------------------------------
@@ -508,6 +537,15 @@ def _write_schema_snapshot(
         return
     if committed.get("schema") == actual_schema:
         return
+    # HARN-01 / D-01 ENMENDADA: dedupe intra-proceso. El digest cubre el PAR
+    # baseline-vs-actual, no sólo el actual — dos drifts con el mismo ``actual``
+    # pero distinto ``expected`` son findings distintos y no pueden colapsarse.
+    drift_key = (client_function, _drift_digest([committed.get("schema"), actual_schema]))
+    if drift_key in _seen_drift_keys:
+        # No-op: este helper está anotado ``-> None`` y ningún fid se consume
+        # (D-03 — la decisión de dedupe va ANTES de ``_next_fid()``).
+        return
+    _seen_drift_keys.add(drift_key)
     fid = _next_fid()
     append_finding(
         _PKG,
@@ -1538,8 +1576,8 @@ def probe_parity(
     if seg_sync is None or seg_async is None:
         return ProbeResult(name, "SKIPPED", "(un segments probe falló antes)")
     try:
-        ids_sync = sorted(s.marketSegmentId for s in seg_sync)
-        ids_async = sorted(s.marketSegmentId for s in seg_async)
+        ids_sync = sorted(s.segment for s in seg_sync)
+        ids_async = sorted(s.segment for s in seg_async)
     except Exception as exc:  # D-09: la comparación nunca crashea el driver
         return _finding_for_exc(exc, name=name, surface="both", base_url=base_url)
     if ids_sync != ids_async:

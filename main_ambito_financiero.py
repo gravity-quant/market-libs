@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -130,6 +131,30 @@ def _next_fid() -> str:
     global _fid_counter
     _fid_counter += 1
     return f"F-{_fid_counter:02d}"
+
+
+# Guarda de dedupe de schema drift (HARN-01 / D-01 ENMENDADA). Estado POR
+# PROCESO: el colapso es intra-run, así que una divergencia sin arreglar sigue
+# escribiendo un bloque nuevo en la corrida siguiente (verboso, nunca lossy). La
+# clave es ``(identidad del baseline, digest del contenido de la divergencia)`` y
+# NO incluye la superficie: dentro de un proceso cada par función-superficie se
+# visita una sola vez.
+# Copia local deliberada del artefacto de ``main_market_data.py``: ``CLAUDE.md``
+# prohíbe código compartido entre unidades y ``verification/findings.py`` está
+# vedado como sitio de estado por ser append-only por contrato.
+_seen_drift_keys: set[tuple[str, str]] = set()
+
+
+def _drift_digest(payload: object) -> str:
+    """Digest determinístico del contenido de una divergencia (clave de dedupe).
+
+    ``sort_keys`` lo hace estable frente al orden de iteración de los dicts.
+    ``default=str`` garantiza que este camino NUNCA levante una excepción nueva:
+    el contrato de la ladder D-09 es que una divergencia de forma degrada a
+    finding y jamás a crash.
+    """
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -604,6 +629,19 @@ def probe_schema_snapshot(
     committed = json.loads(_SCHEMA_FILE.read_text(encoding="utf-8"))
     if committed.get("schema") == actual_schema:
         return ProbeResult("schema_snapshot", "PASS", "schema sin drift")
+    # HARN-01 / D-01 ENMENDADA: dedupe intra-proceso. El digest cubre el PAR
+    # baseline-vs-actual, no sólo el actual — dos drifts con el mismo ``actual``
+    # pero distinto ``expected`` son findings distintos y no pueden colapsarse.
+    drift_key = (
+        "get_dollar_banco_nacion",
+        _drift_digest([committed.get("schema"), actual_schema]),
+    )
+    if drift_key in _seen_drift_keys:
+        # No-op con el contrato de ESTE probe: ``ProbeResult``, la misma forma
+        # que el ``return`` de "sin drift" de arriba. Un ``return`` desnudo acá
+        # sería un ``None`` donde el caller espera un ``ProbeResult``.
+        return ProbeResult("schema_snapshot", "PASS", "drift ya reportado en esta corrida")
+    _seen_drift_keys.add(drift_key)
     fid = _next_fid()
     append_finding(
         _PKG,

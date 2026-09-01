@@ -42,7 +42,8 @@ negatives against the contract stated in this paragraph -- including
 ``dict[str, dict[str, Any]]``, the exact container shape 37-03 introduced.
 
 The second dimension exists because the first one was not enough, and the gap
-was measured rather than suspected. **Before Phase 37** this gate printed::
+was measured rather than suspected. **Before Phase 37** (measured at ``00ffb2f~1``)
+this gate printed::
 
     surface types: 6 packages, 183 `__all__` names, 330 definitions scanned,
     13 constant/alias exports, 23 exempted (dunder 13, private-helper 1,
@@ -52,14 +53,14 @@ was measured rather than suspected. **Before Phase 37** this gate printed::
 exported model surface. The cause was structural, not a missing exemption:
 ``_candidates_for`` filtered a class body down to its member functions and
 discarded every ``ast.AnnAssign``, so the gate could not see the thing it was
-being read as checking. **After Phase 37**, over a tree whose fields have since
-been typed::
+being read as checking. **Measured 2026-09-01** (commit ``fe323d6``), over a tree
+whose fields have since been typed::
 
-    surface types: 6 packages, 186 `__all__` names, 330 definitions scanned,
-    442 fields scanned, 13 constant/alias exports, 24 exempted (dunder 13,
+    surface types: 6 packages, 187 `__all__` names, 337 definitions scanned,
+    467 fields scanned, 13 constant/alias exports, 24 exempted (dunder 13,
     private-helper 1, serialize-out 9, ws-catch-all 1), 0 violations
 
-The same green, now earned: 442 fields inspected and one named exemption
+The same green, now earned: 467 fields inspected and one named exemption
 absorbing a real hit. ``packages/matriz-client/tests/test_surface_types_red.py``
 is what keeps it earned, exactly as its iol sibling does for the first
 dimension.

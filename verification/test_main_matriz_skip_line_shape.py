@@ -9,7 +9,7 @@ del allowlist SÍ significa "el driver no corrió", que es precisamente lo que e
 clasificador debe reportar. Hasta D-01 esa condición salía ``FAILED`` (ABORT a
 stderr + exit 1) y ``main_verify.py`` sólo escanea ``stdout``.
 
-Dos capas:
+Tres capas:
 
 1. **Forma de salida.** El patrón clasificador se IMPORTA de ``main_verify``
    (nunca se re-declara) y las líneas de print del driver se renderizan por AST
@@ -18,6 +18,16 @@ Dos capas:
    contra la función real: igualdad exacta de hostname, con el sufijo hostil
    (``<host-conocido>.attacker.example``) y la variante userinfo
    (``https://<host-conocido>@attacker.example``) rechazados (T-39-01).
+3. **Taxonomía de retorno de ``probe_login_sync``** (agregada por el plan 45-04,
+   HARN-04 / Q4). Alcance nuevo y su procedencia: ``45-RESEARCH.md`` Hallazgo 9
+   midió que la ÚNICA aserción de los 2 archivos de matriz rotos desde la
+   Phase 15 que ningún archivo enrolado en CI cubría era que
+   ``probe_login_sync`` devuelve ``FINDING`` y no ``FAIL`` — la uniformidad de
+   taxonomía que fijó CR-02 de la Phase 11. Esa fila de deuda se cierra ACÁ,
+   dentro de un archivo que YA corre en CI (``ci.yml``, job ``lint``), sin
+   enrolar ningún archivo nuevo y sin reparar los 2 archivos rotos: su
+   disposición es "deuda documentada, no reparar"
+   (``45-HARN-04-DECISION.md``).
 
 ``verification/mutation_gate.py`` NO se toca: su ``_SANDBOX_HOST`` remarkets-only
 mantiene el order entry fail-closed bajo bbsa sin cambio de código (T-39-02).
@@ -48,6 +58,16 @@ _MIN_PRINT_SITES = 2
 
 # Forma verbatim del mutation gate, sin dos puntos a propósito (WR-01).
 _MUTATION_GATE_LINE = "SKIPPED (mutating, guard off)"
+
+# Capa 3: taxonomía de retorno del probe de login (CR-02 de la Phase 11).
+_PROBE_RESULT = "ProbeResult"
+_LOGIN_PROBE = "login_sync"
+_LOGIN_PROBE_FN = "probe_login_sync"
+_LOGIN_AUTH_EXC = "AuthenticationError"
+# Piso de no-vacuidad Y techo de triage: tres call sites hoy (dos handlers de
+# excepción + el camino feliz). Un cuarto es una decisión de taxonomía.
+_LOGIN_PROBE_CALL_SITES = 3
+_LOGIN_PROBE_STATUSES = frozenset({"FINDING", "PASS"})
 
 
 def _driver_tree() -> ast.Module:
@@ -265,4 +285,103 @@ def test_no_substring_membership_check_over_a_host_literal() -> None:
         f"la(s) línea(s) {offenders}; el gate D-MATZ-33 debe usar igualdad exacta "
         f"de hostname — ``https://api.remarkets.primary.com.ar.attacker.example`` "
         f"pasaría un ``in``."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Capa 3: taxonomía de retorno de ``probe_login_sync`` (CR-02 / HARN-04 Q4)
+# ---------------------------------------------------------------------------
+
+
+def _probe_result_calls(node: ast.AST, label: str) -> list[ast.Call]:
+    """``ProbeResult(<label>, <status>, ...)`` bajo ``node``, por AST."""
+    out: list[ast.Call] = []
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if not isinstance(func, ast.Name) or func.id != _PROBE_RESULT:
+            continue
+        if len(child.args) < 2:
+            continue
+        first = child.args[0]
+        if isinstance(first, ast.Constant) and first.value == label:
+            out.append(child)
+    return out
+
+
+def _probe_status(call: ast.Call) -> str | None:
+    """Segundo argumento posicional, si es un literal string."""
+    status = call.args[1]
+    if isinstance(status, ast.Constant) and isinstance(status.value, str):
+        return status.value
+    return None
+
+
+def _function_def(tree: ast.Module, name: str) -> ast.FunctionDef:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(
+        f"{_DRIVER}: no se encontró ``def {name}``; este guard perdió su sujeto y "
+        f"estaría pasando en vacío."
+    )
+
+
+def test_login_sync_probe_returns_finding_never_fail() -> None:
+    """La taxonomía de retorno de ``probe_login_sync`` tiene guardián (CR-02).
+
+    Aserción por AST, no por substring del fuente: el propio docstring de este
+    test menciona el literal prohibido (``FAIL``), así que un
+    ``assert "<literal>" not in source`` se auto-invalidaría — el mismo
+    razonamiento que ``test_no_substring_membership_check_over_a_host_literal``
+    ya documenta más arriba en este archivo.
+    """
+    tree = _driver_tree()
+
+    calls = _probe_result_calls(tree, _LOGIN_PROBE)
+    assert len(calls) == _LOGIN_PROBE_CALL_SITES, (
+        f"{_DRIVER}: se esperaban EXACTAMENTE {_LOGIN_PROBE_CALL_SITES} call sites de "
+        f"``{_PROBE_RESULT}({_LOGIN_PROBE!r}, ...)``; encontrados {len(calls)} en las "
+        f"línea(s) {[c.lineno for c in calls]}. Menos: el guard quedó sin sujeto y pasa "
+        f"en vacío. Más: hay un retorno nuevo del probe de login cuyo status nadie "
+        f"triageó — y ``main_verify.py`` clasifica el paquete por ese status."
+    )
+
+    statuses = {_probe_status(call) for call in calls}
+    assert statuses == set(_LOGIN_PROBE_STATUSES), (
+        f"{_DRIVER}: los statuses de ``{_PROBE_RESULT}({_LOGIN_PROBE!r}, ...)`` deben ser "
+        f"exactamente {sorted(_LOGIN_PROBE_STATUSES)}; medidos {sorted(map(str, statuses))}. "
+        f"Un status nuevo (o no literal) en este probe es una decisión de taxonomía que "
+        f"merece triage, no un cambio silencioso: ``main_verify.py`` clasificaría el probe "
+        f"distinto y la uniformidad que fijó CR-02 de la Phase 11 se rompería sin que "
+        f"ningún gate lo note."
+    )
+
+    fn = _function_def(tree, _LOGIN_PROBE_FN)
+    handlers = [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.ExceptHandler)
+        and isinstance(node.type, ast.Name)
+        and node.type.id == _LOGIN_AUTH_EXC
+    ]
+    assert len(handlers) == 1, (
+        f"{_DRIVER}: se esperaba exactamente un ``except {_LOGIN_AUTH_EXC}`` dentro de "
+        f"``{_LOGIN_PROBE_FN}``; encontrados {len(handlers)}. Sin él, la aserción de CR-02 "
+        f"que sigue no tendría sujeto."
+    )
+
+    auth_returns = _probe_result_calls(handlers[0], _LOGIN_PROBE)
+    assert len(auth_returns) == 1, (
+        f"{_DRIVER}: el handler de ``{_LOGIN_AUTH_EXC}`` de ``{_LOGIN_PROBE_FN}`` debe "
+        f"devolver exactamente un ``{_PROBE_RESULT}``; encontrados {len(auth_returns)}."
+    )
+    assert _probe_status(auth_returns[0]) == "FINDING", (
+        f"{_DRIVER}:{auth_returns[0].lineno}: el handler de ``{_LOGIN_AUTH_EXC}`` de "
+        f"``{_LOGIN_PROBE_FN}`` devolvió status "
+        f"{_probe_status(auth_returns[0])!r}, no ``'FINDING'``. CR-02 de la Phase 11 movió "
+        f"este retorno de ``'FAIL'`` a ``'FINDING'`` para uniformar la taxonomía del "
+        f"driver: si vuelve atrás, ``main_verify.py`` clasifica este probe distinto del "
+        f"resto de la ruta diagnóstica y la regresión no reddea ninguna pata de CI."
     )

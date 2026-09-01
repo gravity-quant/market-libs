@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 44
-current_phase_name: release-market-data-client-0-7-0
-status: paused-at-checkpoint
-stopped_at: "Phase 44 plan 44-02 checkpoint (a) — merge gate — operator replied \"abort\""
-last_updated: "2026-09-01T10:18:45.855Z"
+current_phase: 45
+current_phase_name: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
+status: verifying
+stopped_at: Completed 45-05-PLAN.md — Phase 45 complete
+last_updated: "2026-09-01T21:06:06.334Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 44 plan 44-02 halted at merge checkpoint by explicit operator abort; PR #16 left open, main untouched
+last_activity_desc: Phase 44 complete, transitioned to Phase 45
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 19
-  completed_plans: 16
-  percent: 60
+  completed_phases: 5
+  total_plans: 24
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 **Core value:** Cada divergencia entre un cliente y su API en vivo debe ser detectada, documentada y corregida. (v1.7 lo lleva al sistema de tipos: ningún eslabón intermedio de una cadena de acceso —`snapshot.market_data.last.price`— puede ser `None`; el patrón Null Object hace que la ausencia se exprese por veracidad, `dict[str, Any]` desaparece de los campos de modelos públicos, y un typo es error de mypy + `AttributeError`, nunca un `KeyError` ni un `None` propagado.)
 
-**Current focus:** Phase 44 — release-market-data-client-0-7-0
+**Current focus:** Phase 45 — limpieza-del-harness-dedupe-de-drift-comentarios-stale-desti
 
 ## Current Position
 
-Phase: 44 (release-market-data-client-0-7-0) — PAUSED AT CHECKPOINT
-Plan: 2 of 3 (44-01 complete; 44-02 in progress, halted at checkpoint a — merge gate; 44-03 not started)
-Status: Awaiting operator decision on PR #16 (open, unmerged, https://github.com/gravity-quant/market-libs/pull/16)
-Last activity: 2026-09-01 — checkpoint:human-action gate="blocking-human" reached in 44-02; operator replied "abort" (recorded verbatim, not auto-issued); no irreversible action taken — PR #16 still OPEN, origin/main unchanged at 37a83fe, no tag exists locally or on origin, working tree clean
-Resume: `/gsd-execute-phase 44` re-enters at plan 44-02's checkpoint; operator can review PR #16 on GitHub before replying "approved" to proceed to the merge, or continue investigating first
+Phase: 45 — Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
+Plan: Not started
+Status: Phase complete — ready for verification
+Last activity: 2026-09-01 — Phase 44 complete, transitioned to Phase 45
+Resume: Phase 45 está completa (5/5 planes) — HARN-01, HARN-03 y HARN-04 cerrados. El allowlist del job `lint` de `ci.yml` pasó de 13 a 18 archivos en un único commit (`d6b34f0`, D-11). Pendiente: **human check** de CI verde en GitHub Actions (12 patas de la matriz + `lint`/`pre-commit`/`typecheck`) tras el push — es la mitad del criterio 5 que el espejo local no ejercita. Siguiente paso: `/gsd-verify-work 45` o cierre del milestone v1.8.
 
 ## Performance Metrics
 
 **Velocity (v1.0 archived):**
 
-- Total plans completed: 162 (v1.0)
+- Total plans completed: 170 (v1.0)
 - Total tasks completed: 27 (v1.0)
 - v1.0 duration: 2026-05-28 → 2026-06-10 (~13 days, 5 phases)
 
@@ -225,6 +225,11 @@ Resume: `/gsd-execute-phase 44` re-enters at plan 44-02's checkpoint; operator c
 | Phase 43 P02 | 6min | 3 tasks | 4 files |
 | Phase 43 P03 | 11min | 3 tasks | 4 files |
 | Phase 44 P01 | 6 min | 3 tasks | 4 files |
+| Phase 45 P01 | 2min | 3 tasks | 3 files |
+| Phase 45 P04 | 15 min | 2 tasks | 4 files |
+| Phase 45 P02 | 3min | 2 tasks | 2 files |
+| Phase 45 P03 | 8min | 3 tasks | 5 files |
+| Phase 45 P05 | ~20 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -552,6 +557,21 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 43 cerrada: 43-DISPOSITION.md consolida la disposicion de los 17 campos de Instrument/Segment con cero filas sin disponer, el antes/despues MEDIDO de get_segments(), y los 4 jobs de CI verdes sin bump de version (0.6.0 intacto en los tres sitios)
 - [Phase ?]: D-14 medido por identidad de objeto funcion: client.py y aio.py no necesitan cambio porque ambas superficies llaman al mismo _core.parse_X; el comando del plan asumia un re-export inexistente y se sustituyo declarando la sustitucion
 - [Phase ?]: El job pre-commit estaba rojo en main desde antes de la Phase 43 (end-of-file-fixer sobre 41-06-PLAN.md y 42-05-PLAN.md); corregido con +1 byte por archivo, cero caracteres de contenido alterados
+- [Phase ?]: [45-01]: El docstring del gate de superficie queda REPRODUCIBLE, no congelado — el bloque historico se pinnea a su commit (00ffb2f~1) con sus digitos byte-identicos y el bloque vigente lleva fecha + commit (Measured 2026-09-01, fe323d6) con las tres cifras re-medidas hoy (187/337/467). El defecto IN-01 nunca fue el digito historico: era la ausencia de fecha en el bloque vigente.
+- [Phase ?]: [45-01]: DRV-MD-SEG-43 CERRADO (probe_parity compara s.segment; mypy main_market_data.py de 2 errores a 0) pero su entrada de backlog se CONSERVA — su medicion de por que ningun gate estatico lo detecta es la evidencia que cita la declaracion de Q5. El gap de gate NO se cierra en esta fase: apuntar mypy a los 5 drivers de la raiz es scope creep no medido, ruteado al plan 45-05 + backlog v1.9.
+- [Phase ?]: [45-01]: IN-05 retirado del backlog justificado por el CODIGO y no por el reporte — el retiro se ejecuto despues de correr el import y pegar su salida (matriz_client.__version__ -> 0.3.0) en el propio ROADMAP. El criterio 4 de la Phase 45 dejo de decir 336 (medido pre-Phases-43/44) y dice 337 con su fecha de medicion.
+- [Phase ?]: [Phase 45-04]: HARN-04 cerrado: los 2 archivos de verification/ de matriz quedan aceptados como deuda documentada (no reparar, no borrar) en 45-HARN-04-DECISION.md, fechado 2026-09-01; censo re-declarado 53/13/40 (corrige el 52/12/40 de 41-ROLLUP.md)
+- [Phase ?]: [Phase 45-04]: Q4 cerrado por implementacion: la taxonomia FINDING-no-FAIL de probe_login_sync tiene guardian por AST en verification/test_main_matriz_skip_line_shape.py, archivo ya enrolado en CI (19 -> 20 tests, no-vacuidad demostrada por mutacion)
+- [Phase ?]: [Phase 45-04]: Q5 declarado, no cerrado: ningun gate de CI mira los 5 drivers main_*.py de la raiz (mypy files = packages/*/src, pre-commit files: ^packages/.*/src/); destino backlog v1.9, entrada que el plan 45-05 debe agregar al ROADMAP
+- [Phase ?]: 45-02: la clave de dedupe de drift es (client_function, digest) sin surface (D-01 ENMENDADA); el digest cubre el par expected/actual
+- [Phase ?]: 45-02: _next_fid() se llama DESPUES de la guarda de dedupe (D-03), no-vacuidad del arm fid_not_burned demostrada invirtiendo el orden
+- [Phase ?]: 45-02: idempotent_by_title descartado para la rama drift — su scan corre arriba de la guarda de status humano y colapsaria contra bloques EXPECTED/NO-FIX triageados
+- [Phase ?]: 45-03: la identidad de la clave de dedupe en main_matriz es file_path.name (baseline segregado por venue desde Phase 39), no func_name
+- [Phase ?]: 45-03: los 7 no-ops de dedupe NO se uniformaron — 4 formas segun el contrato de retorno de cada funcion, pinneadas por un lock AST
+- [Phase ?]: 45-05: el allowlist del job lint queda en 18 archivos y sigue explícito: los 36 verification/ restantes se re-declaran por escrito como inertes y fuera de alcance de v1.8 (D-10)
+- [Phase ?]: 45-05: el censo post-fase medido es 54/18/36, que corrige la proyección 53/18/35 del handoff de 45-04 (la fase misma creó test_drift_dedupe_falsification.py en 45-02)
+- [Phase ?]: 45-05: HARN-VERIF-01 resuelto por decisión escrita (aceptar deuda documentada, no reparar), sin borrar la entrada de backlog
+- [Phase ?]: 45-05: el gap de gate de mypy sobre los 5 drivers main_*.py de la raíz se rutea a v1.9 como GATE-DRV-MYPY-45, con su primer paso declarado como medición
 
 ### Pending Todos
 
@@ -632,9 +652,9 @@ See `.planning/milestones/v1.4-ROADMAP.md` and the MILESTONES.md v1.4 entry for 
 
 ## Session Continuity
 
-Last session: 2026-09-01T10:18:35.374Z
-Stopped at: Phase 44 context gathered (assumptions mode)
-Resume file: .planning/phases/44-release-market-data-client-0-7-0/44-CONTEXT.md
+Last session: 2026-09-01T15:52:18.455Z
+Stopped at: Completed 45-05-PLAN.md — Phase 45 complete
+Resume file: None
 
 ## Operator Next Steps
 

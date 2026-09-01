@@ -12,7 +12,7 @@ client-credentials** (grant `client_credentials`, token cacheado y refrescado po
 
 ```bash
 # git, pineado al tag (recomendado)
-uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.7.0#subdirectory=packages/market-data-client"
+uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.7.1#subdirectory=packages/market-data-client"
 
 # o, dentro del workspace:
 uv sync
@@ -21,7 +21,7 @@ uv sync
 Alternativa, wheel de la GitHub Release:
 
 ```bash
-pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.7.0/market_data_client-0.7.0-py3-none-any.whl"
+pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.7.1/market_data_client-0.7.1-py3-none-any.whl"
 ```
 
 ## Uso
@@ -122,6 +122,37 @@ uv run mypy packages/market-data-client
 
 ## Changelog
 
+### v0.7.1
+
+**Errata documental. Release sin cambio de código: el árbol `src/market_data_client` es
+byte-idéntico al de 0.7.0 salvo por la línea `__version__`.** No hay cambio de comportamiento, de
+firma ni de superficie pública, y la migración desde 0.7.0 es **vacía**.
+
+**Qué estaba mal.** `pyproject.toml` declara `readme = "README.md"`, así que hatchling embebe este
+README como *long description* de la distribución: el changelog viaja **dentro** del `METADATA` del
+wheel y del sdist publicados. El artefacto publicado de 0.7.0 quedó con un changelog que documentaba
+únicamente la reconciliación de `Instrument` / `Segment` y **omitía** el resto de la superficie que
+shippeó en el mismo bump:
+
+- `FeedSubscription` — **nuevo modelo público** (15 campos), anidado en `ingestor.subscription`;
+- `FeedIngestor.subscription` — **campo requerido nuevo, sin default**;
+- `FeedIngestor.last_error_age_seconds` y `FeedIngestor.last_error_at` — nuevos;
+- `HealthFeed.symbols_never_delivered` — **campo requerido nuevo**;
+- `Symbol.note` — nuevo.
+
+**La consecuencia.** Un consumidor que leyera sólo ese changelog no podía enterarse de que construir
+`FeedIngestor` o `HealthFeed` **directamente** (no vía `from_api`, que sigue funcionando sin cambios)
+pasó a requerir un argumento extra en 0.7.0. Es exactamente la clase de omisión que rompe en tiempo
+de construcción y que el changelog existe para prevenir.
+
+**Por qué hace falta un release.** El README del repositorio ya fue corregido en el commit `6f202ac`,
+pero el **artefacto publicado** de 0.7.0 no lleva la corrección, y un wheel publicado no se reescribe:
+`market-data-client-v0.7.0` queda intacto y la corrección se entrega como una versión nueva. Éste es
+el único contenido de 0.7.1.
+
+**Qué mirar.** Las tablas que importan son las de la entrada `### v0.7.0` de abajo, ahora completas
+—incluida la tabla `FeedIngestor` / `HealthFeed` / `Symbol`—. No se repiten acá.
+
 ### v0.7.0
 
 **`Instrument` y `Segment` se reconcilian contra una lectura fresca del wire: `Segment` se
@@ -184,6 +215,23 @@ Las tres remociones de `Segment` y el `instrumentType` de `Instrument` son **no-
 práctica**: sus claves no existen en el wire, así que ningún consumidor liberado pudo haber tenido
 nunca un valor poblado en ellas. El único cambio de comportamiento silencioso que sí puede afectar
 a código ya escrito es el flip de truthiness de la última fila.
+
+**`FeedIngestor` / `HealthFeed` / `Symbol` — `GET /health/feed`, `GET /symbols`** (mismo bump
+0.7.0, las cinco claves `extra` medidas de `TYP-MD-EXTRA-33`/Phase 43 — omitidas de una versión
+anterior de este changelog, corregido acá)
+
+| Antes (0.6.0 publicado) | Ahora (0.7.0) |
+| --- | --- |
+| — | `FeedSubscription` (`market_data_client.FeedSubscription`) — **nuevo modelo público**, 15 campos, anidado en `ingestor.subscription` |
+| `FeedIngestor(...)` sin `subscription` | `FeedIngestor.subscription: FeedSubscription` — **campo requerido nuevo, sin default**: todo consumidor que construya `FeedIngestor` directamente (no vía `from_api`) necesita el argumento extra |
+| — | `FeedIngestor.last_error_age_seconds` (`int \| None`) — nuevo |
+| — | `FeedIngestor.last_error_at` (`str \| None`) — nuevo |
+| — | `HealthFeed.symbols_never_delivered` (`int`) — **campo requerido nuevo**, declarado no-nullable a propósito |
+| — | `Symbol.note` (`str \| None`) — nuevo |
+
+`FeedIngestor` y `HealthFeed` son superficie publicada desde v0.5.0: un consumidor que hoy
+construye cualquiera de las dos clases directamente (no vía `from_api`, que sigue funcionando sin
+cambios) necesita agregar el argumento nuevo requerido antes de actualizar a 0.7.0.
 
 ### v0.6.0
 

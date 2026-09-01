@@ -90,7 +90,12 @@ jobs:
             verification/test_main_higyrus_deep_chain.py \
             verification/test_main_matriz_deep_chain.py \
             verification/test_cycle_closure_phase33.py \
-            verification/test_literal_census_venue_gate.py
+            verification/test_literal_census_venue_gate.py \
+            verification/test_public_surface.py \
+            verification/test_finding_count_consistency.py \
+            verification/test_findings_dedupe_by_title.py \
+            verification/test_drift_dedupe_falsification.py \
+            verification/test_probe_context_coverage.py
 
   pre-commit:
     name: pre-commit hooks
