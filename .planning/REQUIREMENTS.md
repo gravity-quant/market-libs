@@ -23,7 +23,7 @@ Requisitos para el milestone v1.8. Cada uno mapea a una fase del roadmap.
 
 ### Release
 
-- [ ] **PUB-01**: Publicar `market-data-client-v0.7.0` como fase propia — bump de versión en los 4 sitios, changelog + tabla de migración en `README.md`, doble gate humano independiente autorizado literalmente como `gate="blocking-human"` (nunca `gate="blocking"`, que ya se auto-aprobó dos veces bajo yolo)
+- [x] **PUB-01**: Publicar `market-data-client-v0.7.0` como fase propia — bump de versión en los 4 sitios, changelog + tabla de migración en `README.md`, doble gate humano independiente autorizado literalmente como `gate="blocking-human"` (nunca `gate="blocking"`, que ya se auto-aprobó dos veces bajo yolo)
 
 ### Harness cleanup
 
@@ -61,7 +61,7 @@ categoría — ver `ROADMAP.md § Phase Details (v1.8)` y `.planning/research/SU
 | LIVE-02 | Phase 42 | Complete |
 | SHAPE-01 | Phase 43 | Complete |
 | HARN-02 | Phase 43 | Complete |
-| PUB-01 | Phase 44 | Pending |
+| PUB-01 | Phase 44 | Complete |
 | HARN-01 | Phase 45 | Complete |
 | HARN-03 | Phase 45 | Complete |
 | HARN-04 | Phase 45 | Complete |
