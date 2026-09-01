@@ -12,7 +12,7 @@ client-credentials** (grant `client_credentials`, token cacheado y refrescado po
 
 ```bash
 # git, pineado al tag (recomendado)
-uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.6.0#subdirectory=packages/market-data-client"
+uv add "market-data-client @ git+https://github.com/gravity-quant/market-libs.git@market-data-client-v0.7.0#subdirectory=packages/market-data-client"
 
 # o, dentro del workspace:
 uv sync
@@ -21,7 +21,7 @@ uv sync
 Alternativa, wheel de la GitHub Release:
 
 ```bash
-pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.6.0/market_data_client-0.6.0-py3-none-any.whl"
+pip install "https://github.com/gravity-quant/market-libs/releases/download/market-data-client-v0.7.0/market_data_client-0.7.0-py3-none-any.whl"
 ```
 
 ## Uso
