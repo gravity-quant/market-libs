@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Cierre de deuda post-v1.7
-current_phase: 45
-current_phase_name: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
-status: verifying
+current_phase: 8
+status: Awaiting next milestone
 stopped_at: Completed 45-05-PLAN.md — Phase 45 complete
-last_updated: "2026-09-01T23:51:09.761Z"
-last_activity: 2026-09-01
-last_activity_desc: Phase 44 complete, transitioned to Phase 45
+last_updated: "2026-09-02T01:12:26.671Z"
+last_activity: 2026-09-02
+last_activity_desc: Milestone v1.8 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 24
   completed_plans: 24
   percent: 100
+current_phase_name: Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
 ---
 
 # Project State
@@ -29,11 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 
 ## Current Position
 
-Phase: 45 — Limpieza del harness — dedupe de drift, comentarios stale, destino de `verification/` de matriz
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — Phase 44 complete, transitioned to Phase 45
-Resume: Phase 45 está completa (5/5 planes) — HARN-01, HARN-03 y HARN-04 cerrados. El allowlist del job `lint` de `ci.yml` pasó de 13 a 18 archivos en un único commit (`d6b34f0`, D-11). **El human check de CI verde en GitHub Actions quedó SATISFECHO** por el quick task `260901-par`: el PR #17 corrió las 15 checks (12 patas de la matriz + `lint`/`pre-commit`/`typecheck`) con **15/15 `pass`** asertadas por conteo positivo, workflow run `33561700610` — era la mitad del criterio 5 que el espejo local no ejercita. Todo el trabajo pendiente de v1.8 está mergeado a `origin/main` en el merge commit `3bff927`, y `market-data-client` v0.7.1 está publicado. Siguiente paso: `/gsd-verify-work 45` o cierre del milestone v1.8.
+Phase: Milestone v1.8 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-02 — Milestone v1.8 completed and archived
 
 ## Performance Metrics
 
@@ -605,9 +604,10 @@ Recent decisions affecting current work:
 
 ### Quick Tasks Completed
 
-Archived to `.planning/milestones/v1.7-quick/` at the v1.7 milestone close (2026-08-30) — see that
-directory's `README.md` for the index. These 8 tasks predated v1.7 itself (2026-06-11 → 2026-08-01)
-and had never been archived at any earlier milestone close.
+Archived to `.planning/milestones/v1.8-quick/` at the v1.8 milestone close (2026-09-02) — see that
+directory's `README.md` for the index (1 task: `260901-par`, market-data-client 0.7.1 errata
+release). Previously archived to `.planning/milestones/v1.7-quick/` at the v1.7 milestone close
+(2026-08-30) — 8 tasks predating v1.7 itself (2026-06-11 → 2026-08-01).
 
 | # | Description | Date | Commits | Directory |
 |---|-------------|------|---------|-----------|
@@ -662,7 +662,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Revisar `.planning/ROADMAP.md` § Phase Details (v1.8) — 5 fases, 9/9 requisitos mapeados
-- Planificar la primera fase con `/gsd-plan-phase 41` (validación Nyquist retroactiva; **antes** de cualquier cambio de fuente de v1.8)
-- Research marcó 3 fases como candidatas a `discuss-phase` antes de planificar: **42** (política del widening de venue), **43** (tabla de disposición por campo) y **45** (interacción fid-allocator / dedupe)
-- Pregunta abierta que el roadmap resolvió y conviene ratificar: v1.8 **sí** publica la 0.7.0 (Phase 44), no es fix-and-hold
+- Start the next milestone with /gsd-new-milestone
