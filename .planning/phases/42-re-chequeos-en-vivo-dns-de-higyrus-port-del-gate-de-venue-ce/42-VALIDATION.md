@@ -1,7 +1,9 @@
 ---
 phase: 42
 slug: re-chequeos-en-vivo-dns-de-higyrus-port-del-gate-de-venue-ce
-status: complete
+# status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
+# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-31
@@ -119,3 +121,19 @@ mapa de arriba precisamente para que `nyquist_compliant: true` no se apoye en el
 
 **Approval:** cerrada el 2026-08-31 por el plan 42-06. Disposición completa de los 5 criterios de
 éxito de la fase en `42-CLOSURE.md`.
+
+---
+
+## Validation Audit 2026-09-02
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+No gaps: all 15 rows already carry a re-executed automated command or a correctly-declared
+`manual-only` disposition with named evidence (0 pending, 0 red). This audit's only action was
+normalizing `status: complete` → `status: validated` in front-matter so `/gsd-audit-milestone`'s
+classification matrix (draft vs. validated) reads this phase correctly as COMPLIANT — no test or
+evidence content changed.
