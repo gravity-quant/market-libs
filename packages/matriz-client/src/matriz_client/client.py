@@ -388,8 +388,8 @@ class Client:
           re-send the same wrong basic header and infinite-loop.
         - **Token path** (X-Auth-Token): ensure token; build request; on 401
           (``AuthenticationError`` raised by ``_core.parse_envelope_response``
-          via the per-method parsers), clear cached token, call
-          ``_ensure_token()`` to re-login, retry request ONCE with refreshed
+          via the per-method parsers), clear cached token, invalidate the
+          TokenStore, call ``_ensure_token()`` to re-login, retry request ONCE with refreshed
           ``X-Auth-Token`` header. ``AuthenticationError`` NEVER in
           ``retry_on=`` (D-07) — the transport sees only HTTP/transport
           signals.
@@ -470,10 +470,16 @@ class Client:
         if resp.status_code != 401:
             return resp
 
-        # D-02 exactly-one re-auth: clear token, re-login, retry once.
+        # D-02 exactly-one re-auth: invalidate TokenStore, re-ensure, retry once.
         # D-23: this branch is gated on `spec.auth_basic is None` (Token path
         # only). Risk API auth_basic 401s are returned above without re-auth.
+        resp.read()  # body-consume before re-auth path (WR-02 mirror)
         self._state.token = None
+        # Reset token_expires_at so the fast path in _ensure_token does NOT
+        # short-circuit the re-auth with the stale token timestamp.
+        self._state.token_expires_at = 0.0
+        if self._state.token_store is not None:
+            self._state.token_store.invalidate()
         self._ensure_token()
         new_token = self._state.token
         if new_token is None:
