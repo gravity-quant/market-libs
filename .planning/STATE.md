@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-08-30 after v1.7 milestone complete)
 Phase: Milestone v1.8 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-09-02 — Milestone v1.8 completed and archived
+Last activity: 2026-11-17 — Completed quick task 261117-ny5: matriz sync 401 re-auth: invalidate TokenStore and reset token_expires_at (mirror aio)
 
 ## Performance Metrics
 
@@ -611,6 +611,7 @@ release). Previously archived to `.planning/milestones/v1.7-quick/` at the v1.7 
 
 | # | Description | Date | Commits | Directory |
 |---|-------------|------|---------|-----------|
+| 261117-ny5 | matriz sync 401 re-auth: invalidate TokenStore and reset token_expires_at (mirror aio) — sync `Client._request` was retrying with the same rejected token because the TokenStore still considered it fresh; regression test added | 2026-11-17 | dffb032 | [261117-ny5-matriz-sync-401-re-auth-invalidate-token](./quick/261117-ny5-matriz-sync-401-re-auth-invalidate-token/) |
 
 ## Deferred Items
 

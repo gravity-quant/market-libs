@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -1055,6 +1056,47 @@ def test_token_path_second_401_carve_out_consumes_body_before_raise(
     with pytest.raises(AuthenticationError):
         matriz_client.get_segments()
     assert len(httpx_mock.get_requests()) == 3
+
+
+def test_token_path_401_invalidates_token_store_and_reauths(httpx_mock: HTTPXMock) -> None:
+    """A 401 on a TokenStore-cached token must invalidate the store and re-auth.
+
+    The server may revoke a token (or the host may suspend, freezing the
+    monotonic TTL clock) while the TokenStore still considers it fresh. The
+    retry must obtain and send a NEW token instead of re-sending the rejected one.
+    """
+    matriz_client.configure(base_url="https://api.test", username="user", password="pass")
+    # The retry mutates the same Request object, so headers are captured at send time.
+    sent_tokens: list[str] = []
+    endpoint_responses = [
+        httpx.Response(401, json={"status": "ERROR"}),
+        httpx.Response(200, json={"status": "OK", "segments": []}),
+    ]
+
+    def _segments(request: httpx.Request) -> httpx.Response:
+        sent_tokens.append(request.headers["X-Auth-Token"])
+        return endpoint_responses[len(sent_tokens) - 1]
+
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.test/auth/getToken",
+        headers={"X-Auth-Token": "initial-token"},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.test/auth/getToken",
+        headers={"X-Auth-Token": "fresh-token"},
+    )
+    httpx_mock.add_callback(
+        _segments, method="GET", url="https://api.test/rest/segment/all", is_reusable=True
+    )
+
+    result = matriz_client.get_segments()
+
+    assert result == []
+    auth_requests = [r for r in httpx_mock.get_requests() if r.url.path == "/auth/getToken"]
+    assert len(auth_requests) == 2
+    assert sent_tokens == ["initial-token", "fresh-token"]
 
 
 # ------ Phase 13 ERG-01 — with_options(max_retries=N) view shape ------
