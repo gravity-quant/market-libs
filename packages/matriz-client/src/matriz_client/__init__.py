@@ -183,4 +183,4 @@ __all__ = [
     "ws_subscribe_order_reports",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
